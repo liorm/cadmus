@@ -1,12 +1,15 @@
 // Telegram in → agent (pi-durable + Grok) → Telegram out, through the real main(). Only egress is faked (HTTP).
-import { writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { hostname } from "node:os";
 import { join } from "node:path";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import { UserEntry } from "@earendil-works/pi-durable";
+import { type ConversationId, Harness, UserEntry } from "@earendil-works/pi-durable";
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import type { App } from "../../src/app.ts";
-import { listChats } from "../../src/channels/telegram/chats.ts";
+import { ChatsDoc, listChats } from "../../src/channels/telegram/chats.ts";
+import { createModels } from "../../src/harness/models.ts";
+import { buildRegistry } from "../../src/harness/registry.ts";
+import { openOwnedStorage } from "../../src/harness/storage.ts";
 import { CHAT, FakeEgress, STRANGER } from "../egress/fake-egress.ts";
 import { routeEgress } from "../egress/route.ts";
 import { settle, startBot, tempHome, until } from "../support.ts";
@@ -159,7 +162,11 @@ describe("chat flows", () => {
 			[-5, 9, "grok(1): [@lior] topic nine"],
 			[-6, undefined, "grok(1): [@lior] plain group"],
 		]);
-		expect((await listChats(app.harness)).map((chat) => chat.key).sort()).toEqual(["-5:7", "-5:9", "-6"]);
+		expect((await listChats(app.harness)).map((chat) => chat.key).sort()).toEqual([
+			"default:tg:general:-5:7",
+			"default:tg:general:-5:9",
+			"default:tg:general:-6",
+		]);
 	});
 
 	it("splits answers longer than Telegram's limit into ordered messages", async () => {
@@ -198,10 +205,12 @@ describe("chat flows", () => {
 		expect(tg().texts()[0]).toContain("Replies sent: 0, unknown: 1");
 	});
 
-	it("SOUL.md, AGENTS.md and the date line reach Grok's prompt", async () => {
+	it("bots/default SOUL.md and SYSTEM.md reach Grok's prompt", async () => {
 		const home = await tempHome();
-		await writeFile(join(home, "SOUL.md"), "You are Pip, Lior's assistant.");
-		await writeFile(join(home, "AGENTS.md"), "Lior prefers short answers.");
+		await mkdir(join(home, "bots", "default"), { recursive: true });
+		await writeFile(join(home, "bots", "default", "SOUL.md"), "You are Pip, Lior's assistant.");
+		await writeFile(join(home, "bots", "default", "SYSTEM.md"), "Lior prefers short answers.");
+		await writeFile(join(home, "SOUL.md"), "This home-root persona must not be read.");
 		const app = await boot(home);
 		tg().push("hi");
 		await until(() => tg().sent.length === 1, "reply");
@@ -209,7 +218,134 @@ describe("chat flows", () => {
 		const request = JSON.stringify(xai().requests[0]!.body);
 		expect(request).toContain("You are Pip, Lior's assistant.");
 		expect(request).toContain("Lior prefers short answers.");
+		expect(request).not.toContain("This home-root persona must not be read.");
 		expect(request).toContain("time zone Asia/Jerusalem");
+	});
+
+	it("a home-root SOUL.md and AGENTS.md are copied into bots/default once", async () => {
+		const home = await tempHome();
+		await writeFile(join(home, "SOUL.md"), "Copied soul.");
+		await writeFile(join(home, "AGENTS.md"), "Copied agents.");
+		const app = await boot(home);
+		expect(await readFile(join(home, "bots", "default", "SOUL.md"), "utf8")).toBe("Copied soul.");
+		expect(await readFile(join(home, "bots", "default", "SYSTEM.md"), "utf8")).toBe("Copied agents.");
+		tg().push("hi");
+		await until(() => tg().sent.length === 1, "reply");
+		await settle(app, egress);
+		const request = JSON.stringify(xai().requests[0]!.body);
+		expect(request).toContain("Copied soul.");
+		expect(request).toContain("Copied agents.");
+	});
+
+	it("a home from before this plan opens the same conversation", async () => {
+		const home = await tempHome();
+		const { storage, lock } = await openOwnedStorage(home);
+		const { registry } = buildRegistry({ home, timeZone: "UTC" });
+		const harness = await Harness.open(storage, { models: createModels(), registry }, BACKGROUND_CONTEXT);
+		let conversationId: ConversationId;
+		try {
+			conversationId = await harness.commit(async (tx) => {
+				const conversation = await tx.createConversation({ ownership: { kind: "ownerless" } });
+				const chats = await tx.doc(ChatsDoc);
+				chats.items.push({ key: String(CHAT), chatId: CHAT, conversationId: conversation.id });
+				return conversation.id;
+			}, BACKGROUND_CONTEXT);
+		} finally {
+			await harness.close(BACKGROUND_CONTEXT);
+			await lock.release();
+		}
+		const app = await boot(home);
+		expect(await listChats(app.harness)).toEqual([
+			expect.objectContaining({ key: `default:tg:general:${CHAT}`, botId: "default", conversationId }),
+		]);
+		tg().push("still there?");
+		await until(() => tg().sent.length === 1, "reply on the migrated chat");
+		await settle(app, egress);
+		expect(tg().texts()).toEqual(["grok(1): still there?"]);
+		expect((await listChats(app.harness)).map((chat) => chat.conversationId)).toEqual([conversationId]);
+	});
+
+	it("a read of knowledge/people.md returns the file body to the model", async () => {
+		const home = await tempHome();
+		const dir = join(home, "bots", "default", "knowledge");
+		await mkdir(dir, { recursive: true });
+		await writeFile(join(dir, "people.md"), "---\ndescription: People Lior mentions.\n---\n\nLior likes tea.\n");
+		const app = await boot(home);
+		xai().script.push({ tool: { name: "read", arguments: { path: "knowledge/people.md" } } }, { text: "noted" });
+		tg().push("who is in the notes?");
+		await until(() => tg().texts().includes("noted"), "the reply after the read");
+		await settle(app, egress);
+		const first = JSON.stringify(xai().requests[0]!.body);
+		expect(first).toContain("People Lior mentions.");
+		expect(first).not.toContain("Lior likes tea.");
+		expect(JSON.stringify(xai().requests[1]!.body)).toContain("Lior likes tea.");
+	});
+
+	it("a path outside the bot folder is refused", async () => {
+		const home = await tempHome();
+		await writeFile(join(home, "secret.txt"), "outside-secret");
+		const app = await boot(home);
+		xai().script.push(
+			{ tool: { name: "read", arguments: { path: "../../secret.txt" } } },
+			{ tool: { name: "read", arguments: { path: "disk/../../../secret.txt" } } },
+			{ text: "refused" },
+		);
+		tg().push("read the secret");
+		await until(() => tg().texts().includes("refused"), "the reply");
+		await settle(app, egress);
+		const followups = xai().requests.slice(1).map((request) => JSON.stringify(request.body)).join("\n");
+		expect(followups).toContain("Path is outside the bot folder");
+		expect(followups).not.toContain("outside-secret");
+	});
+
+	it("one user's disk/notes.txt is absent from another's", async () => {
+		const home = await tempHome();
+		const app = await boot(home, { TELEGRAM_ALLOWED_USERS: "1,2" });
+		const eve = { id: 2, first_name: "Eve", username: "eve" };
+		xai().script.push(
+			{ tool: { name: "write", arguments: { path: "disk/notes.txt", content: "secret-1" } } },
+			{ text: "saved" },
+		);
+		tg().push("save a note");
+		await until(() => tg().texts().includes("saved"), "user 1 saved");
+		xai().script.push({ tool: { name: "read", arguments: { path: "disk/notes.txt" } } }, { text: "read mine" });
+		tg().push("read it back");
+		await until(() => tg().texts().includes("read mine"), "user 1 read");
+		expect(JSON.stringify(xai().requests.at(-1)!.body)).toContain("secret-1");
+		const mark = xai().requests.length;
+		xai().script.push(
+			{ tool: { name: "read", arguments: { path: "disk/notes.txt" } } },
+			{ tool: { name: "read", arguments: { path: "users/1/disk/notes.txt" } } },
+			{ text: "nothing" },
+		);
+		tg().push("read their note", { from: eve, chatId: 200 });
+		await until(() => tg().texts().includes("nothing"), "user 2 done");
+		await settle(app, egress);
+		for (const request of xai().requests.slice(mark)) expect(JSON.stringify(request.body)).not.toContain("secret-1");
+		expect(await readFile(join(home, "bots", "default", "users", "1", "disk", "notes.txt"), "utf8")).toBe("secret-1");
+	});
+
+	it("the knowledge index caps at 80 files and warns on unreadable frontmatter", async () => {
+		const home = await tempHome();
+		const dir = join(home, "bots", "default", "knowledge");
+		await mkdir(dir, { recursive: true });
+		for (let i = 0; i < 81; i++) {
+			const slug = `f${String(i).padStart(2, "0")}`;
+			await writeFile(join(dir, `${slug}.md`), `---\ndescription: desc ${slug}\n---\n\nBODY_${slug}\n`);
+		}
+		await writeFile(join(dir, "BAD.md"), "no frontmatter\nBODY_BAD\n");
+		const app = await boot(home);
+		tg().push("hi");
+		await until(() => tg().sent.length === 1, "reply");
+		await settle(app, egress);
+		const request = JSON.stringify(xai().requests[0]!.body);
+		expect(request).toContain("desc f00");
+		expect(request).toContain("desc f79");
+		expect(request).not.toContain("desc f80");
+		expect(request).toContain("1 more");
+		expect(request).toContain("knowledge/BAD.md — unreadable frontmatter");
+		expect(request).not.toContain("BODY_f00");
+		expect(request).not.toContain("BODY_BAD");
 	});
 
 	it("restarting keeps the chat's conversation", async () => {

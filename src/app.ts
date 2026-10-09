@@ -2,16 +2,19 @@ import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { MutableModels } from "@earendil-works/pi-ai/models";
-import { type AgentChange, Harness } from "@earendil-works/pi-durable";
+import { Harness } from "@earendil-works/pi-durable";
+import { DEFAULT_BOT_ID, listBots } from "./channels/bots.ts";
 import { listChats } from "./channels/telegram/chats.ts";
 import { Deliverer } from "./channels/telegram/deliver.ts";
 import { TelegramPoller } from "./channels/telegram/poller.ts";
 import type { TelegramTransport } from "./channels/telegram/transport.ts";
 import type { Config } from "./config.ts";
+import { botEnv } from "./harness/bot-env.ts";
 import { buildRegistry } from "./harness/registry.ts";
 import { runStartup } from "./harness/startup.ts";
 import { openOwnedStorage } from "./harness/storage.ts";
 import { getLogger } from "./log.ts";
+import { createBotRuntime } from "./runtime.ts";
 
 export type AppOptions = {
 	config: Config;
@@ -44,6 +47,7 @@ export async function startApp({ config, models, transport, poll = true }: AppOp
 			{
 				models,
 				registry,
+				env: botEnv(),
 				settings: {
 					// Messages that arrive mid-run all join it at the next boundary.
 					steeringMode: "all",
@@ -60,14 +64,18 @@ export async function startApp({ config, models, transport, poll = true }: AppOp
 		throw error;
 	}
 
-	const agent: AgentChange = { model: config.model.main, thinkingLevel: config.model.thinkingLevel ?? null };
-	const { unknown } = await runStartup(harness, agent);
+	const { unknown } = await runStartup(harness, { home: config.home, model: config.model });
 	const deliverer = new Deliverer(harness, transport);
+	const runtimes = new Map(
+		(await listBots(harness)).map((bot) => [bot.id, createBotRuntime({ harness, deliverer, bot, home: config.home })]),
+	);
+	const runtime = runtimes.get(DEFAULT_BOT_ID);
+	if (!runtime) throw new Error("default bot is missing after startup");
 	const poller = new TelegramPoller({
 		harness,
+		runtime,
 		transport,
 		deliverer,
-		agent,
 		allowedUsers: config.telegram.allowedUsers,
 		pollTimeoutSec: config.telegram.pollTimeoutSec,
 	});

@@ -1,11 +1,15 @@
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import { type AgentChange, type ConversationId, configure, defineDoc, type Harness } from "@earendil-works/pi-durable";
+import { defineDoc, type ConversationId, type Harness } from "@earendil-works/pi-durable";
+import { DEFAULT_BOT_ID } from "../bots.ts";
 import type { TgMessage } from "./transport.ts";
 
 /** One Telegram chat, or one forum topic of a chat, and the durable conversation it talks to. */
 export type ChatRecord = {
-	/** `<chatId>` or `<chatId>:<topicId>`. */
+	/** `<botId>:tg:<ingress>:<chatId>` or with `:<threadId>`. */
 	key: string;
+	botId?: string;
+	/** Telegram user id of the person this chat's `disk/` belongs to. Filled from `from.id`. */
+	userId?: number;
 	chatId: number;
 	threadId?: number;
 	conversationId: ConversationId;
@@ -20,8 +24,25 @@ export const ChatsDoc = defineDoc<{ items: ChatRecord[] }>({
 
 export type ChatAddress = { chatId: number; threadId?: number };
 
-export function chatKey(address: ChatAddress): string {
-	return address.threadId === undefined ? String(address.chatId) : `${address.chatId}:${address.threadId}`;
+export type TelegramIngress = "general" | "bot";
+
+/** `default:tg:general:<chatId>` or `default:tg:general:<chatId>:<threadId>`. */
+export function chatKey(botId: string, address: ChatAddress, ingress: TelegramIngress = "general"): string {
+	const thread = address.threadId === undefined ? "" : `:${address.threadId}`;
+	return `${botId}:tg:${ingress}:${address.chatId}${thread}`;
+}
+
+/** Chat id and topic encoded in a Telegram chat key. */
+export function telegramTarget(key: string): ChatAddress {
+	const match = /:tg:(?:general|bot):(-?\d+)(?::(\d+))?$/.exec(key);
+	if (!match?.[1]) throw new Error(`Not a Telegram chat key: ${key}`);
+	const chatId = Number(match[1]);
+	return match[2] === undefined ? { chatId } : { chatId, threadId: Number(match[2]) };
+}
+
+/** A key from before bot prefixes: `<chatId>` or `<chatId>:<threadId>`. */
+export function isLegacyChatKey(key: string): boolean {
+	return !key.includes(":tg:");
 }
 
 /** Forum topics get their own conversation; plain reply threads stay in the chat's conversation. */
@@ -32,25 +53,16 @@ export function addressOf(message: TgMessage): ChatAddress {
 }
 
 /**
- * Find or create the ownerless conversation of a chat (pi-imessage `chatConversation`). Lookup and creation share one
- * commit, so two messages racing for a new chat still get one conversation.
+ * One commit: old keys become `default:tg:general:…` and gain `botId: "default"`. The conversation id stays.
  */
-export async function chatConversation(harness: Harness, agent: AgentChange, address: ChatAddress): Promise<ChatRecord> {
-	const key = chatKey(address);
-	return harness.commit(async (tx) => {
+export async function migrateLegacyChats(harness: Harness): Promise<void> {
+	await harness.commit(async (tx) => {
 		const chats = await tx.doc(ChatsDoc);
-		const existing = chats.items.find((chat) => chat.key === key);
-		if (existing) return { ...existing };
-		const conversation = await tx.createConversation({ ownership: { kind: "ownerless" } });
-		await configure(tx, conversation.id, agent);
-		const record: ChatRecord = {
-			key,
-			chatId: address.chatId,
-			...(address.threadId === undefined ? {} : { threadId: address.threadId }),
-			conversationId: conversation.id,
-		};
-		chats.items.push(record);
-		return { ...record };
+		for (const chat of chats.items) {
+			if (!isLegacyChatKey(chat.key)) continue;
+			chat.key = `${DEFAULT_BOT_ID}:tg:general:${chat.key}`;
+			chat.botId = DEFAULT_BOT_ID;
+		}
 	}, BACKGROUND_CONTEXT);
 }
 

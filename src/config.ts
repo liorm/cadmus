@@ -12,7 +12,7 @@ export type TelegramConfig = {
 };
 
 export type Config = {
-	/** Directory holding durable.sqlite, owner.lock, SOUL.md, AGENTS.md and workspace/. */
+	/** Directory holding durable.sqlite, owner.lock, bots/, and workspace/. */
 	readonly home: string;
 	readonly telegram: TelegramConfig;
 	readonly model: ModelConfig;

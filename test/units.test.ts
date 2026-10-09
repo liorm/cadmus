@@ -7,6 +7,7 @@ import { chunkText } from "../src/channels/telegram/deliver.ts";
 import { requestIdOf } from "../src/channels/telegram/poller.ts";
 import { parseUserIds } from "../src/config.ts";
 import { dayLine } from "../src/extensions/identity.ts";
+import { parseDescription, parseSlug } from "../src/extensions/knowledge.ts";
 import { getLogger, setupLogger } from "../src/log.ts";
 import { modelConfigFromEnv, parseModelRef } from "../src/harness/models.ts";
 
@@ -42,9 +43,31 @@ describe("pure helpers", () => {
 	});
 
 	it("builds keys", () => {
-		expect(chatKey({ chatId: -100 })).toBe("-100");
-		expect(chatKey({ chatId: -100, threadId: 7 })).toBe("-100:7");
+		expect(chatKey("default", { chatId: -100 })).toBe("default:tg:general:-100");
+		expect(chatKey("default", { chatId: -100, threadId: 7 })).toBe("default:tg:general:-100:7");
 		expect(requestIdOf(-100, 42)).toBe("tg:-100:42");
+	});
+
+	it("parses bot and knowledge slugs", () => {
+		expect(parseSlug("default", "bot")).toBe("default");
+		expect(parseSlug("a".repeat(32), "bot")).toBe("a".repeat(32));
+		expect(parseSlug("a".repeat(33), "bot")).toBeUndefined();
+		expect(parseSlug("-nope", "bot")).toBeUndefined();
+		expect(parseSlug("A", "bot")).toBeUndefined();
+		expect(parseSlug("people", "knowledge")).toBe("people");
+		expect(parseSlug("a".repeat(64), "knowledge")).toBe("a".repeat(64));
+		expect(parseSlug("a".repeat(65), "knowledge")).toBeUndefined();
+		expect(parseSlug("", "knowledge")).toBeUndefined();
+	});
+
+	it("parses a one-line knowledge description", () => {
+		expect(parseDescription("---\ndescription: People Lior mentions.\n---\n\nBody.\n")).toBe("People Lior mentions.");
+		expect(parseDescription(`---\ndescription: ${"x".repeat(240)}\n---\n`)).toBe("x".repeat(240));
+		expect(parseDescription(`---\ndescription: ${"x".repeat(241)}\n---\n`)).toBeUndefined();
+		expect(parseDescription("---\ndescription:\n---\n")).toBeUndefined();
+		expect(parseDescription("---\ndescription: one\nkind: two\n---\n")).toBeUndefined();
+		expect(parseDescription("no frontmatter")).toBeUndefined();
+		expect(parseDescription("---\ndescription: line one\nline two\n---\n")).toBeUndefined();
 	});
 
 	it("chunks long replies under Telegram's limit", () => {

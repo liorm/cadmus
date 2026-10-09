@@ -24,6 +24,17 @@ export function parseModelRef(raw: string, name = "model"): ModelRef {
 	return { provider: raw.slice(0, slash), modelId: raw.slice(slash + 1) };
 }
 
+export function modelRefString(model: ModelRef): string {
+	return `${model.provider}/${model.modelId}`;
+}
+
+/** A stored thinking string, or `undefined` when it is empty or not a level the harness knows. */
+export function parseThinkingLevel(value: string | undefined): ModelThinkingLevel | undefined {
+	const level = value?.trim();
+	if (!level) return undefined;
+	return (THINKING as readonly string[]).includes(level) ? (level as ModelThinkingLevel) : undefined;
+}
+
 export function modelConfigFromEnv(env: NodeJS.ProcessEnv): ModelConfig {
 	const main = env.PI_MODEL?.trim();
 	if (!main) throw new Error("PI_MODEL is required (<provider>/<modelId>, or faux/echo for an offline smoke test)");

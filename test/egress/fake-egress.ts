@@ -141,6 +141,9 @@ export class FakeTelegram {
 
 export type XaiRequest = { authorization: string | null; body: Record<string, unknown> };
 
+/** One scripted Responses turn. A tool turn is a `function_call`; a text turn is the usual assistant message. */
+export type XaiTurn = { text: string } | { tool: { name: string; arguments: Record<string, unknown> } };
+
 function userTexts(body: Record<string, unknown>): string[] {
 	const input = Array.isArray(body.input) ? (body.input as Record<string, unknown>[]) : [];
 	return input
@@ -168,6 +171,8 @@ export class FakeXai {
 	failNext: { status: number; message: string } | undefined;
 	/** Override the reply text. Default: `grok(<user messages seen>): <last user text>`. */
 	reply: ((body: Record<string, unknown>) => string) | undefined;
+	/** Consumed one per response, ahead of `reply`. */
+	readonly script: XaiTurn[] = [];
 	/** Issued OAuth tokens. */
 	readonly tokens: { access: string; refresh: string }[] = [];
 	readonly oauthRequests: { path: string; form: URLSearchParams }[] = [];
@@ -232,21 +237,46 @@ export class FakeXai {
 			return Response.json({ error: { message: failure.message, code: "mock_failure" } }, { status: failure.status });
 		}
 		await this.#held;
+		const turn = this.script.shift();
+		const seq = this.requests.length;
+		if (turn && "tool" in turn) return sse(toolEvents(seq, turn.tool.name, turn.tool.arguments));
 		const texts = userTexts(body);
-		const text = this.reply?.(body) ?? `grok(${texts.length}): ${texts.at(-1) ?? ""}`;
-		const id = `resp_${this.requests.length}`;
-		const item = { type: "message", id: `msg_${this.requests.length}`, role: "assistant", status: "completed" };
-		return sse([
-			{ type: "response.created", response: { id, status: "in_progress" } },
-			{ type: "response.output_item.added", output_index: 0, item: { ...item, status: "in_progress", content: [] } },
-			{ type: "response.output_text.delta", output_index: 0, content_index: 0, delta: text },
-			{ type: "response.output_item.done", output_index: 0, item: { ...item, content: [{ type: "output_text", text, annotations: [] }] } },
-			{
-				type: "response.completed",
-				response: { id, status: "completed", usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 } },
-			},
-		]);
+		const text = turn && "text" in turn ? turn.text : (this.reply?.(body) ?? `grok(${texts.length}): ${texts.at(-1) ?? ""}`);
+		return sse(textEvents(seq, text));
 	}
+}
+
+function completed(id: string): Record<string, unknown> {
+	return {
+		type: "response.completed",
+		response: { id, status: "completed", usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 } },
+	};
+}
+
+function textEvents(seq: number, text: string): Record<string, unknown>[] {
+	const id = `resp_${seq}`;
+	const item = { type: "message", id: `msg_${seq}`, role: "assistant", status: "completed" };
+	return [
+		{ type: "response.created", response: { id, status: "in_progress" } },
+		{ type: "response.output_item.added", output_index: 0, item: { ...item, status: "in_progress", content: [] } },
+		{ type: "response.output_text.delta", output_index: 0, content_index: 0, delta: text },
+		{ type: "response.output_item.done", output_index: 0, item: { ...item, content: [{ type: "output_text", text, annotations: [] }] } },
+		completed(id),
+	];
+}
+
+function toolEvents(seq: number, name: string, args: Record<string, unknown>): Record<string, unknown>[] {
+	const id = `resp_${seq}`;
+	const json = JSON.stringify(args);
+	const item = { type: "function_call", id: `fc_${seq}`, call_id: `call_${seq}`, name, arguments: json, status: "completed" };
+	return [
+		{ type: "response.created", response: { id, status: "in_progress" } },
+		{ type: "response.output_item.added", output_index: 0, item: { ...item, arguments: "" } },
+		{ type: "response.function_call_arguments.delta", output_index: 0, delta: json },
+		{ type: "response.function_call_arguments.done", output_index: 0, arguments: json },
+		{ type: "response.output_item.done", output_index: 0, item },
+		completed(id),
+	];
 }
 
 export class FakeEgress {

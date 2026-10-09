@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { defineExtension, section } from "@earendil-works/pi-durable";
+import { knowledgeIndex } from "./knowledge.ts";
 
 export const DEFAULT_SOUL = `You are a personal assistant that talks with your user through Telegram.
 Be direct, warm and concise. Plain text renders best; keep formatting light.
@@ -23,17 +24,21 @@ export function dayLine(timeZone: string, now = new Date()): string {
 }
 
 /**
- * Identity sections, ordered stable → volatile (architecture §2.4): SOUL.md (persona), AGENTS.md (standing context),
- * then a date line that changes daily. Files live in the bot home and are read at render time; only changed sections are
- * re-sent as positional system entries, so editing a file takes effect on the next request.
+ * Identity sections, stable → volatile: `SOUL.md`, `SYSTEM.md`, the knowledge description index, then a daily date.
+ * Files are read from the conversation's agent cwd (`bots/<botId>`) at render time.
  */
 export function identityExtension(options: { home: string; timeZone: string; now?: () => Date }) {
 	const now = options.now ?? (() => new Date());
 	return defineExtension({
 		name: "pi-bot.identity",
 		sections: [
-			section("soul", async () => (await readOptional(join(options.home, "SOUL.md"))) ?? DEFAULT_SOUL, { tag: false }),
-			section("agents", () => readOptional(join(options.home, "AGENTS.md"))),
+			section(
+				"soul",
+				async (input) => (input.agent.cwd ? await readOptional(join(input.agent.cwd, "SOUL.md")) : undefined) ?? DEFAULT_SOUL,
+				{ tag: false },
+			),
+			section("system", (input) => (input.agent.cwd ? readOptional(join(input.agent.cwd, "SYSTEM.md")) : undefined)),
+			section("knowledge", (input) => (input.agent.cwd ? knowledgeIndex(input.agent.cwd) : undefined)),
 			section("date", () => dayLine(options.timeZone, now())),
 		],
 	});

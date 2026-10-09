@@ -14,7 +14,7 @@ bun run check                              # typecheck + tests
 bun start                                  # Bun loads .env automatically
 ```
 
-Optional: put `SOUL.md` (persona; a default is used when absent) and `AGENTS.md` (standing context) in `PI_BOT_HOME`. They are read at render time; edits apply to the next request.
+Optional: put `SOUL.md` (persona; a default is used when absent) and `SYSTEM.md` (standing context) in `PI_BOT_HOME/bots/default/`. They are read at render time; edits apply to the next request. On first start, a home that still has `SOUL.md` and `AGENTS.md` at its root is copied into that folder (`AGENTS.md` becomes `SYSTEM.md`).
 
 ## Environment
 
@@ -27,7 +27,7 @@ Optional: put `SOUL.md` (persona; a default is used when absent) and `AGENTS.md`
 | provider key | alt. | The provider's standard env var, read by pi-ai: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `XAI_API_KEY`, `OPENROUTER_API_KEY`, `GEMINI_API_KEY`, … Startup fails fast if the model is unknown or the key is missing |
 | `PI_THINKING_LEVEL` | no | `off`/`minimal`/`low`/`medium`/`high`/`xhigh` |
 | `PI_REVIEW_MODEL`, `PI_GATE_MODEL` | no | Reserved for Phase 4 (review fork, memory-capture gate); parsed, unused |
-| `PI_BOT_HOME` | no | Data dir (default `./data`): `durable.sqlite`, `owner.lock`, `SOUL.md`, `AGENTS.md`, `workspace/` |
+| `PI_BOT_HOME` | no | Data dir (default `./data`): `durable.sqlite`, `owner.lock`, `bots/default/`, `workspace/` |
 | `PI_BOT_TZ` | no | IANA zone for the daily date line (default: system zone) |
 | `TELEGRAM_POLL_TIMEOUT_SEC` | no | Long-poll timeout (default 30) |
 | `PI_BOT_DELIVERY_SWEEP_MS` | no | Safety-net sweep for undelivered answers (default 15000; 0 disables) |
@@ -68,11 +68,12 @@ src/
     startup.ts                  restart policy: 'sending' → 'unknown', sync chat models, harness.resume()
   channels/telegram/
     transport.ts                TelegramTransport interface + GrammyTransport (raw getUpdates long polling)
-    poller.ts                   TelegramCursorDoc offset; submit(requestId tg:<chat>:<msg>, whenBusy steer)
-    chats.ts                    ChatsDoc: chat[:topic] → ownerless conversation
+    poller.ts                   TelegramCursorDoc offset; admits plain text through BotRuntime
+    chats.ts                    ChatsDoc: default:tg:general:<chat>[:topic] → ownerless conversation
     deliver.ts                  DeliveriesDoc receipts: sending → sent | unknown; never resent
     commands.ts                 /new /stop /status /help, deduped via CommandsDoc
-  extensions/identity.ts        sections: SOUL.md, AGENTS.md, daily date line
+  extensions/identity.ts        sections: bots/<id>/SOUL.md, SYSTEM.md, knowledge index, daily date line
+  runtime.ts                    BotRuntime: submit, listChats, createChat on the shared harness
 test/
   flows/chat.test.ts            Telegram in → Grok → Telegram out: dedupe, /new /stop /status, steer, topics, errors, receipts, restart, guards
   flows/crash.test.ts           real `bun src/main.ts` processes, kill -9 mid-turn and mid-send
