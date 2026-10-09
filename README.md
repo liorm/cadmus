@@ -23,7 +23,8 @@ Optional: put `SOUL.md` (persona; a default is used when absent) and `AGENTS.md`
 | `TELEGRAM_BOT_TOKEN` | yes | Token from @BotFather |
 | `TELEGRAM_ALLOWED_USERS` | yes | Comma-separated numeric Telegram user IDs. Empty = every message is ignored (logged) |
 | `PI_MODEL` | yes | `<provider>/<modelId>` from any pi-ai built-in provider (e.g. `anthropic/…`, `openai/…`, `xai/…`, `openrouter/<vendor>/<model>`). `faux/echo` is an offline echo model for smoke tests |
-| provider key | yes (real models) | The provider's standard env var, read by pi-ai: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `XAI_API_KEY`, `OPENROUTER_API_KEY`, `GEMINI_API_KEY`, … Startup fails fast if the model is unknown or the key is missing |
+| provider auth | yes (real models) | Either an OAuth login (`bun run login <provider>`, stored in `PI_BOT_HOME/auth.json`, preferred when present) or the provider's API key env var (below) |
+| provider key | alt. | The provider's standard env var, read by pi-ai: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `XAI_API_KEY`, `OPENROUTER_API_KEY`, `GEMINI_API_KEY`, … Startup fails fast if the model is unknown or the key is missing |
 | `PI_THINKING_LEVEL` | no | `off`/`minimal`/`low`/`medium`/`high`/`xhigh` |
 | `PI_REVIEW_MODEL`, `PI_GATE_MODEL` | no | Reserved for Phase 4 (review fork, memory-capture gate); parsed, unused |
 | `PI_BOT_HOME` | no | Data dir (default `./data`): `durable.sqlite`, `owner.lock`, `SOUL.md`, `AGENTS.md`, `workspace/` |
@@ -33,6 +34,19 @@ Optional: put `SOUL.md` (persona; a default is used when absent) and `AGENTS.md`
 | `LOG_LEVEL` | no | `debug`/`info`/`warn`/`error` |
 
 Changing `PI_MODEL` applies to existing chats at the next start.
+
+## Grok via SuperGrok / X Premium (OAuth, no API key)
+
+pi-ai ships xAI's device-code OAuth ("Sign in with SuperGrok or X Premium"). On the server:
+
+```bash
+bun run login grok        # alias of xai; prints a URL + code, open it in any browser (phone is fine), approve
+bun run auth:status       # shows stored credentials (types only) and whether they resolve
+# .env: PI_MODEL=xai/grok-4.7   (catalog: grok-4.3, grok-4.5, grok-4.6, grok-4.7); no XAI_API_KEY needed
+bun run logout grok       # remove the token
+```
+
+Tokens live in `data/auth.json` (0600, gitignored) and are refreshed automatically by pi-ai, under a file lock shared by the bot and the login script. A stored OAuth credential takes precedence over `XAI_API_KEY`. xAI decides which subscription tiers get API access; if login succeeds but answers fail with HTTP 402/403, use `XAI_API_KEY` instead (`bun run logout grok`).
 
 ## Telegram commands
 
@@ -49,6 +63,8 @@ src/
     storage.ts                  owner.lock (O_EXCL, pid+host; only a dead same-host pid is taken over) + openNodeSqliteStorage
     registry.ts                 extensions installed in prompt order
     models.ts                   env-driven model config; pi-ai builtin providers + offline faux/echo
+    credentials.ts              FileCredentialStore: auth.json for OAuth tokens (pi-ai CredentialStore)
+    login.ts                    OAuth login helper (device code) used by scripts/auth.ts
     startup.ts                  restart policy: 'sending' → 'unknown', sync chat models, harness.resume()
   channels/telegram/
     transport.ts                TelegramTransport interface + GrammyTransport (raw getUpdates long polling)
@@ -58,6 +74,7 @@ src/
     commands.ts                 /new /stop /status /help, deduped via CommandsDoc
   extensions/identity.ts        sections: SOUL.md, AGENTS.md, daily date line
 test/
+  auth.test.ts                  auth.json store, xAI OAuth token use/refresh/login with mocked endpoints
   units.test.ts                 parsing, chunking, lock semantics
   storage-bun.test.ts           pi-durable's storage conformance suite under Bun
   app.test.ts                   fake transport: dedupe, /new, allowlist, topics, failed send, identity, lock, restart
