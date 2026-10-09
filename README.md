@@ -1,0 +1,93 @@
+# pi-bot
+
+A Hermes-style personal agent on [`@earendil-works/pi-durable`](https://www.npmjs.com/package/@earendil-works/pi-durable), talking over Telegram. Runs on **Bun**.
+
+**Status: Phase 0 (skeleton).** Durable storage + owner lock, one durable conversation per Telegram chat/topic, exactly-once input admission, at-most-once replies with delivery receipts, `/new`, native compaction, identity prompt sections. Memory, skills, scheduler, learning loop and delegation are later phases (see the architecture study).
+
+## Setup
+
+```bash
+curl -fsSL https://bun.sh/install | bash   # user-level, installs to ~/.bun (Bun >= 1.4.2)
+bun install
+cp .env.example .env                       # then fill it in
+bun run check                              # typecheck + tests
+bun start                                  # Bun loads .env automatically
+```
+
+Optional: put `SOUL.md` (persona; a default is used when absent) and `AGENTS.md` (standing context) in `PI_BOT_HOME`. They are read at render time; edits apply to the next request.
+
+## Environment
+
+| Variable | Required | Meaning |
+|---|---|---|
+| `TELEGRAM_BOT_TOKEN` | yes | Token from @BotFather |
+| `TELEGRAM_ALLOWED_USERS` | yes | Comma-separated numeric Telegram user IDs. Empty = every message is ignored (logged) |
+| `PI_MODEL` | yes | `<provider>/<modelId>` from any pi-ai built-in provider (e.g. `anthropic/…`, `openai/…`, `xai/…`, `openrouter/<vendor>/<model>`). `faux/echo` is an offline echo model for smoke tests |
+| provider key | yes (real models) | The provider's standard env var, read by pi-ai: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `XAI_API_KEY`, `OPENROUTER_API_KEY`, `GEMINI_API_KEY`, … Startup fails fast if the model is unknown or the key is missing |
+| `PI_THINKING_LEVEL` | no | `off`/`minimal`/`low`/`medium`/`high`/`xhigh` |
+| `PI_REVIEW_MODEL`, `PI_GATE_MODEL` | no | Reserved for Phase 4 (review fork, memory-capture gate); parsed, unused |
+| `PI_BOT_HOME` | no | Data dir (default `./data`): `durable.sqlite`, `owner.lock`, `SOUL.md`, `AGENTS.md`, `workspace/` |
+| `PI_BOT_TZ` | no | IANA zone for the daily date line (default: system zone) |
+| `TELEGRAM_POLL_TIMEOUT_SEC` | no | Long-poll timeout (default 30) |
+| `PI_BOT_DELIVERY_SWEEP_MS` | no | Safety-net sweep for undelivered answers (default 15000; 0 disables) |
+| `LOG_LEVEL` | no | `debug`/`info`/`warn`/`error` |
+
+Changing `PI_MODEL` applies to existing chats at the next start.
+
+## Telegram commands
+
+`/new` (alias `/reset`) start a fresh context (old entries stay stored) · `/stop` abort the current answer · `/status` model, conversation, receipts · `/help`.
+
+## Layout
+
+```
+src/
+  main.ts                       entry: env config, grammY transport, model check, signals
+  app.ts                        wires storage, Harness, startup, deliverer, poller
+  config.ts, log.ts
+  harness/
+    storage.ts                  owner.lock (O_EXCL, pid+host; only a dead same-host pid is taken over) + openNodeSqliteStorage
+    registry.ts                 extensions installed in prompt order
+    models.ts                   env-driven model config; pi-ai builtin providers + offline faux/echo
+    startup.ts                  restart policy: 'sending' → 'unknown', sync chat models, harness.resume()
+  channels/telegram/
+    transport.ts                TelegramTransport interface + GrammyTransport (raw getUpdates long polling)
+    poller.ts                   TelegramCursorDoc offset; submit(requestId tg:<chat>:<msg>, whenBusy steer)
+    chats.ts                    ChatsDoc: chat[:topic] → ownerless conversation
+    deliver.ts                  DeliveriesDoc receipts: sending → sent | unknown; never resent
+    commands.ts                 /new /stop /status /help, deduped via CommandsDoc
+  extensions/identity.ts        sections: SOUL.md, AGENTS.md, daily date line
+test/
+  units.test.ts                 parsing, chunking, lock semantics
+  storage-bun.test.ts           pi-durable's storage conformance suite under Bun
+  app.test.ts                   fake transport: dedupe, /new, allowlist, topics, failed send, identity, lock, restart
+  crash.test.ts                 real child processes + kill -9 (fixtures/bot-process.ts)
+```
+
+## Guarantees and how they are tested
+
+- **Input exactly once.** Each Telegram message is submitted with `requestId = tg:<chatId>:<messageId>`; the update offset (`TelegramCursorDoc`) advances only after admission. A redelivered update finds the same submission. *Tests:* `app.test.ts` (direct redelivery, poll loop with Telegram redelivering everything), `crash.test.ts`.
+- **Replies at most once** (pi-imessage ADR 0003). A final answer is claimed `sending` in a commit, sent, then recorded `sent` (with Telegram message ids) or `unknown` on error. On startup every `sending` becomes `unknown`, is logged, shown in `/status`, and is **never resent**. *Tests:* kill -9 while `sendMessage` is in flight → restart → receipt `unknown`, no second send, and the next message is answered normally.
+- **Crash mid-turn resumes.** kill -9 while the model is answering → restart → `harness.resume()` continues the run → exactly one reply.
+- **One owner.** `owner.lock` refuses a second process while the owner is alive (in-process and cross-process tests).
+- `/new` = `conversation.reset()`: the model's visible context restarts; a redelivered `/new` does not reset again.
+
+## Tests
+
+```bash
+bun test              # all suites (~5 s)
+bun test test/crash.test.ts
+bunx tsc --noEmit     # typecheck
+```
+
+Tests use pi-ai's **faux** provider (no API key, no network) and a fake Telegram transport; the crash tests spawn real `bun` processes over SQLite and `kill -9` them.
+
+## Runtime notes
+
+- Bun ≥ 1.4.2 provides `node:sqlite`, which pi-durable's `openNodeSqliteStorage` uses. pi-durable's own storage conformance suite passes under Bun (`test/storage-bun.test.ts`).
+- One process owns the storage. Don't run two bots on the same `PI_BOT_HOME`, or the same bot token anywhere else (Telegram returns 409).
+- `owner.lock` is removed on clean shutdown; after a crash, a lock whose pid is dead on the same host is taken over automatically.
+
+## Not yet (later phases)
+
+Tools, memory (`USER.md`/`MEMORY.md`), FTS session search, skills, scheduler, learning loop, delegation; streaming partial replies; media/captions (non-text messages are ignored); forking topic conversations from their cause.
