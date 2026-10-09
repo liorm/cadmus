@@ -1,0 +1,4 @@
+[test]
+# Crash tests spawn real bot processes; allow time for restarts.
+timeout = 60000
+root = "test"
