@@ -3,3 +3,5 @@ data/
 .env
 *.log
 coverage/
+auth.json
+auth.json.lock

@@ -1,6 +1,7 @@
 import { startApp } from "./app.ts";
 import { GrammyTransport } from "./channels/telegram/transport.ts";
 import { configFromEnv } from "./config.ts";
+import { FileCredentialStore } from "./harness/credentials.ts";
 import { checkModel, createModels } from "./harness/models.ts";
 import { consoleLogger } from "./log.ts";
 
@@ -13,9 +14,10 @@ if (!config.telegram.token) {
 if (config.telegram.allowedUsers.size === 0)
 	log.warn("TELEGRAM_ALLOWED_USERS is empty: every incoming message will be ignored");
 
-const models = createModels();
+// OAuth logins (bun run login <provider>) live in <home>/auth.json; API keys still come from env vars.
+const models = createModels(undefined, { credentials: FileCredentialStore.inHome(config.home) });
 try {
-	await checkModel(models, config.model.main);
+	log.info(`Model auth: ${await checkModel(models, config.model.main)}`);
 } catch (error) {
 	log.error((error as Error).message);
 	process.exit(1);

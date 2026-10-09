@@ -7,7 +7,10 @@
     "start": "bun src/main.ts",
     "typecheck": "tsc --noEmit",
     "test": "bun test",
-    "check": "bun run typecheck && bun test"
+    "check": "bun run typecheck && bun test",
+    "login": "bun scripts/auth.ts login",
+    "logout": "bun scripts/auth.ts logout",
+    "auth:status": "bun scripts/auth.ts status"
   },
   "dependencies": {
     "@earendil-works/chord": "1.1.0",

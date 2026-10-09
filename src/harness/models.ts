@@ -1,4 +1,4 @@
-import type { AssistantMessage, ModelThinkingLevel, TranscriptContext } from "@earendil-works/pi-ai";
+import type { AssistantMessage, CredentialStore, ModelThinkingLevel, TranscriptContext } from "@earendil-works/pi-ai";
 import type { MutableModels } from "@earendil-works/pi-ai/models";
 import { builtinModels } from "@earendil-works/pi-ai/providers/all";
 import { type FauxResponseStep, fauxAssistantMessage, fauxProvider } from "@earendil-works/pi-ai/providers/faux";
@@ -69,15 +69,19 @@ export function addFauxProvider(models: MutableModels, respond: FauxResponder = 
 	return faux;
 }
 
-/** Every pi-ai built-in provider (keys from their standard env vars) plus the offline `faux/echo` model. */
-export function createModels(respond?: FauxResponder): MutableModels {
-	const models = builtinModels();
+/**
+ * Every pi-ai built-in provider plus the offline `faux/echo` model. Auth per provider: a stored credential in
+ * `credentials` (OAuth from `bun run login`, refreshed automatically by pi-ai) wins; otherwise the provider's API-key env
+ * var (e.g. `XAI_API_KEY`).
+ */
+export function createModels(respond?: FauxResponder, options: { credentials?: CredentialStore } = {}): MutableModels {
+	const models = builtinModels(options.credentials ? { credentials: options.credentials } : {});
 	addFauxProvider(models, respond);
 	return models;
 }
 
 /** Fail fast with an actionable message when the configured model is unknown or its provider has no credentials. */
-export async function checkModel(models: MutableModels, ref: ModelRef): Promise<void> {
+export async function checkModel(models: MutableModels, ref: ModelRef): Promise<string | undefined> {
 	if (!models.getModel(ref.provider, ref.modelId)) {
 		const known = models.getModels(ref.provider).map((model) => model.id);
 		throw new Error(
@@ -86,7 +90,18 @@ export async function checkModel(models: MutableModels, ref: ModelRef): Promise<
 				: `Unknown provider "${ref.provider}"`,
 		);
 	}
-	if (ref.provider === "faux") return;
-	const auth = await models.getAuth(ref.provider);
-	if (!auth) throw new Error(`Provider "${ref.provider}" has no credentials (set its API key env var, e.g. ${ref.provider.toUpperCase().replace(/-/g, "_")}_API_KEY)`);
+	if (ref.provider === "faux") return "offline";
+	// Resolves (and if needed refreshes) a stored OAuth credential, else the provider's API-key env var.
+	let auth: Awaited<ReturnType<MutableModels["getAuth"]>>;
+	try {
+		auth = await models.getAuth(ref.provider);
+	} catch (error) {
+		throw new Error(`Provider "${ref.provider}" credentials failed: ${(error as Error).message}. Run: bun run login ${ref.provider}`);
+	}
+	const oauth = models.getProvider(ref.provider)?.auth.oauth;
+	if (!auth)
+		throw new Error(
+			`Provider "${ref.provider}" has no credentials: set its API key env var (e.g. ${ref.provider.toUpperCase().replace(/-/g, "_")}_API_KEY)${oauth ? ` or run: bun run login ${ref.provider}` : ""}`,
+		);
+	return auth.source;
 }
