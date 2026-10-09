@@ -1,6 +1,6 @@
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { type AgentChange, defineDoc, type Harness } from "@earendil-works/pi-durable";
-import type { Logger } from "../../log.ts";
+import { getLogger } from "../../log.ts";
 import { addressOf, type ChatRecord, chatConversation, formatInput } from "./chats.ts";
 import { handleCommand, parseCommand } from "./commands.ts";
 import type { Deliverer } from "./deliver.ts";
@@ -26,7 +26,6 @@ export type PollerOptions = {
 	agent: AgentChange;
 	allowedUsers: ReadonlySet<number>;
 	pollTimeoutSec: number;
-	log: Logger;
 };
 
 export class TelegramPoller {
@@ -41,7 +40,7 @@ export class TelegramPoller {
 
 	/** Long-poll until `signal` aborts. Errors back off exponentially (1 s → 30 s). */
 	async run(signal: AbortSignal): Promise<void> {
-		const { harness, transport, log } = this.options;
+		const { harness, transport } = this.options;
 		this.#username = await transport.username?.().catch(() => undefined);
 		let backoff = 1000;
 		while (!signal.aborted) {
@@ -59,7 +58,7 @@ export class TelegramPoller {
 				backoff = 1000;
 			} catch (error) {
 				if (signal.aborted) break;
-				log.error(`Telegram polling failed; retrying in ${backoff} ms: ${error instanceof Error ? error.message : String(error)}`);
+				getLogger().error(`Telegram polling failed; retrying in ${backoff} ms`, { error });
 				await new Promise((resolve) => setTimeout(resolve, backoff));
 				backoff = Math.min(backoff * 2, 30_000);
 			}
@@ -76,12 +75,12 @@ export class TelegramPoller {
 	 * `CommandsDoc`, replies by `DeliveriesDoc` receipts.
 	 */
 	async handleUpdate(update: TgUpdate): Promise<void> {
-		const { harness, transport, deliverer, agent, allowedUsers, log } = this.options;
+		const { harness, transport, deliverer, agent, allowedUsers } = this.options;
 		const message = update.message;
 		if (!message?.text) return;
 		const from = message.from;
 		if (!from || from.is_bot || !allowedUsers.has(from.id)) {
-			log.warn(`Ignoring message from non-allowed user ${from?.id ?? "?"} in chat ${message.chat.id}`);
+			getLogger().warn(`Ignoring message from non-allowed user ${from?.id ?? "?"} in chat ${message.chat.id}`);
 			return;
 		}
 		const chat = await chatConversation(harness, agent, addressOf(message));
@@ -111,18 +110,18 @@ export class TelegramPoller {
 		submissionId: number,
 		wait: () => Promise<{ status: string; reason?: string; detail?: unknown }>,
 	): Promise<void> {
-		const { deliverer, log } = this.options;
+		const { deliverer } = this.options;
 		const settled = await wait();
 		if (settled.status === "unanswered" && !/abort|withdraw/i.test(settled.reason ?? "")) {
 			const detail = typeof settled.detail === "string" ? settled.detail : settled.detail ? JSON.stringify(settled.detail) : "";
-			log.warn(`Input unanswered in chat ${chat.key}: ${settled.reason} ${detail}`);
+			getLogger().warn(`Input unanswered in chat ${chat.key}: ${settled.reason} ${detail}`);
 			await deliverer.notice(chat, `unanswered:${submissionId}`, `⚠️ I couldn't answer that (${settled.reason}${detail ? `: ${detail.slice(0, 500)}` : ""}).`);
 		}
 		await deliverer.kick(chat);
 	}
 
 	#track(work: Promise<void>) {
-		const tracked = work.catch((error) => this.options.log.debug("answer watcher ended", error));
+		const tracked = work.catch((error) => getLogger().debug("answer watcher ended", { error }));
 		this.#pending.add(tracked);
 		void tracked.finally(() => this.#pending.delete(tracked));
 	}

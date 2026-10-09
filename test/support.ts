@@ -3,7 +3,7 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { App } from "../src/app.ts";
-import { silentLogger } from "../src/log.ts";
+import { setupLogger } from "../src/log.ts";
 import { main } from "../src/main.ts";
 import type { FakeEgress } from "./egress/fake-egress.ts";
 
@@ -44,7 +44,8 @@ export async function startBot(home: string, overrides: Record<string, string | 
 	const env = botEnv(home, overrides);
 	if (env.XAI_API_KEY === undefined) delete process.env.XAI_API_KEY;
 	else process.env.XAI_API_KEY = env.XAI_API_KEY;
-	return main(env, silentLogger);
+	setupLogger({ type: "silent" });
+	return main(env);
 }
 
 export async function until(check: () => boolean | Promise<boolean>, what = "condition", timeoutMs = 15_000) {

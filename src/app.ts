@@ -11,13 +11,12 @@ import type { Config } from "./config.ts";
 import { buildRegistry } from "./harness/registry.ts";
 import { runStartup } from "./harness/startup.ts";
 import { openOwnedStorage } from "./harness/storage.ts";
-import type { Logger } from "./log.ts";
+import { getLogger } from "./log.ts";
 
 export type AppOptions = {
 	config: Config;
 	models: MutableModels;
 	transport: TelegramTransport;
-	log: Logger;
 	/** Start the long-poll loop (default true). Tests drive `poller.handleUpdate` directly when false. */
 	poll?: boolean;
 };
@@ -33,9 +32,10 @@ export type App = {
 	stop(): Promise<void>;
 };
 
-export async function startApp({ config, models, transport, log, poll = true }: AppOptions): Promise<App> {
+export async function startApp({ config, models, transport, poll = true }: AppOptions): Promise<App> {
+	const log = getLogger();
 	await mkdir(join(config.home, "workspace"), { recursive: true });
-	const { storage, lock } = await openOwnedStorage(config.home, log);
+	const { storage, lock } = await openOwnedStorage(config.home);
 	let harness: Harness;
 	try {
 		const { registry } = buildRegistry({ home: config.home, timeZone: config.timeZone });
@@ -50,7 +50,7 @@ export async function startApp({ config, models, transport, log, poll = true }: 
 					// Native compaction (defaults: reserve 16k, keep 20k recent, background at 32k below the limit).
 					compaction: { enabled: true },
 				},
-				onReport: (error) => log.warn("pi-durable extension report", error),
+				onReport: (error) => getLogger().warn("pi-durable extension report", { error }),
 			},
 			BACKGROUND_CONTEXT,
 		);
@@ -61,8 +61,8 @@ export async function startApp({ config, models, transport, log, poll = true }: 
 	}
 
 	const agent: AgentChange = { model: config.model.main, thinkingLevel: config.model.thinkingLevel ?? null };
-	const { unknown } = await runStartup(harness, agent, log);
-	const deliverer = new Deliverer(harness, transport, log);
+	const { unknown } = await runStartup(harness, agent);
+	const deliverer = new Deliverer(harness, transport);
 	const poller = new TelegramPoller({
 		harness,
 		transport,
@@ -70,12 +70,11 @@ export async function startApp({ config, models, transport, log, poll = true }: 
 		agent,
 		allowedUsers: config.telegram.allowedUsers,
 		pollTimeoutSec: config.telegram.pollTimeoutSec,
-		log,
 	});
 
 	const background = new Set<Promise<unknown>>();
 	const track = (work: Promise<unknown>) => {
-		const tracked = work.catch((error) => log.debug("background work ended", error));
+		const tracked = work.catch((error) => getLogger().debug("background work ended", { error }));
 		background.add(tracked);
 		void tracked.finally(() => background.delete(tracked));
 	};
@@ -95,7 +94,7 @@ export async function startApp({ config, models, transport, log, poll = true }: 
 	sweep?.unref();
 
 	const abort = new AbortController();
-	const polling = poll ? poller.run(abort.signal).catch((error) => log.error("poll loop crashed", error)) : Promise.resolve();
+	const polling = poll ? poller.run(abort.signal).catch((error) => getLogger().error("poll loop crashed", { error })) : Promise.resolve();
 	log.info(`pi-bot started (model ${config.model.main.provider}/${config.model.main.modelId}, home ${config.home})`);
 
 	let stopping: Promise<void> | undefined;

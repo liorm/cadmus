@@ -1,3 +1,4 @@
+import { Writable } from "node:stream";
 import { describe, expect, it } from "bun:test";
 import { resolveProviderId } from "../src/harness/login.ts";
 import { chatKey } from "../src/channels/telegram/chats.ts";
@@ -6,6 +7,7 @@ import { chunkText } from "../src/channels/telegram/deliver.ts";
 import { requestIdOf } from "../src/channels/telegram/poller.ts";
 import { parseUserIds } from "../src/config.ts";
 import { dayLine } from "../src/extensions/identity.ts";
+import { getLogger, setupLogger } from "../src/log.ts";
 import { modelConfigFromEnv, parseModelRef } from "../src/harness/models.ts";
 
 // Unit tests only for small pure helpers; behaviour is covered by test/flows/.
@@ -52,6 +54,26 @@ describe("pure helpers", () => {
 		for (const chunk of chunks) expect(chunk.length).toBeLessThanOrEqual(4000);
 		expect(chunks.join("\n")).toBe(text);
 		expect(chunkText("short")).toEqual(["short"]);
+	});
+
+	it("pretty-prints structured logs to the configured stream", () => {
+		const lines: string[] = [];
+		const stream = new Writable({
+			write(chunk, _enc, callback) {
+				lines.push(String(chunk));
+				callback();
+			},
+		});
+		setupLogger({ type: "console", level: "info", stream, colors: false });
+		const log = getLogger();
+		log.debug("hidden");
+		log.info("started", { model: "xai/grok-4.7", home: "/data/bot home" });
+		log.error("shutdown failed", { error: new Error("boom") });
+		expect(lines.some((line) => line.includes("hidden"))).toBe(false);
+		expect(lines[0]).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3} INFO {2}started model=xai\/grok-4\.7 home="\/data\/bot home"\n$/);
+		expect(lines[1]).toContain("ERROR shutdown failed error=boom");
+		expect(lines[1]).toContain("Error: boom");
+		setupLogger({ type: "silent" });
 	});
 
 	it("renders a daily date line", () => {

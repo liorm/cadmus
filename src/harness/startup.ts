@@ -2,7 +2,7 @@ import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { type AgentChange, AgentDoc, configure, type Harness } from "@earendil-works/pi-durable";
 import { listChats } from "../channels/telegram/chats.ts";
 import { reconcileInterrupted } from "../channels/telegram/deliver.ts";
-import type { Logger } from "../log.ts";
+import { getLogger } from "../log.ts";
 
 /**
  * Restart policy ("restart any time", pi-imessage ADR 0038/0041):
@@ -11,8 +11,9 @@ import type { Logger } from "../log.ts";
  * 3. `harness.resume()` continues every unfinished run and task; final answers they produce are delivered normally.
  * Phase 0 has no tools, so there are no stale processes to kill yet.
  */
-export async function runStartup(harness: Harness, agent: AgentChange, log: Logger) {
-	const unknown = await reconcileInterrupted(harness, log);
+export async function runStartup(harness: Harness, agent: AgentChange) {
+	const log = getLogger();
+	const unknown = await reconcileInterrupted(harness);
 	for (const chat of await listChats(harness)) {
 		const stored = await harness.snapshot(AgentDoc, chat.conversationId, BACKGROUND_CONTEXT);
 		const want = agent.model;

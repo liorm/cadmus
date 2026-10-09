@@ -1,7 +1,7 @@
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { Message } from "@earendil-works/pi-ai";
 import { AssistantEntry, type ConversationId, type Cursor, defineDoc, type EntryId, type Harness } from "@earendil-works/pi-durable";
-import type { Logger } from "../../log.ts";
+import { getLogger } from "../../log.ts";
 import { type ChatRecord, listChats } from "./chats.ts";
 import type { TelegramTransport } from "./transport.ts";
 
@@ -55,7 +55,7 @@ export function finalReplyText(message: Message | undefined): string | undefined
 }
 
 /** Startup: every receipt still `sending` belonged to a process that died mid-send. Mark it `unknown`; never resend. */
-export async function reconcileInterrupted(harness: Harness, log: Logger) {
+export async function reconcileInterrupted(harness: Harness) {
 	const unknown: { chat: string; conversationId: ConversationId; key: string }[] = [];
 	for (const chat of await listChats(harness)) {
 		const keys = await harness.commit(async (tx) => {
@@ -70,7 +70,7 @@ export async function reconcileInterrupted(harness: Harness, log: Logger) {
 			return changed;
 		}, BACKGROUND_CONTEXT);
 		for (const key of keys) {
-			log.warn(`Delivery unknown (interrupted mid-send, not resent): chat ${chat.key} ${key}`);
+			getLogger().warn(`Delivery unknown (interrupted mid-send, not resent): chat ${chat.key} ${key}`);
 			unknown.push({ chat: chat.key, conversationId: chat.conversationId, key });
 		}
 	}
@@ -84,12 +84,10 @@ export class Deliverer {
 
 	private readonly harness: Harness;
 	private readonly transport: TelegramTransport;
-	private readonly log: Logger;
 
-	constructor(harness: Harness, transport: TelegramTransport, log: Logger) {
+	constructor(harness: Harness, transport: TelegramTransport) {
 		this.harness = harness;
 		this.transport = transport;
-		this.log = log;
 	}
 
 	/** Serialize all delivery work of one chat. */
@@ -115,7 +113,7 @@ export class Deliverer {
 	/** Send every committed final answer of the chat that has no receipt yet, oldest first. */
 	kick(chat: ChatRecord): Promise<void> {
 		return this.#serial(chat, () => this.#deliverAnswers(chat)).catch((error) => {
-			this.log.error(`Delivery sweep failed for chat ${chat.key}`, error);
+			getLogger().error(`Delivery sweep failed for chat ${chat.key}`, { error });
 		});
 	}
 
@@ -199,7 +197,7 @@ export class Deliverer {
 		} catch (caught) {
 			status = "unknown";
 			error = caught instanceof Error ? caught.message : String(caught);
-			this.log.warn(`Delivery unknown (send failed, not retried): chat ${chat.key} ${key}: ${error}`);
+			getLogger().warn(`Delivery unknown (send failed, not retried): chat ${chat.key} ${key}: ${error}`);
 		}
 		await this.harness.commit(async (tx) => {
 			const deliveries = await tx.doc(DeliveriesDoc, chat.conversationId);

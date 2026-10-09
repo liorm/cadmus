@@ -3,7 +3,7 @@ import { hostname } from "node:os";
 import { join } from "node:path";
 import type { Storage } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
-import type { Logger } from "../log.ts";
+import { getLogger } from "../log.ts";
 
 /** pi-durable has no cross-process lock: exactly one process may own a storage. */
 export class LockHeld extends Error {
@@ -33,7 +33,7 @@ function alive(pid: number): boolean {
  * O_EXCL lock file holding `pid host startedAt`. It is only taken over when it names a pid on this host that no longer
  * exists (for example after kill -9); a live owner, or an owner on another host, is never stolen from.
  */
-export async function acquireOwnerLock(directory: string, log?: Logger): Promise<OwnerLock> {
+export async function acquireOwnerLock(directory: string): Promise<OwnerLock> {
 	await mkdir(directory, { recursive: true });
 	const path = join(directory, "owner.lock");
 	for (let attempt = 0; ; attempt++) {
@@ -58,7 +58,7 @@ export async function acquireOwnerLock(directory: string, log?: Logger): Promise
 			const pid = Number(pidText);
 			const stale = attempt === 0 && host === hostname() && Number.isSafeInteger(pid) && pid > 0 && !alive(pid);
 			if (!stale) throw new LockHeld(path, holder);
-			log?.warn(`Removing stale owner.lock of dead pid ${pid}`);
+			getLogger().warn(`Removing stale owner.lock of dead pid ${pid}`);
 			await unlink(path).catch(() => {});
 		}
 	}
@@ -67,8 +67,8 @@ export async function acquireOwnerLock(directory: string, log?: Logger): Promise
 export type OwnedStorage = { readonly storage: Storage; readonly lock: OwnerLock; readonly path: string };
 
 /** Lock first, then open `<home>/durable.sqlite` (WAL). Release the lock only after the Harness is closed. */
-export async function openOwnedStorage(home: string, log?: Logger): Promise<OwnedStorage> {
-	const lock = await acquireOwnerLock(home, log);
+export async function openOwnedStorage(home: string): Promise<OwnedStorage> {
+	const lock = await acquireOwnerLock(home);
 	const path = join(home, "durable.sqlite");
 	try {
 		return { storage: await openNodeSqliteStorage(path), lock, path };
