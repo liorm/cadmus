@@ -2,7 +2,7 @@ import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { Message } from "@earendil-works/pi-ai";
 import { AssistantEntry, type ConversationId, type Cursor, defineDoc, type EntryId, type Harness } from "@earendil-works/pi-durable";
 import { getLogger } from "../../log.ts";
-import { type ChatRecord, listChats } from "./chats.ts";
+import { type ChatRecord, hasTelegramAddress, listChats } from "./chats.ts";
 import type { TelegramTransport } from "./transport.ts";
 
 /**
@@ -110,19 +110,21 @@ export class Deliverer {
 		while (this.#queues.size) await Promise.all(this.#queues.values());
 	}
 
-	/** Send every committed final answer of the chat that has no receipt yet, oldest first. */
+	/** Send every committed final answer of the chat that has no receipt yet, oldest first. Web chats are skipped. */
 	kick(chat: ChatRecord): Promise<void> {
+		if (!hasTelegramAddress(chat)) return Promise.resolve();
 		return this.#serial(chat, () => this.#deliverAnswers(chat)).catch((error) => {
 			getLogger().error(`Delivery sweep failed for chat ${chat.key}`, { error });
 		});
 	}
 
 	async sweepAll(): Promise<void> {
-		await Promise.all((await listChats(this.harness)).map((chat) => this.kick(chat)));
+		await Promise.all((await listChats(this.harness)).filter(hasTelegramAddress).map((chat) => this.kick(chat)));
 	}
 
 	/** A bot-originated message (command reply, error notice) with its own receipt key; sent at most once. */
 	notice(chat: ChatRecord, key: string, text: string): Promise<DeliveryStatus | "duplicate"> {
+		if (!hasTelegramAddress(chat)) return Promise.resolve("duplicate");
 		return this.#serial(chat, async () => {
 			const receiptKey = `notice:${key}`;
 			const claim = await this.harness.commit(async (tx) => {
@@ -184,6 +186,7 @@ export class Deliverer {
 
 	/** The effect between the `sending` claim and its outcome. A throw may still have delivered: never retried. */
 	async #send(chat: ChatRecord, key: string, text: string): Promise<DeliveryStatus> {
+		if (chat.chatId === undefined) return "unknown";
 		const messageIds: number[] = [];
 		let status: DeliveryStatus = "sent";
 		let error: string | undefined;

@@ -7,6 +7,7 @@ import { chunkText } from "../src/channels/telegram/deliver.ts";
 import { requestIdOf } from "../src/channels/telegram/poller.ts";
 import { parseUserIds } from "../src/config.ts";
 import { dayLine } from "../src/extensions/identity.ts";
+import { slugifyBotName } from "../src/channels/bot-slug.ts";
 import { parseDescription, parseSlug } from "../src/extensions/knowledge.ts";
 import { getLogger, setupLogger } from "../src/log.ts";
 import { modelConfigFromEnv, parseModelRef } from "../src/harness/models.ts";
@@ -46,6 +47,16 @@ describe("pure helpers", () => {
 		expect(chatKey("default", { chatId: -100 })).toBe("default:tg:general:-100");
 		expect(chatKey("default", { chatId: -100, threadId: 7 })).toBe("default:tg:general:-100:7");
 		expect(requestIdOf(-100, 42)).toBe("tg:-100:42");
+	});
+
+	it("slugifies a bot name", () => {
+		expect(slugifyBotName("  Hello, World!! ")).toBe("hello-world");
+		expect(slugifyBotName("A")).toBe("a");
+		expect(slugifyBotName("-Nope-")).toBe("nope");
+		expect(slugifyBotName("---")).toBeUndefined();
+		expect(slugifyBotName("")).toBeUndefined();
+		expect(slugifyBotName("a".repeat(40))).toBe("a".repeat(32));
+		expect(slugifyBotName(`${"a".repeat(31)}!!!extra`)).toBe("a".repeat(31));
 	});
 
 	it("parses bot and knowledge slugs", () => {

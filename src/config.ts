@@ -11,10 +11,19 @@ export type TelegramConfig = {
 	readonly pollTimeoutSec: number;
 };
 
+export type WebConfig = {
+	readonly host: string;
+	readonly port: number;
+	/** Shared bearer / cookie value. Never logged and never returned by the API. */
+	readonly token: string;
+};
+
 export type Config = {
 	/** Directory holding durable.sqlite, owner.lock, bots/, and workspace/. */
 	readonly home: string;
 	readonly telegram: TelegramConfig;
+	/** Absent when `WEB_TOKEN` is unset: Telegram starts, the page does not. */
+	readonly web?: WebConfig;
 	readonly model: ModelConfig;
 	readonly timeZone: string;
 	readonly logLevel: string;
@@ -33,8 +42,19 @@ export function parseUserIds(raw: string | undefined): Set<number> {
 	return ids;
 }
 
+/** `WEB_TOKEN` set means the page listens. An empty token leaves the web channel off. */
+export function webConfigFromEnv(env: NodeJS.ProcessEnv): WebConfig | undefined {
+	const token = env.WEB_TOKEN;
+	if (!token) return undefined;
+	const raw = env.WEB_PORT;
+	const port = raw === undefined || raw === "" ? 8787 : Number(raw);
+	if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error(`WEB_PORT: expected a port, got "${raw}"`);
+	return { host: env.WEB_HOST || "127.0.0.1", port, token };
+}
+
 export function configFromEnv(env: NodeJS.ProcessEnv = process.env): Config {
 	const timeout = Number(env.TELEGRAM_POLL_TIMEOUT_SEC ?? 30);
+	const web = webConfigFromEnv(env);
 	return {
 		home: resolve(env.PI_BOT_HOME ?? "./data"),
 		telegram: {
@@ -43,6 +63,7 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): Config {
 			allowedUsers: parseUserIds(env.TELEGRAM_ALLOWED_USERS),
 			pollTimeoutSec: Number.isFinite(timeout) && timeout >= 0 ? timeout : 30,
 		},
+		...(web ? { web } : {}),
 		model: modelConfigFromEnv(env),
 		timeZone: env.PI_BOT_TZ || Intl.DateTimeFormat().resolvedOptions().timeZone,
 		logLevel: env.LOG_LEVEL ?? "info",

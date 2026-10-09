@@ -1,7 +1,7 @@
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { configure, type Harness } from "@earendil-works/pi-durable";
 import { type BotRecord, botDir } from "./channels/bots.ts";
-import { ChatsDoc, type ChatRecord, listChats, telegramTarget } from "./channels/telegram/chats.ts";
+import { ChatsDoc, type ChatRecord, listChats, telegramTarget, webChatId } from "./channels/telegram/chats.ts";
 import type { Deliverer } from "./channels/telegram/deliver.ts";
 import { getLogger } from "./log.ts";
 import { parseModelRef, parseThinkingLevel } from "./harness/models.ts";
@@ -19,10 +19,13 @@ export interface BotRuntime {
 	createChat(chatId: string, options?: { userId?: number }): Promise<ChatRecord>;
 	/** Answer watchers started by `submit`. */
 	settled(): Promise<void>;
+	/** Later edits of the bot row. New chats use them; existing conversations stay as they were. */
+	refresh(bot: BotRecord): void;
 }
 
 export function createBotRuntime(options: { harness: Harness; deliverer: Deliverer; bot: BotRecord; home: string }): BotRuntime {
-	const { harness, deliverer, bot, home } = options;
+	const { harness, deliverer, home } = options;
+	let bot = options.bot;
 	const pending = new Set<Promise<void>>();
 
 	const track = (work: Promise<void>) => {
@@ -33,12 +36,16 @@ export function createBotRuntime(options: { harness: Harness; deliverer: Deliver
 
 	return {
 		id: bot.id,
+		refresh(next) {
+			bot = next;
+		},
 		async listChats() {
 			return (await listChats(harness)).filter((chat) => chat.botId === bot.id);
 		},
 		async createChat(chatId, createOptions) {
 			if (!chatId.startsWith(`${bot.id}:`)) throw new Error(`Chat ${chatId} is not on bot ${bot.id}`);
-			const address = telegramTarget(chatId);
+			const web = webChatId(bot.id, chatId);
+			const address = web === undefined ? telegramTarget(chatId) : undefined;
 			const thinking = parseThinkingLevel(bot.thinking);
 			return harness.commit(async (tx) => {
 				const chats = await tx.doc(ChatsDoc);
@@ -57,8 +64,8 @@ export function createBotRuntime(options: { harness: Harness; deliverer: Deliver
 					key: chatId,
 					botId: bot.id,
 					...(createOptions?.userId === undefined ? {} : { userId: createOptions.userId }),
-					chatId: address.chatId,
-					...(address.threadId === undefined ? {} : { threadId: address.threadId }),
+					...(address === undefined ? {} : { chatId: address.chatId }),
+					...(address?.threadId === undefined ? {} : { threadId: address.threadId }),
 					conversationId: conversation.id,
 				};
 				chats.items.push(record);

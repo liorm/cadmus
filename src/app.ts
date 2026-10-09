@@ -3,18 +3,19 @@ import { join } from "node:path";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { MutableModels } from "@earendil-works/pi-ai/models";
 import { Harness } from "@earendil-works/pi-durable";
-import { DEFAULT_BOT_ID, listBots } from "./channels/bots.ts";
+import { DEFAULT_BOT_ID, type BotRecord, listBots } from "./channels/bots.ts";
 import { listChats } from "./channels/telegram/chats.ts";
 import { Deliverer } from "./channels/telegram/deliver.ts";
 import { TelegramPoller } from "./channels/telegram/poller.ts";
 import type { TelegramTransport } from "./channels/telegram/transport.ts";
+import { startWeb, type WebListener } from "./channels/web/server.ts";
 import type { Config } from "./config.ts";
 import { botEnv } from "./harness/bot-env.ts";
 import { buildRegistry } from "./harness/registry.ts";
 import { runStartup } from "./harness/startup.ts";
 import { openOwnedStorage } from "./harness/storage.ts";
 import { getLogger } from "./log.ts";
-import { createBotRuntime } from "./runtime.ts";
+import { createBotRuntime, type BotRuntime } from "./runtime.ts";
 
 export type AppOptions = {
 	config: Config;
@@ -30,6 +31,8 @@ export type App = {
 	readonly deliverer: Deliverer;
 	/** Receipts reconciled to `unknown` at this startup. */
 	readonly unknownAtStartup: readonly { chat: string; key: string }[];
+	/** Bound page, when `WEB_TOKEN` is set. */
+	readonly web?: { url: string };
 	/** Wait until every chat is idle and every final answer has a receipt. */
 	quiesce(): Promise<void>;
 	stop(): Promise<void>;
@@ -66,11 +69,39 @@ export async function startApp({ config, models, transport, poll = true }: AppOp
 
 	const { unknown } = await runStartup(harness, { home: config.home, model: config.model });
 	const deliverer = new Deliverer(harness, transport);
-	const runtimes = new Map(
-		(await listBots(harness)).map((bot) => [bot.id, createBotRuntime({ harness, deliverer, bot, home: config.home })]),
-	);
+	const runtimes = new Map<string, BotRuntime>();
+	const addRuntime = (bot: BotRecord) => {
+		const existing = runtimes.get(bot.id);
+		if (existing) {
+			existing.refresh(bot);
+			return existing;
+		}
+		const created = createBotRuntime({ harness, deliverer, bot, home: config.home });
+		runtimes.set(bot.id, created);
+		return created;
+	};
+	for (const bot of await listBots(harness)) addRuntime(bot);
 	const runtime = runtimes.get(DEFAULT_BOT_ID);
 	if (!runtime) throw new Error("default bot is missing after startup");
+
+	let web: WebListener | undefined;
+	if (config.web) {
+		try {
+			web = await startWeb(config.web, {
+				config,
+				models,
+				harness,
+				deliverer,
+				ensureRuntime: (id) => runtimes.get(id),
+				addRuntime,
+			});
+		} catch (error) {
+			await harness.close(BACKGROUND_CONTEXT).catch(() => {});
+			await lock.release();
+			throw error;
+		}
+		log.info(`web ${web.url}`);
+	}
 	const poller = new TelegramPoller({
 		harness,
 		runtime,
@@ -111,9 +142,11 @@ export async function startApp({ config, models, transport, poll = true }: AppOp
 		poller,
 		deliverer,
 		unknownAtStartup: unknown,
+		...(web ? { web: { url: web.url } } : {}),
 		async quiesce() {
 			await harness.waitForIdle(BACKGROUND_CONTEXT);
 			await poller.settled();
+			for (const bot of runtimes.values()) await bot.settled();
 			await deliverer.sweepAll();
 			await deliverer.idle();
 		},
@@ -122,6 +155,7 @@ export async function startApp({ config, models, transport, poll = true }: AppOp
 				abort.abort();
 				if (sweep) clearInterval(sweep);
 				await polling;
+				if (web) await web.stop();
 				await deliverer.idle();
 				await harness.close(BACKGROUND_CONTEXT);
 				// Answer watchers of unfinished runs settle (or fail) once the harness is closed.

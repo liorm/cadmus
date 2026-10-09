@@ -15,7 +15,7 @@ export type ModelConfig = {
 	readonly gate?: ModelRef;
 };
 
-const THINKING: readonly ModelThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh"] as ModelThinkingLevel[];
+export const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh"] as const satisfies readonly ModelThinkingLevel[];
 
 /** `provider/modelId`; the model id may itself contain slashes (e.g. `openrouter/anthropic/x`). */
 export function parseModelRef(raw: string, name = "model"): ModelRef {
@@ -32,14 +32,15 @@ export function modelRefString(model: ModelRef): string {
 export function parseThinkingLevel(value: string | undefined): ModelThinkingLevel | undefined {
 	const level = value?.trim();
 	if (!level) return undefined;
-	return (THINKING as readonly string[]).includes(level) ? (level as ModelThinkingLevel) : undefined;
+	return (THINKING_LEVELS as readonly string[]).includes(level) ? (level as ModelThinkingLevel) : undefined;
 }
 
 export function modelConfigFromEnv(env: NodeJS.ProcessEnv): ModelConfig {
 	const main = env.PI_MODEL?.trim();
 	if (!main) throw new Error("PI_MODEL is required (<provider>/<modelId>, or faux/echo for an offline smoke test)");
 	const thinking = env.PI_THINKING_LEVEL?.trim() as ModelThinkingLevel | undefined;
-	if (thinking && !THINKING.includes(thinking)) throw new Error(`PI_THINKING_LEVEL: unknown level "${thinking}"`);
+	if (thinking && !(THINKING_LEVELS as readonly string[]).includes(thinking))
+		throw new Error(`PI_THINKING_LEVEL: unknown level "${thinking}"`);
 	return {
 		main: parseModelRef(main, "PI_MODEL"),
 		...(thinking ? { thinkingLevel: thinking } : {}),

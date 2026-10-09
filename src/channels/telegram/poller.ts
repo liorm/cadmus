@@ -93,7 +93,8 @@ export class TelegramPoller {
 			return;
 		}
 
-		void transport.sendTyping?.(chat.chatId, chat.threadId === undefined ? {} : { threadId: chat.threadId }).catch(() => {});
+		if (chat.chatId !== undefined)
+			void transport.sendTyping?.(chat.chatId, chat.threadId === undefined ? {} : { threadId: chat.threadId }).catch(() => {});
 		await runtime.submit(chat.key, requestId, formatInput(message));
 	}
 }

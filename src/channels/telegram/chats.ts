@@ -3,14 +3,15 @@ import { defineDoc, type ConversationId, type Harness } from "@earendil-works/pi
 import { DEFAULT_BOT_ID } from "../bots.ts";
 import type { TgMessage } from "./transport.ts";
 
-/** One Telegram chat, or one forum topic of a chat, and the durable conversation it talks to. */
+/** One conversation on a bot: a Telegram chat, a forum topic, or a web chat. */
 export type ChatRecord = {
-	/** `<botId>:tg:<ingress>:<chatId>` or with `:<threadId>`. */
+	/** `<botId>:tg:<ingress>:<chatId>` or `<botId>:web:<id>`. */
 	key: string;
 	botId?: string;
 	/** Telegram user id of the person this chat's `disk/` belongs to. Filled from `from.id`. */
 	userId?: number;
-	chatId: number;
+	/** Absent for a web chat, which has no Telegram address. */
+	chatId?: number;
 	threadId?: number;
 	conversationId: ConversationId;
 };
@@ -42,7 +43,26 @@ export function telegramTarget(key: string): ChatAddress {
 
 /** A key from before bot prefixes: `<chatId>` or `<chatId>:<threadId>`. */
 export function isLegacyChatKey(key: string): boolean {
-	return !key.includes(":tg:");
+	return !key.includes(":tg:") && !key.includes(":web:");
+}
+
+const WEB_CHAT_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
+
+/** `<botId>:web:<id>`. */
+export function webChatKey(botId: string, id: string): string {
+	return `${botId}:web:${id}`;
+}
+
+/** The id suffix when `key` is a web chat of `botId`. */
+export function webChatId(botId: string, key: string): string | undefined {
+	const prefix = `${botId}:web:`;
+	if (!key.startsWith(prefix)) return undefined;
+	const id = key.slice(prefix.length);
+	return WEB_CHAT_ID.test(id) ? id : undefined;
+}
+
+export function hasTelegramAddress(chat: ChatRecord): chat is ChatRecord & { chatId: number } {
+	return typeof chat.chatId === "number";
 }
 
 /** Forum topics get their own conversation; plain reply threads stay in the chat's conversation. */

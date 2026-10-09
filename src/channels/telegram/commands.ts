@@ -1,5 +1,5 @@
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import { AgentDoc, defineDoc, type Harness, LiveDoc } from "@earendil-works/pi-durable";
+import { AgentDoc, defineDoc, defineEntry, type Harness, LiveDoc } from "@earendil-works/pi-durable";
 import type { ChatRecord } from "./chats.ts";
 import { DeliveriesDoc, type Deliverer } from "./deliver.ts";
 
@@ -21,6 +21,9 @@ export const HELP = `Commands:
 /help — this message`;
 
 const KNOWN = new Set(["new", "reset", "stop", "status", "help", "start"]);
+
+/** A command reply on a web chat. No `model` messages, so later prompts do not see it. */
+export const NoticeEntry = defineEntry<{ text: string }>("pi-bot.notice");
 
 /** `/name args` or `/name@Bot args`; undefined for plain text, unknown commands, or commands for another bot. */
 export function parseCommand(text: string | undefined, botUsername?: string): Command | undefined {
@@ -49,7 +52,13 @@ export async function handleCommand(command: Command, { harness, deliverer, chat
 	if (!fresh) return;
 	const conversation = await harness.conversation(chat.conversationId, BACKGROUND_CONTEXT);
 	if (!conversation) throw new Error(`Conversation of chat ${chat.key} is missing`);
-	const reply = (text: string) => deliverer.notice(chat, requestKey, text);
+	const reply = (text: string) =>
+		chat.chatId === undefined
+			? conversation.submit(
+					{ type: "write", requestId: `notice:${requestKey}`, entry: { kind: NoticeEntry.kind, data: { text } } },
+					BACKGROUND_CONTEXT,
+				)
+			: deliverer.notice(chat, requestKey, text);
 
 	switch (command.name) {
 		case "new":

@@ -10,7 +10,8 @@ import { type ModelConfig, parseModelRef, parseThinkingLevel } from "./models.ts
  * Restart policy ("restart any time"):
  * 1. Before anything runs, receipts left `sending` become `unknown` and are never resent.
  * 2. The default bot's files and row exist. Legacy chat keys are rewritten in one commit, keeping their conversations.
- * 3. Each chat follows its bot's model, thinking, and folder. `default` was just refreshed from env.
+ * 3. Chats of `default` follow its model, thinking, and folder. `default` was just refreshed from env.
+ *    Other bots keep the model and thinking their conversations were created with.
  * 4. `harness.resume()` continues every unfinished run and task; final answers they produce are delivered normally.
  * `write` and `edit` stay replay-unsafe, so an interrupted call runs again rather than being skipped.
  */
@@ -22,7 +23,9 @@ export async function runStartup(harness: Harness, options: { home: string; mode
 	await migrateLegacyChats(harness);
 	const bots = new Map((await listBots(harness)).map((bot) => [bot.id, bot]));
 	for (const chat of await listChats(harness)) {
-		const bot = bots.get(chat.botId ?? DEFAULT_BOT_ID) ?? bots.get(DEFAULT_BOT_ID);
+		// `default` follows the env model on every start. Other bots keep the model their chats were created with.
+		if ((chat.botId ?? DEFAULT_BOT_ID) !== DEFAULT_BOT_ID) continue;
+		const bot = bots.get(DEFAULT_BOT_ID);
 		if (!bot) continue;
 		const want = parseModelRef(bot.model);
 		const thinking = parseThinkingLevel(bot.thinking);

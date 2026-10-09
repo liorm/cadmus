@@ -13,5 +13,6 @@
     "types": ["bun"],
     "noUncheckedIndexedAccess": true
   },
-  "include": ["src", "test", "scripts"]
+  "include": ["src", "test", "scripts"],
+  "exclude": ["src/channels/web/ui"]
 }

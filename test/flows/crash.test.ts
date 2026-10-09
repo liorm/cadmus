@@ -26,7 +26,7 @@ function startProcess(home: string) {
 	return child;
 }
 
-async function waitFor(child: Child, check: () => boolean, what: string) {
+async function waitFor(child: Child, check: () => boolean | Promise<boolean>, what: string) {
 	try {
 		await until(check, what, 20_000);
 	} catch (error) {
@@ -124,5 +124,63 @@ describe("crash recovery (kill -9)", () => {
 				{ text: "grok(2): second", receipt: "sent" },
 			],
 		});
+	});
+
+	it("killed during a web reply: restart answers once and the same clientMsgId does not duplicate", async () => {
+		const home = await tempHome();
+		const token = "test-web-token";
+		const headers = { authorization: `Bearer ${token}`, "content-type": "application/json" };
+		const listen = () => {
+			const probe = Bun.serve({ port: 0, fetch: () => new Response("no") });
+			const port = probe.port;
+			probe.stop(true);
+			return port;
+		};
+		const port = listen();
+		const base = `http://127.0.0.1:${port}`;
+		egress.xai.hang = true;
+		const first = spawnBun(["src/main.ts"], botEnv(home, { WEB_TOKEN: token, WEB_PORT: String(port), LOG_LEVEL: "info" }), egress);
+		children.push(first);
+		await waitFor(first, () => egress.telegram.polls > 0, "the bot to poll");
+		const created = await fetch(`${base}/api/bots/default/chats`, { method: "POST", headers, body: "{}" });
+		expect(created.status).toBe(201);
+		const key = ((await created.json()) as { chat: { key: string } }).chat.key;
+		const posted = await fetch(`${base}/api/chats/${encodeURIComponent(key)}/messages`, {
+			method: "POST",
+			headers,
+			body: JSON.stringify({ clientMsgId: "crash-1", text: "hello" }),
+		});
+		expect(posted.status).toBe(200);
+		await waitFor(first, () => egress.xai.requests.length === 1, "Grok to be asked");
+		first.proc.kill("SIGKILL");
+		await first.exited;
+
+		egress.xai.hang = false;
+		const nextPort = listen();
+		const polls = egress.telegram.polls;
+		const second = spawnBun(["src/main.ts"], botEnv(home, { WEB_TOKEN: token, WEB_PORT: String(nextPort), LOG_LEVEL: "info" }), egress);
+		children.push(second);
+		const nextBase = `http://127.0.0.1:${nextPort}`;
+		await waitFor(second, () => egress.telegram.polls > polls, "the restarted bot to poll");
+		await waitFor(second, async () => {
+			const response = await fetch(`${nextBase}/api/chats/${encodeURIComponent(key)}/messages`, { headers }).catch(() => undefined);
+			if (!response?.ok) return false;
+			const body = (await response.json()) as { messages: { type: string; text?: string }[] };
+			return body.messages.some((item) => item.text === "grok(1): hello");
+		}, "the resumed reply");
+		const again = await fetch(`${nextBase}/api/chats/${encodeURIComponent(key)}/messages`, {
+			method: "POST",
+			headers,
+			body: JSON.stringify({ clientMsgId: "crash-1", text: "hello" }),
+		});
+		expect(again.status).toBe(200);
+		await new Promise((resolve) => setTimeout(resolve, 600));
+		const transcript = (await (await fetch(`${nextBase}/api/chats/${encodeURIComponent(key)}/messages`, { headers })).json()) as {
+			messages: { type: string; text?: string }[];
+		};
+		expect(transcript.messages.filter((item) => item.type === "user")).toHaveLength(1);
+		expect(transcript.messages.filter((item) => item.text === "grok(1): hello")).toHaveLength(1);
+		expect(egress.telegram.sent).toEqual([]);
+		await stop(second);
 	});
 });
