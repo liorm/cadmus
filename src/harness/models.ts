@@ -74,9 +74,9 @@ export function addFauxProvider(models: MutableModels, respond: FauxResponder = 
  * `credentials` (OAuth from `bun run login`, refreshed automatically by pi-ai) wins; otherwise the provider's API-key env
  * var (e.g. `XAI_API_KEY`).
  */
-export function createModels(respond?: FauxResponder, options: { credentials?: CredentialStore } = {}): MutableModels {
+export function createModels(options: { credentials?: CredentialStore } = {}): MutableModels {
 	const models = builtinModels(options.credentials ? { credentials: options.credentials } : {});
-	addFauxProvider(models, respond);
+	addFauxProvider(models);
 	return models;
 }
 

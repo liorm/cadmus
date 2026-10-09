@@ -10,7 +10,7 @@ import { createModels } from "../src/harness/models.ts";
 const [command, name] = process.argv.slice(2);
 const home = resolve(process.env.PI_BOT_HOME ?? "./data");
 const store = FileCredentialStore.inHome(home);
-const models = createModels(undefined, { credentials: store });
+const models = createModels({ credentials: store });
 
 async function main() {
 	if (command === "status") {

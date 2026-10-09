@@ -35,8 +35,12 @@ export class GrammyTransport implements TelegramTransport {
 	readonly api: Api;
 	#username?: Promise<string | undefined>;
 
-	constructor(token: string) {
-		this.api = new Api(token);
+	/** `apiRoot`: a local Bot API server (default https://api.telegram.org). Uses the runtime's global fetch. */
+	constructor(token: string, options: { apiRoot?: string } = {}) {
+		this.api = new Api(token, {
+			...(options.apiRoot ? { apiRoot: options.apiRoot } : {}),
+			fetch: ((input: string, init?: RequestInit) => globalThis.fetch(input, init)) as never,
+		});
 	}
 
 	async getUpdates(offset: number | undefined, timeoutSec: number, signal: AbortSignal) {

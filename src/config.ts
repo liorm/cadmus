@@ -4,6 +4,8 @@ import { type ModelConfig, modelConfigFromEnv } from "./harness/models.ts";
 export type TelegramConfig = {
 	/** Absent only in tests that inject their own transport. */
 	readonly token?: string;
+	/** Bot API root, e.g. a local Bot API server; default https://api.telegram.org. */
+	readonly apiRoot?: string;
 	/** Numeric Telegram user IDs allowed to talk to the bot. Empty means nobody. */
 	readonly allowedUsers: ReadonlySet<number>;
 	readonly pollTimeoutSec: number;
@@ -37,6 +39,7 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): Config {
 		home: resolve(env.PI_BOT_HOME ?? "./data"),
 		telegram: {
 			token: env.TELEGRAM_BOT_TOKEN || undefined,
+			...(env.TELEGRAM_API_ROOT ? { apiRoot: env.TELEGRAM_API_ROOT } : {}),
 			allowedUsers: parseUserIds(env.TELEGRAM_ALLOWED_USERS),
 			pollTimeoutSec: Number.isFinite(timeout) && timeout >= 0 ? timeout : 30,
 		},
