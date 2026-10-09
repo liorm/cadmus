@@ -10,7 +10,8 @@
     "check": "bun run typecheck && bun test",
     "login": "bun scripts/auth.ts login",
     "logout": "bun scripts/auth.ts logout",
-    "auth:status": "bun scripts/auth.ts status"
+    "auth:status": "bun scripts/auth.ts status",
+    "coverage": "bun test --coverage"
   },
   "dependencies": {
     "@earendil-works/chord": "1.1.0",
