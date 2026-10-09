@@ -74,30 +74,31 @@ src/
     commands.ts                 /new /stop /status /help, deduped via CommandsDoc
   extensions/identity.ts        sections: SOUL.md, AGENTS.md, daily date line
 test/
-  auth.test.ts                  auth.json store, xAI OAuth token use/refresh/login with mocked endpoints
-  units.test.ts                 parsing, chunking, lock semantics
+  flows/chat.test.ts            Telegram in → Grok → Telegram out: dedupe, /new /stop /status, steer, topics, errors, receipts, restart, guards
+  flows/crash.test.ts           real `bun src/main.ts` processes, kill -9 mid-turn and mid-send
+  flows/auth.test.ts            `bun run login grok` CLI, OAuth token use + refresh in the bot
+  egress/                       fake Telegram Bot API + xAI (Responses SSE, OAuth) HTTP server; fetch routing / preload
+  units.test.ts                 pure helpers only
   storage-bun.test.ts           pi-durable's storage conformance suite under Bun
-  app.test.ts                   fake transport: dedupe, /new, allowlist, topics, failed send, identity, lock, restart
-  crash.test.ts                 real child processes + kill -9 (fixtures/bot-process.ts)
 ```
 
 ## Guarantees and how they are tested
 
-- **Input exactly once.** Each Telegram message is submitted with `requestId = tg:<chatId>:<messageId>`; the update offset (`TelegramCursorDoc`) advances only after admission. A redelivered update finds the same submission. *Tests:* `app.test.ts` (direct redelivery, poll loop with Telegram redelivering everything), `crash.test.ts`.
+- **Input exactly once.** Each Telegram message is submitted with `requestId = tg:<chatId>:<messageId>`; the update offset (`TelegramCursorDoc`) advances only after admission. A redelivered update finds the same submission. *Tests:* `flows/chat.test.ts` (Telegram redelivering everything), `flows/crash.test.ts` (redelivery after kill -9).
 - **Replies at most once** (pi-imessage ADR 0003). A final answer is claimed `sending` in a commit, sent, then recorded `sent` (with Telegram message ids) or `unknown` on error. On startup every `sending` becomes `unknown`, is logged, shown in `/status`, and is **never resent**. *Tests:* kill -9 while `sendMessage` is in flight → restart → receipt `unknown`, no second send, and the next message is answered normally.
 - **Crash mid-turn resumes.** kill -9 while the model is answering → restart → `harness.resume()` continues the run → exactly one reply.
-- **One owner.** `owner.lock` refuses a second process while the owner is alive (in-process and cross-process tests).
+- **One owner.** `owner.lock` refuses a second process while the owner is alive (`flows/chat.test.ts`, `flows/crash.test.ts`).
 - `/new` = `conversation.reset()`: the model's visible context restarts; a redelivered `/new` does not reset again.
 
 ## Tests
 
 ```bash
-bun test              # all suites (~5 s)
-bun test test/crash.test.ts
+bun test              # all suites (~11 s)
+bun run coverage      # with coverage (in-process code only)
 bunx tsc --noEmit     # typecheck
 ```
 
-Tests use pi-ai's **faux** provider (no API key, no network) and a fake Telegram transport; the crash tests spawn real `bun` processes over SQLite and `kill -9` them.
+Policy (see AGENTS.md): flow tests through the public interface; only egress is faked, at the HTTP level (`test/egress/`): Telegram Bot API, xAI Responses API, xAI OAuth. Real pi-durable SQLite in temp dirs, real `bun` processes for crash and login tests.
 
 ## Runtime notes
 
