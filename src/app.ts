@@ -1,5 +1,3 @@
-import { mkdir } from "node:fs/promises";
-import { join } from "node:path";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { MutableModels } from "@earendil-works/pi-ai/models";
 import { Harness } from "@earendil-works/pi-durable";
@@ -72,7 +70,6 @@ export async function startApp({
 	poll = true,
 }: AppOptions): Promise<App> {
 	const log = getLogger();
-	await mkdir(join(config.home, "workspace"), { recursive: true });
 	const { storage, lock } = await openOwnedStorage(config.home);
 	let harness: Harness;
 	try {

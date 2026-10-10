@@ -29,7 +29,7 @@ Optional: put `SOUL.md` (persona; a default is used when absent) and `SYSTEM.md`
 | provider key | alt. | The provider's standard env var, read by pi-ai: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `XAI_API_KEY`, `OPENROUTER_API_KEY`, `GEMINI_API_KEY`, … Startup fails fast if the model is unknown or the key is missing |
 | `PI_THINKING_LEVEL` | no | `off`/`minimal`/`low`/`medium`/`high`/`xhigh` |
 | `PI_REVIEW_MODEL`, `PI_GATE_MODEL` | no | Reserved for Phase 4 (review fork, memory-capture gate); parsed, unused |
-| `PI_BOT_HOME` | no | Data dir (default `./data`): `durable.sqlite`, `owner.lock`, `schedules.sqlite`, `bots/<id>/`, `workspace/` |
+| `PI_BOT_HOME` | no | Data dir (default `./data`): `durable.sqlite`, `owner.lock`, `schedules.sqlite`, `bots/<id>/` |
 | `PI_BOT_TZ` | no | IANA zone for the daily date line and cron (default: system zone) |
 | `PI_BOT_HARVEST_DELAY_MS` | no | Idle time before a chat is forked to update knowledge (default 60000) |
 | `TELEGRAM_POLL_TIMEOUT_SEC` | no | Long-poll timeout (default 30) |

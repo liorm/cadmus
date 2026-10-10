@@ -19,7 +19,7 @@ export type WebConfig = {
 };
 
 export type Config = {
-	/** Directory holding durable.sqlite, owner.lock, bots/, and workspace/. */
+	/** Directory holding durable.sqlite, owner.lock, schedules.sqlite, and bots/. */
 	readonly home: string;
 	readonly telegram: TelegramConfig;
 	/** Absent when `WEB_TOKEN` is unset. The page does not listen. */
