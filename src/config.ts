@@ -16,6 +16,8 @@ export type WebConfig = {
 	readonly port: number;
 	/** Shared bearer / cookie value. Never logged and never returned by the API. */
 	readonly token: string;
+	/** `bun run dev`: rebuild the page when UI sources change. */
+	readonly dev: boolean;
 };
 
 export type Config = {
@@ -55,7 +57,12 @@ export function webConfigFromEnv(
 	const port = raw === undefined || raw === "" ? 8787 : Number(raw);
 	if (!Number.isInteger(port) || port < 0 || port > 65535)
 		throw new Error(`WEB_PORT: expected a port, got "${raw}"`);
-	return { host: env.WEB_HOST || "127.0.0.1", port, token };
+	return {
+		host: env.WEB_HOST || "127.0.0.1",
+		port,
+		token,
+		dev: env.PI_BOT_DEV === "1",
+	};
 }
 
 export function configFromEnv(env: NodeJS.ProcessEnv = process.env): Config {

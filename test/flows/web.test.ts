@@ -1,7 +1,7 @@
 // Web page and API through the real main(). Only egress is faked.
 
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, stat, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { App } from "../../src/app.ts";
@@ -169,9 +169,33 @@ describe("web channel", () => {
 		expect(door.status).toBe(302);
 		expect(door.headers.get("set-cookie")).toContain("HttpOnly");
 		const page = await call(url, "/");
-		expect(await page.text()).toContain("/app.js");
+		const html = await page.text();
+		expect(html).toContain("/app.js");
+		expect(html).not.toContain("/dev/ui-version");
 		const script = await call(url, "/app.js");
-		expect(await script.text()).toContain("/new");
+		const source = await script.text();
+		expect(source).toContain("/new");
+		// The composer runs in the browser. randomUUID is absent off localhost
+		// on plain HTTP (the listener binds all interfaces). getRandomValues is not.
+		expect(source).not.toContain("randomUUID");
+		expect(source).toContain("getRandomValues");
+	});
+
+	it("rebuilds the page when a UI source changes", async () => {
+		const { url } = await boot(undefined, { PI_BOT_DEV: "1" });
+		const html = await (await call(url, "/")).text();
+		expect(html).toContain("/dev/ui-version");
+		const before = await (await call(url, "/dev/ui-version")).text();
+		const scriptBefore = await (await call(url, "/app.js")).text();
+		const ui = join(import.meta.dir, "../../src/channels/web/ui/main.tsx");
+		const stamp = await stat(ui);
+		await utimes(ui, stamp.atime, new Date());
+		await until(
+			async () =>
+				(await (await call(url, "/dev/ui-version")).text()) !== before,
+			"the web ui to rebuild",
+		);
+		expect(await (await call(url, "/app.js")).text()).toBe(scriptBefore);
 	});
 
 	it("runs the page with no general Telegram token and does not poll Telegram", async () => {

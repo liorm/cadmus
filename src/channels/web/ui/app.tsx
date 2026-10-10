@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from "preact/hooks";
 import {
 	createChat,
 	deleteChat,
@@ -6,10 +7,10 @@ import {
 	send,
 	watchChat,
 } from "./client.ts";
-import { ensureFiles, Knowledge } from "./knowledge.tsx";
+import { ensureFiles, Knowledge, KnowledgeList } from "./knowledge.tsx";
 import { renderMarkdown } from "./markdown.ts";
 import { BotDialog } from "./new-bot.tsx";
-import { ensureSchedules, Schedules } from "./schedules.tsx";
+import { ensureSchedules, ScheduleList, Schedules } from "./schedules.tsx";
 import {
 	banner,
 	botId,
@@ -34,6 +35,7 @@ import {
 	showList,
 	tab,
 } from "./state.ts";
+import { setTheme, THEMES, theme, themeLabel } from "./theme.ts";
 
 function tone(id: string): string {
 	const sum = [...id].reduce((total, char) => total + char.charCodeAt(0), 0);
@@ -45,43 +47,43 @@ function letter(name: string): string {
 }
 
 export function App() {
-	const chatsTab = tab.value === "chats";
-	const listOpen = narrow.value && chatsTab && showList.value;
-	const chatOpen = narrow.value && chatsTab && !showList.value;
+	const listOpen = narrow.value && showList.value;
+	const chatOpen = narrow.value && !showList.value;
 	return (
 		<div
 			class={`app ${listOpen ? "list-open" : ""} ${chatOpen ? "chat-open" : ""}`}
 		>
 			<nav class="rail">
-				{bots.value.map((bot) => (
+				<div class="bots">
+					{bots.value.map((bot) => (
+						<button
+							type="button"
+							key={bot.id}
+							class={`av ${tone(bot.id)} ${bot.id === botId.value ? "sel" : ""}`}
+							title={bot.name}
+							onClick={() => void openBot(bot.id).catch(showError)}
+						>
+							{letter(bot.name)}
+						</button>
+					))}
 					<button
 						type="button"
-						key={bot.id}
-						class={`av ${tone(bot.id)} ${bot.id === botId.value ? "sel" : ""}`}
-						title={bot.name}
-						onClick={() => void openBot(bot.id).catch(showError)}
+						class="av add"
+						title="New bot"
+						onClick={() => (modal.value = "create")}
 					>
-						{letter(bot.name)}
+						+
 					</button>
-				))}
-				<button
-					type="button"
-					class="av add"
-					title="New bot"
-					onClick={() => (modal.value = "create")}
-				>
-					+
-				</button>
+				</div>
+				<ProfileMenu />
 			</nav>
+			<Side />
 			{tab.value === "knowledge" ? (
 				<Knowledge />
 			) : tab.value === "schedules" ? (
 				<Schedules />
 			) : (
-				<>
-					<Side />
-					<Main />
-				</>
+				<Main />
 			)}
 			{modal.value ? <BotDialog /> : null}
 		</div>
@@ -112,14 +114,150 @@ function Side() {
 				</div>
 			</div>
 			<Tabs count={count} />
-			{tab.value === "chats" ? <ChatList /> : null}
+			{tab.value === "chats" ? (
+				<ChatList />
+			) : tab.value === "knowledge" ? (
+				<KnowledgeList />
+			) : tab.value === "schedules" ? (
+				<ScheduleList />
+			) : null}
 		</aside>
+	);
+}
+
+function ProfileMenu() {
+	const [open, setOpen] = useState(false);
+	const root = useRef<HTMLDivElement>(null);
+	useEffect(() => {
+		if (!open) return;
+		const close = (event: PointerEvent) => {
+			const node = root.current;
+			if (node && event.target instanceof Node && node.contains(event.target))
+				return;
+			setOpen(false);
+		};
+		document.addEventListener("pointerdown", close);
+		return () => document.removeEventListener("pointerdown", close);
+	}, [open]);
+	return (
+		<div class="profile" ref={root}>
+			<button
+				type="button"
+				class="av profile-btn"
+				title="Profile"
+				aria-expanded={open}
+				onClick={() => setOpen((value) => !value)}
+			>
+				<UserIcon />
+			</button>
+			{open ? (
+				<div class="pmenu">
+					<div class="who">Profile</div>
+					<div class="prow">
+						<span>Theme</span>
+						<div class="ticons">
+							{THEMES.map((id) => (
+								<button
+									type="button"
+									key={id}
+									title={themeLabel(id)}
+									aria-label={themeLabel(id)}
+									class={theme.value === id ? "on" : ""}
+									onClick={() => setTheme(id)}
+								>
+									{id === "light" ? (
+										<SunIcon />
+									) : id === "dark" ? (
+										<MoonIcon />
+									) : (
+										<FlameIcon />
+									)}
+								</button>
+							))}
+						</div>
+					</div>
+				</div>
+			) : null}
+		</div>
+	);
+}
+
+function UserIcon() {
+	return (
+		<svg
+			viewBox="0 0 24 24"
+			width="18"
+			height="18"
+			aria-hidden="true"
+			fill="none"
+			stroke="currentColor"
+			stroke-width="1.8"
+			stroke-linecap="round"
+		>
+			<circle cx="12" cy="8" r="3" />
+			<path d="M5.5 19.5c1.4-3 3.4-4.5 6.5-4.5s5.1 1.5 6.5 4.5" />
+		</svg>
+	);
+}
+
+function SunIcon() {
+	return (
+		<svg
+			viewBox="0 0 24 24"
+			width="16"
+			height="16"
+			aria-hidden="true"
+			fill="none"
+			stroke="currentColor"
+			stroke-width="1.8"
+			stroke-linecap="round"
+		>
+			<circle cx="12" cy="12" r="3.2" />
+			<path d="M12 3.5v2M12 18.5v2M3.5 12h2M18.5 12h2M6 6l1.4 1.4M16.6 16.6 18 18M18 6l-1.4 1.4M7.4 16.6 6 18" />
+		</svg>
+	);
+}
+
+function MoonIcon() {
+	return (
+		<svg
+			viewBox="0 0 24 24"
+			width="16"
+			height="16"
+			aria-hidden="true"
+			fill="none"
+			stroke="currentColor"
+			stroke-width="1.8"
+			stroke-linecap="round"
+			stroke-linejoin="round"
+		>
+			<path d="M20 14.5A8 8 0 1 1 9.5 4 6.5 6.5 0 0 0 20 14.5z" />
+		</svg>
+	);
+}
+
+function FlameIcon() {
+	return (
+		<svg
+			viewBox="0 0 24 24"
+			width="16"
+			height="16"
+			aria-hidden="true"
+			fill="none"
+			stroke="currentColor"
+			stroke-width="1.8"
+			stroke-linecap="round"
+			stroke-linejoin="round"
+		>
+			<path d="M12 3c.4 3-1.2 4.6-1.2 7.2A3.2 3.2 0 0 0 14 13c0-1.6.8-2.6 1.4-3.6C17.6 12 19 14 19 16.2A7 7 0 0 1 5 16c0-2.8 2.2-4.6 2.2-7.2C8.6 7.2 10 6 12 3z" />
+		</svg>
 	);
 }
 
 function Tabs({ count }: { count: number }) {
 	const pick = (next: "chats" | "knowledge" | "schedules") => {
 		tab.value = next;
+		showList.value = true;
 		if (next === "knowledge") ensureFiles();
 		if (next === "schedules") ensureSchedules();
 	};
