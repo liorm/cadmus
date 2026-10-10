@@ -367,6 +367,89 @@ describe("web channel", () => {
 		).toBe(false);
 	});
 
+	it("lists xai and faux models and stores a custom SOUL.md", async () => {
+		const { url } = await boot();
+		const catalog = await json<{
+			providers: { id: string; models: string[] }[];
+		}>(url, "/api/models");
+		expect(catalog.providers.map((provider) => provider.id)).toEqual([
+			"xai",
+			"faux",
+		]);
+		expect(
+			catalog.providers.find((provider) => provider.id === "xai")?.models,
+		).toContain("grok-4.7");
+		expect(
+			catalog.providers.find((provider) => provider.id === "faux")?.models,
+		).toEqual(["echo"]);
+		const created = await json<{ bot: { id: string; tools?: string[] } }>(
+			url,
+			"/api/bots",
+			{
+				method: "POST",
+				body: JSON.stringify({
+					name: "Persona",
+					model: "faux/echo",
+					thinking: "low",
+					tools: ["web.fetch"],
+					soul: "CUSTOM SOUL\n",
+				}),
+			},
+		);
+		const soul = await json<{ text: string }>(
+			url,
+			`/api/bots/${created.bot.id}/files/SOUL.md`,
+		);
+		expect(soul.text).toBe("CUSTOM SOUL\n");
+		const system = await json<{ text: string }>(
+			url,
+			`/api/bots/${created.bot.id}/files/SYSTEM.md`,
+		);
+		expect(system.text).toContain("Knowledge lives in knowledge/");
+		const patched = await call(url, `/api/bots/${created.bot.id}`, {
+			method: "PATCH",
+			body: JSON.stringify({
+				name: "Persona renamed",
+				model: "xai/grok-4.7",
+				thinking: "high",
+				tools: ["web.search"],
+			}),
+		});
+		expect(patched.status).toBe(200);
+		egress.telegramFor("123:persona");
+		const door = await call(url, `/api/bots/${created.bot.id}/telegram`, {
+			method: "PUT",
+			body: JSON.stringify({ token: "123:persona" }),
+		});
+		expect(door.status).toBe(200);
+		const bots = await json<{
+			bots: {
+				id: string;
+				name: string;
+				model: string;
+				tools?: string[];
+				telegramConfigured?: boolean;
+				telegramToken?: string;
+			}[];
+		}>(url, "/api/bots");
+		const bot = bots.bots.find((item) => item.id === created.bot.id);
+		expect(bot?.name).toBe("Persona renamed");
+		expect(bot?.model).toBe("xai/grok-4.7");
+		expect(bot?.tools).toEqual(["web.search"]);
+		expect(bot?.telegramConfigured).toBe(true);
+		expect(bot?.telegramToken).toBeUndefined();
+		const rejected = await call(url, "/api/bots", {
+			method: "POST",
+			body: JSON.stringify({
+				name: "Files",
+				model: "faux/echo",
+				thinking: "off",
+				tools: ["read"],
+			}),
+		});
+		expect(rejected.status).toBe(422);
+	});
+
 	it("patching a bot does not rewrite the conversation it already has", async () => {
 		const { app, url } = await boot();
 		const created = await json<{ bot: { id: string } }>(url, "/api/bots", {

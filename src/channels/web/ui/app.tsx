@@ -1,16 +1,14 @@
-import { useState } from "preact/hooks";
 import {
 	createChat,
 	deleteChat,
 	openBot,
 	renameChat,
 	send,
-	setTelegramToken,
 	watchChat,
 } from "./client.ts";
 import { ensureFiles, Knowledge } from "./knowledge.tsx";
 import { renderMarkdown } from "./markdown.ts";
-import { NewBot } from "./new-bot.tsx";
+import { BotDialog } from "./new-bot.tsx";
 import { ensureSchedules, Schedules } from "./schedules.tsx";
 import {
 	banner,
@@ -70,7 +68,7 @@ export function App() {
 					type="button"
 					class="av add"
 					title="New bot"
-					onClick={() => (modal.value = true)}
+					onClick={() => (modal.value = "create")}
 				>
 					+
 				</button>
@@ -85,7 +83,7 @@ export function App() {
 					<Main />
 				</>
 			)}
-			{modal.value ? <NewBot /> : null}
+			{modal.value ? <BotDialog /> : null}
 		</div>
 	);
 }
@@ -114,17 +112,13 @@ function Side() {
 				</div>
 			</div>
 			<Tabs count={count} />
-			{tab.value === "chats" ? (
-				<ChatList />
-			) : tab.value === "settings" ? (
-				<SettingsForm />
-			) : null}
+			{tab.value === "chats" ? <ChatList /> : null}
 		</aside>
 	);
 }
 
 function Tabs({ count }: { count: number }) {
-	const pick = (next: "chats" | "knowledge" | "schedules" | "settings") => {
+	const pick = (next: "chats" | "knowledge" | "schedules") => {
 		tab.value = next;
 		if (next === "knowledge") ensureFiles();
 		if (next === "schedules") ensureSchedules();
@@ -154,8 +148,8 @@ function Tabs({ count }: { count: number }) {
 			</button>
 			<button
 				type="button"
-				class={tab.value === "settings" ? "on" : ""}
-				onClick={() => pick("settings")}
+				title="Settings"
+				onClick={() => (modal.value = "edit")}
 			>
 				⚙
 			</button>
@@ -216,76 +210,9 @@ function rowPreview(chat: Chat): string {
 	return last && "text" in last ? last.text : "New chat";
 }
 
-function SettingsForm() {
-	const bot = selectedBot();
-	const [token, setToken] = useState("");
-	const save = () => {
-		void setTelegramToken(token.trim() ? token.trim() : null)
-			.then(() => setToken(""))
-			.catch(showError);
-	};
-	return (
-		<div class="pg">
-			<div class="f">
-				<label>
-					Telegram token
-					<input
-						class="inp"
-						type="password"
-						autocomplete="off"
-						placeholder={
-							bot?.telegramConfigured ? "Configured" : "Not configured"
-						}
-						value={token}
-						onInput={(event) =>
-							setToken((event.currentTarget as HTMLInputElement).value)
-						}
-					/>
-				</label>
-			</div>
-			<p class="mu" style="margin-top:8px">
-				{bot?.telegramConfigured
-					? "A door is open for this bot. The token is not shown again."
-					: "No token stored."}
-			</p>
-			<div class="actions">
-				<button type="button" class="btn pri" onClick={save}>
-					Save
-				</button>
-				<button
-					type="button"
-					class="btn ghost"
-					onClick={() =>
-						void setTelegramToken(null)
-							.then(() => setToken(""))
-							.catch(showError)
-					}
-				>
-					Clear
-				</button>
-			</div>
-		</div>
-	);
-}
-
 function Main() {
 	const key = chatKey.value;
 	const bot = selectedBot();
-	if (tab.value === "settings") {
-		return (
-			<main class="main">
-				<div class="hd">
-					<div class="t">Settings</div>
-				</div>
-				<div class="pg">
-					<p class="mu">
-						The Telegram token stays on this bot. It is omitted from the bot
-						list and from prompts.
-					</p>
-				</div>
-			</main>
-		);
-	}
 	if (!key) {
 		return (
 			<main class="main">

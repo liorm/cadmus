@@ -306,16 +306,65 @@ export async function deleteChat(): Promise<void> {
 	await loadChats();
 }
 
-export async function createBot(input: {
+export async function loadModels(): Promise<
+	{ id: string; models: string[] }[]
+> {
+	const body = await api<{ providers: { id: string; models: string[] }[] }>(
+		"/api/models",
+	);
+	return body.providers;
+}
+
+export async function readBotText(path: string): Promise<string> {
+	const body = await api<{ text: string }>(
+		`/api/bots/${encodeURIComponent(botId.value)}/files/${encodeURIComponent(path)}`,
+	);
+	return body.text;
+}
+
+export async function writeBotText(path: string, text: string): Promise<void> {
+	await api(
+		`/api/bots/${encodeURIComponent(botId.value)}/files/${encodeURIComponent(path)}`,
+		{
+			method: "PUT",
+			body: JSON.stringify({ text }),
+		},
+	);
+	if (filePath.value === path) fileText.value = text;
+}
+
+export async function updateBot(input: {
 	name: string;
 	model: string;
 	thinking: string;
 	tools: string[];
 }): Promise<void> {
+	const body = await api<{ bot: Bot }>(
+		`/api/bots/${encodeURIComponent(botId.value)}`,
+		{
+			method: "PATCH",
+			body: JSON.stringify(input),
+		},
+	);
+	bots.value = bots.value.map((bot) =>
+		bot.id === body.bot.id ? { ...bot, ...body.bot } : bot,
+	);
+}
+
+export async function createBot(input: {
+	name: string;
+	model: string;
+	thinking: string;
+	tools: string[];
+	soul: string;
+	token?: string;
+}): Promise<void> {
+	const { token, ...row } = input;
 	const body = await api<{ bot: Bot }>("/api/bots", {
 		method: "POST",
-		body: JSON.stringify(input),
+		body: JSON.stringify(row),
 	});
 	await loadBots();
 	await openBot(body.bot.id);
+	if (token) await setTelegramToken(token);
 }

@@ -127,6 +127,8 @@ export type BotWrite = {
 	model: string;
 	thinking: string;
 	tools?: string[];
+	/** Initial `SOUL.md`. Omitted means the default persona. */
+	soul?: string;
 };
 
 export type BotFailure = { ok: false; status: 422; error: string };
@@ -172,10 +174,14 @@ async function takenBotIds(
 	return taken;
 }
 
-async function writeNewBotFiles(home: string, id: string): Promise<void> {
+async function writeNewBotFiles(
+	home: string,
+	id: string,
+	soul?: string,
+): Promise<void> {
 	const dir = botDir(home, id);
 	await mkdir(join(dir, "knowledge"), { recursive: true });
-	await writeFile(join(dir, "SOUL.md"), `${DEFAULT_SOUL}\n`);
+	await writeFile(join(dir, "SOUL.md"), soul ?? `${DEFAULT_SOUL}\n`);
 	await writeFile(join(dir, "SYSTEM.md"), `${SYSTEM_SEED}\n`);
 }
 
@@ -194,7 +200,7 @@ export async function createBot(
 	const id = allocateBotId(base, await takenBotIds(harness, home));
 	const dir = botDir(home, id);
 	try {
-		await writeNewBotFiles(home, id);
+		await writeNewBotFiles(home, id, input.soul);
 	} catch (error) {
 		await rm(dir, { recursive: true, force: true });
 		throw error;
