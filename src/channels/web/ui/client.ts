@@ -178,13 +178,22 @@ export async function createChat(): Promise<void> {
 	watchChat(body.chat.key);
 }
 
+/** Id for one send. `randomUUID` is missing on http:// pages that are not localhost. */
+function clientMessageId(): string {
+	const bytes = new Uint8Array(16);
+	crypto.getRandomValues(bytes);
+	return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join(
+		"",
+	);
+}
+
 export async function send(text: string): Promise<void> {
 	const key = chatKey.value;
 	if (!key) return;
 	banner.value = "";
 	await api(`/api/chats/${encodeURIComponent(key)}/messages`, {
 		method: "POST",
-		body: JSON.stringify({ clientMsgId: crypto.randomUUID(), text }),
+		body: JSON.stringify({ clientMsgId: clientMessageId(), text }),
 	});
 }
 
