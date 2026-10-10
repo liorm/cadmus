@@ -9,6 +9,7 @@ import { parseUserIds } from "../src/config.ts";
 import { dayLine } from "../src/extensions/identity.ts";
 import { slugifyBotName } from "../src/channels/bot-slug.ts";
 import { parseDescription, parseSlug } from "../src/extensions/knowledge.ts";
+import { nextCron, parseCron } from "../src/schedules/cron.ts";
 import { getLogger, setupLogger } from "../src/log.ts";
 import { modelConfigFromEnv, parseModelRef } from "../src/harness/models.ts";
 
@@ -108,6 +109,39 @@ describe("pure helpers", () => {
 		expect(lines[1]).toContain("ERROR shutdown failed error=boom");
 		expect(lines[1]).toContain("Error: boom");
 		setupLogger({ type: "silent" });
+	});
+
+	it("parses five-field cron and rejects the rest", () => {
+		const daily = parseCron("0 8 * * *");
+		expect(daily?.minute.has(0)).toBe(true);
+		expect(daily?.hour.has(8)).toBe(true);
+		expect(daily?.weekday.size).toBe(7);
+		const stepped = parseCron("*/15 0 1,15 1-3 1-5");
+		expect([...(stepped?.minute ?? [])].sort((a, b) => a - b)).toEqual([0, 15, 30, 45]);
+		expect([...(stepped?.day ?? [])].sort((a, b) => a - b)).toEqual([1, 15]);
+		expect([...(stepped?.month ?? [])].sort((a, b) => a - b)).toEqual([1, 2, 3]);
+		expect([...(stepped?.weekday ?? [])].sort((a, b) => a - b)).toEqual([1, 2, 3, 4, 5]);
+		expect(parseCron("0 8 * *")).toBeUndefined();
+		expect(parseCron("0 8 * * * *")).toBeUndefined();
+		expect(parseCron("0 8 * * MON")).toBeUndefined();
+		expect(parseCron("@daily")).toBeUndefined();
+		expect(parseCron("60 8 * * *")).toBeUndefined();
+		expect(parseCron("0 24 * * *")).toBeUndefined();
+		expect(parseCron("0 8 32 * *")).toBeUndefined();
+
+		const zone = "Asia/Jerusalem";
+		const after = Date.parse("2026-10-10T12:00:00Z");
+		const sunday = nextCron(parseCron("0 0 * * 0")!, after, zone);
+		expect(sunday).toBe(nextCron(parseCron("0 0 * * 7")!, after, zone));
+		expect(sunday).toBeGreaterThan(after);
+		const weekday = new Intl.DateTimeFormat("en-US", { timeZone: zone, weekday: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(sunday!));
+		expect(weekday.startsWith("Sun")).toBe(true);
+		expect(weekday.endsWith("00")).toBe(true);
+
+		const quarter = nextCron(parseCron("*/15 * * * *")!, after, zone)!;
+		const minute = Number(new Intl.DateTimeFormat("en-US", { timeZone: zone, minute: "2-digit" }).format(new Date(quarter)));
+		expect(minute % 15).toBe(0);
+		expect(quarter - after).toBeLessThanOrEqual(15 * 60 * 1000);
 	});
 
 	it("renders a daily date line", () => {

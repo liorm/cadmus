@@ -1,7 +1,32 @@
 import { renderMarkdown } from "./markdown.ts";
-import { createChat, openBot, send, watchChat } from "./client.ts";
-import { banner, botId, bots, busy, chatKey, chats, draft, liveTools, messages, modal, partial, selectedBot, tab, type Chat, type Item } from "./state.ts";
+import { createChat, deleteChat, openBot, renameChat, send, setTelegramToken, watchChat } from "./client.ts";
+import { ensureFiles, Knowledge } from "./knowledge.tsx";
+import { ensureSchedules, Schedules } from "./schedules.tsx";
+import {
+	banner,
+	botId,
+	bots,
+	busy,
+	chatKey,
+	chats,
+	contextPercent,
+	draft,
+	liveTools,
+	messages,
+	modal,
+	narrow,
+	notes,
+	openNote,
+	partial,
+	selectedBot,
+	showList,
+	tab,
+	type Chat,
+	type HarvestNote,
+	type Item,
+} from "./state.ts";
 import { NewBot } from "./new-bot.tsx";
+import { useState } from "preact/hooks";
 
 function tone(id: string): string {
 	const sum = [...id].reduce((total, char) => total + char.charCodeAt(0), 0);
@@ -13,8 +38,11 @@ function letter(name: string): string {
 }
 
 export function App() {
+	const chatsTab = tab.value === "chats";
+	const listOpen = narrow.value && chatsTab && showList.value;
+	const chatOpen = narrow.value && chatsTab && !showList.value;
 	return (
-		<div class="app">
+		<div class={`app ${listOpen ? "list-open" : ""} ${chatOpen ? "chat-open" : ""}`}>
 			<nav class="rail">
 				{bots.value.map((bot) => (
 					<button key={bot.id} class={`av ${tone(bot.id)} ${bot.id === botId.value ? "sel" : ""}`} title={bot.name} onClick={() => void openBot(bot.id).catch(showError)}>
@@ -23,8 +51,7 @@ export function App() {
 				))}
 				<button class="av add" title="New bot" onClick={() => (modal.value = true)}>+</button>
 			</nav>
-			<Side />
-			<Main />
+			{tab.value === "knowledge" ? <Knowledge /> : tab.value === "schedules" ? <Schedules /> : <><Side /><Main /></>}
 			{modal.value ? <NewBot /> : null}
 		</div>
 	);
@@ -41,19 +68,31 @@ function Side() {
 		<aside class="side">
 			<div class="bh">
 				<div class="n">
-					{bot?.name ?? "Bot"} {bot?.id === "default" ? <span class="tg">TG</span> : null}
+					{bot?.name ?? "Bot"} {bot?.telegramConfigured || bot?.id === "default" ? <span class="tg">TG</span> : null}
 				</div>
 				<div class="m">
 					{bot ? `${bot.id} · ${bot.model}${bot.thinking ? ` · ${bot.thinking}` : ""}` : ""}
 				</div>
 			</div>
-			<div class="tabs">
-				<span class={tab.value === "chats" ? "on" : ""} onClick={() => (tab.value = "chats")}>Chats {count}</span>
-				<span class={tab.value === "knowledge" ? "on" : ""} onClick={() => (tab.value = "knowledge")}>Knowledge</span>
-				<span class={tab.value === "schedules" ? "on" : ""} onClick={() => (tab.value = "schedules")}>Schedules</span>
-			</div>
-			{tab.value === "chats" ? <ChatList /> : <div class="pg"><p class="mu">Nothing here yet.</p></div>}
+			<Tabs count={count} />
+			{tab.value === "chats" ? <ChatList /> : tab.value === "settings" ? <SettingsForm /> : null}
 		</aside>
+	);
+}
+
+function Tabs({ count }: { count: number }) {
+	const pick = (next: "chats" | "knowledge" | "schedules" | "settings") => {
+		tab.value = next;
+		if (next === "knowledge") ensureFiles();
+		if (next === "schedules") ensureSchedules();
+	};
+	return (
+		<div class="tabs">
+			<span class={tab.value === "chats" ? "on" : ""} onClick={() => pick("chats")}>Chats {count}</span>
+			<span class={tab.value === "knowledge" ? "on" : ""} onClick={() => pick("knowledge")}>Knowledge</span>
+			<span class={tab.value === "schedules" ? "on" : ""} onClick={() => pick("schedules")}>Schedules</span>
+			<span class={tab.value === "settings" ? "on" : ""} onClick={() => pick("settings")}>⚙</span>
+		</div>
 	);
 }
 
@@ -76,6 +115,7 @@ function ChatList() {
 }
 
 function rowTitle(chat: Chat): string {
+	if (chat.title) return chat.title;
 	if (chat.key === chatKey.value) {
 		const first = messages.value.find((item) => item.type === "user");
 		if (first && first.type === "user") return first.text.slice(0, 42);
@@ -89,14 +129,37 @@ function rowPreview(chat: Chat): string {
 	return last && "text" in last ? last.text : "New chat";
 }
 
+function SettingsForm() {
+	const bot = selectedBot();
+	const [token, setToken] = useState("");
+	const save = () => {
+		void setTelegramToken(token.trim() ? token.trim() : null)
+			.then(() => setToken(""))
+			.catch(showError);
+	};
+	return (
+		<div class="pg">
+			<div class="f">
+				<label>Telegram token</label>
+				<input class="inp" type="password" autocomplete="off" placeholder={bot?.telegramConfigured ? "Configured" : "Not configured"} value={token} onInput={(event) => setToken((event.currentTarget as HTMLInputElement).value)} />
+			</div>
+			<p class="mu" style="margin-top:8px">{bot?.telegramConfigured ? "A door is open for this bot. The token is not shown again." : "No token stored."}</p>
+			<div class="actions">
+				<button class="btn pri" onClick={save}>Save</button>
+				<button class="btn ghost" onClick={() => void setTelegramToken(null).then(() => setToken("")).catch(showError)}>Clear</button>
+			</div>
+		</div>
+	);
+}
+
 function Main() {
 	const key = chatKey.value;
 	const bot = selectedBot();
-	if (tab.value !== "chats") {
+	if (tab.value === "settings") {
 		return (
 			<main class="main">
-				<div class="hd"><div class="t">{tab.value === "knowledge" ? "Knowledge" : "Schedules"}</div></div>
-				<div class="pg"><p class="mu">Nothing here yet.</p></div>
+				<div class="hd"><div class="t">Settings</div></div>
+				<div class="pg"><p class="mu">The Telegram token stays on this bot. It is omitted from the bot list and from prompts.</p></div>
 			</main>
 		);
 	}
@@ -108,20 +171,29 @@ function Main() {
 			</main>
 		);
 	}
+	const stored = chats.value.find((chat) => chat.key === key);
 	const first = messages.value.find((item) => item.type === "user");
-	const title = first && first.type === "user" ? first.text.slice(0, 64) : "New chat";
+	const title = stored?.title ?? (first && first.type === "user" ? first.text.slice(0, 64) : "New chat");
+	const percent = contextPercent.value;
 	return (
 		<main class="main">
 			<div class="hd">
+				<button class="back" title="Chats" onClick={() => (showList.value = true)}>‹</button>
 				<div class={`av ${tone(bot?.id ?? "default")}`} style="width:36px;height:36px;border-radius:10px">{letter(bot?.name ?? "?")}</div>
 				<div>
 					<div class="t">{title}</div>
 					<div class="key">{key}{bot ? ` · ${bot.model}` : ""}</div>
 				</div>
+				<div class="r">
+					{percent === undefined ? null : <span class="tag">ctx {percent}%</span>}
+					<button class="btn ghost" onClick={() => void send("/status").catch(showError)}>/status</button>
+					<button class="btn ghost" onClick={() => void askRename().catch(showError)}>Rename</button>
+					<button class="btn ghost" onClick={() => void deleteChat().catch(showError)}>Delete</button>
+				</div>
 			</div>
 			{banner.value ? <div class="errbox" style="margin:12px 20px 0">{banner.value}</div> : null}
 			<div class="msgs">
-				{messages.value.map((item) => <Bubble key={item.id} item={item} />)}
+				<Timeline />
 				{partial.value || liveTools.value.length > 0 ? (
 					<div class="b">
 						{liveTools.value.map((tool) => <Chip key={`${tool.name}:${tool.status}`} name={tool.name} status={tool.status} />)}
@@ -133,6 +205,61 @@ function Main() {
 			<Composer />
 		</main>
 	);
+}
+
+function Timeline() {
+	const placed = new Set<string>();
+	const rows = [];
+	for (const item of messages.value) {
+		rows.push(<Bubble key={String(item.id)} item={item} />);
+		if (typeof item.id !== "number") continue;
+		for (const note of notes.value) {
+			if (note.at !== item.id) continue;
+			const id = `${note.at}:${note.when}`;
+			if (placed.has(id)) continue;
+			placed.add(id);
+			rows.push(<Harvest key={id} note={note} />);
+		}
+	}
+	for (const note of notes.value) {
+		const id = `${note.at}:${note.when}`;
+		if (placed.has(id)) continue;
+		rows.push(<Harvest key={id} note={note} />);
+	}
+	return <>{rows}</>;
+}
+
+function Harvest({ note }: { note: HarvestNote }) {
+	const id = note.at * 100000 + note.when;
+	const open = openNote.value === note.when;
+	const names = note.files.map((file) => file.path.split("/").pop()).join(", ");
+	return (
+		<div class="note">
+			<button class="nh" onClick={() => (openNote.value = open ? null : note.when)}>
+				<span class="pill">⋔ Knowledge updated <span class="mu2">· {names} · {new Date(note.when).toLocaleTimeString()}</span> {open ? "▾" : "▸"}</span>
+			</button>
+			{open ? (
+				<div class="body">
+					<div class="bh"><b>Harvest of this chat</b><span class="mu">forked after idle</span><span class="tag">not sent to the model</span></div>
+					{note.files.map((file) => (
+						<div key={file.path} class="fl"><span class="ok">M</span>{file.path}</div>
+					))}
+					<div class="diff">
+						{note.files.map((file) => file.diff.split("\n").map((line, index) => (
+							<div key={`${file.path}:${index}`} class={line.startsWith("+") ? "a" : line.startsWith("-") ? "r" : line.startsWith("@@") ? "h" : ""}>{line}</div>
+						)))}
+					</div>
+					<div class="nf"><span class="mono">harvest note {id}</span></div>
+				</div>
+			) : null}
+		</div>
+	);
+}
+
+async function askRename() {
+	const title = window.prompt("Chat title", chats.value.find((chat) => chat.key === chatKey.value)?.title ?? "");
+	if (!title?.trim()) return;
+	await renameChat(title.trim());
 }
 
 function Bubble({ item }: { item: Item }) {
@@ -189,4 +316,3 @@ function Composer() {
 		</div>
 	);
 }
-

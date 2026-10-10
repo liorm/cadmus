@@ -84,10 +84,22 @@ export class Deliverer {
 
 	private readonly harness: Harness;
 	private readonly transport: TelegramTransport;
+	readonly #bots = new Map<string, TelegramTransport>();
 
 	constructor(harness: Harness, transport: TelegramTransport) {
 		this.harness = harness;
 		this.transport = transport;
+	}
+
+	/** The transport for `:tg:bot:` chats. Clearing it skips sends until the token is set again. */
+	setBotTransport(botId: string, transport: TelegramTransport | undefined): void {
+		if (transport) this.#bots.set(botId, transport);
+		else this.#bots.delete(botId);
+	}
+
+	#transportFor(chat: ChatRecord): TelegramTransport | undefined {
+		if (chat.key.includes(":tg:bot:")) return chat.botId ? this.#bots.get(chat.botId) : undefined;
+		return this.transport;
 	}
 
 	/** Serialize all delivery work of one chat. */
@@ -112,7 +124,7 @@ export class Deliverer {
 
 	/** Send every committed final answer of the chat that has no receipt yet, oldest first. Web chats are skipped. */
 	kick(chat: ChatRecord): Promise<void> {
-		if (!hasTelegramAddress(chat)) return Promise.resolve();
+		if (!hasTelegramAddress(chat) || !this.#transportFor(chat)) return Promise.resolve();
 		return this.#serial(chat, () => this.#deliverAnswers(chat)).catch((error) => {
 			getLogger().error(`Delivery sweep failed for chat ${chat.key}`, { error });
 		});
@@ -124,7 +136,7 @@ export class Deliverer {
 
 	/** A bot-originated message (command reply, error notice) with its own receipt key; sent at most once. */
 	notice(chat: ChatRecord, key: string, text: string): Promise<DeliveryStatus | "duplicate"> {
-		if (!hasTelegramAddress(chat)) return Promise.resolve("duplicate");
+		if (!hasTelegramAddress(chat) || !this.#transportFor(chat)) return Promise.resolve("duplicate");
 		return this.#serial(chat, async () => {
 			const receiptKey = `notice:${key}`;
 			const claim = await this.harness.commit(async (tx) => {
@@ -186,13 +198,14 @@ export class Deliverer {
 
 	/** The effect between the `sending` claim and its outcome. A throw may still have delivered: never retried. */
 	async #send(chat: ChatRecord, key: string, text: string): Promise<DeliveryStatus> {
-		if (chat.chatId === undefined) return "unknown";
+		const transport = this.#transportFor(chat);
+		if (chat.chatId === undefined || !transport) return "unknown";
 		const messageIds: number[] = [];
 		let status: DeliveryStatus = "sent";
 		let error: string | undefined;
 		try {
 			for (const chunk of chunkText(text)) {
-				const sent = await this.transport.sendMessage(chat.chatId, chunk, {
+				const sent = await transport.sendMessage(chat.chatId, chunk, {
 					...(chat.threadId === undefined ? {} : { threadId: chat.threadId }),
 				});
 				messageIds.push(sent.messageId);

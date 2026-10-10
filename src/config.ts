@@ -29,6 +29,8 @@ export type Config = {
 	readonly logLevel: string;
 	/** How often every chat is swept for undelivered final answers (safety net; ms). */
 	readonly deliverySweepMs: number;
+	/** Idle time before a chat is forked to improve knowledge. Default 60 seconds. Not stored on the bot. */
+	readonly harvestDelayMs: number;
 };
 
 export function parseUserIds(raw: string | undefined): Set<number> {
@@ -68,5 +70,14 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): Config {
 		timeZone: env.PI_BOT_TZ || Intl.DateTimeFormat().resolvedOptions().timeZone,
 		logLevel: env.LOG_LEVEL ?? "info",
 		deliverySweepMs: Number(env.PI_BOT_DELIVERY_SWEEP_MS ?? 15_000),
+		harvestDelayMs: harvestDelayFromEnv(env),
 	};
+}
+
+function harvestDelayFromEnv(env: NodeJS.ProcessEnv): number {
+	const raw = env.PI_BOT_HARVEST_DELAY_MS;
+	if (raw === undefined || raw === "") return 60_000;
+	const delay = Number(raw);
+	if (!Number.isFinite(delay) || delay < 0) throw new Error(`PI_BOT_HARVEST_DELAY_MS: expected milliseconds, got "${raw}"`);
+	return delay;
 }

@@ -279,10 +279,15 @@ function toolEvents(seq: number, name: string, args: Record<string, unknown>): R
 	];
 }
 
+const GENERAL_TOKEN = "123:test-token";
+
 export class FakeEgress {
 	readonly telegram = new FakeTelegram();
 	readonly xai = new FakeXai();
 	readonly server: ReturnType<typeof Bun.serve>;
+	/** Token bound to `telegram` by the first getUpdates that was not pre-registered. */
+	#primary: string | undefined;
+	readonly #extra = new Map<string, FakeTelegram>();
 
 	constructor() {
 		this.server = Bun.serve({
@@ -290,11 +295,11 @@ export class FakeEgress {
 			idleTimeout: 0,
 			fetch: async (request) => {
 				const url = new URL(request.url);
-				const tgMatch = /^\/telegram\/bot[^/]+\/([A-Za-z]+)$/.exec(url.pathname);
+				const tgMatch = /^\/telegram\/bot(.+)\/([A-Za-z]+)$/.exec(url.pathname);
 				if (tgMatch) {
 					const text = await request.text();
 					const params = text ? (request.headers.get("content-type")?.includes("json") ? JSON.parse(text) : Object.fromEntries(new URLSearchParams(text))) : {};
-					return this.telegram.handle(tgMatch[1]!, params);
+					return this.#telegramFor(decodeURIComponent(tgMatch[1]!)).handle(tgMatch[2]!, params);
 				}
 				if (url.pathname === "/xai-api/v1/responses") return this.xai.handleResponses(request);
 				if (url.pathname.startsWith("/xai-auth/"))
@@ -302,6 +307,44 @@ export class FakeEgress {
 				return new Response(`unmocked egress: ${request.method} ${url.pathname}`, { status: 599 });
 			},
 		});
+	}
+
+	/**
+	 * A second bot token gets its own update queue. The general test token stays on `telegram`
+	 * so a pre-registration cannot steal the queue the rest of the suite pushes into.
+	 */
+	telegramFor(token: string): FakeTelegram {
+		if (token === GENERAL_TOKEN || token === this.#primary) return this.telegram;
+		let queue = this.#extra.get(token);
+		if (!queue) {
+			queue = new FakeTelegram();
+			this.#extra.set(token, queue);
+		}
+		return queue;
+	}
+
+	/** General queue plus any extra that actually received updates. An unused extra counts as drained. */
+	queuesDrained(): boolean {
+		if (!this.telegram.drained()) return false;
+		for (const queue of this.#extra.values()) {
+			if (queue.updates.length === 0) continue;
+			if (!queue.drained()) return false;
+		}
+		return true;
+	}
+
+	#telegramFor(token: string): FakeTelegram {
+		if (this.#extra.has(token)) return this.#extra.get(token)!;
+		if (token === GENERAL_TOKEN) {
+			this.#primary = GENERAL_TOKEN;
+			return this.telegram;
+		}
+		if (this.#primary === undefined) {
+			this.#primary = token;
+			return this.telegram;
+		}
+		if (token === this.#primary) return this.telegram;
+		return this.telegramFor(token);
 	}
 
 	get url() {

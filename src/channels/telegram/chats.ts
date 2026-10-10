@@ -8,6 +8,8 @@ export type ChatRecord = {
 	/** `<botId>:tg:<ingress>:<chatId>` or `<botId>:web:<id>`. */
 	key: string;
 	botId?: string;
+	/** Set from the web page. Absent until the chat is renamed. */
+	title?: string;
 	/** Telegram user id of the person this chat's `disk/` belongs to. Filled from `from.id`. */
 	userId?: number;
 	/** Absent for a web chat, which has no Telegram address. */
@@ -16,12 +18,20 @@ export type ChatRecord = {
 	conversationId: ConversationId;
 };
 
-export const ChatsDoc = defineDoc<{ items: ChatRecord[] }>({
+export const ChatsDoc = defineDoc<{ items: ChatRecord[]; closed?: string[] }>({
 	kind: "pi-bot.telegram.chats",
 	version: 1,
 	scope: "session",
 	initial: () => ({ items: [] }),
 });
+
+/** The chat was deleted. The conversation log is still there; admission is not. */
+export class ChatClosed extends Error {
+	constructor(key: string) {
+		super(`Chat ${key} is closed`);
+		this.name = "ChatClosed";
+	}
+}
 
 export type ChatAddress = { chatId: number; threadId?: number };
 
@@ -88,6 +98,30 @@ export async function migrateLegacyChats(harness: Harness): Promise<void> {
 
 export async function listChats(harness: Harness): Promise<ChatRecord[]> {
 	return [...((await harness.snapshot(ChatsDoc, BACKGROUND_CONTEXT))?.items ?? [])];
+}
+
+export async function renameChat(harness: Harness, key: string, title: string): Promise<ChatRecord | undefined> {
+	return harness.commit(async (tx) => {
+		const chats = await tx.doc(ChatsDoc);
+		const chat = chats.items.find((item) => item.key === key);
+		if (!chat) return undefined;
+		chat.title = title;
+		return { ...chat };
+	}, BACKGROUND_CONTEXT);
+}
+
+/** Drop the row and refuse the key from here on. The conversation log stays. */
+export async function closeChat(harness: Harness, key: string): Promise<boolean> {
+	return harness.commit(async (tx) => {
+		const chats = await tx.doc(ChatsDoc);
+		const index = chats.items.findIndex((item) => item.key === key);
+		if (index < 0) return false;
+		chats.items.splice(index, 1);
+		const closed = chats.closed ?? [];
+		if (!closed.includes(key)) closed.push(key);
+		chats.closed = closed;
+		return true;
+	}, BACKGROUND_CONTEXT);
 }
 
 /** Telegram message → user input. Group messages carry the sender so the model can tell people apart. */

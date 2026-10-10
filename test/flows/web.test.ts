@@ -1,8 +1,10 @@
 // Web page and API through the real main(). Only egress is faked.
-import { writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { App } from "../../src/app.ts";
+import { listChats } from "../../src/channels/telegram/chats.ts";
 import { CHAT, FakeEgress } from "../egress/fake-egress.ts";
 import { routeEgress } from "../egress/route.ts";
 import { settle, startBot, tempHome, until } from "../support.ts";
@@ -275,6 +277,194 @@ describe("web channel", () => {
 		const transcript = await messages(second.url, key);
 		expect(transcript.some((item) => item.text === "remember me")).toBe(true);
 		expect(transcript.some((item) => item.text === "grok(1): remember me")).toBe(true);
+		await second.app.quiesce();
+	});
+
+	it("serves the knowledge editor, schedules, harvest row, and the mobile layout", async () => {
+		const { url } = await boot();
+		const script = await (await call(url, "/app.js")).text();
+		expect(script).toContain("Knowledge updated");
+		expect(script).toContain("Can't save");
+		expect(script).toContain("Run now");
+		expect(script).toContain("New schedule");
+		expect(script).toContain("/status");
+		const css = await (await call(url, "/app.css")).text();
+		expect(css).toContain("max-width: 700px");
+	});
+
+	it("rejects an invalid knowledge save and leaves the file unchanged", async () => {
+		const home = await tempHome();
+		const { url } = await boot(home);
+		const dir = join(home, "bots", "default", "knowledge");
+		await mkdir(dir, { recursive: true });
+		const original = "---\ndescription: Travel notes.\n---\n\nkeep me\n";
+		await writeFile(join(dir, "travel.md"), original);
+		const tooLong = `---\ndescription: ${"x".repeat(241)}\n---\n\nchanged\n`;
+		const rejected = await call(url, "/api/bots/default/files/knowledge/travel.md", {
+			method: "PUT",
+			body: JSON.stringify({ text: tooLong }),
+		});
+		expect(rejected.status).toBe(422);
+		expect(await readFile(join(dir, "travel.md"), "utf8")).toBe(original);
+		const escaped = await call(url, "/api/bots/default/files/..%2Fsecret.txt", {
+			method: "PUT",
+			body: JSON.stringify({ text: "nope" }),
+		});
+		expect(escaped.status).toBe(400);
+		expect(await readFile(join(dir, "travel.md"), "utf8")).toBe(original);
+	});
+
+	it("fires a past reminder once, hides harvest rows, and rejects a bad cron", async () => {
+		const { app, url } = await boot(undefined, { PI_BOT_HARVEST_DELAY_MS: "60000" });
+		egress.telegram.push("hi");
+		await until(() => egress.telegram.sent.length === 1, "the greeting reply");
+		await settle(app, egress);
+		const key = `default:tg:general:${CHAT}`;
+		const created = await call(url, "/api/bots/default/schedules", {
+			method: "POST",
+			body: JSON.stringify({
+				text: "remind the plumber",
+				kind: "when",
+				when: Date.now() - 1000,
+				target: { mode: "chat", chatId: key },
+			}),
+		});
+		expect(created.status).toBe(201);
+		await until(() => egress.telegram.texts().some((text) => text.includes("remind the plumber")), "the reminder");
+		await settle(app, egress);
+		expect(egress.telegram.texts().filter((text) => text.includes("remind the plumber"))).toHaveLength(1);
+		const listed = await json<{ schedules: { id: string }[] }>(url, "/api/bots/default/schedules");
+		expect(listed.schedules.some((row) => row.id.startsWith("harvest:"))).toBe(false);
+		const bad = await call(url, "/api/bots/default/schedules", {
+			method: "POST",
+			body: JSON.stringify({
+				text: "never",
+				kind: "cron",
+				cron: "not a cron",
+				target: { mode: "new-chat" },
+			}),
+		});
+		expect(bad.status).toBe(422);
+		const after = await json<{ schedules: { id: string }[] }>(url, "/api/bots/default/schedules");
+		expect(after.schedules.map((row) => row.id)).toEqual(listed.schedules.map((row) => row.id));
+		await new Promise((resolve) => setTimeout(resolve, 300));
+		expect(egress.telegram.texts().filter((text) => text.includes("remind the plumber"))).toHaveLength(1);
+	});
+
+	it("records one harvest note that later model requests do not see", async () => {
+		const { app, url } = await boot(undefined, { PI_BOT_HARVEST_DELAY_MS: "300" });
+		const key = await createWebChat(url);
+		egress.xai.script.push({ text: "noted" });
+		egress.xai.script.push(
+			{ tool: { name: "write", arguments: { path: "knowledge/notes.md", content: "---\ndescription: Harvested notes.\n---\n\nHARVEST_BODY_LINE\n" } } },
+			{ text: "filed" },
+		);
+		const stream = readStream(url, key, "event: harvest");
+		await say(url, key, "hello harvest");
+		const seen = await stream;
+		expect(seen).toContain("HARVEST_BODY_LINE");
+		expect(egress.telegram.sent).toEqual([]);
+		await app.quiesce();
+		const before = egress.xai.requests.length;
+		await say(url, key, "what changed?");
+		await until(() => egress.xai.requests.length > before, "the follow-up");
+		await app.quiesce();
+		const follow = egress.xai.requests.find((request) => JSON.stringify(request.body).includes("what changed?"));
+		expect(follow).toBeDefined();
+		const body = JSON.stringify(follow!.body);
+		expect(body).not.toContain("HARVEST_BODY_LINE");
+		expect(body).not.toContain("Improve knowledge from this chat.");
+		const transcript = await messages(url, key);
+		expect(transcript.some((item) => item.type === "harvest")).toBe(true);
+		expect(transcript.some((item) => item.type === "user" && item.text === "Improve knowledge from this chat.")).toBe(false);
+	});
+
+	it("does not fork the same idle point again after a restart", async () => {
+		const home = await tempHome();
+		const first = await boot(home, { PI_BOT_HARVEST_DELAY_MS: "200" });
+		const key = await createWebChat(first.url);
+		egress.xai.script.push({ text: "ok" });
+		egress.xai.script.push(
+			{ tool: { name: "write", arguments: { path: "knowledge/notes.md", content: "---\ndescription: Kept.\n---\n\nHARVEST_BODY_LINE\n" } } },
+			{ text: "done" },
+		);
+		await say(first.url, key, "settle once");
+		await until(
+			() => egress.xai.requests.some((request) => JSON.stringify(request.body).includes("Improve knowledge from this chat.")),
+			"the harvest turn",
+		);
+		await first.app.quiesce();
+		const count = egress.xai.requests.length;
+		await first.app.stop();
+
+		const second = await boot(home, { PI_BOT_HARVEST_DELAY_MS: "200" });
+		await new Promise((resolve) => setTimeout(resolve, 300));
+		await second.app.quiesce();
+		const extra = egress.xai.requests.slice(count);
+		expect(extra.some((request) => JSON.stringify(request.body).includes("Improve knowledge from this chat."))).toBe(false);
+	});
+
+	it("admits the general token and a bot token as separate chats without leaking the token", async () => {
+		const { app, url } = await boot();
+		const saved = await call(url, "/api/bots/default/telegram", {
+			method: "PUT",
+			body: JSON.stringify({ token: "999:door-token" }),
+		});
+		expect(saved.status).toBe(200);
+		expect(await saved.json()).toEqual({ telegramConfigured: true });
+		const bots = await json<{ bots: { id: string; telegramConfigured?: boolean }[] }>(url, "/api/bots");
+		const encoded = JSON.stringify(bots);
+		expect(encoded).not.toContain("999:door-token");
+		expect(encoded).not.toContain("telegramToken");
+		expect(bots.bots.find((bot) => bot.id === "default")?.telegramConfigured).toBe(true);
+
+		const door = egress.telegramFor("999:door-token");
+		door.push("from the door");
+		egress.telegram.push("from general");
+		await until(() => door.sent.length === 1 && egress.telegram.sent.length === 1, "both doors to answer");
+		await settle(app, egress);
+		const chats = await json<{ chats: { key: string }[] }>(url, "/api/bots/default/chats");
+		const keys = chats.chats.map((chat) => chat.key);
+		expect(keys).toContain(`default:tg:general:${CHAT}`);
+		expect(keys).toContain(`default:tg:bot:${CHAT}`);
+		expect(door.texts()).toEqual(["grok(1): from the door"]);
+		expect(egress.telegram.texts()).toEqual(["grok(1): from general"]);
+	});
+
+	it("keeps a renamed chat across restart and refuses a deleted one", async () => {
+		const home = await tempHome();
+		const first = await boot(home);
+		const key = await createWebChat(first.url);
+		await say(first.url, key, "keep this");
+		await until(() => egress.xai.requests.length === 1, "the reply");
+		await first.app.quiesce();
+		const renamed = await call(first.url, `/api/chats/${encodeURIComponent(key)}`, {
+			method: "PATCH",
+			body: JSON.stringify({ title: "Lisbon" }),
+		});
+		expect(renamed.status).toBe(200);
+		await first.app.stop();
+
+		const second = await boot(home);
+		const chats = await json<{ chats: { key: string; title?: string }[] }>(second.url, "/api/bots/default/chats");
+		expect(chats.chats.find((chat) => chat.key === key)?.title).toBe("Lisbon");
+		const conversationId = (await listChats(second.app.harness)).find((chat) => chat.key === key)?.conversationId;
+		expect(conversationId).toBeDefined();
+		const removed = await call(second.url, `/api/chats/${encodeURIComponent(key)}`, { method: "DELETE" });
+		expect(removed.status).toBe(200);
+		const rejected = await call(second.url, `/api/chats/${encodeURIComponent(key)}/messages`, {
+			method: "POST",
+			body: JSON.stringify({ clientMsgId: "again", text: "still there?" }),
+		});
+		expect(rejected.status).toBe(404);
+		const reopened = await call(second.url, "/api/bots/default/chats", {
+			method: "POST",
+			body: JSON.stringify({ chatId: key.slice("default:web:".length) }),
+		});
+		expect(reopened.status).toBe(404);
+		const conversation = await second.app.harness.conversation(conversationId!, BACKGROUND_CONTEXT);
+		const page = await conversation!.entries({ order: "ascending" }, 20, undefined, BACKGROUND_CONTEXT);
+		expect(page.items.some((entry) => JSON.stringify(entry).includes("keep this"))).toBe(true);
 		await second.app.quiesce();
 	});
 });

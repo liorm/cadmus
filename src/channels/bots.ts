@@ -18,8 +18,18 @@ export type BotRecord = {
 	thinking: string;
 	/** Extra tool names such as `web.search`. Stored only; `read`, `write`, and `edit` are always on. */
 	tools?: string[];
+	/** Optional second Telegram door. Never returned by `GET /api/bots` and never placed in a prompt. */
+	telegramToken?: string;
 	createdAt: number;
 };
+
+/** What the page is allowed to see. The Telegram token stays on the stored row. */
+export type PublicBot = Omit<BotRecord, "telegramToken"> & { telegramConfigured: boolean };
+
+export function publicBot(bot: BotRecord): PublicBot {
+	const { telegramToken: _token, ...rest } = bot;
+	return { ...rest, ...(rest.tools ? { tools: [...rest.tools] } : {}), telegramConfigured: Boolean(bot.telegramToken) };
+}
 
 export const BotsDoc = defineDoc<{ items: BotRecord[] }>({
 	kind: "pi-bot.bots",
@@ -170,6 +180,18 @@ export async function createBot(harness: Harness, home: string, input: BotWrite)
 		throw error;
 	}
 	return { ok: true, bot: record };
+}
+
+/** Store or clear the per-bot Telegram token. Returns the full row, token included. */
+export async function setTelegramToken(harness: Harness, id: string, token: string | null): Promise<BotRecord | undefined> {
+	return harness.commit(async (tx) => {
+		const bots = await tx.doc(BotsDoc);
+		const bot = bots.items.find((item) => item.id === id);
+		if (!bot) return undefined;
+		if (token) bot.telegramToken = token;
+		else delete bot.telegramToken;
+		return { ...bot, ...(bot.tools ? { tools: [...bot.tools] } : {}) };
+	}, BACKGROUND_CONTEXT);
 }
 
 /** Update the row only. Does not reconfigure conversations that already exist. */

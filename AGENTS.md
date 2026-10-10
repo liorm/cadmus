@@ -1,6 +1,6 @@
 # AGENTS.md — pi-bot
 
-Personal Hermes-style agent on `@earendil-works/pi-durable` (pinned 1.1.0), talking over Telegram (grammY). Default model: Grok via pi-ai (`xai/…`, API key or SuperGrok/X Premium OAuth). Architecture study and phase plan: see README "Not yet" and the phase list (0 skeleton ✅ → memory → skills → scheduler → learning loop → delegation).
+Personal Hermes-style agent on `@earendil-works/pi-durable` (pinned 1.1.0), talking over Telegram (grammY) and a local web page. Default model: Grok via pi-ai (`xai/…`, API key or SuperGrok/X Premium OAuth). Several bots share one harness. Each has a folder, a knowledge index, and optional own Telegram token. User schedules live in a sidecar SQLite file. Idle harvest notes stay out of the model. Memory, skills, the learning loop, and delegation are still later (README "Not yet").
 
 ## Toolchain: Bun only
 
@@ -22,10 +22,13 @@ TypeScript runs unbuilt: imports use `.ts` extensions; only erasable syntax (no 
 
 ```
 src/main.ts                 main(env): config → credentials/models → GrammyTransport → startApp
-src/app.ts                  storage + Harness + startup + deliverer + poller; stop()/quiesce()
-src/harness/                storage.ts (SQLite + owner.lock) · models.ts · credentials.ts (auth.json) · login.ts · registry.ts · startup.ts
+src/app.ts                  storage + Harness + startup + deliverer + pollers + schedules + web; stop()/quiesce()
+src/runtime.ts              BotRuntime: submit, listChats, createChat; arms idle harvest
+src/schedules/              schedules.sqlite sidecar · cron.ts · harvest.ts (pi-bot.harvest-notes)
+src/harness/                storage.ts (SQLite + owner.lock) · models.ts · credentials.ts (auth.json) · login.ts · registry.ts · startup.ts · bot-env.ts
 src/channels/telegram/      transport.ts · poller.ts · chats.ts · deliver.ts · commands.ts
-src/extensions/             prompt sections/tools (identity.ts so far); new features go here as pi-durable extensions
+src/channels/web/           Bun.serve API + SSE; ui/ is Preact, built at listen (no node:fs in the bundle)
+src/extensions/             prompt sections (identity.ts) and knowledge parsers; new features go here as pi-durable extensions
 scripts/auth.ts             login/logout/status CLI
 test/flows/                 feature-flow tests (the main suite)
 test/egress/                fake egress HTTP server + fetch routing (+ preload for child processes)
@@ -35,8 +38,8 @@ test/storage-bun.test.ts    pi-durable storage conformance under Bun
 
 ## Durability rules (do not break)
 
-- **One storage owner.** `owner.lock` in `PI_BOT_HOME`; never open `durable.sqlite` from a second process. Don't write foreign tables into it (use a sidecar DB).
-- **Inbound exactly once.** Every Telegram message is submitted with `requestId = tg:<chatId>:<messageId>`; the update offset advances only after admission. Commands are deduped in `CommandsDoc` (claim before effect).
+- **One storage owner.** `owner.lock` in `PI_BOT_HOME`; never open `durable.sqlite` from a second process. Don't write foreign tables into it. Schedules live in `schedules.sqlite`.
+- **Inbound exactly once.** Every Telegram message is submitted with `requestId = tg:<chatId>:<messageId>`; the update offset advances only after admission. A web message uses `<chatKey>:<clientMsgId>`. A schedule occurrence uses `sched:<id>:<nextRun>` (harvest ids look like `sched:harvest:<chatKey>:<nextRun>`), claimed in the sidecar `fires` table before the fork or submit. Commands are deduped in `CommandsDoc` (claim before effect). Harvest notes are `pi-bot.harvest-notes` and are not conversation messages.
 - **Outbound at most once.** Every send goes through `Deliverer`: commit `sending` → send → commit `sent`/`unknown`. A `sending` found at startup becomes `unknown` and is **never resent**. Never add automatic retries of Telegram sends (no idempotency key).
 - **Tool replay classes** (pi-durable `replay`): pure reads → `safe`; idempotent internal writes (memory, skills, schedules) → `safe`, keyed by `taskId:callId` or content hash, doc writes in the same commit; external side effects (sends, HTTP POST) → `unsafe` + receipt; shell/exec → `unsafe`.
 - Hooks are read-only (HookApi); trigger work by committing tasks from host code. Keep prompt sections stable (they are cached); volatile data at most daily.

@@ -1,7 +1,7 @@
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { configure, type Harness } from "@earendil-works/pi-durable";
 import { type BotRecord, botDir } from "./channels/bots.ts";
-import { ChatsDoc, type ChatRecord, listChats, telegramTarget, webChatId } from "./channels/telegram/chats.ts";
+import { ChatClosed, ChatsDoc, type ChatRecord, listChats, telegramTarget, webChatId } from "./channels/telegram/chats.ts";
 import type { Deliverer } from "./channels/telegram/deliver.ts";
 import { getLogger } from "./log.ts";
 import { parseModelRef, parseThinkingLevel } from "./harness/models.ts";
@@ -23,7 +23,21 @@ export interface BotRuntime {
 	refresh(bot: BotRecord): void;
 }
 
-export function createBotRuntime(options: { harness: Harness; deliverer: Deliverer; bot: BotRecord; home: string }): BotRuntime {
+/** Filled in by `startApp` once the schedule service exists. Read at call time. */
+export type TurnHooks = {
+	/** A newly admitted user message. A duplicate request id does not call this. */
+	onInput?(chatKey: string): Promise<void>;
+	/** The turn finished and the chat is idle at `entryId`. */
+	onSettled?(chatKey: string, entryId: number): Promise<void>;
+};
+
+export function createBotRuntime(options: {
+	harness: Harness;
+	deliverer: Deliverer;
+	bot: BotRecord;
+	home: string;
+	hooks?: TurnHooks;
+}): BotRuntime {
 	const { harness, deliverer, home } = options;
 	let bot = options.bot;
 	const pending = new Set<Promise<void>>();
@@ -49,6 +63,7 @@ export function createBotRuntime(options: { harness: Harness; deliverer: Deliver
 			const thinking = parseThinkingLevel(bot.thinking);
 			return harness.commit(async (tx) => {
 				const chats = await tx.doc(ChatsDoc);
+				if ((chats.closed ?? []).includes(chatId)) throw new ChatClosed(chatId);
 				const existing = chats.items.find((chat) => chat.key === chatId);
 				if (existing) {
 					if (existing.userId === undefined && createOptions?.userId !== undefined) existing.userId = createOptions.userId;
@@ -77,6 +92,11 @@ export function createBotRuntime(options: { harness: Harness; deliverer: Deliver
 			if (!chat) throw new Error(`Chat ${chatId} is missing`);
 			const conversation = await harness.conversation(chat.conversationId, BACKGROUND_CONTEXT);
 			if (!conversation) throw new Error(`Conversation of chat ${chat.key} is missing`);
+			const duplicate = await harness.commit(async (tx) => {
+				const existing = await tx.submissionByRequest(chat.conversationId, requestId);
+				return existing !== undefined;
+			}, BACKGROUND_CONTEXT);
+			if (!duplicate) await options.hooks?.onInput?.(chat.key);
 			const submission = await conversation.submit(
 				{ type: "input", content: text, requestId, whenBusy: "steer" },
 				BACKGROUND_CONTEXT,
@@ -84,6 +104,11 @@ export function createBotRuntime(options: { harness: Harness; deliverer: Deliver
 			track(
 				(async () => {
 					const settled = await submission.wait(BACKGROUND_CONTEXT);
+					if (!duplicate) {
+						const page = await conversation.entries({ order: "descending" }, 1, undefined, BACKGROUND_CONTEXT);
+						const entryId = page.items[0]?.id;
+						if (entryId !== undefined) await options.hooks?.onSettled?.(chat.key, entryId);
+					}
 					if (settled.status === "unanswered" && !/abort|withdraw/i.test(settled.reason ?? "")) {
 						const detail = typeof settled.detail === "string" ? settled.detail : settled.detail ? JSON.stringify(settled.detail) : "";
 						getLogger().warn(`Input unanswered in chat ${chat.key}: ${settled.reason} ${detail}`);

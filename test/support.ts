@@ -58,7 +58,7 @@ export async function until(check: () => boolean | Promise<boolean>, what = "con
 
 /** Every pushed update handled, every run finished, every final answer delivered. */
 export async function settle(app: App, egress: FakeEgress) {
-	await until(() => egress.telegram.drained(), "the bot to confirm every update");
+	await until(() => egress.queuesDrained(), "the bot to confirm every update");
 	await app.quiesce();
 }
 

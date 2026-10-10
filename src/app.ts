@@ -3,11 +3,11 @@ import { join } from "node:path";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { MutableModels } from "@earendil-works/pi-ai/models";
 import { Harness } from "@earendil-works/pi-durable";
-import { DEFAULT_BOT_ID, type BotRecord, listBots } from "./channels/bots.ts";
+import { DEFAULT_BOT_ID, type BotRecord, listBots, setTelegramToken } from "./channels/bots.ts";
 import { listChats } from "./channels/telegram/chats.ts";
 import { Deliverer } from "./channels/telegram/deliver.ts";
-import { TelegramPoller } from "./channels/telegram/poller.ts";
-import type { TelegramTransport } from "./channels/telegram/transport.ts";
+import { botCursor, generalCursor, TelegramPoller } from "./channels/telegram/poller.ts";
+import { GrammyTransport, type TelegramTransport } from "./channels/telegram/transport.ts";
 import { startWeb, type WebListener } from "./channels/web/server.ts";
 import type { Config } from "./config.ts";
 import { botEnv } from "./harness/bot-env.ts";
@@ -15,7 +15,9 @@ import { buildRegistry } from "./harness/registry.ts";
 import { runStartup } from "./harness/startup.ts";
 import { openOwnedStorage } from "./harness/storage.ts";
 import { getLogger } from "./log.ts";
-import { createBotRuntime, type BotRuntime } from "./runtime.ts";
+import { createBotRuntime, type BotRuntime, type TurnHooks } from "./runtime.ts";
+import { armHarvest, HarvestNotesDoc, harvestId } from "./schedules/harvest.ts";
+import { createScheduleService, type ScheduleService } from "./schedules/service.ts";
 
 export type AppOptions = {
 	config: Config;
@@ -24,6 +26,8 @@ export type AppOptions = {
 	/** Start the long-poll loop (default true). Tests drive `poller.handleUpdate` directly when false. */
 	poll?: boolean;
 };
+
+type BotDoor = { token: string; abort: AbortController; done: Promise<unknown>; poller: TelegramPoller };
 
 export type App = {
 	readonly harness: Harness;
@@ -69,6 +73,7 @@ export async function startApp({ config, models, transport, poll = true }: AppOp
 
 	const { unknown } = await runStartup(harness, { home: config.home, model: config.model });
 	const deliverer = new Deliverer(harness, transport);
+	const hooks: TurnHooks = {};
 	const runtimes = new Map<string, BotRuntime>();
 	const addRuntime = (bot: BotRecord) => {
 		const existing = runtimes.get(bot.id);
@@ -76,13 +81,70 @@ export async function startApp({ config, models, transport, poll = true }: AppOp
 			existing.refresh(bot);
 			return existing;
 		}
-		const created = createBotRuntime({ harness, deliverer, bot, home: config.home });
+		const created = createBotRuntime({ harness, deliverer, bot, home: config.home, hooks });
 		runtimes.set(bot.id, created);
 		return created;
 	};
 	for (const bot of await listBots(harness)) addRuntime(bot);
 	const runtime = runtimes.get(DEFAULT_BOT_ID);
 	if (!runtime) throw new Error("default bot is missing after startup");
+
+	await harness.commit(async (tx) => {
+		await tx.doc(HarvestNotesDoc);
+	}, BACKGROUND_CONTEXT);
+	const schedules = createScheduleService({
+		home: config.home,
+		timeZone: config.timeZone,
+		harness,
+		runtime: (id) => runtimes.get(id),
+	});
+	hooks.onInput = (chatKey) => schedules.remove(harvestId(chatKey));
+	hooks.onSettled = (chatKey, entryId) => {
+		const botId = chatKey.split(":")[0];
+		if (!botId) return Promise.resolve();
+		return armHarvest(schedules, { botId, chatKey, entryId, delayMs: config.harvestDelayMs });
+	};
+	schedules.start();
+
+	const doors = new Map<string, BotDoor>();
+	const openDoor = (bot: BotRecord) => {
+		const token = bot.telegramToken;
+		if (!token) return;
+		const botRuntime = runtimes.get(bot.id);
+		if (!botRuntime) return;
+		const existing = doors.get(bot.id);
+		if (existing?.token === token) return;
+		if (existing) {
+			existing.abort.abort();
+			doors.delete(bot.id);
+			deliverer.setBotTransport(bot.id, undefined);
+			void existing.done.catch(() => {});
+		}
+		const botTransport = new GrammyTransport(token, config.telegram.apiRoot ? { apiRoot: config.telegram.apiRoot } : {});
+		deliverer.setBotTransport(bot.id, botTransport);
+		const doorPoller = new TelegramPoller({
+			harness,
+			runtime: botRuntime,
+			transport: botTransport,
+			deliverer,
+			allowedUsers: config.telegram.allowedUsers,
+			pollTimeoutSec: config.telegram.pollTimeoutSec,
+			ingress: "bot",
+			cursor: botCursor(harness, bot.id),
+		});
+		const abort = new AbortController();
+		const done = doorPoller.run(abort.signal).catch((error) => getLogger().error("bot poll loop crashed", { error }));
+		doors.set(bot.id, { token, abort, done, poller: doorPoller });
+	};
+	const closeDoor = async (botId: string) => {
+		const existing = doors.get(botId);
+		if (!existing) return;
+		existing.abort.abort();
+		doors.delete(botId);
+		deliverer.setBotTransport(botId, undefined);
+		await existing.done;
+	};
+	for (const bot of await listBots(harness)) openDoor(bot);
 
 	let web: WebListener | undefined;
 	if (config.web) {
@@ -94,8 +156,18 @@ export async function startApp({ config, models, transport, poll = true }: AppOp
 				deliverer,
 				ensureRuntime: (id) => runtimes.get(id),
 				addRuntime,
+				schedules,
+				setTelegramDoor: async (botId, token) => {
+					const bot = await setTelegramToken(harness, botId, token);
+					if (!bot) return undefined;
+					runtimes.get(botId)?.refresh(bot);
+					if (bot.telegramToken) openDoor(bot);
+					else await closeDoor(botId);
+					return { telegramConfigured: Boolean(bot.telegramToken) };
+				},
 			});
 		} catch (error) {
+			await schedules.stop().catch(() => {});
 			await harness.close(BACKGROUND_CONTEXT).catch(() => {});
 			await lock.release();
 			throw error;
@@ -109,6 +181,8 @@ export async function startApp({ config, models, transport, poll = true }: AppOp
 		deliverer,
 		allowedUsers: config.telegram.allowedUsers,
 		pollTimeoutSec: config.telegram.pollTimeoutSec,
+		ingress: "general",
+		cursor: generalCursor(harness),
 	});
 
 	const background = new Set<Promise<unknown>>();
@@ -146,6 +220,9 @@ export async function startApp({ config, models, transport, poll = true }: AppOp
 		async quiesce() {
 			await harness.waitForIdle(BACKGROUND_CONTEXT);
 			await poller.settled();
+			for (const door of doors.values()) await door.poller.settled();
+			for (const bot of runtimes.values()) await bot.settled();
+			await schedules.idle();
 			for (const bot of runtimes.values()) await bot.settled();
 			await deliverer.sweepAll();
 			await deliverer.idle();
@@ -153,8 +230,11 @@ export async function startApp({ config, models, transport, poll = true }: AppOp
 		stop() {
 			stopping ??= (async () => {
 				abort.abort();
+				for (const door of doors.values()) door.abort.abort();
 				if (sweep) clearInterval(sweep);
 				await polling;
+				await Promise.all([...doors.values()].map((door) => door.done));
+				await schedules.stop();
 				if (web) await web.stop();
 				await deliverer.idle();
 				await harness.close(BACKGROUND_CONTEXT);
