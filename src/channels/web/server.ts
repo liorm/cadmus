@@ -1,6 +1,8 @@
 import { timingSafeEqual } from "node:crypto";
+import { type FSWatcher, watch } from "node:fs";
 import { join } from "node:path";
 import type { WebConfig } from "../../config.ts";
+import { getLogger } from "../../log.ts";
 import { handleApi, type WebDeps } from "./api.ts";
 
 const SHELL = `<!doctype html>
@@ -27,6 +29,25 @@ try {
 </html>
 `;
 
+const DEV_RELOAD = `<script>
+(function () {
+  var version = null;
+  var down = false;
+  setInterval(function () {
+    fetch("/dev/ui-version", { cache: "no-store" }).then(function (response) {
+      if (!response.ok) throw new Error("ui version");
+      return response.text();
+    }).then(function (next) {
+      if (down || (version !== null && version !== next)) location.reload();
+      version = next;
+      down = false;
+    }).catch(function () {
+      down = version !== null;
+    });
+  }, 400);
+})();
+</script>`;
+
 export type WebListener = {
 	readonly url: string;
 	stop(): Promise<void>;
@@ -36,20 +57,64 @@ export async function startWeb(
 	config: WebConfig,
 	deps: WebDeps,
 ): Promise<WebListener> {
-	const bundle = await buildUi();
+	const ui: LiveUi = { bundle: await buildUi(), version: 1, dev: config.dev };
+	const stopWatch = config.dev ? watchUi(ui) : undefined;
 	const server = Bun.serve({
 		hostname: config.host,
 		port: config.port,
 		async fetch(request) {
-			return handleRequest(request, config.token, deps, bundle);
+			return handleRequest(request, config.token, deps, ui);
 		},
 	});
 	const url = `http://${config.host}:${server.port}`;
+	if (config.dev) getLogger().info("watching web ui", { url });
 	return {
 		url,
 		async stop() {
+			stopWatch?.();
 			await server.stop(true);
 		},
+	};
+}
+
+type LiveUi = {
+	bundle: { js: string; css: string };
+	version: number;
+	readonly dev: boolean;
+};
+
+const UI_DIR = join(import.meta.dir, "ui");
+
+function watchUi(ui: LiveUi): () => void {
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	let closed = false;
+	const rebuild = () => {
+		timer = undefined;
+		if (closed) return;
+		void buildUi()
+			.then((bundle) => {
+				if (closed) return;
+				ui.bundle = bundle;
+				ui.version += 1;
+				getLogger().info("rebuilt web ui", { version: ui.version });
+			})
+			.catch((error: unknown) => {
+				getLogger().error("web bundle failed", { error });
+			});
+	};
+	const watcher: FSWatcher = watch(
+		UI_DIR,
+		{ recursive: true },
+		(_event, name) => {
+			if (!name || !/\.(tsx?|css)$/.test(name)) return;
+			if (timer) clearTimeout(timer);
+			timer = setTimeout(rebuild, 80);
+		},
+	);
+	return () => {
+		closed = true;
+		if (timer) clearTimeout(timer);
+		watcher.close();
 	};
 }
 
@@ -85,7 +150,7 @@ async function handleRequest(
 	request: Request,
 	token: string,
 	deps: WebDeps,
-	bundle: { js: string; css: string },
+	ui: LiveUi,
 ): Promise<Response> {
 	const url = new URL(request.url);
 	if (
@@ -105,18 +170,42 @@ async function handleRequest(
 	}
 	if (!authorized(request, token)) return unauthorized();
 	if (request.method === "GET" && url.pathname === "/") {
-		return new Response(SHELL, {
-			headers: { "content-type": "text/html; charset=utf-8" },
+		const html = ui.dev
+			? SHELL.replace("</body>", `${DEV_RELOAD}</body>`)
+			: SHELL;
+		return new Response(html, {
+			headers: {
+				"content-type": "text/html; charset=utf-8",
+				...(ui.dev ? { "cache-control": "no-store" } : {}),
+			},
+		});
+	}
+	if (
+		ui.dev &&
+		request.method === "GET" &&
+		url.pathname === "/dev/ui-version"
+	) {
+		return new Response(String(ui.version), {
+			headers: {
+				"content-type": "text/plain; charset=utf-8",
+				"cache-control": "no-store",
+			},
 		});
 	}
 	if (request.method === "GET" && url.pathname === "/app.js") {
-		return new Response(bundle.js, {
-			headers: { "content-type": "text/javascript; charset=utf-8" },
+		return new Response(ui.bundle.js, {
+			headers: {
+				"content-type": "text/javascript; charset=utf-8",
+				...(ui.dev ? { "cache-control": "no-store" } : {}),
+			},
 		});
 	}
 	if (request.method === "GET" && url.pathname === "/app.css") {
-		return new Response(bundle.css, {
-			headers: { "content-type": "text/css; charset=utf-8" },
+		return new Response(ui.bundle.css, {
+			headers: {
+				"content-type": "text/css; charset=utf-8",
+				...(ui.dev ? { "cache-control": "no-store" } : {}),
+			},
 		});
 	}
 	if (url.pathname.startsWith("/api/")) return handleApi(request, deps);
