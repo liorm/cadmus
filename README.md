@@ -12,7 +12,7 @@ The running shape — components, data model, data flow, and the HTTP client —
 curl -fsSL https://bun.sh/install | bash   # user-level, installs to ~/.bun (Bun >= 1.4.2)
 bun install
 cp .env.example .env                       # then fill it in
-bun run check                              # typecheck + tests
+bun run check:all                          # typecheck + tests
 bun start                                  # Bun loads .env automatically
 ```
 
@@ -115,7 +115,7 @@ test/
 ```bash
 bun test              # all suites (~11 s)
 bun run coverage      # with coverage (in-process code only)
-bunx tsc --noEmit     # typecheck
+bun check             # typecheck
 ```
 
 Policy (see AGENTS.md): flow tests through the public interface; only egress is faked, at the HTTP level (`test/egress/`): Telegram Bot API, xAI Responses API, xAI OAuth. Real pi-durable SQLite in temp dirs, real `bun` processes for crash and login tests.
