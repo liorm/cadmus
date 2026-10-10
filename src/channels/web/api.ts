@@ -1,6 +1,11 @@
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { MutableModels } from "@earendil-works/pi-ai/models";
-import type { Cursor, EntryRecord, Harness } from "@earendil-works/pi-durable";
+import type {
+	ConversationId,
+	Cursor,
+	EntryRecord,
+	Harness,
+} from "@earendil-works/pi-durable";
 import type { Config } from "../../config.ts";
 import {
 	modelRefString,
@@ -39,7 +44,12 @@ import { handleCommand, parseCommand } from "../telegram/commands.ts";
 import type { Deliverer } from "../telegram/deliver.ts";
 import { chatEventResponse } from "./events.ts";
 import { listBotFiles, readBotFile, writeBotFile } from "./files.ts";
-import { projectEntries, type TranscriptItem } from "./transcript.ts";
+import {
+	latestTranscriptText,
+	openingTranscriptText,
+	projectEntries,
+	type TranscriptItem,
+} from "./transcript.ts";
 
 const EXTRA_TOOLS = new Set<string>(WEB_TOOLS);
 const WEB_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
@@ -199,14 +209,55 @@ async function listBotChats(deps: WebDeps, id: string): Promise<Response> {
 	if (!runtime)
 		return Response.json({ error: "No such bot." }, { status: 404 });
 	const chats = await runtime.listChats();
-	return Response.json({
-		chats: chats.map((chat) => ({
+	const listed = [];
+	for (const chat of chats) {
+		const snippets = await chatSnippets(deps.harness, chat.conversationId);
+		listed.push({
 			key: chat.key,
 			botId: chat.botId,
 			telegram: hasTelegramAddress(chat),
 			...(chat.title ? { title: chat.title } : {}),
-		})),
-	});
+			...(snippets.opening ? { opening: snippets.opening } : {}),
+			...(snippets.preview ? { preview: snippets.preview } : {}),
+		});
+	}
+	return Response.json({ chats: listed });
+}
+
+/** First user line and latest visible line, for the chat list. */
+async function chatSnippets(
+	harness: Harness,
+	conversationId: ConversationId,
+): Promise<{ opening?: string; preview?: string }> {
+	const conversation = await harness.conversation(
+		conversationId,
+		BACKGROUND_CONTEXT,
+	);
+	if (!conversation) return {};
+	const newest = await conversation.entries(
+		{ order: "descending" },
+		40,
+		undefined,
+		BACKGROUND_CONTEXT,
+	);
+	const oldest = await conversation.entries(
+		{ order: "ascending" },
+		40,
+		undefined,
+		BACKGROUND_CONTEXT,
+	);
+	const preview = oneLine(latestTranscriptText([...newest.items].reverse()));
+	const opening = oneLine(openingTranscriptText(oldest.items));
+	return {
+		...(opening ? { opening } : {}),
+		...(preview ? { preview } : {}),
+	};
+}
+
+function oneLine(text: string | undefined): string | undefined {
+	const line = text?.replace(/\s+/g, " ").trim();
+	if (!line) return undefined;
+	return line.length > 160 ? `${line.slice(0, 159)}…` : line;
 }
 
 async function createChat(

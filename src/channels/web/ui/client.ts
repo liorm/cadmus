@@ -124,6 +124,7 @@ export function watchChat(key: string): void {
 		const data = JSON.parse((event as MessageEvent).data) as StateEvent;
 		busy.value = data.busy;
 		messages.value = data.messages;
+		rememberSnippet(key, data.messages);
 		partial.value = data.partial ?? "";
 		liveTools.value = data.tools ?? [];
 		if (data.notes) notes.value = data.notes;
@@ -161,6 +162,19 @@ export function watchChat(key: string): void {
 		} catch {
 			// A connection error has no JSON body.
 		}
+	});
+}
+
+function rememberSnippet(key: string, items: Item[]): void {
+	const opening = items.find((item) => item.type === "user");
+	const last = [...items].reverse().find((item) => item.type !== "tool");
+	chats.value = chats.value.map((chat) => {
+		if (chat.key !== key) return chat;
+		return {
+			...chat,
+			...(opening && opening.type === "user" ? { opening: opening.text } : {}),
+			...(last && "text" in last && last.text ? { preview: last.text } : {}),
+		};
 	});
 }
 

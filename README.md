@@ -65,7 +65,7 @@ A web message uses request id `<chatKey>:<clientMsgId>`. Posting into a Telegram
 
 ## Telegram commands
 
-`/new` (alias `/reset`) start a fresh context (old entries stay stored) · `/stop` abort the current answer · `/status` model, conversation, receipts · `/help`. The page composer sends the same commands. `/status` is also the header button next to the context readout.
+`/new` (alias `/reset`) start a fresh context (old entries stay stored) · `/stop` abort the current answer · `/status` model, conversation, receipts · `/help`. The page composer offers `/status` and `/help`. Stop is the button that replaces Send while an answer is running. `/status` is also the header button next to the context readout.
 
 ## Layout
 

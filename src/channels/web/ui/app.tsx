@@ -7,6 +7,7 @@ import {
 	send,
 	watchChat,
 } from "./client.ts";
+import { ConfirmDialog } from "./confirm.tsx";
 import { ensureFiles, Knowledge, KnowledgeList } from "./knowledge.tsx";
 import { renderMarkdown } from "./markdown.ts";
 import { BotDialog } from "./new-bot.tsx";
@@ -312,18 +313,9 @@ function ChatList() {
 					class={`c ${chat.key === chatKey.value ? "sel" : ""}`}
 					onClick={() => watchChat(chat.key)}
 				>
-					<div class="t">
-						{rowTitle(chat)}
-						<small>
-							{chat.telegram ? (
-								<span class="tg">TG</span>
-							) : (
-								<span class="web">WEB</span>
-							)}
-						</small>
-					</div>
+					<div class="t">{rowTitle(chat)}</div>
 					<div class="key">{chat.key}</div>
-					<div class="p">{rowPreview(chat)}</div>
+					{rowPreview(chat) ? <div class="p">{rowPreview(chat)}</div> : null}
 				</button>
 			))}
 		</div>
@@ -332,23 +324,29 @@ function ChatList() {
 
 function rowTitle(chat: Chat): string {
 	if (chat.title) return chat.title;
-	if (chat.key === chatKey.value) {
-		const first = messages.value.find((item) => item.type === "user");
-		if (first && first.type === "user") return first.text.slice(0, 42);
-	}
-	return chat.telegram ? "Telegram" : "Web chat";
+	const opening = liveOpening(chat) ?? chat.opening;
+	if (opening) return opening.slice(0, 42);
+	return "New chat";
+}
+
+function liveOpening(chat: Chat): string | undefined {
+	if (chat.key !== chatKey.value) return undefined;
+	const first = messages.value.find((item) => item.type === "user");
+	return first?.type === "user" ? first.text : undefined;
 }
 
 function rowPreview(chat: Chat): string {
-	if (chat.key !== chatKey.value)
-		return chat.telegram ? "Telegram chat" : "Web chat";
-	const last = [...messages.value]
-		.reverse()
-		.find((item) => item.type !== "tool");
-	return last && "text" in last ? last.text : "New chat";
+	if (chat.key === chatKey.value) {
+		const last = [...messages.value]
+			.reverse()
+			.find((item) => item.type !== "tool");
+		if (last && "text" in last && last.text) return last.text;
+	}
+	return chat.preview ?? "";
 }
 
 function Main() {
+	const [confirmDelete, setConfirmDelete] = useState(false);
 	const key = chatKey.value;
 	const bot = selectedBot();
 	if (!key) {
@@ -416,7 +414,7 @@ function Main() {
 					<button
 						type="button"
 						class="btn ghost"
-						onClick={() => void deleteChat().catch(showError)}
+						onClick={() => setConfirmDelete(true)}
 					>
 						Delete
 					</button>
@@ -448,6 +446,19 @@ function Main() {
 				) : null}
 			</div>
 			<Composer />
+			{confirmDelete ? (
+				<ConfirmDialog
+					title="Delete this chat?"
+					confirmLabel="Delete"
+					onCancel={() => setConfirmDelete(false)}
+					onConfirm={() => {
+						setConfirmDelete(false);
+						void deleteChat().catch(showError);
+					}}
+				>
+					The transcript is removed and cannot be restored.
+				</ConfirmDialog>
+			) : null}
 		</main>
 	);
 }
@@ -615,7 +626,7 @@ function Composer() {
 				)}
 			</div>
 			<div class="hn">
-				{["/new", "/stop", "/status", "/help"].map((command) => (
+				{["/status", "/help"].map((command) => (
 					<button
 						type="button"
 						key={command}

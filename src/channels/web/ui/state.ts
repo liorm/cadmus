@@ -14,6 +14,10 @@ export type Chat = {
 	botId?: string;
 	telegram: boolean;
 	title?: string;
+	/** First user message, when the chat has no stored title. */
+	opening?: string;
+	/** Latest user, assistant, or notice text. */
+	preview?: string;
 };
 export type Item =
 	| { type: "user"; id: number; text: string }

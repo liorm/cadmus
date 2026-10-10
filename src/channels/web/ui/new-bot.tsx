@@ -1,4 +1,4 @@
-import { useEffect, useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 import { DEFAULT_SOUL } from "../../../extensions/default-soul.ts";
 import { FILE_TOOLS, WEB_TOOLS } from "../../bot-catalog.ts";
 import { slugifyBotName } from "../../bot-slug.ts";
@@ -12,7 +12,7 @@ import {
 } from "./client.ts";
 import { modal, selectedBot } from "./state.ts";
 
-const LEVELS = ["off", "low", "medium", "high"] as const;
+const LEVELS = ["", "off", "low", "medium", "high"] as const;
 
 type Provider = { id: string; models: string[] };
 
@@ -39,6 +39,84 @@ function modelChoices(
 	return rows;
 }
 
+function toggleTool(prev: Set<string>, tool: string): Set<string> {
+	const next = new Set(prev);
+	if (next.has(tool)) next.delete(tool);
+	else next.add(tool);
+	return next;
+}
+
+function ToolGroup({
+	title,
+	names,
+	selected,
+	onToggle,
+	onAll,
+}: {
+	title: string;
+	names: readonly string[];
+	selected: Set<string>;
+	onToggle: (tool: string) => void;
+	onAll: (on: boolean) => void;
+}) {
+	const allOn = names.every((tool) => selected.has(tool));
+	return (
+		<div class="tool-card">
+			<div class="tool-head">
+				<div class="sec">{title}</div>
+				<button
+					type="button"
+					class={allOn ? "tool-all on" : "tool-all"}
+					aria-pressed={allOn}
+					onClick={() => onAll(!allOn)}
+				>
+					All
+				</button>
+			</div>
+			{names.map((tool) => {
+				const on = selected.has(tool);
+				return (
+					<button
+						type="button"
+						key={tool}
+						class={on ? "tool-row on" : "tool-row"}
+						aria-pressed={on}
+						onClick={() => onToggle(tool)}
+					>
+						<span class={on ? "tick on" : "tick"}>{on ? "✓" : ""}</span>
+						<span class="mono">{tool}</span>
+					</button>
+				);
+			})}
+		</div>
+	);
+}
+
+type FormSnap = {
+	name: string;
+	provider: string;
+	modelId: string;
+	thinking: string;
+	files: string;
+	web: string;
+	token: string;
+	soul: string;
+};
+
+function toolKey(names: Iterable<string>): string {
+	return [...names].sort().join("\n");
+}
+
+function initialThinking(
+	editing: boolean,
+	current: { thinking?: string } | undefined,
+): string {
+	const stored = current?.thinking;
+	if ((LEVELS as readonly string[]).includes(stored ?? "\0"))
+		return stored ?? "";
+	return editing ? (stored ?? "medium") : "medium";
+}
+
 function splitModel(ref: string): { provider: string; modelId: string } {
 	const slash = ref.indexOf("/");
 	if (slash <= 0) return { provider: "", modelId: ref };
@@ -53,10 +131,8 @@ export function BotDialog() {
 	const [providers, setProviders] = useState<Provider[]>([]);
 	const [provider, setProvider] = useState(initial.provider);
 	const [modelId, setModelId] = useState(initial.modelId);
-	const [thinking, setThinking] = useState<(typeof LEVELS)[number] | string>(
-		LEVELS.find((level) => level === current?.thinking) ??
-			(editing ? (current?.thinking ?? "medium") : "medium"),
-	);
+	const [thinking, setThinking] = useState(initialThinking(editing, current));
+	const [files, setFiles] = useState<Set<string>>(() => new Set(FILE_TOOLS));
 	const [web, setWeb] = useState<Set<string>>(
 		new Set(
 			(current?.tools ?? []).filter((tool) =>
@@ -68,9 +144,38 @@ export function BotDialog() {
 	const [soul, setSoul] = useState(editing ? "" : `${DEFAULT_SOUL}\n`);
 	const [soulReady, setSoulReady] = useState(!editing);
 	const [error, setError] = useState("");
+	const [confirmClose, setConfirmClose] = useState(false);
+	const [baseline, setBaseline] = useState<FormSnap | null>(null);
 	const [modelsOpen, setModelsOpen] = useState(false);
+	const [menuBox, setMenuBox] = useState({ top: 0, left: 0, width: 0 });
+	const modelButton = useRef<HTMLButtonElement>(null);
+	const modelMenu = useRef<HTMLDivElement>(null);
 	const slug = editing ? current?.id : slugifyBotName(name);
 	const choices = modelChoices(providers, provider, modelId);
+	const dirty =
+		baseline !== null &&
+		(name !== baseline.name ||
+			provider !== baseline.provider ||
+			modelId !== baseline.modelId ||
+			thinking !== baseline.thinking ||
+			toolKey(files) !== baseline.files ||
+			toolKey(web) !== baseline.web ||
+			token !== baseline.token ||
+			soul !== baseline.soul);
+
+	const requestClose = () => {
+		if (dirty) {
+			setConfirmClose(true);
+			return;
+		}
+		modal.value = null;
+	};
+
+	const placeModelMenu = () => {
+		const rect = modelButton.current?.getBoundingClientRect();
+		if (!rect) return;
+		setMenuBox({ top: rect.bottom + 4, left: rect.left, width: rect.width });
+	};
 
 	useEffect(() => {
 		let cancel = false;
@@ -82,19 +187,48 @@ export function BotDialog() {
 					const preferred = next.find((item) => item.id === initial.provider);
 					const fallback = preferred ?? next[0];
 					if (!fallback) return;
-					setProvider(fallback.id);
 					const keep = fallback.models.includes(initial.modelId)
 						? initial.modelId
-						: fallback.models[0];
+						: (fallback.models[0] ?? "");
+					setProvider(fallback.id);
 					if (keep) setModelId(keep);
+					setBaseline({
+						name: "",
+						provider: fallback.id,
+						modelId: keep,
+						thinking: initialThinking(false, current),
+						files: toolKey(FILE_TOOLS),
+						web: toolKey(
+							(current?.tools ?? []).filter((tool) =>
+								(WEB_TOOLS as readonly string[]).includes(tool),
+							),
+						),
+						token: "",
+						soul: `${DEFAULT_SOUL}\n`,
+					});
 				}
 			})
 			.catch((caught: Error) => setError(caught.message));
 		if (editing) {
+			setBaseline({
+				name: current?.name ?? "",
+				provider: initial.provider,
+				modelId: initial.modelId,
+				thinking: initialThinking(true, current),
+				files: toolKey(FILE_TOOLS),
+				web: toolKey(
+					(current?.tools ?? []).filter((tool) =>
+						(WEB_TOOLS as readonly string[]).includes(tool),
+					),
+				),
+				token: "",
+				soul: "",
+			});
 			void readBotText("SOUL.md")
 				.then((text) => {
 					if (cancel) return;
 					setSoul(text);
+					setBaseline((prev) => (prev ? { ...prev, soul: text } : prev));
 					setSoulReady(true);
 				})
 				.catch((caught: Error) => setError(caught.message));
@@ -103,6 +237,30 @@ export function BotDialog() {
 			cancel = true;
 		};
 	}, [editing, initial.provider, initial.modelId]);
+
+	useEffect(() => {
+		if (!modelsOpen) return;
+		placeModelMenu();
+		const onPointer = (event: MouseEvent) => {
+			const target = event.target as Node;
+			if (modelButton.current?.contains(target)) return;
+			if (modelMenu.current?.contains(target)) return;
+			setModelsOpen(false);
+		};
+		const onKey = (event: KeyboardEvent) => {
+			if (event.key === "Escape") setModelsOpen(false);
+		};
+		document.addEventListener("mousedown", onPointer);
+		document.addEventListener("keydown", onKey);
+		window.addEventListener("resize", placeModelMenu);
+		document.addEventListener("scroll", placeModelMenu, true);
+		return () => {
+			document.removeEventListener("mousedown", onPointer);
+			document.removeEventListener("keydown", onKey);
+			window.removeEventListener("resize", placeModelMenu);
+			document.removeEventListener("scroll", placeModelMenu, true);
+		};
+	}, [modelsOpen]);
 
 	const submit = () => {
 		const tools = WEB_TOOLS.filter((tool) => web.has(tool));
@@ -128,6 +286,12 @@ export function BotDialog() {
 
 	return (
 		<div class="ov">
+			<button
+				type="button"
+				class="ov-dismiss"
+				aria-label="Close"
+				onClick={requestClose}
+			/>
 			<div class="mod">
 				<div style="padding:18px 22px 4px;font-size:18px;font-weight:700">
 					{editing ? (current?.name ?? "Bot") : "New bot"}
@@ -163,17 +327,37 @@ export function BotDialog() {
 							<button
 								type="button"
 								class="inp model-row"
-								onClick={() => setModelsOpen((open) => !open)}
+								ref={modelButton}
+								aria-expanded={modelsOpen}
+								aria-haspopup="listbox"
+								onClick={() => {
+									if (modelsOpen) {
+										setModelsOpen(false);
+										return;
+									}
+									placeModelMenu();
+									setModelsOpen(true);
+								}}
 							>
-								<span>{provider}</span>
-								<span>{modelId}</span>
+								<span class="model-provider">{provider}</span>
+								<span class="model-name">{modelId}</span>
 							</button>
 							{modelsOpen ? (
-								<div class="model-list">
+								<div
+									class="model-list"
+									ref={modelMenu}
+									role="listbox"
+									style={`top:${menuBox.top}px;left:${menuBox.left}px;width:${menuBox.width}px`}
+								>
 									{choices.map((choice) => (
 										<button
 											type="button"
 											key={`${choice.provider}/${choice.modelId}`}
+											role="option"
+											aria-selected={
+												choice.provider === provider &&
+												choice.modelId === modelId
+											}
 											class={
 												choice.provider === provider &&
 												choice.modelId === modelId
@@ -186,8 +370,8 @@ export function BotDialog() {
 												setModelsOpen(false);
 											}}
 										>
-											<span>{choice.provider}</span>
-											<span>{choice.modelId}</span>
+											<span class="model-provider">{choice.provider}</span>
+											<span class="model-name">{choice.modelId}</span>
 										</button>
 									))}
 								</div>
@@ -203,7 +387,7 @@ export function BotDialog() {
 							).map((level) => (
 								<button
 									type="button"
-									key={level}
+									key={level || "default"}
 									class={thinking === level ? "on" : ""}
 									onClick={() => setThinking(level)}
 								>
@@ -214,36 +398,21 @@ export function BotDialog() {
 					</div>
 					<div class="f">
 						<div class="lab">Tools</div>
-						<div class="tool-group">
-							<div class="mu">Files</div>
-							{FILE_TOOLS.map((tool) => (
-								<div key={tool}>
-									<span class="tick on">✓</span>
-									{tool}
-								</div>
-							))}
-						</div>
-						<div class="tool-group">
-							<div class="mu">Web</div>
-							{WEB_TOOLS.map((tool) => (
-								<label key={tool}>
-									<input
-										type="checkbox"
-										checked={web.has(tool)}
-										onChange={(event) => {
-											const on = (event.currentTarget as HTMLInputElement)
-												.checked;
-											setWeb((prev) => {
-												const next = new Set(prev);
-												if (on) next.add(tool);
-												else next.delete(tool);
-												return next;
-											});
-										}}
-									/>{" "}
-									{tool}
-								</label>
-							))}
+						<div class="tools">
+							<ToolGroup
+								title="Files"
+								names={FILE_TOOLS}
+								selected={files}
+								onToggle={(tool) => setFiles((prev) => toggleTool(prev, tool))}
+								onAll={(on) => setFiles(new Set(on ? FILE_TOOLS : []))}
+							/>
+							<ToolGroup
+								title="Web"
+								names={WEB_TOOLS}
+								selected={web}
+								onToggle={(tool) => setWeb((prev) => toggleTool(prev, tool))}
+								onAll={(on) => setWeb(new Set(on ? WEB_TOOLS : []))}
+							/>
 						</div>
 					</div>
 					<div class="f">
@@ -299,22 +468,38 @@ export function BotDialog() {
 						{error}
 					</div>
 				) : null}
-				<div style="display:flex;justify-content:flex-end;gap:10px;padding:14px 22px;border-top:1px solid var(--line)">
+				<div style="display:flex;justify-content:flex-end;align-items:center;gap:10px;padding:14px 22px;border-top:1px solid var(--line)">
+					{confirmClose ? (
+						<span class="discard-ask">Discard unsaved changes?</span>
+					) : null}
 					<button
 						type="button"
 						class="btn ghost"
-						onClick={() => (modal.value = null)}
+						onClick={() => {
+							if (confirmClose) setConfirmClose(false);
+							else modal.value = null;
+						}}
 					>
-						Cancel
+						{confirmClose ? "Keep editing" : "Cancel"}
 					</button>
-					<button
-						type="button"
-						class="btn pri"
-						disabled={!provider || !modelId || !soulReady}
-						onClick={submit}
-					>
-						{editing ? "Save" : "Create bot"}
-					</button>
+					{confirmClose ? (
+						<button
+							type="button"
+							class="btn stop"
+							onClick={() => (modal.value = null)}
+						>
+							Discard
+						</button>
+					) : (
+						<button
+							type="button"
+							class="btn pri"
+							disabled={!dirty || !provider || !modelId || !soulReady}
+							onClick={submit}
+						>
+							{editing ? "Save" : "Create bot"}
+						</button>
+					)}
 				</div>
 			</div>
 		</div>

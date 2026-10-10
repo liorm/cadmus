@@ -5,6 +5,7 @@ import {
 	runSchedule,
 	saveSchedule,
 } from "./client.ts";
+import { ConfirmDialog } from "./confirm.tsx";
 import {
 	banner,
 	chats,
@@ -155,6 +156,7 @@ function Editor({ draft }: { draft: Draft }) {
 	const [when, setWhen] = useState(draft.when);
 	const [mode, setMode] = useState(draft.mode);
 	const [chat, setChat] = useState(draft.chatId);
+	const [confirmDelete, setConfirmDelete] = useState(false);
 	return (
 		<div class="panel editor">
 			<div class="f span">
@@ -255,11 +257,7 @@ function Editor({ draft }: { draft: Draft }) {
 					<button
 						type="button"
 						class="btn ghost bad"
-						onClick={() => {
-							const id = draft.id;
-							if (!id) return;
-							void deleteSchedule(id).catch(show);
-						}}
+						onClick={() => setConfirmDelete(true)}
 					>
 						Delete
 					</button>
@@ -289,6 +287,21 @@ function Editor({ draft }: { draft: Draft }) {
 					Save
 				</button>
 			</div>
+			{confirmDelete && draft.id ? (
+				<ConfirmDialog
+					title="Delete this schedule?"
+					confirmLabel="Delete"
+					onCancel={() => setConfirmDelete(false)}
+					onConfirm={() => {
+						const id = draft.id;
+						setConfirmDelete(false);
+						if (!id) return;
+						void deleteSchedule(id).catch(show);
+					}}
+				>
+					It stops running and cannot be restored.
+				</ConfirmDialog>
+			) : null}
 		</div>
 	);
 }

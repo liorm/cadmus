@@ -174,7 +174,8 @@ describe("web channel", () => {
 		expect(html).not.toContain("/dev/ui-version");
 		const script = await call(url, "/app.js");
 		const source = await script.text();
-		expect(source).toContain("/new");
+		expect(source).toContain("/help");
+		expect(source).not.toContain('"/new"');
 		// The composer runs in the browser. randomUUID is absent off localhost
 		// on plain HTTP (the listener binds all interfaces). getRandomValues is not.
 		expect(source).not.toContain("randomUUID");
@@ -243,6 +244,12 @@ describe("web channel", () => {
 		expect(egress.xai.requests).toHaveLength(1);
 		const transcript = await messages(url, key);
 		expect(transcript.filter((item) => item.type === "user")).toHaveLength(1);
+		const listed = await json<{
+			chats: { key: string; opening?: string; preview?: string }[];
+		}>(url, "/api/bots/default/chats");
+		const row = listed.chats.find((chat) => chat.key === key);
+		expect(row?.opening).toBe("hello");
+		expect(row?.preview).toContain("hello");
 	});
 
 	it("/new starts a fresh context and /stop aborts the answer", async () => {

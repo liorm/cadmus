@@ -46,6 +46,33 @@ function toolCalls(message: Message | undefined): ToolCall[] {
 	);
 }
 
+/** First thing the user said, for a chat row that has no stored title. */
+export function openingTranscriptText(
+	entries: readonly EntryRecord[],
+): string | undefined {
+	for (const entry of entries) {
+		const item = projectEntries([entry]).find((row) => row.type === "user");
+		if (item?.type === "user") return item.text;
+	}
+	return undefined;
+}
+
+/** Latest user, assistant, or notice text. Tool chips are not a preview. */
+export function latestTranscriptText(
+	entries: readonly EntryRecord[],
+): string | undefined {
+	for (let index = entries.length - 1; index >= 0; index--) {
+		const entry = entries[index];
+		if (!entry) continue;
+		const items = projectEntries([entry]);
+		for (let inner = items.length - 1; inner >= 0; inner--) {
+			const item = items[inner];
+			if (item && item.type !== "tool" && item.text) return item.text;
+		}
+	}
+	return undefined;
+}
+
 /** Committed transcript in entry order. System, reset, and tool-result rows stay out. */
 export function projectEntries(
 	entries: readonly EntryRecord[],
