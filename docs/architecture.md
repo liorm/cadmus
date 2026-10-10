@@ -2,7 +2,7 @@
 
 Several bots share one process and one durable session. Channels talk to a bot runtime, and so do schedule fires that land in a chat. A fire that forks a conversation talks to the harness directly. The runtime is the seam a later per-bot process would replace for doors and for chat fires. A user interface is a client of the same model: bots, chats, files, schedules, and a live transcript. The bundled web page is one such client.
 
-The feature-level decisions live in [plans/](./plans/). This note keeps the shape. Screen layouts, the build order, and one-off product knobs stay there. Open work is in [tasks.md](./tasks.md).
+The feature-level decisions live in [plans/](./plans/). This note keeps the shape. Screen layouts, the build order, and one-off product knobs stay there. Open work is tracked as GitHub issues.
 
 - [Data model](./architecture/model.md) — bots, chats, files, session documents, schedules
 - [Data flow](./architecture/flow.md) — inbound, a turn, outbound, fires, idle harvest
