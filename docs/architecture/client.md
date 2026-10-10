@@ -1,0 +1,18 @@
+# Client surface
+
+Part of the [architecture](../architecture.md). The records behind these resources are in the [data model](./model.md). Admission, delivery, and harvest are in [data flow](./flow.md).
+
+The HTTP channel is how another UI plugs in. It listens only when a web credential is configured (bearer header, or a cookie set by opening `/?token=`). Requests without that credential are rejected. Telegram doors open from the process token and from tokens stored on bots. Either channel can run without the other.
+
+Resources, scoped by bot id or chat key:
+
+- **Bots.** List, create, and patch name, model, thinking, and stored tools. The `default` bot's name cannot be changed. Reads include whether a per-bot Telegram token is set, and omit the token. The row is the [bot record](./model.md#bot).
+- **Telegram door.** Set or clear the per-bot token. That starts or stops that bot's poller.
+- **Chats.** List and create web chats. Rename. Close. Keys and closing are on the [chat record](./model.md#chat).
+- **Messages.** Read the transcript. Harvest notes are separate timeline items. Post `{ clientMsgId, text }`. The same post accepts a slash command. The request id is `<chatKey>:<clientMsgId>` ([inbound](./flow.md#inbound)).
+- **Events.** A server-sent stream for one chat: `state`, `delta`, `tool`, `done`, `error`, `harvest`. Connecting again sends stored harvest notes, then `state`.
+- **Files.** List and read `SOUL.md`, `SYSTEM.md`, and `knowledge/*`. Knowledge entries include the parsed description and whether it is valid. Write one path inside the bot folder. Knowledge writes require a description the parser accepts. The index rules are in [what a conversation receives](./model.md#what-a-conversation-receives).
+- **Schedules.** List, create, replace, delete, and fire user schedules for a bot. Internal harvest rows are left out of this surface. Fire behavior is in [a schedule fire](./flow.md#a-schedule-fire).
+- **Status.** Process model, and whether the general Telegram door is configured. No secrets.
+
+The bundled client is a workspace on that API: one bot at a time, then its chats, knowledge files, or schedules, with the live transcript in the main pane. It keeps no second copy of bots, transcripts, or files. Another page, a small CLI, or a later native client uses the same resources and the same chat keys. Delivery receipts, poll offsets, and the storage lock stay in the host.

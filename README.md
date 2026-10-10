@@ -4,6 +4,8 @@ A Hermes-style personal agent on [`@earendil-works/pi-durable`](https://www.npmj
 
 **Status: L1 workspace.** Several bots share one harness. Each bot has a folder, a streaming chat page, a knowledge editor, and user schedules. Idle chats can harvest notes into `knowledge/`. Memory, skills, the learning loop, and delegation are still later.
 
+The running shape — components, data model, data flow, and the HTTP client — is [docs/architecture.md](docs/architecture.md).
+
 ## Setup
 
 ```bash
@@ -66,6 +68,8 @@ A web message uses request id `<chatKey>:<clientMsgId>`. Posting into a Telegram
 `/new` (alias `/reset`) start a fresh context (old entries stay stored) · `/stop` abort the current answer · `/status` model, conversation, receipts · `/help`. The page composer sends the same commands. `/status` is also the header button next to the context readout.
 
 ## Layout
+
+Source tree. The architecture notes start at [docs/architecture.md](docs/architecture.md).
 
 ```
 src/

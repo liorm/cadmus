@@ -2,6 +2,8 @@
 
 Personal Hermes-style agent on `@earendil-works/pi-durable` (pinned 1.1.0), talking over Telegram (grammY) and a local web page. Default model: Grok via pi-ai (`xai/…`, API key or SuperGrok/X Premium OAuth). Several bots share one harness. Each has a folder, a knowledge index, and optional own Telegram token. User schedules live in a sidecar SQLite file. Idle harvest notes stay out of the model. Memory, skills, the learning loop, and delegation are still later (README "Not yet").
 
+The running shape — components, data model, data flow, and the HTTP client — is [docs/architecture.md](docs/architecture.md).
+
 ## Toolchain: Bun only
 
 Never use node/npm/npx/vitest here.

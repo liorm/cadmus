@@ -1,0 +1,84 @@
+# Data flow
+
+Part of the [architecture](../architecture.md). Records and files are in the [data model](./model.md). What a client calls is in the [client surface](./client.md).
+
+## Inbound
+
+```mermaid
+sequenceDiagram
+  participant Door as Door
+  participant RT as Bot runtime
+  participant H as Harness
+  participant Del as Deliverer
+  Door->>RT: create or find chat
+  Door->>RT: submit(chat, requestId, text)
+  RT->>H: admit input once
+  RT-->>Door: admission durable
+  H->>H: turn, tools, reply
+  RT->>Del: kick when the chat has a Telegram address
+  Del->>Door: assistant text, at most once
+```
+
+Three request-id shapes make a repeat a no-op:
+
+| Source | Request id |
+|---|---|
+| Telegram message | `tg:<chatId>:<messageId>` |
+| Web message | `<chatKey>:<clientMsgId>` |
+| Schedule occurrence | `sched:<id>:<nextRun>` |
+
+A Telegram update's offset advances after that update has been handled. A web client supplies `clientMsgId`, so a retry of the same post admits once.
+
+Slash commands (`new`, `reset`, `stop`, `status`, `help`, `start`) share one handler. The request key is claimed in `pi-bot.telegram.commands` before the effect. On a web chat the reply is a notice in the transcript. On a Telegram chat the reply goes out through the deliverer. Commands do not arm idle harvest.
+
+A plain message calls `submit`. While a turn is in progress, further input steers that turn. After a newly admitted message, the host drops any idle-harvest wake for that chat. When that turn settles, the host arms a new one. A duplicate request id does neither.
+
+## A turn
+
+The conversation's agent directory is the bot folder from the [data model](./model.md). Prompt sections are read from that folder. File tools resolve paths against it. `disk/…` is rewritten to `users/<userId>/disk/…` before the boundary check. `exec` reports that no shell is available.
+
+`write` and `edit` leave replay unset. Recovery does not run them again. It records that the call was interrupted and may have partially run, and the turn continues.
+
+The web client watches the conversation. On connect, harvest notes already stored for that chat are sent first, then a `state` frame that includes the same notes. Later frames are `state` or `delta`, tool status, completion, errors, and `harvest`. The event names are listed on the [client surface](./client.md).
+
+## Outbound
+
+Telegram delivery commits a receipt as `sending` in `pi-bot.telegram.deliveries`, sends, then commits `sent` or `unknown`. A `sending` receipt found at startup becomes `unknown` and stays there. The deliverer does not resend it.
+
+A web chat has no Telegram address, so the deliverer skips it. The client reads the transcript and the event stream.
+
+A message typed on the web into a Telegram chat is admitted into that conversation. Telegram receives the assistant reply. The user's web text stays in the transcript the client reads.
+
+A per-bot door has its own transport. Sends for `:tg:bot:` keys use that transport. Sends for `:tg:general:` keys use the process token. Those keys are defined on the [chat record](./model.md#chat).
+
+## A schedule fire
+
+The clock, or `POST /api/schedules/:id/fire` on the HTTP channel, asks the service to fire one id. The service claims `sched:<id>:<nextRun>` in `fires` before it dispatches. A second claim of that occurrence does nothing. A `put` or `reschedule` that lands while the occurrence is in progress leaves the claimed occurrence running and changes only what happens next.
+
+The row shape is in [schedules](./model.md#schedules).
+
+| Target | Effect |
+|---|---|
+| `chat` | `submit` into that chat. The reply is delivered when the chat has a Telegram address. `at` is ignored. |
+| `new-chat` | create a web chat on the bot, with no user id, then `submit`. |
+| `fork` | fork at the resolved entry, `submit` into the child. The child is not added to the chat directory and is not delivered. |
+
+If the row's wake is still the one that was claimed, a `when` row is deleted and a `cron` row's next wake moves forward. A row that was already due at startup fires once. A cron row then skips ahead rather than replaying every missed slot.
+
+Harvest ids take the fork path and then, when `SOUL.md`, `SYSTEM.md`, or a file under `knowledge/` changed, append a note.
+
+## Idle harvest
+
+Harvest is a caller of the schedule service and uses the same clock. After a user turn settles, the host puts a `when` row:
+
+- id `harvest:<chatKey>`
+- target `fork` of that chat at the entry the chat rested on
+- text `Improve knowledge from this chat.`
+- wake at now plus the harvest delay ([current policy](../architecture.md#current-policy))
+- replace when the rested entry changed; `reschedule` when only the wake should move
+
+A new user message removes that id. The child keeps the transcript up to the pinned entry and the same bot directory, so its writes land in the shared knowledge folder. The parent transcript is unchanged.
+
+Before the fork, the host snapshots `SOUL.md`, `SYSTEM.md`, and `knowledge/`. After the child goes idle, it diffs. No change means no note. A change appends `{ chatKey, at, files: [{ path, diff }], when }` on `pi-bot.harvest-notes`. The note is shown on that chat's timeline, collapsed until opened. It is not a conversation entry, so later model requests do not see it, and it is not sent to Telegram.
+
+The schedule listing a client sees omits `harvest:*`. Those rows are not editable or deletable through the [client API](./client.md).
