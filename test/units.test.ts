@@ -1,17 +1,18 @@
-import { Writable } from "node:stream";
 import { describe, expect, it } from "bun:test";
-import { resolveProviderId } from "../src/harness/login.ts";
+import { Writable } from "node:stream";
+import { slugifyBotName } from "../src/channels/bot-slug.ts";
 import { chatKey } from "../src/channels/telegram/chats.ts";
 import { parseCommand } from "../src/channels/telegram/commands.ts";
 import { chunkText } from "../src/channels/telegram/deliver.ts";
 import { requestIdOf } from "../src/channels/telegram/poller.ts";
 import { parseUserIds } from "../src/config.ts";
 import { dayLine } from "../src/extensions/identity.ts";
-import { slugifyBotName } from "../src/channels/bot-slug.ts";
 import { parseDescription, parseSlug } from "../src/extensions/knowledge.ts";
-import { nextCron, parseCron } from "../src/schedules/cron.ts";
-import { getLogger, setupLogger } from "../src/log.ts";
+import { resolveProviderId } from "../src/harness/login.ts";
 import { modelConfigFromEnv, parseModelRef } from "../src/harness/models.ts";
+import { getLogger, setupLogger } from "../src/log.ts";
+import { nextCron, parseCron } from "../src/schedules/cron.ts";
+import { defined } from "./support.ts";
 
 // Unit tests only for small pure helpers; behaviour is covered by test/flows/.
 describe("pure helpers", () => {
@@ -22,17 +23,25 @@ describe("pure helpers", () => {
 
 	it("parses commands, including /cmd@Bot, and ignores other bots and unknown commands", () => {
 		expect(parseCommand("/new")).toEqual({ name: "new", args: "" });
-		expect(parseCommand("/new@pi_test_bot  carry on", "pi_test_bot")).toEqual({ name: "new", args: "carry on" });
+		expect(parseCommand("/new@pi_test_bot  carry on", "pi_test_bot")).toEqual({
+			name: "new",
+			args: "carry on",
+		});
 		expect(parseCommand("/new@other_bot", "pi_test_bot")).toBeUndefined();
 		expect(parseCommand("/frobnicate")).toBeUndefined();
 		expect(parseCommand("hello /new")).toBeUndefined();
 	});
 
 	it("parses model refs whose id contains slashes", () => {
-		expect(parseModelRef("openrouter/anthropic/some-model")).toEqual({ provider: "openrouter", modelId: "anthropic/some-model" });
+		expect(parseModelRef("openrouter/anthropic/some-model")).toEqual({
+			provider: "openrouter",
+			modelId: "anthropic/some-model",
+		});
 		expect(() => parseModelRef("nope")).toThrow(/provider/);
 		expect(() => modelConfigFromEnv({})).toThrow(/PI_MODEL is required/);
-		expect(modelConfigFromEnv({ PI_MODEL: "faux/echo", PI_THINKING_LEVEL: "low" })).toEqual({
+		expect(
+			modelConfigFromEnv({ PI_MODEL: "faux/echo", PI_THINKING_LEVEL: "low" }),
+		).toEqual({
 			main: { provider: "faux", modelId: "echo" },
 			thinkingLevel: "low",
 		});
@@ -45,8 +54,12 @@ describe("pure helpers", () => {
 	});
 
 	it("builds keys", () => {
-		expect(chatKey("default", { chatId: -100 })).toBe("default:tg:general:-100");
-		expect(chatKey("default", { chatId: -100, threadId: 7 })).toBe("default:tg:general:-100:7");
+		expect(chatKey("default", { chatId: -100 })).toBe(
+			"default:tg:general:-100",
+		);
+		expect(chatKey("default", { chatId: -100, threadId: 7 })).toBe(
+			"default:tg:general:-100:7",
+		);
 		expect(requestIdOf(-100, 42)).toBe("tg:-100:42");
 	});
 
@@ -73,17 +86,32 @@ describe("pure helpers", () => {
 	});
 
 	it("parses a one-line knowledge description", () => {
-		expect(parseDescription("---\ndescription: People Lior mentions.\n---\n\nBody.\n")).toBe("People Lior mentions.");
-		expect(parseDescription(`---\ndescription: ${"x".repeat(240)}\n---\n`)).toBe("x".repeat(240));
-		expect(parseDescription(`---\ndescription: ${"x".repeat(241)}\n---\n`)).toBeUndefined();
+		expect(
+			parseDescription(
+				"---\ndescription: People Lior mentions.\n---\n\nBody.\n",
+			),
+		).toBe("People Lior mentions.");
+		expect(
+			parseDescription(`---\ndescription: ${"x".repeat(240)}\n---\n`),
+		).toBe("x".repeat(240));
+		expect(
+			parseDescription(`---\ndescription: ${"x".repeat(241)}\n---\n`),
+		).toBeUndefined();
 		expect(parseDescription("---\ndescription:\n---\n")).toBeUndefined();
-		expect(parseDescription("---\ndescription: one\nkind: two\n---\n")).toBeUndefined();
+		expect(
+			parseDescription("---\ndescription: one\nkind: two\n---\n"),
+		).toBeUndefined();
 		expect(parseDescription("no frontmatter")).toBeUndefined();
-		expect(parseDescription("---\ndescription: line one\nline two\n---\n")).toBeUndefined();
+		expect(
+			parseDescription("---\ndescription: line one\nline two\n---\n"),
+		).toBeUndefined();
 	});
 
 	it("chunks long replies under Telegram's limit", () => {
-		const text = Array.from({ length: 300 }, (_, i) => `line ${i} ${"x".repeat(40)}`).join("\n");
+		const text = Array.from(
+			{ length: 300 },
+			(_, i) => `line ${i} ${"x".repeat(40)}`,
+		).join("\n");
 		const chunks = chunkText(text);
 		expect(chunks.length).toBeGreaterThan(1);
 		for (const chunk of chunks) expect(chunk.length).toBeLessThanOrEqual(4000);
@@ -105,7 +133,9 @@ describe("pure helpers", () => {
 		log.info("started", { model: "xai/grok-4.7", home: "/data/bot home" });
 		log.error("shutdown failed", { error: new Error("boom") });
 		expect(lines.some((line) => line.includes("hidden"))).toBe(false);
-		expect(lines[0]).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3} INFO {2}started model=xai\/grok-4\.7 home="\/data\/bot home"\n$/);
+		expect(lines[0]).toMatch(
+			/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3} INFO {2}started model=xai\/grok-4\.7 home="\/data\/bot home"\n$/,
+		);
 		expect(lines[1]).toContain("ERROR shutdown failed error=boom");
 		expect(lines[1]).toContain("Error: boom");
 		setupLogger({ type: "silent" });
@@ -117,10 +147,16 @@ describe("pure helpers", () => {
 		expect(daily?.hour.has(8)).toBe(true);
 		expect(daily?.weekday.size).toBe(7);
 		const stepped = parseCron("*/15 0 1,15 1-3 1-5");
-		expect([...(stepped?.minute ?? [])].sort((a, b) => a - b)).toEqual([0, 15, 30, 45]);
+		expect([...(stepped?.minute ?? [])].sort((a, b) => a - b)).toEqual([
+			0, 15, 30, 45,
+		]);
 		expect([...(stepped?.day ?? [])].sort((a, b) => a - b)).toEqual([1, 15]);
-		expect([...(stepped?.month ?? [])].sort((a, b) => a - b)).toEqual([1, 2, 3]);
-		expect([...(stepped?.weekday ?? [])].sort((a, b) => a - b)).toEqual([1, 2, 3, 4, 5]);
+		expect([...(stepped?.month ?? [])].sort((a, b) => a - b)).toEqual([
+			1, 2, 3,
+		]);
+		expect([...(stepped?.weekday ?? [])].sort((a, b) => a - b)).toEqual([
+			1, 2, 3, 4, 5,
+		]);
 		expect(parseCron("0 8 * *")).toBeUndefined();
 		expect(parseCron("0 8 * * * *")).toBeUndefined();
 		expect(parseCron("0 8 * * MON")).toBeUndefined();
@@ -131,15 +167,37 @@ describe("pure helpers", () => {
 
 		const zone = "Asia/Jerusalem";
 		const after = Date.parse("2026-10-10T12:00:00Z");
-		const sunday = nextCron(parseCron("0 0 * * 0")!, after, zone);
-		expect(sunday).toBe(nextCron(parseCron("0 0 * * 7")!, after, zone));
+		const sunday = defined(
+			nextCron(defined(parseCron("0 0 * * 0"), "cron"), after, zone),
+			"sunday",
+		);
+		expect(sunday).toBe(
+			defined(
+				nextCron(defined(parseCron("0 0 * * 7"), "cron"), after, zone),
+				"sunday",
+			),
+		);
 		expect(sunday).toBeGreaterThan(after);
-		const weekday = new Intl.DateTimeFormat("en-US", { timeZone: zone, weekday: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(sunday!));
+		const weekday = new Intl.DateTimeFormat("en-US", {
+			timeZone: zone,
+			weekday: "short",
+			hour: "2-digit",
+			minute: "2-digit",
+			hourCycle: "h23",
+		}).format(new Date(sunday));
 		expect(weekday.startsWith("Sun")).toBe(true);
 		expect(weekday.endsWith("00")).toBe(true);
 
-		const quarter = nextCron(parseCron("*/15 * * * *")!, after, zone)!;
-		const minute = Number(new Intl.DateTimeFormat("en-US", { timeZone: zone, minute: "2-digit" }).format(new Date(quarter)));
+		const quarter = defined(
+			nextCron(defined(parseCron("*/15 * * * *"), "cron"), after, zone),
+			"quarter",
+		);
+		const minute = Number(
+			new Intl.DateTimeFormat("en-US", {
+				timeZone: zone,
+				minute: "2-digit",
+			}).format(new Date(quarter)),
+		);
 		expect(minute % 15).toBe(0);
 		expect(quarter - after).toBeLessThanOrEqual(15 * 60 * 1000);
 	});

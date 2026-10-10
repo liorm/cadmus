@@ -1,8 +1,8 @@
+import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { Database } from "bun:sqlite";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import { type EntryId, type Harness } from "@earendil-works/pi-durable";
+import type { EntryId, Harness } from "@earendil-works/pi-durable";
 import { listChats, webChatKey } from "../channels/telegram/chats.ts";
 import { getLogger } from "../log.ts";
 import type { BotRuntime } from "../runtime.ts";
@@ -41,12 +41,21 @@ type Row = {
 };
 
 export type ScheduleService = {
-	put(schedule: Schedule, options?: { ifExists?: "reject" | "replace" }): Promise<"created" | "replaced" | "exists">;
-	reschedule(id: string, when: { cron: string } | { when: number }): Promise<"rescheduled" | "missing" | "invalid">;
+	put(
+		schedule: Schedule,
+		options?: { ifExists?: "reject" | "replace" },
+	): Promise<"created" | "replaced" | "exists">;
+	reschedule(
+		id: string,
+		when: { cron: string } | { when: number },
+	): Promise<"rescheduled" | "missing" | "invalid">;
 	remove(id: string): Promise<void>;
 	list(botId?: string): Promise<Schedule[]>;
 	/** Run one due row now. A future row runs only when `force` is set. */
-	fire(id: string, options?: { force?: boolean }): Promise<"fired" | "duplicate" | "missing" | "skipped">;
+	fire(
+		id: string,
+		options?: { force?: boolean },
+	): Promise<"fired" | "duplicate" | "missing" | "skipped">;
 	start(): void;
 	stop(): Promise<void>;
 	idle(): Promise<void>;
@@ -78,15 +87,29 @@ export function createScheduleService(options: {
 		);
 	`);
 	const now = () => options.now?.() ?? Date.now();
-	const selectOne = db.query<Row, [string]>("SELECT * FROM schedules WHERE id = ?");
-	const selectDue = db.query<Row, [number]>("SELECT * FROM schedules WHERE next_run <= ? ORDER BY next_run, id");
-	const selectNext = db.query<Row, [number]>("SELECT * FROM schedules WHERE next_run > ? ORDER BY next_run LIMIT 1");
-	const selectAll = db.query<Row, []>("SELECT * FROM schedules ORDER BY next_run, id");
-	const selectBot = db.query<Row, [string]>("SELECT * FROM schedules WHERE bot_id = ? ORDER BY next_run, id");
-	const claimed = db.query<{ request_id: string }, [string]>("SELECT request_id FROM fires WHERE request_id = ?");
+	const selectOne = db.query<Row, [string]>(
+		"SELECT * FROM schedules WHERE id = ?",
+	);
+	const selectDue = db.query<Row, [number]>(
+		"SELECT * FROM schedules WHERE next_run <= ? ORDER BY next_run, id",
+	);
+	const selectNext = db.query<Row, [number]>(
+		"SELECT * FROM schedules WHERE next_run > ? ORDER BY next_run LIMIT 1",
+	);
+	const selectAll = db.query<Row, []>(
+		"SELECT * FROM schedules ORDER BY next_run, id",
+	);
+	const selectBot = db.query<Row, [string]>(
+		"SELECT * FROM schedules WHERE bot_id = ? ORDER BY next_run, id",
+	);
+	const claimed = db.query<{ request_id: string }, [string]>(
+		"SELECT request_id FROM fires WHERE request_id = ?",
+	);
 	const insertFire = db.query("INSERT INTO fires (request_id) VALUES (?)");
 	const removeRow = db.query("DELETE FROM schedules WHERE id = ?");
-	const setNext = db.query("UPDATE schedules SET next_run = ? WHERE id = ? AND next_run = ?");
+	const setNext = db.query(
+		"UPDATE schedules SET next_run = ? WHERE id = ? AND next_run = ?",
+	);
 	const moveNext = db.query("UPDATE schedules SET next_run = ? WHERE id = ?");
 	const upsert = db.query(
 		`INSERT INTO schedules (id, bot_id, kind, cron, when_ms, next_run, text, target_json)
@@ -131,7 +154,10 @@ export function createScheduleService(options: {
 		if (!started) return;
 		const upcoming = selectNext.get(now());
 		if (!upcoming) return;
-		const delay = Math.min(Math.max(0, upcoming.next_run - now()), 2_147_483_647);
+		const delay = Math.min(
+			Math.max(0, upcoming.next_run - now()),
+			2_147_483_647,
+		);
 		timer = setTimeout(() => {
 			timer = undefined;
 			dirty = true;
@@ -164,13 +190,15 @@ export function createScheduleService(options: {
 
 	const writeNext = (schedule: Schedule): number => {
 		if (schedule.kind === "when") {
-			if (!Number.isFinite(schedule.when)) throw new ScheduleRejected("When is not a time.");
+			if (!Number.isFinite(schedule.when))
+				throw new ScheduleRejected("When is not a time.");
 			return schedule.when;
 		}
 		const fields = parseCron(schedule.cron);
 		if (!fields) throw new ScheduleRejected("Cron must be five fields.");
 		const next = nextCron(fields, now(), options.timeZone);
-		if (next === undefined) throw new ScheduleRejected("Cron has no upcoming time.");
+		if (next === undefined)
+			throw new ScheduleRejected("Cron has no upcoming time.");
 		return next;
 	};
 
@@ -183,14 +211,19 @@ export function createScheduleService(options: {
 			if (current.kind === "when") removeRow.run(row.id);
 			else {
 				const fields = current.cron ? parseCron(current.cron) : undefined;
-				const next = fields ? nextCron(fields, Math.max(now(), row.next_run), options.timeZone) : undefined;
+				const next = fields
+					? nextCron(fields, Math.max(now(), row.next_run), options.timeZone)
+					: undefined;
 				setNext.run(next ?? row.next_run + 86_400_000, row.id, row.next_run);
 			}
 		}
 		return true;
 	});
 
-	async function fireRow(row: Row, force: boolean): Promise<"fired" | "duplicate" | "skipped"> {
+	async function fireRow(
+		row: Row,
+		force: boolean,
+	): Promise<"fired" | "duplicate" | "skipped"> {
 		if (!force && row.next_run > now()) return "skipped";
 		const admitted = advance(row);
 		if (!admitted) return "duplicate";
@@ -200,9 +233,17 @@ export function createScheduleService(options: {
 		return "fired";
 	}
 
-	async function dispatch(schedule: Schedule, requestId: string): Promise<void> {
+	async function dispatch(
+		schedule: Schedule,
+		requestId: string,
+	): Promise<void> {
 		if (isHarvestId(schedule.id)) {
-			await runHarvest({ harness: options.harness, home: options.home, schedule, requestId });
+			await runHarvest({
+				harness: options.harness,
+				home: options.home,
+				schedule,
+				requestId,
+			});
 			return;
 		}
 		const runtime = options.runtime(schedule.botId);
@@ -213,7 +254,9 @@ export function createScheduleService(options: {
 			return;
 		}
 		if (target.mode === "new-chat") {
-			const chat = await runtime.createChat(webChatKey(schedule.botId, newChatId()));
+			const chat = await runtime.createChat(
+				webChatKey(schedule.botId, newChatId()),
+			);
 			await runtime.submit(chat.key, requestId, schedule.text);
 			return;
 		}
@@ -252,11 +295,15 @@ export function createScheduleService(options: {
 					nextRun = when.when;
 				} else {
 					const fields = parseCron(when.cron);
-					nextRun = fields ? nextCron(fields, now(), options.timeZone) : undefined;
+					nextRun = fields
+						? nextCron(fields, now(), options.timeZone)
+						: undefined;
 					if (nextRun === undefined) return "invalid" as const;
 				}
 				const moved = moveNext.run(nextRun, id);
-				return moved.changes === 0 ? ("missing" as const) : ("rescheduled" as const);
+				return moved.changes === 0
+					? ("missing" as const)
+					: ("rescheduled" as const);
 			})();
 			if (outcome === "rescheduled") wake();
 			return outcome;
@@ -305,8 +352,15 @@ export function createScheduleService(options: {
 
 function fromRow(row: Row): Schedule {
 	const target = JSON.parse(row.target_json) as ScheduleTarget;
-	const base = { id: row.id, botId: row.bot_id, target, text: row.text, nextRun: row.next_run };
-	if (row.kind === "cron") return { ...base, kind: "cron", cron: row.cron ?? "" };
+	const base = {
+		id: row.id,
+		botId: row.bot_id,
+		target,
+		text: row.text,
+		nextRun: row.next_run,
+	};
+	if (row.kind === "cron")
+		return { ...base, kind: "cron", cron: row.cron ?? "" };
 	return { ...base, kind: "when", when: row.next_run };
 }
 
@@ -314,20 +368,38 @@ function newChatId(): string {
 	return crypto.randomUUID().replaceAll("-", "").slice(0, 12);
 }
 
-async function forkOnly(harness: Harness, schedule: Schedule, requestId: string): Promise<void> {
+async function forkOnly(
+	harness: Harness,
+	schedule: Schedule,
+	requestId: string,
+): Promise<void> {
 	const target = schedule.target;
 	if (target.mode !== "fork") return;
-	const chat = (await listChats(harness)).find((item) => item.key === target.chatId && item.botId === schedule.botId);
+	const chat = (await listChats(harness)).find(
+		(item) => item.key === target.chatId && item.botId === schedule.botId,
+	);
 	if (!chat) return;
-	const parent = await harness.conversation(chat.conversationId, BACKGROUND_CONTEXT);
+	const parent = await harness.conversation(
+		chat.conversationId,
+		BACKGROUND_CONTEXT,
+	);
 	if (!parent) return;
 	let at = target.at as EntryId | undefined;
 	if (at === undefined) {
-		const page = await parent.entries({ order: "descending" }, 1, undefined, BACKGROUND_CONTEXT);
+		const page = await parent.entries(
+			{ order: "descending" },
+			1,
+			undefined,
+			BACKGROUND_CONTEXT,
+		);
 		at = page.items[0]?.id;
 	}
 	if (at === undefined) return;
-	const child = await parent.fork(at, { ownership: { kind: "ownerless" } }, BACKGROUND_CONTEXT);
+	const child = await parent.fork(
+		at,
+		{ ownership: { kind: "ownerless" } },
+		BACKGROUND_CONTEXT,
+	);
 	const submission = await child.submit(
 		{ type: "input", content: schedule.text, requestId, whenBusy: "steer" },
 		BACKGROUND_CONTEXT,

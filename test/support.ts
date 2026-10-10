@@ -15,7 +15,10 @@ export async function tempHome(): Promise<string> {
 }
 
 /** The production env for a bot whose egress goes to `egress`. API-key auth unless overridden. */
-export function botEnv(home: string, overrides: Record<string, string | undefined> = {}): NodeJS.ProcessEnv {
+export function botEnv(
+	home: string,
+	overrides: Record<string, string | undefined> = {},
+): NodeJS.ProcessEnv {
 	const env: NodeJS.ProcessEnv = {
 		PATH: process.env.PATH,
 		HOME: process.env.HOME,
@@ -40,7 +43,10 @@ export function botEnv(home: string, overrides: Record<string, string | undefine
  * Run the real `main()` in-process. pi-ai reads provider keys from process.env, so the key under test is mirrored there
  * for the bot's lifetime.
  */
-export async function startBot(home: string, overrides: Record<string, string | undefined> = {}): Promise<App> {
+export async function startBot(
+	home: string,
+	overrides: Record<string, string | undefined> = {},
+): Promise<App> {
 	const env = botEnv(home, overrides);
 	if (env.XAI_API_KEY === undefined) delete process.env.XAI_API_KEY;
 	else process.env.XAI_API_KEY = env.XAI_API_KEY;
@@ -48,7 +54,11 @@ export async function startBot(home: string, overrides: Record<string, string | 
 	return main(env);
 }
 
-export async function until(check: () => boolean | Promise<boolean>, what = "condition", timeoutMs = 15_000) {
+export async function until(
+	check: () => boolean | Promise<boolean>,
+	what = "condition",
+	timeoutMs = 15_000,
+) {
 	const deadline = Date.now() + timeoutMs;
 	while (!(await check())) {
 		if (Date.now() > deadline) throw new Error(`Timed out waiting for ${what}`);
@@ -62,18 +72,37 @@ export async function settle(app: App, egress: FakeEgress) {
 	await app.quiesce();
 }
 
-export type Child = { proc: ChildProcess; exited: Promise<number | null>; output: () => string };
+/** Narrow a value the test has already arranged to exist. */
+export function defined<T>(value: T | null | undefined, label = "value"): T {
+	if (value === null || value === undefined)
+		throw new Error(`${label} is missing`);
+	return value;
+}
+
+export type Child = {
+	proc: ChildProcess;
+	exited: Promise<number | null>;
+	output: () => string;
+};
 
 /** A real `bun` process with egress routed to the fake server. */
-export function spawnBun(args: string[], env: NodeJS.ProcessEnv, egress: FakeEgress): Child {
+export function spawnBun(
+	args: string[],
+	env: NodeJS.ProcessEnv,
+	egress: FakeEgress,
+): Child {
 	const proc = spawn(process.execPath, ["--preload", PRELOAD, ...args], {
 		cwd: ROOT,
 		env: { ...env, EGRESS_URL: egress.url },
 		stdio: ["ignore", "pipe", "pipe"],
 	});
 	let output = "";
-	proc.stdout!.on("data", (chunk) => (output += chunk));
-	proc.stderr!.on("data", (chunk) => (output += chunk));
-	const exited = new Promise<number | null>((resolve) => proc.on("exit", (code, signal) => resolve(signal ? -1 : code)));
+	const { stdout, stderr } = proc;
+	if (!stdout || !stderr) throw new Error("spawned bun has no pipes");
+	stdout.on("data", (chunk) => (output += chunk));
+	stderr.on("data", (chunk) => (output += chunk));
+	const exited = new Promise<number | null>((resolve) =>
+		proc.on("exit", (code, signal) => resolve(signal ? -1 : code)),
+	);
 	return { proc, exited, output: () => output };
 }

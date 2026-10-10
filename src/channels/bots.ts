@@ -1,10 +1,17 @@
-import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import {
+	mkdir,
+	readdir,
+	readFile,
+	rm,
+	stat,
+	writeFile,
+} from "node:fs/promises";
 import { join } from "node:path";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { defineDoc, type Harness } from "@earendil-works/pi-durable";
-import { slugifyBotName } from "./bot-slug.ts";
 import { DEFAULT_SOUL } from "../extensions/identity.ts";
 import { type ModelConfig, modelRefString } from "../harness/models.ts";
+import { slugifyBotName } from "./bot-slug.ts";
 
 /** The Telegram bot that exists today. Created on first start; this step never removes or renames it. */
 export const DEFAULT_BOT_ID = "default";
@@ -24,11 +31,17 @@ export type BotRecord = {
 };
 
 /** What the page is allowed to see. The Telegram token stays on the stored row. */
-export type PublicBot = Omit<BotRecord, "telegramToken"> & { telegramConfigured: boolean };
+export type PublicBot = Omit<BotRecord, "telegramToken"> & {
+	telegramConfigured: boolean;
+};
 
 export function publicBot(bot: BotRecord): PublicBot {
 	const { telegramToken: _token, ...rest } = bot;
-	return { ...rest, ...(rest.tools ? { tools: [...rest.tools] } : {}), telegramConfigured: Boolean(bot.telegramToken) };
+	return {
+		...rest,
+		...(rest.tools ? { tools: [...rest.tools] } : {}),
+		telegramConfigured: Boolean(bot.telegramToken),
+	};
 }
 
 export const BotsDoc = defineDoc<{ items: BotRecord[] }>({
@@ -79,7 +92,10 @@ export async function ensureDefaultBotFiles(home: string): Promise<void> {
 }
 
 /** Insert `default` on first start. Later starts refresh its model and thinking from env; other rows stay. */
-export async function ensureDefaultBotDoc(harness: Harness, model: ModelConfig): Promise<void> {
+export async function ensureDefaultBotDoc(
+	harness: Harness,
+	model: ModelConfig,
+): Promise<void> {
 	const modelId = modelRefString(model.main);
 	const thinking = model.thinkingLevel ?? "";
 	await harness.commit(async (tx) => {
@@ -90,12 +106,20 @@ export async function ensureDefaultBotDoc(harness: Harness, model: ModelConfig):
 			existing.thinking = thinking;
 			return;
 		}
-		bots.items.push({ id: DEFAULT_BOT_ID, name: "Default", model: modelId, thinking, createdAt: Date.now() });
+		bots.items.push({
+			id: DEFAULT_BOT_ID,
+			name: "Default",
+			model: modelId,
+			thinking,
+			createdAt: Date.now(),
+		});
 	}, BACKGROUND_CONTEXT);
 }
 
 export async function listBots(harness: Harness): Promise<BotRecord[]> {
-	return [...((await harness.snapshot(BotsDoc, BACKGROUND_CONTEXT))?.items ?? [])];
+	return [
+		...((await harness.snapshot(BotsDoc, BACKGROUND_CONTEXT))?.items ?? []),
+	];
 }
 
 export type BotWrite = {
@@ -107,10 +131,16 @@ export type BotWrite = {
 
 export type BotFailure = { ok: false; status: 422; error: string };
 export type BotCreateResult = { ok: true; bot: BotRecord } | BotFailure;
-export type BotUpdateResult = { ok: true; bot: BotRecord } | BotFailure | { ok: false; status: 404; error: string };
+export type BotUpdateResult =
+	| { ok: true; bot: BotRecord }
+	| BotFailure
+	| { ok: false; status: 404; error: string };
 
 /** `base`, or `base-2`, `base-3`, … shortened so the id stays a bot slug. */
-export function allocateBotId(base: string, taken: ReadonlySet<string>): string {
+export function allocateBotId(
+	base: string,
+	taken: ReadonlySet<string>,
+): string {
 	if (!taken.has(base)) return base;
 	for (let n = 2; n < 1000; n++) {
 		const suffix = `-${n}`;
@@ -121,7 +151,10 @@ export function allocateBotId(base: string, taken: ReadonlySet<string>): string 
 	throw new Error("no free bot id");
 }
 
-async function takenBotIds(harness: Harness, home: string): Promise<Set<string>> {
+async function takenBotIds(
+	harness: Harness,
+	home: string,
+): Promise<Set<string>> {
 	const taken = new Set((await listBots(harness)).map((bot) => bot.id));
 	let names: string[] = [];
 	try {
@@ -150,9 +183,14 @@ async function writeNewBotFiles(home: string, id: string): Promise<void> {
  * Slugify `name`, write the folder, then commit the row. A failed write commits nothing.
  * A failed commit deletes the folder this call created.
  */
-export async function createBot(harness: Harness, home: string, input: BotWrite): Promise<BotCreateResult> {
+export async function createBot(
+	harness: Harness,
+	home: string,
+	input: BotWrite,
+): Promise<BotCreateResult> {
 	const base = slugifyBotName(input.name);
-	if (!base) return { ok: false, status: 422, error: "Name does not make a slug." };
+	if (!base)
+		return { ok: false, status: 422, error: "Name does not make a slug." };
 	const id = allocateBotId(base, await takenBotIds(harness, home));
 	const dir = botDir(home, id);
 	try {
@@ -172,7 +210,8 @@ export async function createBot(harness: Harness, home: string, input: BotWrite)
 	try {
 		await harness.commit(async (tx) => {
 			const bots = await tx.doc(BotsDoc);
-			if (bots.items.some((bot) => bot.id === id)) throw new Error(`Bot ${id} already exists`);
+			if (bots.items.some((bot) => bot.id === id))
+				throw new Error(`Bot ${id} already exists`);
 			bots.items.push(record);
 		}, BACKGROUND_CONTEXT);
 	} catch (error) {
@@ -183,7 +222,11 @@ export async function createBot(harness: Harness, home: string, input: BotWrite)
 }
 
 /** Store or clear the per-bot Telegram token. Returns the full row, token included. */
-export async function setTelegramToken(harness: Harness, id: string, token: string | null): Promise<BotRecord | undefined> {
+export async function setTelegramToken(
+	harness: Harness,
+	id: string,
+	token: string | null,
+): Promise<BotRecord | undefined> {
 	return harness.commit(async (tx) => {
 		const bots = await tx.doc(BotsDoc);
 		const bot = bots.items.find((item) => item.id === id);
@@ -195,15 +238,25 @@ export async function setTelegramToken(harness: Harness, id: string, token: stri
 }
 
 /** Update the row only. Does not reconfigure conversations that already exist. */
-export async function updateBot(harness: Harness, id: string, patch: Partial<BotWrite>): Promise<BotUpdateResult> {
+export async function updateBot(
+	harness: Harness,
+	id: string,
+	patch: Partial<BotWrite>,
+): Promise<BotUpdateResult> {
 	const name = patch.name?.trim();
-	if (patch.name !== undefined && !name) return { ok: false, status: 422, error: "Name is empty." };
+	if (patch.name !== undefined && !name)
+		return { ok: false, status: 422, error: "Name is empty." };
 	return harness.commit(async (tx) => {
 		const bots = await tx.doc(BotsDoc);
 		const bot = bots.items.find((item) => item.id === id);
 		if (!bot) return { ok: false, status: 404, error: "No such bot." };
 		if (name !== undefined && name !== bot.name) {
-			if (id === DEFAULT_BOT_ID) return { ok: false, status: 422, error: "The default bot cannot be renamed." };
+			if (id === DEFAULT_BOT_ID)
+				return {
+					ok: false,
+					status: 422,
+					error: "The default bot cannot be renamed.",
+				};
 			bot.name = name;
 		}
 		if (patch.model !== undefined) bot.model = patch.model;
@@ -212,6 +265,9 @@ export async function updateBot(harness: Harness, id: string, patch: Partial<Bot
 			if (patch.tools.length === 0) delete bot.tools;
 			else bot.tools = patch.tools;
 		}
-		return { ok: true, bot: { ...bot, ...(bot.tools ? { tools: [...bot.tools] } : {}) } };
+		return {
+			ok: true,
+			bot: { ...bot, ...(bot.tools ? { tools: [...bot.tools] } : {}) },
+		};
 	}, BACKGROUND_CONTEXT);
 }

@@ -2,11 +2,19 @@ import { loadFiles, openFile, saveFile } from "./client.ts";
 import { banner, filePath, files, fileText, saved } from "./state.ts";
 
 function descriptionOf(text: string): { description?: string; error?: string } {
-	const match = /^---\r?\ndescription:[ \t]*([^\r\n]*)\r?\n---(?:\r?\n|$)/.exec(text);
-	if (!match) return { error: "description is required, one line, at most 240 characters." };
-	const description = match[1]!.trim();
+	const match = /^---\r?\ndescription:[ \t]*([^\r\n]*)\r?\n---(?:\r?\n|$)/.exec(
+		text,
+	);
+	if (!match)
+		return {
+			error: "description is required, one line, at most 240 characters.",
+		};
+	const description = (match[1] ?? "").trim();
 	if (!description) return { error: "description is empty." };
-	if (description.length > 240) return { error: `description is ${description.length} characters — max 240, one line.` };
+	if (description.length > 240)
+		return {
+			error: `description is ${description.length} characters — max 240, one line.`,
+		};
 	return { description };
 }
 
@@ -14,18 +22,35 @@ export function Knowledge() {
 	const path = filePath.value;
 	const knowledge = path?.startsWith("knowledge/") ?? false;
 	const checked = knowledge ? descriptionOf(fileText.value) : {};
-	const slug = path?.startsWith("knowledge/") ? path.slice("knowledge/".length, -3) : "";
+	const slug = path?.startsWith("knowledge/")
+		? path.slice("knowledge/".length, -3)
+		: "";
 	const badSlug = knowledge && !/^[a-z0-9][a-z0-9-]{0,63}$/.test(slug);
 	const error = badSlug ? "The file name is not a legal slug." : checked.error;
 	const count = checked.description?.length;
 	return (
 		<>
 			<div class="list">
-				<button class="btn ghost" onClick={() => void createFile()}>New file</button>
+				<button
+					type="button"
+					class="btn ghost"
+					onClick={() => void createFile()}
+				>
+					New file
+				</button>
 				{files.value.map((file) => (
-					<button key={file.path} class={`kr ${file.path === path ? "sel" : ""}`} onClick={() => void openFile(file.path).catch(show)}>
+					<button
+						type="button"
+						key={file.path}
+						class={`kr ${file.path === path ? "sel" : ""}`}
+						onClick={() => void openFile(file.path).catch(show)}
+					>
 						<span class="mono">{file.path.split("/").pop()}</span>
-						{file.path.startsWith("knowledge/") ? <span class={`d ${file.valid ? "" : "bad"}`}>{file.valid ? file.description : "unreadable frontmatter"}</span> : null}
+						{file.path.startsWith("knowledge/") ? (
+							<span class={`d ${file.valid ? "" : "bad"}`}>
+								{file.valid ? file.description : "unreadable frontmatter"}
+							</span>
+						) : null}
 					</button>
 				))}
 			</div>
@@ -36,22 +61,57 @@ export function Knowledge() {
 						<div class="key">knowledge index</div>
 					</div>
 					<div class="r">
-						<button class="btn pri" disabled={Boolean(error)} onClick={() => void save().catch(show)}>Save</button>
+						<button
+							type="button"
+							class="btn pri"
+							disabled={Boolean(error)}
+							onClick={() => void save().catch(show)}
+						>
+							Save
+						</button>
 					</div>
 				</div>
 				<div class="pg">
-					{error ? <div class="errbox">Can't save: <b>{error}</b> The file was not changed.</div> : null}
+					{error ? (
+						<div class="errbox">
+							Can't save: <b>{error}</b> The file was not changed.
+						</div>
+					) : null}
 					<div class={`panel ed ${error ? "bad" : ""}`}>
 						<div class="gutter">
 							{fileText.value.split("\n").map((_, index) => (
-								<i key={index} class={error && index === 1 ? "bad" : ""}>{index + 1}</i>
+								<i key={index} class={error && index === 1 ? "bad" : ""}>
+									{index + 1}
+								</i>
 							))}
 						</div>
-						<textarea class="src" value={fileText.value} spellcheck={false} onInput={(event) => (fileText.value = (event.currentTarget as HTMLTextAreaElement).value)} />
+						<textarea
+							class="src"
+							value={fileText.value}
+							spellcheck={false}
+							onInput={(event) =>
+								(fileText.value = (
+									event.currentTarget as HTMLTextAreaElement
+								).value)
+							}
+						/>
 					</div>
 					<div class="mu filemeta">
-						{knowledge ? <span class={error ? "err" : ""}>description {count ?? 0}/240</span> : <span>SOUL.md and SYSTEM.md have no description</span>}
-						<span>index line: <span class="mono">{path ? `${path}${checked.description ? ` — ${checked.description}` : ""}` : ""}</span></span>
+						{knowledge ? (
+							<span class={error ? "err" : ""}>
+								description {count ?? 0}/240
+							</span>
+						) : (
+							<span>SOUL.md and SYSTEM.md have no description</span>
+						)}
+						<span>
+							index line:{" "}
+							<span class="mono">
+								{path
+									? `${path}${checked.description ? ` — ${checked.description}` : ""}`
+									: ""}
+							</span>
+						</span>
 						{saved.value ? <span class="ok">{saved.value}</span> : null}
 					</div>
 				</div>

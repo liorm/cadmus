@@ -1,7 +1,16 @@
-import type { AssistantMessage, CredentialStore, ModelThinkingLevel, TranscriptContext } from "@earendil-works/pi-ai";
+import type {
+	AssistantMessage,
+	CredentialStore,
+	ModelThinkingLevel,
+	TranscriptContext,
+} from "@earendil-works/pi-ai";
 import type { MutableModels } from "@earendil-works/pi-ai/models";
 import { builtinModels } from "@earendil-works/pi-ai/providers/all";
-import { type FauxResponseStep, fauxAssistantMessage, fauxProvider } from "@earendil-works/pi-ai/providers/faux";
+import {
+	type FauxResponseStep,
+	fauxAssistantMessage,
+	fauxProvider,
+} from "@earendil-works/pi-ai/providers/faux";
 import type { ModelRef } from "@earendil-works/pi-durable";
 
 /**
@@ -15,12 +24,20 @@ export type ModelConfig = {
 	readonly gate?: ModelRef;
 };
 
-export const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh"] as const satisfies readonly ModelThinkingLevel[];
+export const THINKING_LEVELS = [
+	"off",
+	"minimal",
+	"low",
+	"medium",
+	"high",
+	"xhigh",
+] as const satisfies readonly ModelThinkingLevel[];
 
 /** `provider/modelId`; the model id may itself contain slashes (e.g. `openrouter/anthropic/x`). */
 export function parseModelRef(raw: string, name = "model"): ModelRef {
 	const slash = raw.indexOf("/");
-	if (slash <= 0 || slash === raw.length - 1) throw new Error(`${name}: expected <provider>/<modelId>, got "${raw}"`);
+	if (slash <= 0 || slash === raw.length - 1)
+		throw new Error(`${name}: expected <provider>/<modelId>, got "${raw}"`);
 	return { provider: raw.slice(0, slash), modelId: raw.slice(slash + 1) };
 }
 
@@ -29,32 +46,47 @@ export function modelRefString(model: ModelRef): string {
 }
 
 /** A stored thinking string, or `undefined` when it is empty or not a level the harness knows. */
-export function parseThinkingLevel(value: string | undefined): ModelThinkingLevel | undefined {
+export function parseThinkingLevel(
+	value: string | undefined,
+): ModelThinkingLevel | undefined {
 	const level = value?.trim();
 	if (!level) return undefined;
-	return (THINKING_LEVELS as readonly string[]).includes(level) ? (level as ModelThinkingLevel) : undefined;
+	return (THINKING_LEVELS as readonly string[]).includes(level)
+		? (level as ModelThinkingLevel)
+		: undefined;
 }
 
 export function modelConfigFromEnv(env: NodeJS.ProcessEnv): ModelConfig {
 	const main = env.PI_MODEL?.trim();
-	if (!main) throw new Error("PI_MODEL is required (<provider>/<modelId>, or faux/echo for an offline smoke test)");
-	const thinking = env.PI_THINKING_LEVEL?.trim() as ModelThinkingLevel | undefined;
+	if (!main)
+		throw new Error(
+			"PI_MODEL is required (<provider>/<modelId>, or faux/echo for an offline smoke test)",
+		);
+	const thinking = env.PI_THINKING_LEVEL?.trim() as
+		| ModelThinkingLevel
+		| undefined;
 	if (thinking && !(THINKING_LEVELS as readonly string[]).includes(thinking))
 		throw new Error(`PI_THINKING_LEVEL: unknown level "${thinking}"`);
 	return {
 		main: parseModelRef(main, "PI_MODEL"),
 		...(thinking ? { thinkingLevel: thinking } : {}),
-		...(env.PI_REVIEW_MODEL ? { reviewer: parseModelRef(env.PI_REVIEW_MODEL, "PI_REVIEW_MODEL") } : {}),
-		...(env.PI_GATE_MODEL ? { gate: parseModelRef(env.PI_GATE_MODEL, "PI_GATE_MODEL") } : {}),
+		...(env.PI_REVIEW_MODEL
+			? { reviewer: parseModelRef(env.PI_REVIEW_MODEL, "PI_REVIEW_MODEL") }
+			: {}),
+		...(env.PI_GATE_MODEL
+			? { gate: parseModelRef(env.PI_GATE_MODEL, "PI_GATE_MODEL") }
+			: {}),
 	};
 }
 
 function lastUserText(context: TranscriptContext): string {
 	const user = context.messages.findLast((message) => message.role === "user");
-	if (!user || user.role !== "user") return "";
+	if (user?.role !== "user") return "";
 	return typeof user.content === "string"
 		? user.content
-		: user.content.map((part) => (part.type === "text" ? part.text : "")).join("");
+		: user.content
+				.map((part) => (part.type === "text" ? part.text : ""))
+				.join("");
 }
 
 /** Number of user messages the model can see: lets tests observe `/new` resets. */
@@ -64,14 +96,23 @@ export function visibleUserMessages(context: TranscriptContext): number {
 
 /** Offline echo model: `echo(<visible user messages>): <last user text>`. */
 export function echoResponse(context: TranscriptContext): AssistantMessage {
-	return fauxAssistantMessage(`echo(${visibleUserMessages(context)}): ${lastUserText(context)}`);
+	return fauxAssistantMessage(
+		`echo(${visibleUserMessages(context)}): ${lastUserText(context)}`,
+	);
 }
 
-export type FauxResponder = (context: TranscriptContext) => AssistantMessage | Promise<AssistantMessage>;
+export type FauxResponder = (
+	context: TranscriptContext,
+) => AssistantMessage | Promise<AssistantMessage>;
 
 /** A faux provider ("faux") with an endless supply of `respond` steps. */
-export function addFauxProvider(models: MutableModels, respond: FauxResponder = echoResponse) {
-	const faux = fauxProvider({ models: [{ id: "echo", contextWindow: 128_000, maxTokens: 8_192 }] });
+export function addFauxProvider(
+	models: MutableModels,
+	respond: FauxResponder = echoResponse,
+) {
+	const faux = fauxProvider({
+		models: [{ id: "echo", contextWindow: 128_000, maxTokens: 8_192 }],
+	});
 	const step: FauxResponseStep = (context) => {
 		faux.appendResponses([step]);
 		return respond(context);
@@ -86,14 +127,21 @@ export function addFauxProvider(models: MutableModels, respond: FauxResponder = 
  * `credentials` (OAuth from `bun run login`, refreshed automatically by pi-ai) wins; otherwise the provider's API-key env
  * var (e.g. `XAI_API_KEY`).
  */
-export function createModels(options: { credentials?: CredentialStore } = {}): MutableModels {
-	const models = builtinModels(options.credentials ? { credentials: options.credentials } : {});
+export function createModels(
+	options: { credentials?: CredentialStore } = {},
+): MutableModels {
+	const models = builtinModels(
+		options.credentials ? { credentials: options.credentials } : {},
+	);
 	addFauxProvider(models);
 	return models;
 }
 
 /** Fail fast with an actionable message when the configured model is unknown or its provider has no credentials. */
-export async function checkModel(models: MutableModels, ref: ModelRef): Promise<string | undefined> {
+export async function checkModel(
+	models: MutableModels,
+	ref: ModelRef,
+): Promise<string | undefined> {
 	if (!models.getModel(ref.provider, ref.modelId)) {
 		const known = models.getModels(ref.provider).map((model) => model.id);
 		throw new Error(
@@ -108,7 +156,9 @@ export async function checkModel(models: MutableModels, ref: ModelRef): Promise<
 	try {
 		auth = await models.getAuth(ref.provider);
 	} catch (error) {
-		throw new Error(`Provider "${ref.provider}" credentials failed: ${(error as Error).message}. Run: bun run login ${ref.provider}`);
+		throw new Error(
+			`Provider "${ref.provider}" credentials failed: ${(error as Error).message}. Run: bun run login ${ref.provider}`,
+		);
 	}
 	const oauth = models.getProvider(ref.provider)?.auth.oauth;
 	if (!auth)

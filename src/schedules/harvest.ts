@@ -1,7 +1,12 @@
 import { readdir, readFile, realpath } from "node:fs/promises";
 import { isAbsolute, join, relative } from "node:path";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import { defineDoc, type Conversation, type EntryId, type Harness } from "@earendil-works/pi-durable";
+import {
+	type Conversation,
+	defineDoc,
+	type EntryId,
+	type Harness,
+} from "@earendil-works/pi-durable";
 import { botDir } from "../channels/bots.ts";
 import { listChats } from "../channels/telegram/chats.ts";
 import type { Schedule, ScheduleService } from "./service.ts";
@@ -37,12 +42,23 @@ export function isHarvestId(id: string): boolean {
 /** Arm the idle fork. The same rested entry only moves the wake. */
 export async function armHarvest(
 	schedules: ScheduleService,
-	input: { botId: string; chatKey: string; entryId: number; delayMs: number; now?: number },
+	input: {
+		botId: string;
+		chatKey: string;
+		entryId: number;
+		delayMs: number;
+		now?: number;
+	},
 ): Promise<void> {
 	const now = input.now ?? Date.now();
 	const id = harvestId(input.chatKey);
-	const existing = (await schedules.list(input.botId)).find((row) => row.id === id);
-	const same = existing?.target.mode === "fork" && existing.target.chatId === input.chatKey && existing.target.at === input.entryId;
+	const existing = (await schedules.list(input.botId)).find(
+		(row) => row.id === id,
+	);
+	const same =
+		existing?.target.mode === "fork" &&
+		existing.target.chatId === input.chatKey &&
+		existing.target.at === input.entryId;
 	if (same) {
 		await schedules.reschedule(id, { when: now + input.delayMs });
 		return;
@@ -72,17 +88,32 @@ export async function runHarvest(options: {
 }): Promise<void> {
 	const target = options.schedule.target;
 	if (target.mode !== "fork") return;
-	const chat = (await listChats(options.harness)).find((item) => item.key === target.chatId && item.botId === options.schedule.botId);
+	const chat = (await listChats(options.harness)).find(
+		(item) =>
+			item.key === target.chatId && item.botId === options.schedule.botId,
+	);
 	if (!chat) return;
-	const parent = await options.harness.conversation(chat.conversationId, BACKGROUND_CONTEXT);
+	const parent = await options.harness.conversation(
+		chat.conversationId,
+		BACKGROUND_CONTEXT,
+	);
 	if (!parent) return;
 	const at = await resolveEntry(parent, target.at);
 	if (at === undefined) return;
 	const root = botDir(options.home, options.schedule.botId);
 	const before = await snapshotBot(root);
-	const child = await parent.fork(at, { ownership: { kind: "ownerless" } }, BACKGROUND_CONTEXT);
+	const child = await parent.fork(
+		at,
+		{ ownership: { kind: "ownerless" } },
+		BACKGROUND_CONTEXT,
+	);
 	const submission = await child.submit(
-		{ type: "input", content: options.schedule.text, requestId: options.requestId, whenBusy: "steer" },
+		{
+			type: "input",
+			content: options.schedule.text,
+			requestId: options.requestId,
+			whenBusy: "steer",
+		},
 		BACKGROUND_CONTEXT,
 	);
 	await submission.wait(BACKGROUND_CONTEXT);
@@ -97,9 +128,17 @@ export async function runHarvest(options: {
 	}, BACKGROUND_CONTEXT);
 }
 
-async function resolveEntry(conversation: Conversation, at: number | undefined): Promise<EntryId | undefined> {
+async function resolveEntry(
+	conversation: Conversation,
+	at: number | undefined,
+): Promise<EntryId | undefined> {
 	if (at !== undefined) return at as EntryId;
-	const page = await conversation.entries({ order: "descending" }, 1, undefined, BACKGROUND_CONTEXT);
+	const page = await conversation.entries(
+		{ order: "descending" },
+		1,
+		undefined,
+		BACKGROUND_CONTEXT,
+	);
 	return page.items[0]?.id;
 }
 
@@ -117,7 +156,9 @@ async function snapshotBot(root: string): Promise<Map<string, string>> {
 	}
 	let names: string[] = [];
 	try {
-		names = (await readdir(join(root, "knowledge"))).filter((name) => name.endsWith(".md")).sort();
+		names = (await readdir(join(root, "knowledge")))
+			.filter((name) => name.endsWith(".md"))
+			.sort();
 	} catch {
 		names = [];
 	}
@@ -128,7 +169,10 @@ async function snapshotBot(root: string): Promise<Map<string, string>> {
 	return files;
 }
 
-async function readInside(rootReal: string, path: string): Promise<string | undefined> {
+async function readInside(
+	rootReal: string,
+	path: string,
+): Promise<string | undefined> {
 	const real = await realpath(path).catch(() => undefined);
 	if (!real) return undefined;
 	const rel = relative(rootReal, real);
@@ -136,7 +180,10 @@ async function readInside(rootReal: string, path: string): Promise<string | unde
 	return readFile(path, "utf8").catch(() => undefined);
 }
 
-function changedFiles(before: Map<string, string>, after: Map<string, string>): HarvestFile[] {
+function changedFiles(
+	before: Map<string, string>,
+	after: Map<string, string>,
+): HarvestFile[] {
 	const paths = [...new Set([...before.keys(), ...after.keys()])].sort();
 	const files: HarvestFile[] = [];
 	for (const path of paths) {
@@ -153,15 +200,21 @@ export function lineDiff(path: string, before: string, after: string): string {
 	const removed = before.length === 0 ? [] : before.split("\n");
 	const added = after.length === 0 ? [] : after.split("\n");
 	if (removed.length * added.length > 160_000) {
-		return [`@@ ${path}`, `-${removed.length} lines`, `+${added.length} lines`].join("\n");
+		return [
+			`@@ ${path}`,
+			`-${removed.length} lines`,
+			`+${added.length} lines`,
+		].join("\n");
 	}
 	const lcs = longestCommon(removed, added);
 	const lines = [`@@ ${path}`];
 	let i = 0;
 	let j = 0;
 	for (const shared of lcs) {
-		while (i < removed.length && removed[i] !== shared) lines.push(`-${removed[i++]}`);
-		while (j < added.length && added[j] !== shared) lines.push(`+${added[j++]}`);
+		while (i < removed.length && removed[i] !== shared)
+			lines.push(`-${removed[i++]}`);
+		while (j < added.length && added[j] !== shared)
+			lines.push(`+${added[j++]}`);
 		if (i < removed.length && removed[i] === shared) i++;
 		if (j < added.length && added[j] === shared) j++;
 	}
@@ -176,18 +229,28 @@ function longestCommon(left: string[], right: string[]): string[] {
 	const scores: number[] = new Array(rows * cols).fill(0);
 	for (let i = left.length - 1; i >= 0; i--) {
 		for (let j = right.length - 1; j >= 0; j--) {
-			scores[i * cols + j] = left[i] === right[j] ? (scores[(i + 1) * cols + j + 1] ?? 0) + 1 : Math.max(scores[(i + 1) * cols + j] ?? 0, scores[i * cols + j + 1] ?? 0);
+			scores[i * cols + j] =
+				left[i] === right[j]
+					? (scores[(i + 1) * cols + j + 1] ?? 0) + 1
+					: Math.max(
+							scores[(i + 1) * cols + j] ?? 0,
+							scores[i * cols + j + 1] ?? 0,
+						);
 		}
 	}
 	const shared: string[] = [];
 	let i = 0;
 	let j = 0;
 	while (i < left.length && j < right.length) {
-		if (left[i] === right[j]) {
-			shared.push(left[i]!);
+		const token = left[i];
+		if (token !== undefined && token === right[j]) {
+			shared.push(token);
 			i++;
 			j++;
-		} else if ((scores[(i + 1) * cols + j] ?? 0) >= (scores[i * cols + j + 1] ?? 0)) i++;
+		} else if (
+			(scores[(i + 1) * cols + j] ?? 0) >= (scores[i * cols + j + 1] ?? 0)
+		)
+			i++;
 		else j++;
 	}
 	return shared;

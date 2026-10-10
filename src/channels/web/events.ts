@@ -1,8 +1,28 @@
-import { BACKGROUND_CONTEXT, withAbortSignal } from "@earendil-works/chord/context";
+import {
+	BACKGROUND_CONTEXT,
+	withAbortSignal,
+} from "@earendil-works/chord/context";
 import type { MutableModels } from "@earendil-works/pi-ai/models";
-import { type ConversationId, type ConversationView, type EntryRecord, type Harness, type LiveState } from "@earendil-works/pi-durable";
-import { HarvestNotesDoc, type HarvestFile, type HarvestNote } from "../../schedules/harvest.ts";
-import { latestAssistantError, liveTools, partialText, projectEntries, type ToolChip, type TranscriptItem } from "./transcript.ts";
+import type {
+	ConversationId,
+	ConversationView,
+	EntryRecord,
+	Harness,
+	LiveState,
+} from "@earendil-works/pi-durable";
+import {
+	type HarvestFile,
+	type HarvestNote,
+	HarvestNotesDoc,
+} from "../../schedules/harvest.ts";
+import {
+	latestAssistantError,
+	liveTools,
+	partialText,
+	projectEntries,
+	type ToolChip,
+	type TranscriptItem,
+} from "./transcript.ts";
 
 export type ChatState = {
 	busy: boolean;
@@ -45,12 +65,19 @@ export async function chatEventResponse(
 			const encoder = new TextEncoder();
 			const send = (frame: Frame) => {
 				if (closed) return;
-				controller.enqueue(encoder.encode(`event: ${frame.event}\ndata: ${JSON.stringify(frame.data)}\n\n`));
+				controller.enqueue(
+					encoder.encode(
+						`event: ${frame.event}\ndata: ${JSON.stringify(frame.data)}\n\n`,
+					),
+				);
 			};
 			let notes = notesFor(notesWatch?.value, chatKey);
 			const seen = new Set<string>();
 			let latest = watch.value;
-			const emit = frameEmitter(send, () => ({ notes, contextPercent: contextPercent(latest, models) }));
+			const emit = frameEmitter(send, () => ({
+				notes,
+				contextPercent: contextPercent(latest, models),
+			}));
 			const publish = (next: HarvestView[]) => {
 				for (const note of next) {
 					const id = `${note.at}:${note.when}`;
@@ -102,13 +129,25 @@ function jsonError(status: number, error: string): Response {
 	return Response.json({ error }, { status });
 }
 
-function notesFor(value: { notes?: HarvestNote[] } | null | undefined, chatKey: string): HarvestView[] {
-	return (value?.notes ?? []).filter((note) => note.chatKey === chatKey).map((note) => ({ at: note.at, files: note.files, when: note.when }));
+function notesFor(
+	value: { notes?: HarvestNote[] } | null | undefined,
+	chatKey: string,
+): HarvestView[] {
+	return (value?.notes ?? [])
+		.filter((note) => note.chatKey === chatKey)
+		.map((note) => ({ at: note.at, files: note.files, when: note.when }));
 }
 
-function contextPercent(view: ConversationView, models: MutableModels): number | undefined {
-	const usage = view.docs["pi.usage"] as { models?: Record<string, { input?: number }> } | undefined;
-	const agent = view.docs["pi.agent"] as { model?: { provider: string; modelId: string } } | undefined;
+function contextPercent(
+	view: ConversationView,
+	models: MutableModels,
+): number | undefined {
+	const usage = view.docs["pi.usage"] as
+		| { models?: Record<string, { input?: number }> }
+		| undefined;
+	const agent = view.docs["pi.agent"] as
+		| { model?: { provider: string; modelId: string } }
+		| undefined;
 	const model = agent?.model;
 	if (!usage?.models || !model) return undefined;
 	const input = usage.models[`${model.provider}/${model.modelId}`]?.input;
@@ -119,7 +158,10 @@ function contextPercent(view: ConversationView, models: MutableModels): number |
 }
 
 /** First call sends the current state and no delta. Later calls send what changed. */
-export function frameEmitter(send: (frame: Frame) => void, extras: () => { notes: HarvestView[]; contextPercent?: number }): (view: ConversationView) => void {
+export function frameEmitter(
+	send: (frame: Frame) => void,
+	extras: () => { notes: HarvestView[]; contextPercent?: number },
+): (view: ConversationView) => void {
 	let primed = false;
 	let lastPartial = "";
 	let lastBusy = false;
@@ -141,22 +183,45 @@ export function frameEmitter(send: (frame: Frame) => void, extras: () => { notes
 			tools,
 			notes: extra.notes,
 			...(partial ? { partial } : {}),
-			...(extra.contextPercent === undefined ? {} : { contextPercent: extra.contextPercent }),
+			...(extra.contextPercent === undefined
+				? {}
+				: { contextPercent: extra.contextPercent }),
 		};
-		const grew = primed && partial.startsWith(lastPartial) && partial.length > lastPartial.length;
+		const grew =
+			primed &&
+			partial.startsWith(lastPartial) &&
+			partial.length > lastPartial.length;
 		const partialReplaced = primed && partial !== lastPartial && !grew;
-		if (!primed || messagesKey !== lastMessages || busy !== lastBusy || partialReplaced) send({ event: "state", data: state });
-		else if (grew) send({ event: "delta", data: { text: partial.slice(lastPartial.length) } });
+		if (
+			!primed ||
+			messagesKey !== lastMessages ||
+			busy !== lastBusy ||
+			partialReplaced
+		)
+			send({ event: "state", data: state });
+		else if (grew)
+			send({
+				event: "delta",
+				data: { text: partial.slice(lastPartial.length) },
+			});
 		if (primed && toolsKey !== lastTools) {
-			const previous = new Map<string, string>(JSON.parse(lastTools || "[]").map((tool: ToolChip) => [`${tool.name}:${tool.status}`, tool.status]));
+			const previous = new Map<string, string>(
+				JSON.parse(lastTools || "[]").map((tool: ToolChip) => [
+					`${tool.name}:${tool.status}`,
+					tool.status,
+				]),
+			);
 			for (const tool of tools) {
-				if (previous.get(`${tool.name}:${tool.status}`) === undefined) send({ event: "tool", data: tool });
+				if (previous.get(`${tool.name}:${tool.status}`) === undefined)
+					send({ event: "tool", data: tool });
 			}
 		}
 		if (primed && lastBusy && !busy) send({ event: "done", data: {} });
 		const retry = live?.generation?.retry?.error;
-		const failed = retry || latestAssistantError(view.entries as readonly EntryRecord[]);
-		if (failed && failed !== lastError) send({ event: "error", data: { message: failed } });
+		const failed =
+			retry || latestAssistantError(view.entries as readonly EntryRecord[]);
+		if (failed && failed !== lastError)
+			send({ event: "error", data: { message: failed } });
 		primed = true;
 		lastPartial = partial;
 		lastBusy = busy;

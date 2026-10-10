@@ -38,19 +38,23 @@ export function parseUserIds(raw: string | undefined): Set<number> {
 	for (const part of (raw ?? "").split(/[,\s]+/)) {
 		if (!part) continue;
 		const id = Number(part);
-		if (!Number.isSafeInteger(id)) throw new Error(`TELEGRAM_ALLOWED_USERS: not a numeric user id: ${part}`);
+		if (!Number.isSafeInteger(id))
+			throw new Error(`TELEGRAM_ALLOWED_USERS: not a numeric user id: ${part}`);
 		ids.add(id);
 	}
 	return ids;
 }
 
 /** `WEB_TOKEN` set means the page listens. An empty token leaves the web channel off. */
-export function webConfigFromEnv(env: NodeJS.ProcessEnv): WebConfig | undefined {
+export function webConfigFromEnv(
+	env: NodeJS.ProcessEnv,
+): WebConfig | undefined {
 	const token = env.WEB_TOKEN;
 	if (!token) return undefined;
 	const raw = env.WEB_PORT;
 	const port = raw === undefined || raw === "" ? 8787 : Number(raw);
-	if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error(`WEB_PORT: expected a port, got "${raw}"`);
+	if (!Number.isInteger(port) || port < 0 || port > 65535)
+		throw new Error(`WEB_PORT: expected a port, got "${raw}"`);
 	return { host: env.WEB_HOST || "127.0.0.1", port, token };
 }
 
@@ -78,6 +82,9 @@ function harvestDelayFromEnv(env: NodeJS.ProcessEnv): number {
 	const raw = env.PI_BOT_HARVEST_DELAY_MS;
 	if (raw === undefined || raw === "") return 60_000;
 	const delay = Number(raw);
-	if (!Number.isFinite(delay) || delay < 0) throw new Error(`PI_BOT_HARVEST_DELAY_MS: expected milliseconds, got "${raw}"`);
+	if (!Number.isFinite(delay) || delay < 0)
+		throw new Error(
+			`PI_BOT_HARVEST_DELAY_MS: expected milliseconds, got "${raw}"`,
+		);
 	return delay;
 }

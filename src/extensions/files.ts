@@ -1,5 +1,9 @@
 import { defineExtension } from "@earendil-works/pi-durable";
-import { createEditTool, createReadTool, createWriteTool } from "@earendil-works/pi-durable/tools";
+import {
+	createEditTool,
+	createReadTool,
+	createWriteTool,
+} from "@earendil-works/pi-durable/tools";
 
 /**
  * `read`, `write`, and `edit` on their own. `CodingTools` also installs bash, which this bot does not have.

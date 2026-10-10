@@ -23,7 +23,10 @@ export type WebListener = {
 	stop(): Promise<void>;
 };
 
-export async function startWeb(config: WebConfig, deps: WebDeps): Promise<WebListener> {
+export async function startWeb(
+	config: WebConfig,
+	deps: WebDeps,
+): Promise<WebListener> {
 	const bundle = await buildUi();
 	const server = Bun.serve({
 		hostname: config.host,
@@ -49,7 +52,10 @@ async function buildUi(): Promise<{ js: string; css: string }> {
 		tsconfig: join(import.meta.dir, "../../../tsconfig.web.json"),
 		jsx: { runtime: "automatic", importSource: "preact", development: false },
 	});
-	if (!built.success) throw new Error(built.logs.map((log) => log.message).join("\n") || "web bundle failed");
+	if (!built.success)
+		throw new Error(
+			built.logs.map((log) => log.message).join("\n") || "web bundle failed",
+		);
 	let js = "";
 	let css = "";
 	for (const output of built.outputs) {
@@ -60,10 +66,20 @@ async function buildUi(): Promise<{ js: string; css: string }> {
 	return { js, css };
 }
 
-async function handleRequest(request: Request, token: string, deps: WebDeps, bundle: { js: string; css: string }): Promise<Response> {
+async function handleRequest(
+	request: Request,
+	token: string,
+	deps: WebDeps,
+	bundle: { js: string; css: string },
+): Promise<Response> {
 	const url = new URL(request.url);
-	if (request.method === "GET" && url.pathname === "/" && url.searchParams.has("token")) {
-		if (!sameToken(url.searchParams.get("token") ?? "", token)) return unauthorized();
+	if (
+		request.method === "GET" &&
+		url.pathname === "/" &&
+		url.searchParams.has("token")
+	) {
+		if (!sameToken(url.searchParams.get("token") ?? "", token))
+			return unauthorized();
 		return new Response(null, {
 			status: 302,
 			headers: {
@@ -74,13 +90,19 @@ async function handleRequest(request: Request, token: string, deps: WebDeps, bun
 	}
 	if (!authorized(request, token)) return unauthorized();
 	if (request.method === "GET" && url.pathname === "/") {
-		return new Response(SHELL, { headers: { "content-type": "text/html; charset=utf-8" } });
+		return new Response(SHELL, {
+			headers: { "content-type": "text/html; charset=utf-8" },
+		});
 	}
 	if (request.method === "GET" && url.pathname === "/app.js") {
-		return new Response(bundle.js, { headers: { "content-type": "text/javascript; charset=utf-8" } });
+		return new Response(bundle.js, {
+			headers: { "content-type": "text/javascript; charset=utf-8" },
+		});
 	}
 	if (request.method === "GET" && url.pathname === "/app.css") {
-		return new Response(bundle.css, { headers: { "content-type": "text/css; charset=utf-8" } });
+		return new Response(bundle.css, {
+			headers: { "content-type": "text/css; charset=utf-8" },
+		});
 	}
 	if (url.pathname.startsWith("/api/")) return handleApi(request, deps);
 	return new Response("Not found.", { status: 404 });
@@ -88,8 +110,13 @@ async function handleRequest(request: Request, token: string, deps: WebDeps, bun
 
 function authorized(request: Request, token: string): boolean {
 	const header = request.headers.get("authorization");
-	const bearer = header?.toLowerCase().startsWith("bearer ") ? header.slice("bearer ".length).trim() : undefined;
-	return sameToken(bearer, token) || sameToken(cookieToken(request.headers.get("cookie")), token);
+	const bearer = header?.toLowerCase().startsWith("bearer ")
+		? header.slice("bearer ".length).trim()
+		: undefined;
+	return (
+		sameToken(bearer, token) ||
+		sameToken(cookieToken(request.headers.get("cookie")), token)
+	);
 }
 
 function cookieToken(header: string | null): string | undefined {

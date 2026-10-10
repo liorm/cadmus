@@ -1,6 +1,13 @@
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { Message } from "@earendil-works/pi-ai";
-import { AssistantEntry, type ConversationId, type Cursor, defineDoc, type EntryId, type Harness } from "@earendil-works/pi-durable";
+import {
+	AssistantEntry,
+	type ConversationId,
+	type Cursor,
+	defineDoc,
+	type EntryId,
+	type Harness,
+} from "@earendil-works/pi-durable";
 import { getLogger } from "../../log.ts";
 import { type ChatRecord, hasTelegramAddress, listChats } from "./chats.ts";
 import type { TelegramTransport } from "./transport.ts";
@@ -12,7 +19,12 @@ import type { TelegramTransport } from "./transport.ts";
  * window can drop a reply, but nothing is ever sent twice.
  */
 export type DeliveryStatus = "sending" | "sent" | "unknown";
-export type Receipt = { status: DeliveryStatus; at: number; messageIds?: number[]; error?: string };
+export type Receipt = {
+	status: DeliveryStatus;
+	at: number;
+	messageIds?: number[];
+	error?: string;
+};
 
 export const DeliveriesDoc = defineDoc<{
 	receipts: Record<string, Receipt>;
@@ -44,9 +56,16 @@ export function chunkText(text: string, limit = 4000): string[] {
 }
 
 /** The user-visible text of a final answer; undefined for tool-call turns, errors, aborts and empty answers. */
-export function finalReplyText(message: Message | undefined): string | undefined {
-	if (message?.role !== "assistant" || !["stop", "length"].includes(message.stopReason)) return undefined;
-	if (message.content.some((part) => part.type === "toolCall")) return undefined;
+export function finalReplyText(
+	message: Message | undefined,
+): string | undefined {
+	if (
+		message?.role !== "assistant" ||
+		!["stop", "length"].includes(message.stopReason)
+	)
+		return undefined;
+	if (message.content.some((part) => part.type === "toolCall"))
+		return undefined;
 	const text = message.content
 		.map((part) => (part.type === "text" ? part.text : ""))
 		.join("\n")
@@ -56,7 +75,11 @@ export function finalReplyText(message: Message | undefined): string | undefined
 
 /** Startup: every receipt still `sending` belonged to a process that died mid-send. Mark it `unknown`; never resend. */
 export async function reconcileInterrupted(harness: Harness) {
-	const unknown: { chat: string; conversationId: ConversationId; key: string }[] = [];
+	const unknown: {
+		chat: string;
+		conversationId: ConversationId;
+		key: string;
+	}[] = [];
 	for (const chat of await listChats(harness)) {
 		const keys = await harness.commit(async (tx) => {
 			const deliveries = await tx.doc(DeliveriesDoc, chat.conversationId);
@@ -70,14 +93,23 @@ export async function reconcileInterrupted(harness: Harness) {
 			return changed;
 		}, BACKGROUND_CONTEXT);
 		for (const key of keys) {
-			getLogger().warn(`Delivery unknown (interrupted mid-send, not resent): chat ${chat.key} ${key}`);
-			unknown.push({ chat: chat.key, conversationId: chat.conversationId, key });
+			getLogger().warn(
+				`Delivery unknown (interrupted mid-send, not resent): chat ${chat.key} ${key}`,
+			);
+			unknown.push({
+				chat: chat.key,
+				conversationId: chat.conversationId,
+				key,
+			});
 		}
 	}
 	return unknown;
 }
 
-type Claim = { kind: "send"; text: string } | { kind: "done" } | { kind: "blocked" };
+type Claim =
+	| { kind: "send"; text: string }
+	| { kind: "done" }
+	| { kind: "blocked" };
 
 export class Deliverer {
 	readonly #queues = new Map<string, Promise<void>>();
@@ -93,13 +125,17 @@ export class Deliverer {
 	}
 
 	/** The transport for `:tg:bot:` chats. Clearing it skips sends until the token is set again. */
-	setBotTransport(botId: string, transport: TelegramTransport | undefined): void {
+	setBotTransport(
+		botId: string,
+		transport: TelegramTransport | undefined,
+	): void {
 		if (transport) this.#bots.set(botId, transport);
 		else this.#bots.delete(botId);
 	}
 
 	#transportFor(chat: ChatRecord): TelegramTransport | undefined {
-		if (chat.key.includes(":tg:bot:")) return chat.botId ? this.#bots.get(chat.botId) : undefined;
+		if (chat.key.includes(":tg:bot:"))
+			return chat.botId ? this.#bots.get(chat.botId) : undefined;
 		return this.transport;
 	}
 
@@ -125,19 +161,33 @@ export class Deliverer {
 
 	/** Send every committed final answer of the chat that has no receipt yet, oldest first. Web chats are skipped. */
 	kick(chat: ChatRecord): Promise<void> {
-		if (!hasTelegramAddress(chat) || !this.#transportFor(chat)) return Promise.resolve();
-		return this.#serial(chat, () => this.#deliverAnswers(chat)).catch((error) => {
-			getLogger().error(`Delivery sweep failed for chat ${chat.key}`, { error });
-		});
+		if (!hasTelegramAddress(chat) || !this.#transportFor(chat))
+			return Promise.resolve();
+		return this.#serial(chat, () => this.#deliverAnswers(chat)).catch(
+			(error) => {
+				getLogger().error(`Delivery sweep failed for chat ${chat.key}`, {
+					error,
+				});
+			},
+		);
 	}
 
 	async sweepAll(): Promise<void> {
-		await Promise.all((await listChats(this.harness)).filter(hasTelegramAddress).map((chat) => this.kick(chat)));
+		await Promise.all(
+			(await listChats(this.harness))
+				.filter(hasTelegramAddress)
+				.map((chat) => this.kick(chat)),
+		);
 	}
 
 	/** A bot-originated message (command reply, error notice) with its own receipt key; sent at most once. */
-	notice(chat: ChatRecord, key: string, text: string): Promise<DeliveryStatus | "duplicate"> {
-		if (!hasTelegramAddress(chat) || !this.#transportFor(chat)) return Promise.resolve("duplicate");
+	notice(
+		chat: ChatRecord,
+		key: string,
+		text: string,
+	): Promise<DeliveryStatus | "duplicate"> {
+		if (!hasTelegramAddress(chat) || !this.#transportFor(chat))
+			return Promise.resolve("duplicate");
 		return this.#serial(chat, async () => {
 			const receiptKey = `notice:${key}`;
 			const claim = await this.harness.commit(async (tx) => {
@@ -152,15 +202,27 @@ export class Deliverer {
 	}
 
 	async #deliverAnswers(chat: ChatRecord) {
-		const scanned = (await this.harness.snapshot(DeliveriesDoc, chat.conversationId, BACKGROUND_CONTEXT))?.scanned;
-		const conversation = await this.harness.conversation(chat.conversationId, BACKGROUND_CONTEXT);
+		const scanned = (
+			await this.harness.snapshot(
+				DeliveriesDoc,
+				chat.conversationId,
+				BACKGROUND_CONTEXT,
+			)
+		)?.scanned;
+		const conversation = await this.harness.conversation(
+			chat.conversationId,
+			BACKGROUND_CONTEXT,
+		);
 		if (!conversation) return;
 		const answers: { id: EntryId; text: string }[] = [];
 		let last: number | undefined;
 		let cursor: Cursor | undefined;
 		do {
 			const page = await conversation.entries(
-				{ order: "ascending", ...(scanned === undefined ? {} : { minEntryId: scanned as EntryId }) },
+				{
+					order: "ascending",
+					...(scanned === undefined ? {} : { minEntryId: scanned as EntryId }),
+				},
 				200,
 				cursor,
 				BACKGROUND_CONTEXT,
@@ -181,7 +243,12 @@ export class Deliverer {
 				const deliveries = await tx.doc(DeliveriesDoc, chat.conversationId);
 				if (deliveries.receipts[key]) return { kind: "done" };
 				// Never overtake an earlier in-flight send of this chat.
-				if (Object.values(deliveries.receipts).some((receipt) => receipt.status === "sending")) return { kind: "blocked" };
+				if (
+					Object.values(deliveries.receipts).some(
+						(receipt) => receipt.status === "sending",
+					)
+				)
+					return { kind: "blocked" };
 				deliveries.receipts[key] = { status: "sending", at: Date.now() };
 				return { kind: "send", text: answer.text };
 			}, BACKGROUND_CONTEXT);
@@ -192,13 +259,18 @@ export class Deliverer {
 			const upTo = last;
 			await this.harness.commit(async (tx) => {
 				const deliveries = await tx.doc(DeliveriesDoc, chat.conversationId);
-				if (deliveries.scanned === undefined || deliveries.scanned < upTo) deliveries.scanned = upTo;
+				if (deliveries.scanned === undefined || deliveries.scanned < upTo)
+					deliveries.scanned = upTo;
 			}, BACKGROUND_CONTEXT);
 		}
 	}
 
 	/** The effect between the `sending` claim and its outcome. A throw may still have delivered: never retried. */
-	async #send(chat: ChatRecord, key: string, text: string): Promise<DeliveryStatus> {
+	async #send(
+		chat: ChatRecord,
+		key: string,
+		text: string,
+	): Promise<DeliveryStatus> {
 		const transport = this.#transportFor(chat);
 		if (chat.chatId === undefined || !transport) return "unknown";
 		const messageIds: number[] = [];
@@ -214,11 +286,18 @@ export class Deliverer {
 		} catch (caught) {
 			status = "unknown";
 			error = caught instanceof Error ? caught.message : String(caught);
-			getLogger().warn(`Delivery unknown (send failed, not retried): chat ${chat.key} ${key}: ${error}`);
+			getLogger().warn(
+				`Delivery unknown (send failed, not retried): chat ${chat.key} ${key}: ${error}`,
+			);
 		}
 		await this.harness.commit(async (tx) => {
 			const deliveries = await tx.doc(DeliveriesDoc, chat.conversationId);
-			deliveries.receipts[key] = { status, at: Date.now(), messageIds, ...(error ? { error } : {}) };
+			deliveries.receipts[key] = {
+				status,
+				at: Date.now(),
+				messageIds,
+				...(error ? { error } : {}),
+			};
 		}, BACKGROUND_CONTEXT);
 		return status;
 	}

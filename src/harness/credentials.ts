@@ -1,7 +1,19 @@
-import { mkdir, open, readFile, rename, unlink, writeFile } from "node:fs/promises";
+import {
+	mkdir,
+	open,
+	readFile,
+	rename,
+	unlink,
+	writeFile,
+} from "node:fs/promises";
 import { hostname } from "node:os";
 import { dirname, join } from "node:path";
-import type { AuthOperationOptions, Credential, CredentialInfo, CredentialStore } from "@earendil-works/pi-ai";
+import type {
+	AuthOperationOptions,
+	Credential,
+	CredentialInfo,
+	CredentialStore,
+} from "@earendil-works/pi-ai";
 
 type AuthFile = Record<string, Credential>;
 
@@ -37,21 +49,30 @@ export class FileCredentialStore implements CredentialStore {
 	async #load(): Promise<AuthFile> {
 		try {
 			const parsed = JSON.parse(await readFile(this.path, "utf8"));
-			return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as AuthFile) : {};
+			return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+				? (parsed as AuthFile)
+				: {};
 		} catch (error) {
 			if ((error as NodeJS.ErrnoException).code === "ENOENT") return {};
-			throw new Error(`Cannot read credentials file ${this.path}: ${(error as Error).message}`);
+			throw new Error(
+				`Cannot read credentials file ${this.path}: ${(error as Error).message}`,
+			);
 		}
 	}
 
 	async #save(data: AuthFile) {
 		await mkdir(dirname(this.path), { recursive: true });
 		const temp = `${this.path}.${process.pid}.tmp`;
-		await writeFile(temp, `${JSON.stringify(data, null, 2)}\n`, { mode: 0o600 });
+		await writeFile(temp, `${JSON.stringify(data, null, 2)}\n`, {
+			mode: 0o600,
+		});
 		await rename(temp, this.path);
 	}
 
-	async #withFileLock<T>(work: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+	async #withFileLock<T>(
+		work: () => Promise<T>,
+		signal?: AbortSignal,
+	): Promise<T> {
 		await mkdir(dirname(this.path), { recursive: true });
 		const deadline = Date.now() + 30_000;
 		for (;;) {
@@ -63,12 +84,17 @@ export class FileCredentialStore implements CredentialStore {
 				break;
 			} catch (error) {
 				if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-				const [pid, host] = (await readFile(this.#lockPath, "utf8").catch(() => "")).trim().split(/\s+/);
+				const [pid, host] = (
+					await readFile(this.#lockPath, "utf8").catch(() => "")
+				)
+					.trim()
+					.split(/\s+/);
 				if (host === hostname() && Number(pid) > 0 && !alive(Number(pid))) {
 					await unlink(this.#lockPath).catch(() => {});
 					continue;
 				}
-				if (Date.now() > deadline) throw new Error(`Timed out waiting for ${this.#lockPath}`);
+				if (Date.now() > deadline)
+					throw new Error(`Timed out waiting for ${this.#lockPath}`);
 				await new Promise((resolve) => setTimeout(resolve, 50));
 			}
 		}
@@ -89,12 +115,19 @@ export class FileCredentialStore implements CredentialStore {
 		return next;
 	}
 
-	async read(providerId: string, _options?: AuthOperationOptions): Promise<Credential | undefined> {
+	async read(
+		providerId: string,
+		_options?: AuthOperationOptions,
+	): Promise<Credential | undefined> {
 		return (await this.#load())[providerId];
 	}
 
-	async list(_options?: AuthOperationOptions): Promise<readonly CredentialInfo[]> {
-		return Object.entries(await this.#load()).map(([providerId, credential]) => ({ providerId, type: credential.type }));
+	async list(
+		_options?: AuthOperationOptions,
+	): Promise<readonly CredentialInfo[]> {
+		return Object.entries(await this.#load()).map(
+			([providerId, credential]) => ({ providerId, type: credential.type }),
+		);
 	}
 
 	modify(

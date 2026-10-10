@@ -39,15 +39,23 @@ export function loggerInstalled(): boolean {
 	return installed;
 }
 
-function consoleSink(options: Extract<LoggerSetup, { type: "console" }>): Logger {
+function consoleSink(
+	options: Extract<LoggerSetup, { type: "console" }>,
+): Logger {
 	const stream = options.stream ?? stderr;
 	const min = levelRank(options.level ?? "info");
-	const colors = options.colors ?? Boolean((stream as { isTTY?: boolean }).isTTY);
+	const colors =
+		options.colors ?? Boolean((stream as { isTTY?: boolean }).isTTY);
 	const write = (level: Level) => (message: string, fields?: LogFields) => {
 		if (levelRank(level) < min) return;
 		stream.write(formatLine(level, message, fields, colors));
 	};
-	return { debug: write("debug"), info: write("info"), warn: write("warn"), error: write("error") };
+	return {
+		debug: write("debug"),
+		info: write("info"),
+		warn: write("warn"),
+		error: write("error"),
+	};
 }
 
 function levelRank(level: string): number {
@@ -55,9 +63,21 @@ function levelRank(level: string): number {
 	return rank === -1 ? LEVELS.indexOf("info") : rank;
 }
 
-const ANSI = { reset: "\x1b[0m", dim: "\x1b[2m", debug: "\x1b[90m", info: "\x1b[36m", warn: "\x1b[33m", error: "\x1b[31m" };
+const ANSI = {
+	reset: "\x1b[0m",
+	dim: "\x1b[2m",
+	debug: "\x1b[90m",
+	info: "\x1b[36m",
+	warn: "\x1b[33m",
+	error: "\x1b[31m",
+};
 
-function formatLine(level: Level, message: string, fields: LogFields | undefined, colors: boolean): string {
+function formatLine(
+	level: Level,
+	message: string,
+	fields: LogFields | undefined,
+	colors: boolean,
+): string {
 	const stamp = new Date().toISOString().replace("T", " ").replace("Z", "");
 	const head = `${stamp} ${level.toUpperCase().padEnd(5)}`;
 	const body = fields ? ` ${formatFields(fields, level === "error")}` : "";
@@ -81,8 +101,10 @@ function formatFields(fields: LogFields, withStack: boolean): string {
 }
 
 function formatValue(value: unknown): string {
-	if (typeof value === "string") return /[\s"]/.test(value) ? JSON.stringify(value) : value;
-	if (typeof value === "number" || typeof value === "boolean" || value === null) return String(value);
+	if (typeof value === "string")
+		return /[\s"]/.test(value) ? JSON.stringify(value) : value;
+	if (typeof value === "number" || typeof value === "boolean" || value === null)
+		return String(value);
 	if (value instanceof Error) return formatValue(value.message);
 	try {
 		return JSON.stringify(value) ?? String(value);

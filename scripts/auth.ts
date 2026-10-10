@@ -19,14 +19,21 @@ async function main() {
 		for (const { providerId, type } of stored) {
 			try {
 				const auth = await models.getAuth(providerId);
-				console.log(`${providerId}: ${type} — ${auth ? `ok (${auth.source ?? "resolved"})` : "not usable"}`);
+				console.log(
+					`${providerId}: ${type} — ${auth ? `ok (${auth.source ?? "resolved"})` : "not usable"}`,
+				);
 			} catch (error) {
-				console.log(`${providerId}: ${type} — FAILED: ${(error as Error).message}`);
+				console.log(
+					`${providerId}: ${type} — FAILED: ${(error as Error).message}`,
+				);
 			}
 		}
 		return;
 	}
-	if (!name) throw new Error(`usage: bun run ${command === "logout" ? "logout" : "login"} <provider>   (e.g. grok)`);
+	if (!name)
+		throw new Error(
+			`usage: bun run ${command === "logout" ? "logout" : "login"} <provider>   (e.g. grok)`,
+		);
 	const providerId = resolveProviderId(name);
 	if (command === "logout") {
 		await models.logout(providerId);
@@ -43,8 +50,12 @@ async function main() {
 			print: (text) => console.log(`\n${text}`),
 			ask: async (prompt) => {
 				if (prompt.type === "select") {
-					prompt.options.forEach((option, i) => console.log(`  ${i + 1}. ${option.label}`));
-					const answer = await rl.question(`${prompt.message} [1-${prompt.options.length}]: `);
+					for (const [i, option] of prompt.options.entries()) {
+						console.log(`  ${i + 1}. ${option.label}`);
+					}
+					const answer = await rl.question(
+						`${prompt.message} [1-${prompt.options.length}]: `,
+					);
 					return prompt.options[Number(answer) - 1]?.id ?? answer;
 				}
 				return rl.question(`${prompt.message}: `);
@@ -54,7 +65,9 @@ async function main() {
 		rl.close();
 	}
 	const auth = await models.getAuth(providerId);
-	console.log(`\nLogged in: ${providerId} credential stored in ${store.path} (${auth?.source ?? "?"}). Tokens refresh automatically.`);
+	console.log(
+		`\nLogged in: ${providerId} credential stored in ${store.path} (${auth?.source ?? "?"}). Tokens refresh automatically.`,
+	);
 }
 
 main().then(

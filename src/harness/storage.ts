@@ -11,7 +11,9 @@ export class LockHeld extends Error {
 	readonly holder: string;
 
 	constructor(path: string, holder: string) {
-		super(`Storage is owned by another process (${holder.trim() || "unknown"}); lock: ${path}`);
+		super(
+			`Storage is owned by another process (${holder.trim() || "unknown"}); lock: ${path}`,
+		);
 		this.name = "LockHeld";
 		this.path = path;
 		this.holder = holder;
@@ -39,7 +41,9 @@ export async function acquireOwnerLock(directory: string): Promise<OwnerLock> {
 	for (let attempt = 0; ; attempt++) {
 		try {
 			const handle = await open(path, "wx");
-			await handle.writeFile(`${process.pid} ${hostname()} ${new Date().toISOString()}\n`);
+			await handle.writeFile(
+				`${process.pid} ${hostname()} ${new Date().toISOString()}\n`,
+			);
 			await handle.sync();
 			let released = false;
 			return {
@@ -56,7 +60,12 @@ export async function acquireOwnerLock(directory: string): Promise<OwnerLock> {
 			const holder = await readFile(path, "utf8").catch(() => "");
 			const [pidText, host] = holder.trim().split(/\s+/);
 			const pid = Number(pidText);
-			const stale = attempt === 0 && host === hostname() && Number.isSafeInteger(pid) && pid > 0 && !alive(pid);
+			const stale =
+				attempt === 0 &&
+				host === hostname() &&
+				Number.isSafeInteger(pid) &&
+				pid > 0 &&
+				!alive(pid);
 			if (!stale) throw new LockHeld(path, holder);
 			getLogger().warn(`Removing stale owner.lock of dead pid ${pid}`);
 			await unlink(path).catch(() => {});
@@ -64,7 +73,11 @@ export async function acquireOwnerLock(directory: string): Promise<OwnerLock> {
 	}
 }
 
-export type OwnedStorage = { readonly storage: Storage; readonly lock: OwnerLock; readonly path: string };
+export type OwnedStorage = {
+	readonly storage: Storage;
+	readonly lock: OwnerLock;
+	readonly path: string;
+};
 
 /** Lock first, then open `<home>/durable.sqlite` (WAL). Release the lock only after the Harness is closed. */
 export async function openOwnedStorage(home: string): Promise<OwnedStorage> {

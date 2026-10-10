@@ -1,10 +1,20 @@
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { AgentDoc, configure, type Harness } from "@earendil-works/pi-durable";
-import { botDir, DEFAULT_BOT_ID, ensureDefaultBotDoc, ensureDefaultBotFiles, listBots } from "../channels/bots.ts";
+import {
+	botDir,
+	DEFAULT_BOT_ID,
+	ensureDefaultBotDoc,
+	ensureDefaultBotFiles,
+	listBots,
+} from "../channels/bots.ts";
 import { listChats, migrateLegacyChats } from "../channels/telegram/chats.ts";
 import { reconcileInterrupted } from "../channels/telegram/deliver.ts";
 import { getLogger } from "../log.ts";
-import { type ModelConfig, parseModelRef, parseThinkingLevel } from "./models.ts";
+import {
+	type ModelConfig,
+	parseModelRef,
+	parseThinkingLevel,
+} from "./models.ts";
 
 /**
  * Restart policy ("restart any time"):
@@ -15,7 +25,10 @@ import { type ModelConfig, parseModelRef, parseThinkingLevel } from "./models.ts
  * 4. `harness.resume()` continues every unfinished run and task; final answers they produce are delivered normally.
  * `write` and `edit` stay replay-unsafe, so an interrupted call runs again rather than being skipped.
  */
-export async function runStartup(harness: Harness, options: { home: string; model: ModelConfig }) {
+export async function runStartup(
+	harness: Harness,
+	options: { home: string; model: ModelConfig },
+) {
 	const log = getLogger();
 	const unknown = await reconcileInterrupted(harness);
 	await ensureDefaultBotFiles(options.home);
@@ -30,7 +43,11 @@ export async function runStartup(harness: Harness, options: { home: string; mode
 		const want = parseModelRef(bot.model);
 		const thinking = parseThinkingLevel(bot.thinking);
 		const cwd = botDir(options.home, bot.id);
-		const stored = await harness.snapshot(AgentDoc, chat.conversationId, BACKGROUND_CONTEXT);
+		const stored = await harness.snapshot(
+			AgentDoc,
+			chat.conversationId,
+			BACKGROUND_CONTEXT,
+		);
 		const same =
 			stored?.model?.provider === want.provider &&
 			stored.model.modelId === want.modelId &&
@@ -38,7 +55,12 @@ export async function runStartup(harness: Harness, options: { home: string; mode
 			stored.cwd === cwd;
 		if (!same) {
 			await harness.commit(
-				(tx) => configure(tx, chat.conversationId, { model: want, thinkingLevel: thinking ?? null, cwd }),
+				(tx) =>
+					configure(tx, chat.conversationId, {
+						model: want,
+						thinkingLevel: thinking ?? null,
+						cwd,
+					}),
 				BACKGROUND_CONTEXT,
 			);
 			log.info(`Chat ${chat.key} now uses ${want.provider}/${want.modelId}`);

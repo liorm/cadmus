@@ -12,7 +12,10 @@ const SLUG: Record<"bot" | "knowledge", RegExp> = {
 };
 
 /** The slug when `value` matches `kind`, otherwise `undefined`. */
-export function parseSlug(value: string, kind: "bot" | "knowledge"): string | undefined {
+export function parseSlug(
+	value: string,
+	kind: "bot" | "knowledge",
+): string | undefined {
 	return SLUG[kind].test(value) ? value : undefined;
 }
 
@@ -21,9 +24,11 @@ export function parseSlug(value: string, kind: "bot" | "knowledge"): string | un
  * Any other shape is unreadable.
  */
 export function parseDescription(text: string): string | undefined {
-	const match = /^---\r?\ndescription:[ \t]*([^\r\n]*)\r?\n---(?:\r?\n|$)/.exec(text);
+	const match = /^---\r?\ndescription:[ \t]*([^\r\n]*)\r?\n---(?:\r?\n|$)/.exec(
+		text,
+	);
 	if (!match) return undefined;
-	const description = match[1]!.trim();
+	const description = (match[1] ?? "").trim();
 	if (!description || description.length > 240) return undefined;
 	return description;
 }
@@ -37,7 +42,9 @@ function inside(rootReal: string, candidate: string): boolean {
  * Discovery index for `bots/<botId>/knowledge`. Bodies stay out. Invalid files are omitted and named in a warning.
  * More than {@link KNOWLEDGE_INDEX_CAP} valid files keep the first ones (path order) and a `N more` line.
  */
-export async function knowledgeIndex(botDirectory: string): Promise<string | undefined> {
+export async function knowledgeIndex(
+	botDirectory: string,
+): Promise<string | undefined> {
 	const dir = join(botDirectory, "knowledge");
 	let names: string[];
 	try {
@@ -52,15 +59,20 @@ export async function knowledgeIndex(botDirectory: string): Promise<string | und
 		const slug = name.slice(0, -".md".length);
 		const path = join(dir, name);
 		const real = await realpath(path).catch(() => undefined);
-		const text = real && inside(rootReal, real) ? await readFile(path, "utf8").catch(() => undefined) : undefined;
+		const text =
+			real && inside(rootReal, real)
+				? await readFile(path, "utf8").catch(() => undefined)
+				: undefined;
 		const description = text === undefined ? undefined : parseDescription(text);
-		if (!parseSlug(slug, "knowledge") || !description) warnings.push(`knowledge/${name} — unreadable frontmatter`);
+		if (!parseSlug(slug, "knowledge") || !description)
+			warnings.push(`knowledge/${name} — unreadable frontmatter`);
 		else valid.push(`knowledge/${name} — ${description}`);
 	}
 	if (valid.length === 0 && warnings.length === 0) return undefined;
 	const shown = valid.slice(0, KNOWLEDGE_INDEX_CAP);
 	const lines = [...shown];
-	if (valid.length > KNOWLEDGE_INDEX_CAP) lines.push(`${valid.length - KNOWLEDGE_INDEX_CAP} more`);
+	if (valid.length > KNOWLEDGE_INDEX_CAP)
+		lines.push(`${valid.length - KNOWLEDGE_INDEX_CAP} more`);
 	lines.push(...warnings);
 	return lines.join("\n");
 }

@@ -8,15 +8,18 @@ Never use node/npm/npx/vitest here.
 
 | Task | Command |
 |---|---|
-| install | `bun install` (exact versions; commit `bun.lock`) |
+| install | `bun install` (commit `bun.lock`) |
 | run | `bun start` (loads `.env`; see `.env.example`) |
 | test | `bun test` · one file: `bun test test/flows/chat.test.ts` |
 | coverage | `bun run coverage` |
 | typecheck | `bunx tsc --noEmit` (or `bun run typecheck`) |
-| all checks | `bun run check` — must pass before every commit |
+| lint / format | `bun run lint` (`biome check`) · `bun run format` (`biome check --write`) |
+| all checks | `bun run check` — Biome, typecheck, tests; must pass before every commit |
 | Grok OAuth | `bun run login grok` · `bun run auth:status` · `bun run logout grok` |
 
 TypeScript runs unbuilt: imports use `.ts` extensions; only erasable syntax (no enums, namespaces, parameter properties).
+
+Dependency ranges in `package.json` use `^` (compatible updates). Do not pin an exact version there. `bun.lock` still records the version that was installed.
 
 ## Layout
 

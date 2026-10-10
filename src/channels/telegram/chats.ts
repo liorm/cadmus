@@ -1,5 +1,9 @@
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import { defineDoc, type ConversationId, type Harness } from "@earendil-works/pi-durable";
+import {
+	type ConversationId,
+	defineDoc,
+	type Harness,
+} from "@earendil-works/pi-durable";
 import { DEFAULT_BOT_ID } from "../bots.ts";
 import type { TgMessage } from "./transport.ts";
 
@@ -38,7 +42,11 @@ export type ChatAddress = { chatId: number; threadId?: number };
 export type TelegramIngress = "general" | "bot";
 
 /** `default:tg:general:<chatId>` or `default:tg:general:<chatId>:<threadId>`. */
-export function chatKey(botId: string, address: ChatAddress, ingress: TelegramIngress = "general"): string {
+export function chatKey(
+	botId: string,
+	address: ChatAddress,
+	ingress: TelegramIngress = "general",
+): string {
 	const thread = address.threadId === undefined ? "" : `:${address.threadId}`;
 	return `${botId}:tg:${ingress}:${address.chatId}${thread}`;
 }
@@ -48,7 +56,9 @@ export function telegramTarget(key: string): ChatAddress {
 	const match = /:tg:(?:general|bot):(-?\d+)(?::(\d+))?$/.exec(key);
 	if (!match?.[1]) throw new Error(`Not a Telegram chat key: ${key}`);
 	const chatId = Number(match[1]);
-	return match[2] === undefined ? { chatId } : { chatId, threadId: Number(match[2]) };
+	return match[2] === undefined
+		? { chatId }
+		: { chatId, threadId: Number(match[2]) };
 }
 
 /** A key from before bot prefixes: `<chatId>` or `<chatId>:<threadId>`. */
@@ -71,7 +81,9 @@ export function webChatId(botId: string, key: string): string | undefined {
 	return WEB_CHAT_ID.test(id) ? id : undefined;
 }
 
-export function hasTelegramAddress(chat: ChatRecord): chat is ChatRecord & { chatId: number } {
+export function hasTelegramAddress(
+	chat: ChatRecord,
+): chat is ChatRecord & { chatId: number } {
 	return typeof chat.chatId === "number";
 }
 
@@ -97,10 +109,16 @@ export async function migrateLegacyChats(harness: Harness): Promise<void> {
 }
 
 export async function listChats(harness: Harness): Promise<ChatRecord[]> {
-	return [...((await harness.snapshot(ChatsDoc, BACKGROUND_CONTEXT))?.items ?? [])];
+	return [
+		...((await harness.snapshot(ChatsDoc, BACKGROUND_CONTEXT))?.items ?? []),
+	];
 }
 
-export async function renameChat(harness: Harness, key: string, title: string): Promise<ChatRecord | undefined> {
+export async function renameChat(
+	harness: Harness,
+	key: string,
+	title: string,
+): Promise<ChatRecord | undefined> {
 	return harness.commit(async (tx) => {
 		const chats = await tx.doc(ChatsDoc);
 		const chat = chats.items.find((item) => item.key === key);
@@ -111,7 +129,10 @@ export async function renameChat(harness: Harness, key: string, title: string): 
 }
 
 /** Drop the row and refuse the key from here on. The conversation log stays. */
-export async function closeChat(harness: Harness, key: string): Promise<boolean> {
+export async function closeChat(
+	harness: Harness,
+	key: string,
+): Promise<boolean> {
 	return harness.commit(async (tx) => {
 		const chats = await tx.doc(ChatsDoc);
 		const index = chats.items.findIndex((item) => item.key === key);
@@ -128,6 +149,8 @@ export async function closeChat(harness: Harness, key: string): Promise<boolean>
 export function formatInput(message: TgMessage): string {
 	const text = message.text ?? "";
 	if (message.chat.type === "private") return text;
-	const who = message.from?.username ? `@${message.from.username}` : (message.from?.first_name ?? "someone");
+	const who = message.from?.username
+		? `@${message.from.username}`
+		: (message.from?.first_name ?? "someone");
 	return `[${who}] ${text}`;
 }

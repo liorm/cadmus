@@ -6,13 +6,25 @@ export type TgMessage = {
 	readonly message_thread_id?: number;
 	readonly is_topic_message?: boolean;
 	readonly date: number;
-	readonly chat: { readonly id: number; readonly type: string; readonly title?: string };
-	readonly from?: { readonly id: number; readonly is_bot?: boolean; readonly first_name?: string; readonly username?: string };
+	readonly chat: {
+		readonly id: number;
+		readonly type: string;
+		readonly title?: string;
+	};
+	readonly from?: {
+		readonly id: number;
+		readonly is_bot?: boolean;
+		readonly first_name?: string;
+		readonly username?: string;
+	};
 	readonly text?: string;
 };
 
 /** The subset of a Telegram `Update` pi-bot reads. grammY's `Update` is assignable to it. */
-export type TgUpdate = { readonly update_id: number; readonly message?: TgMessage };
+export type TgUpdate = {
+	readonly update_id: number;
+	readonly message?: TgMessage;
+};
 
 export type SendOptions = { readonly threadId?: number };
 
@@ -22,8 +34,16 @@ export type SendOptions = { readonly threadId?: number };
  */
 export interface TelegramTransport {
 	/** Long poll. Resolves with updates whose `update_id >= offset` (all pending when `offset` is undefined). */
-	getUpdates(offset: number | undefined, timeoutSec: number, signal: AbortSignal): Promise<readonly TgUpdate[]>;
-	sendMessage(chatId: number, text: string, options: SendOptions): Promise<{ messageId: number }>;
+	getUpdates(
+		offset: number | undefined,
+		timeoutSec: number,
+		signal: AbortSignal,
+	): Promise<readonly TgUpdate[]>;
+	sendMessage(
+		chatId: number,
+		text: string,
+		options: SendOptions,
+	): Promise<{ messageId: number }>;
 	/** Best-effort "typing…" indicator. */
 	sendTyping?(chatId: number, options: SendOptions): Promise<void>;
 	/** Bot username, used to accept `/cmd@BotName`. */
@@ -39,13 +59,22 @@ export class GrammyTransport implements TelegramTransport {
 	constructor(token: string, options: { apiRoot?: string } = {}) {
 		this.api = new Api(token, {
 			...(options.apiRoot ? { apiRoot: options.apiRoot } : {}),
-			fetch: ((input: string, init?: RequestInit) => globalThis.fetch(input, init)) as never,
+			fetch: ((input: string, init?: RequestInit) =>
+				globalThis.fetch(input, init)) as never,
 		});
 	}
 
-	async getUpdates(offset: number | undefined, timeoutSec: number, signal: AbortSignal) {
+	async getUpdates(
+		offset: number | undefined,
+		timeoutSec: number,
+		signal: AbortSignal,
+	) {
 		return this.api.getUpdates(
-			{ ...(offset === undefined ? {} : { offset }), timeout: timeoutSec, allowed_updates: ["message"] },
+			{
+				...(offset === undefined ? {} : { offset }),
+				timeout: timeoutSec,
+				allowed_updates: ["message"],
+			},
 			// grammY types its signal with the abort-controller polyfill; the global AbortSignal works at runtime.
 			signal as unknown as Parameters<Api["getUpdates"]>[1],
 		);
@@ -53,7 +82,9 @@ export class GrammyTransport implements TelegramTransport {
 
 	async sendMessage(chatId: number, text: string, options: SendOptions) {
 		const sent = await this.api.sendMessage(chatId, text, {
-			...(options.threadId === undefined ? {} : { message_thread_id: options.threadId }),
+			...(options.threadId === undefined
+				? {}
+				: { message_thread_id: options.threadId }),
 			link_preview_options: { is_disabled: true },
 		});
 		return { messageId: sent.message_id };
@@ -61,7 +92,9 @@ export class GrammyTransport implements TelegramTransport {
 
 	async sendTyping(chatId: number, options: SendOptions) {
 		await this.api.sendChatAction(chatId, "typing", {
-			...(options.threadId === undefined ? {} : { message_thread_id: options.threadId }),
+			...(options.threadId === undefined
+				? {}
+				: { message_thread_id: options.threadId }),
 		});
 	}
 

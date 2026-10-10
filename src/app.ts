@@ -3,11 +3,23 @@ import { join } from "node:path";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { MutableModels } from "@earendil-works/pi-ai/models";
 import { Harness } from "@earendil-works/pi-durable";
-import { DEFAULT_BOT_ID, type BotRecord, listBots, setTelegramToken } from "./channels/bots.ts";
+import {
+	type BotRecord,
+	DEFAULT_BOT_ID,
+	listBots,
+	setTelegramToken,
+} from "./channels/bots.ts";
 import { listChats } from "./channels/telegram/chats.ts";
 import { Deliverer } from "./channels/telegram/deliver.ts";
-import { botCursor, generalCursor, TelegramPoller } from "./channels/telegram/poller.ts";
-import { GrammyTransport, type TelegramTransport } from "./channels/telegram/transport.ts";
+import {
+	botCursor,
+	generalCursor,
+	TelegramPoller,
+} from "./channels/telegram/poller.ts";
+import {
+	GrammyTransport,
+	type TelegramTransport,
+} from "./channels/telegram/transport.ts";
 import { startWeb, type WebListener } from "./channels/web/server.ts";
 import type { Config } from "./config.ts";
 import { botEnv } from "./harness/bot-env.ts";
@@ -15,9 +27,13 @@ import { buildRegistry } from "./harness/registry.ts";
 import { runStartup } from "./harness/startup.ts";
 import { openOwnedStorage } from "./harness/storage.ts";
 import { getLogger } from "./log.ts";
-import { createBotRuntime, type BotRuntime, type TurnHooks } from "./runtime.ts";
+import {
+	type BotRuntime,
+	createBotRuntime,
+	type TurnHooks,
+} from "./runtime.ts";
 import { armHarvest, HarvestNotesDoc, harvestId } from "./schedules/harvest.ts";
-import { createScheduleService, type ScheduleService } from "./schedules/service.ts";
+import { createScheduleService } from "./schedules/service.ts";
 
 export type AppOptions = {
 	config: Config;
@@ -28,7 +44,12 @@ export type AppOptions = {
 	poll?: boolean;
 };
 
-type BotDoor = { token: string; abort: AbortController; done: Promise<unknown>; poller: TelegramPoller };
+type BotDoor = {
+	token: string;
+	abort: AbortController;
+	done: Promise<unknown>;
+	poller: TelegramPoller;
+};
 
 export type App = {
 	readonly harness: Harness;
@@ -44,13 +65,21 @@ export type App = {
 	stop(): Promise<void>;
 };
 
-export async function startApp({ config, models, transport, poll = true }: AppOptions): Promise<App> {
+export async function startApp({
+	config,
+	models,
+	transport,
+	poll = true,
+}: AppOptions): Promise<App> {
 	const log = getLogger();
 	await mkdir(join(config.home, "workspace"), { recursive: true });
 	const { storage, lock } = await openOwnedStorage(config.home);
 	let harness: Harness;
 	try {
-		const { registry } = buildRegistry({ home: config.home, timeZone: config.timeZone });
+		const { registry } = buildRegistry({
+			home: config.home,
+			timeZone: config.timeZone,
+		});
 		harness = await Harness.open(
 			storage,
 			{
@@ -63,7 +92,8 @@ export async function startApp({ config, models, transport, poll = true }: AppOp
 					// Native compaction (defaults: reserve 16k, keep 20k recent, background at 32k below the limit).
 					compaction: { enabled: true },
 				},
-				onReport: (error) => getLogger().warn("pi-durable extension report", { error }),
+				onReport: (error) =>
+					getLogger().warn("pi-durable extension report", { error }),
 			},
 			BACKGROUND_CONTEXT,
 		);
@@ -73,7 +103,10 @@ export async function startApp({ config, models, transport, poll = true }: AppOp
 		throw error;
 	}
 
-	const { unknown } = await runStartup(harness, { home: config.home, model: config.model });
+	const { unknown } = await runStartup(harness, {
+		home: config.home,
+		model: config.model,
+	});
 	const deliverer = new Deliverer(harness, transport);
 	const hooks: TurnHooks = {};
 	const runtimes = new Map<string, BotRuntime>();
@@ -83,7 +116,13 @@ export async function startApp({ config, models, transport, poll = true }: AppOp
 			existing.refresh(bot);
 			return existing;
 		}
-		const created = createBotRuntime({ harness, deliverer, bot, home: config.home, hooks });
+		const created = createBotRuntime({
+			harness,
+			deliverer,
+			bot,
+			home: config.home,
+			hooks,
+		});
 		runtimes.set(bot.id, created);
 		return created;
 	};
@@ -104,7 +143,12 @@ export async function startApp({ config, models, transport, poll = true }: AppOp
 	hooks.onSettled = (chatKey, entryId) => {
 		const botId = chatKey.split(":")[0];
 		if (!botId) return Promise.resolve();
-		return armHarvest(schedules, { botId, chatKey, entryId, delayMs: config.harvestDelayMs });
+		return armHarvest(schedules, {
+			botId,
+			chatKey,
+			entryId,
+			delayMs: config.harvestDelayMs,
+		});
 	};
 	schedules.start();
 
@@ -122,7 +166,10 @@ export async function startApp({ config, models, transport, poll = true }: AppOp
 			deliverer.setBotTransport(bot.id, undefined);
 			void existing.done.catch(() => {});
 		}
-		const botTransport = new GrammyTransport(token, config.telegram.apiRoot ? { apiRoot: config.telegram.apiRoot } : {});
+		const botTransport = new GrammyTransport(
+			token,
+			config.telegram.apiRoot ? { apiRoot: config.telegram.apiRoot } : {},
+		);
 		deliverer.setBotTransport(bot.id, botTransport);
 		const doorPoller = new TelegramPoller({
 			harness,
@@ -135,7 +182,9 @@ export async function startApp({ config, models, transport, poll = true }: AppOp
 			cursor: botCursor(harness, bot.id),
 		});
 		const abort = new AbortController();
-		const done = doorPoller.run(abort.signal).catch((error) => getLogger().error("bot poll loop crashed", { error }));
+		const done = doorPoller
+			.run(abort.signal)
+			.catch((error) => getLogger().error("bot poll loop crashed", { error }));
 		doors.set(bot.id, { token, abort, done, poller: doorPoller });
 	};
 	const closeDoor = async (botId: string) => {
@@ -191,7 +240,9 @@ export async function startApp({ config, models, transport, poll = true }: AppOp
 
 	const background = new Set<Promise<unknown>>();
 	const track = (work: Promise<unknown>) => {
-		const tracked = work.catch((error) => getLogger().debug("background work ended", { error }));
+		const tracked = work.catch((error) =>
+			getLogger().debug("background work ended", { error }),
+		);
 		background.add(tracked);
 		void tracked.finally(() => background.delete(tracked));
 	};
@@ -200,20 +251,32 @@ export async function startApp({ config, models, transport, poll = true }: AppOp
 	for (const chat of await listChats(harness)) {
 		track(
 			(async () => {
-				const conversation = await harness.conversation(chat.conversationId, BACKGROUND_CONTEXT);
+				const conversation = await harness.conversation(
+					chat.conversationId,
+					BACKGROUND_CONTEXT,
+				);
 				await conversation?.waitForIdle(BACKGROUND_CONTEXT);
 				await deliverer.kick(chat);
 			})(),
 		);
 	}
 	// Safety net: answers whose watcher was lost still get delivered.
-	const sweep = config.deliverySweepMs > 0 ? setInterval(() => void deliverer.sweepAll(), config.deliverySweepMs) : undefined;
+	const sweep =
+		config.deliverySweepMs > 0
+			? setInterval(() => void deliverer.sweepAll(), config.deliverySweepMs)
+			: undefined;
 	sweep?.unref();
 
 	const abort = new AbortController();
 	const polling =
-		poller && poll ? poller.run(abort.signal).catch((error) => getLogger().error("poll loop crashed", { error })) : Promise.resolve();
-	log.info(`pi-bot started (model ${config.model.main.provider}/${config.model.main.modelId}, home ${config.home})`);
+		poller && poll
+			? poller
+					.run(abort.signal)
+					.catch((error) => getLogger().error("poll loop crashed", { error }))
+			: Promise.resolve();
+	log.info(
+		`pi-bot started (model ${config.model.main.provider}/${config.model.main.modelId}, home ${config.home})`,
+	);
 
 	let stopping: Promise<void> | undefined;
 	return {
@@ -244,7 +307,10 @@ export async function startApp({ config, models, transport, poll = true }: AppOp
 				await deliverer.idle();
 				await harness.close(BACKGROUND_CONTEXT);
 				// Answer watchers of unfinished runs settle (or fail) once the harness is closed.
-				await Promise.race([Promise.allSettled([...background]), new Promise((resolve) => setTimeout(resolve, 2000))]);
+				await Promise.race([
+					Promise.allSettled([...background]),
+					new Promise((resolve) => setTimeout(resolve, 2000)),
+				]);
 				await lock.release();
 				log.info("pi-bot stopped");
 			})();
