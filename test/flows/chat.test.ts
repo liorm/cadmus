@@ -390,8 +390,8 @@ describe("startup guards", () => {
 		await expect(startBot(other)).rejects.toThrow(/owned by another process/);
 	});
 
-	it("refuses to start without a bot token, with an unknown model, or without Grok credentials", async () => {
-		await expect(startBot(await tempHome(), { TELEGRAM_BOT_TOKEN: undefined })).rejects.toThrow(/TELEGRAM_BOT_TOKEN/);
+	it("refuses to start with no door, with an unknown model, or without Grok credentials", async () => {
+		await expect(startBot(await tempHome(), { TELEGRAM_BOT_TOKEN: undefined })).rejects.toThrow(/TELEGRAM_BOT_TOKEN or WEB_TOKEN/);
 		await expect(startBot(await tempHome(), { PI_MODEL: "xai/grok-0" })).rejects.toThrow(/Unknown model xai\/grok-0/);
 		await expect(startBot(await tempHome(), { PI_MODEL: undefined })).rejects.toThrow(/PI_MODEL is required/);
 		await expect(startBot(await tempHome(), { XAI_API_KEY: undefined })).rejects.toThrow(/XAI_API_KEY.*bun run login xai/);

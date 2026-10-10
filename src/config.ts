@@ -2,7 +2,7 @@ import { resolve } from "node:path";
 import { type ModelConfig, modelConfigFromEnv } from "./harness/models.ts";
 
 export type TelegramConfig = {
-	/** Absent only in tests that inject their own transport. */
+	/** Absent when `TELEGRAM_BOT_TOKEN` is unset. The general door stays off; per-bot tokens still poll. */
 	readonly token?: string;
 	/** Bot API root, e.g. a local Bot API server; default https://api.telegram.org. */
 	readonly apiRoot?: string;
@@ -22,7 +22,7 @@ export type Config = {
 	/** Directory holding durable.sqlite, owner.lock, bots/, and workspace/. */
 	readonly home: string;
 	readonly telegram: TelegramConfig;
-	/** Absent when `WEB_TOKEN` is unset: Telegram starts, the page does not. */
+	/** Absent when `WEB_TOKEN` is unset. The page does not listen. */
 	readonly web?: WebConfig;
 	readonly model: ModelConfig;
 	readonly timeZone: string;
@@ -60,7 +60,7 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): Config {
 	return {
 		home: resolve(env.PI_BOT_HOME ?? "./data"),
 		telegram: {
-			token: env.TELEGRAM_BOT_TOKEN || undefined,
+			token: env.TELEGRAM_BOT_TOKEN?.trim() || undefined,
 			...(env.TELEGRAM_API_ROOT ? { apiRoot: env.TELEGRAM_API_ROOT } : {}),
 			allowedUsers: parseUserIds(env.TELEGRAM_ALLOWED_USERS),
 			pollTimeoutSec: Number.isFinite(timeout) && timeout >= 0 ? timeout : 30,

@@ -26,6 +26,8 @@ export type ScheduleRow = {
 	target: { mode: "chat" | "new-chat" | "fork"; chatId?: string };
 } & ({ kind: "cron"; cron: string } | { kind: "when"; when: number });
 
+/** General env door (`TELEGRAM_BOT_TOKEN`). Separate from a token stored on a bot. */
+export const generalTelegram = signal(false);
 export const bots = signal<Bot[]>([]);
 export const botId = signal("default");
 export const chats = signal<Chat[]>([]);

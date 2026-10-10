@@ -1,6 +1,7 @@
 import {
 	banner,
 	botId,
+	generalTelegram,
 	bots,
 	busy,
 	chatKey,
@@ -53,11 +54,16 @@ export function boot(): void {
 	media.addEventListener("change", () => {
 		narrow.value = media.matches;
 	});
-	void loadBots()
+	void Promise.all([loadBots(), loadStatus()])
 		.then(() => loadChats())
 		.catch((error: Error) => {
 			banner.value = error.message;
 		});
+}
+
+async function loadStatus(): Promise<void> {
+	const body = await api<{ telegram?: boolean }>("/api/status");
+	generalTelegram.value = Boolean(body.telegram);
 }
 
 export async function loadBots(): Promise<void> {

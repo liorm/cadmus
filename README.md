@@ -1,6 +1,6 @@
 # pi-bot
 
-A Hermes-style personal agent on [`@earendil-works/pi-durable`](https://www.npmjs.com/package/@earendil-works/pi-durable), talking over Telegram and a local web page. Runs on **Bun**.
+A Hermes-style personal agent on [`@earendil-works/pi-durable`](https://www.npmjs.com/package/@earendil-works/pi-durable), talking over Telegram, a local web page, or both. Runs on **Bun**.
 
 **Status: L1 workspace.** Several bots share one harness. Each bot has a folder, a streaming chat page, a knowledge editor, and user schedules. Idle chats can harvest notes into `knowledge/`. Memory, skills, the learning loop, and delegation are still later.
 
@@ -20,8 +20,8 @@ Optional: put `SOUL.md` (persona; a default is used when absent) and `SYSTEM.md`
 
 | Variable | Required | Meaning |
 |---|---|---|
-| `TELEGRAM_BOT_TOKEN` | yes | Token from @BotFather |
-| `TELEGRAM_ALLOWED_USERS` | yes | Comma-separated numeric Telegram user IDs. Empty = every message is ignored (logged) |
+| `TELEGRAM_BOT_TOKEN` | one door | Token from @BotFather. Unset: the general Telegram door stays off. Set this or `WEB_TOKEN` (or both) |
+| `TELEGRAM_ALLOWED_USERS` | with Telegram | Comma-separated numeric Telegram user IDs. Empty = every message on a configured door is ignored (logged) |
 | `PI_MODEL` | yes | `<provider>/<modelId>` from any pi-ai built-in provider (e.g. `anthropic/…`, `openai/…`, `xai/…`, `openrouter/<vendor>/<model>`). `faux/echo` is an offline echo model for smoke tests |
 | provider auth | yes (real models) | Either an OAuth login (`bun run login <provider>`, stored in `PI_BOT_HOME/auth.json`, preferred when present) or the provider's API key env var (below) |
 | provider key | alt. | The provider's standard env var, read by pi-ai: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `XAI_API_KEY`, `OPENROUTER_API_KEY`, `GEMINI_API_KEY`, … Startup fails fast if the model is unknown or the key is missing |
@@ -32,7 +32,7 @@ Optional: put `SOUL.md` (persona; a default is used when absent) and `SYSTEM.md`
 | `PI_BOT_HARVEST_DELAY_MS` | no | Idle time before a chat is forked to update knowledge (default 60000) |
 | `TELEGRAM_POLL_TIMEOUT_SEC` | no | Long-poll timeout (default 30) |
 | `PI_BOT_DELIVERY_SWEEP_MS` | no | Safety-net sweep for undelivered answers (default 15000; 0 disables) |
-| `WEB_TOKEN` | no | Shared secret for the local page. Unset: Telegram runs and the page does not |
+| `WEB_TOKEN` | one door | Shared secret for the local page. Unset: the page does not listen. Set this or `TELEGRAM_BOT_TOKEN` (or both) |
 | `WEB_HOST`, `WEB_PORT` | no | Page bind address (default `127.0.0.1:8787`) |
 | `LOG_LEVEL` | no | `debug`/`info`/`warn`/`error` |
 
@@ -69,7 +69,7 @@ A web message uses request id `<chatKey>:<clientMsgId>`. Posting into a Telegram
 
 ```
 src/
-  main.ts                       entry: env config, grammY transport, model check, signals
+  main.ts                       entry: env config, optional grammY transport, model check, signals
   app.ts                        wires storage, Harness, startup, deliverer, pollers, schedules, web
   config.ts, log.ts, runtime.ts
   schedules/                    sidecar schedules.sqlite, cron, idle harvest

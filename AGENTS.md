@@ -21,7 +21,7 @@ TypeScript runs unbuilt: imports use `.ts` extensions; only erasable syntax (no 
 ## Layout
 
 ```
-src/main.ts                 main(env): config → credentials/models → GrammyTransport → startApp
+src/main.ts                 main(env): config → credentials/models → optional GrammyTransport → startApp
 src/app.ts                  storage + Harness + startup + deliverer + pollers + schedules + web; stop()/quiesce()
 src/runtime.ts              BotRuntime: submit, listChats, createChat; arms idle harvest
 src/schedules/              schedules.sqlite sidecar · cron.ts · harvest.ts (pi-bot.harvest-notes)

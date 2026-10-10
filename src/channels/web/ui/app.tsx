@@ -5,6 +5,7 @@ import { ensureSchedules, Schedules } from "./schedules.tsx";
 import {
 	banner,
 	botId,
+	generalTelegram,
 	bots,
 	busy,
 	chatKey,
@@ -68,7 +69,7 @@ function Side() {
 		<aside class="side">
 			<div class="bh">
 				<div class="n">
-					{bot?.name ?? "Bot"} {bot?.telegramConfigured || bot?.id === "default" ? <span class="tg">TG</span> : null}
+					{bot?.name ?? "Bot"} {bot?.telegramConfigured || (bot?.id === "default" && generalTelegram.value) ? <span class="tg">TG</span> : null}
 				</div>
 				<div class="m">
 					{bot ? `${bot.id} · ${bot.model}${bot.thinking ? ` · ${bot.thinking}` : ""}` : ""}

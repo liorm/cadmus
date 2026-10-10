@@ -83,10 +83,11 @@ export class Deliverer {
 	readonly #queues = new Map<string, Promise<void>>();
 
 	private readonly harness: Harness;
-	private readonly transport: TelegramTransport;
+	/** General door. Absent when `TELEGRAM_BOT_TOKEN` is unset; `:tg:general:` sends are skipped. */
+	private readonly transport?: TelegramTransport;
 	readonly #bots = new Map<string, TelegramTransport>();
 
-	constructor(harness: Harness, transport: TelegramTransport) {
+	constructor(harness: Harness, transport?: TelegramTransport) {
 		this.harness = harness;
 		this.transport = transport;
 	}

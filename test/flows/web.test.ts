@@ -128,6 +128,32 @@ describe("web channel", () => {
 		expect(await script.text()).toContain("/new");
 	});
 
+	it("runs the page with no general Telegram token and does not poll Telegram", async () => {
+		const { app, url } = await boot(undefined, { TELEGRAM_BOT_TOKEN: undefined });
+		expect(await json<{ model: string; telegram: boolean }>(url, "/api/status")).toEqual({ model: "xai/grok-4.7", telegram: false });
+		const key = await createWebChat(url);
+		const stream = readStream(url, key, "grok(1): hello");
+		await say(url, key, "hello");
+		expect(await stream).toContain("grok(1): hello");
+		await app.quiesce();
+		expect(egress.telegram.polls).toBe(0);
+		expect(egress.telegram.sent).toEqual([]);
+		expect(await (await call(url, "/app.js")).text()).toContain("/api/status");
+
+		const door = egress.telegramFor("999:door-token");
+		const saved = await call(url, "/api/bots/default/telegram", {
+			method: "PUT",
+			body: JSON.stringify({ token: "999:door-token" }),
+		});
+		expect(saved.status).toBe(200);
+		door.push("from the door");
+		await until(() => door.sent.length === 1, "the per-bot door to answer");
+		await app.quiesce();
+		expect(door.texts()).toEqual(["grok(1): from the door"]);
+		expect(egress.telegram.polls).toBe(0);
+		expect(egress.telegram.sent).toEqual([]);
+	});
+
 	it("streams one reply, and the same clientMsgId does not run again", async () => {
 		const { app, url } = await boot();
 		const key = await createWebChat(url);

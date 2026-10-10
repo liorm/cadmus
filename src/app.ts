@@ -22,7 +22,8 @@ import { createScheduleService, type ScheduleService } from "./schedules/service
 export type AppOptions = {
 	config: Config;
 	models: MutableModels;
-	transport: TelegramTransport;
+	/** General door. Absent when `TELEGRAM_BOT_TOKEN` is unset; per-bot doors still open from stored tokens. */
+	transport?: TelegramTransport;
 	/** Start the long-poll loop (default true). Tests drive `poller.handleUpdate` directly when false. */
 	poll?: boolean;
 };
@@ -31,7 +32,8 @@ type BotDoor = { token: string; abort: AbortController; done: Promise<unknown>; 
 
 export type App = {
 	readonly harness: Harness;
-	readonly poller: TelegramPoller;
+	/** General-door poller. Absent when that door is off. */
+	readonly poller?: TelegramPoller;
 	readonly deliverer: Deliverer;
 	/** Receipts reconciled to `unknown` at this startup. */
 	readonly unknownAtStartup: readonly { chat: string; key: string }[];
@@ -174,16 +176,18 @@ export async function startApp({ config, models, transport, poll = true }: AppOp
 		}
 		log.info(`web ${web.url}`);
 	}
-	const poller = new TelegramPoller({
-		harness,
-		runtime,
-		transport,
-		deliverer,
-		allowedUsers: config.telegram.allowedUsers,
-		pollTimeoutSec: config.telegram.pollTimeoutSec,
-		ingress: "general",
-		cursor: generalCursor(harness),
-	});
+	const poller = transport
+		? new TelegramPoller({
+				harness,
+				runtime,
+				transport,
+				deliverer,
+				allowedUsers: config.telegram.allowedUsers,
+				pollTimeoutSec: config.telegram.pollTimeoutSec,
+				ingress: "general",
+				cursor: generalCursor(harness),
+			})
+		: undefined;
 
 	const background = new Set<Promise<unknown>>();
 	const track = (work: Promise<unknown>) => {
@@ -207,7 +211,8 @@ export async function startApp({ config, models, transport, poll = true }: AppOp
 	sweep?.unref();
 
 	const abort = new AbortController();
-	const polling = poll ? poller.run(abort.signal).catch((error) => getLogger().error("poll loop crashed", { error })) : Promise.resolve();
+	const polling =
+		poller && poll ? poller.run(abort.signal).catch((error) => getLogger().error("poll loop crashed", { error })) : Promise.resolve();
 	log.info(`pi-bot started (model ${config.model.main.provider}/${config.model.main.modelId}, home ${config.home})`);
 
 	let stopping: Promise<void> | undefined;
@@ -219,7 +224,7 @@ export async function startApp({ config, models, transport, poll = true }: AppOp
 		...(web ? { web: { url: web.url } } : {}),
 		async quiesce() {
 			await harness.waitForIdle(BACKGROUND_CONTEXT);
-			await poller.settled();
+			if (poller) await poller.settled();
 			for (const door of doors.values()) await door.poller.settled();
 			for (const bot of runtimes.values()) await bot.settled();
 			await schedules.idle();
