@@ -11,6 +11,7 @@ import {
 	type ScheduleRow,
 	scheduleId,
 	schedules,
+	showList,
 } from "./state.ts";
 
 type Draft = {
@@ -46,88 +47,104 @@ function selected(): Draft {
 	};
 }
 
-export function Schedules() {
-	const draft = selected();
+function pickSchedule(id: string | null): void {
+	scheduleId.value = id;
+	showList.value = false;
+}
+
+export function ScheduleList() {
 	const count = schedules.value.length;
 	return (
-		<>
-			<div class="list">
+		<div class="list">
+			<button
+				type="button"
+				class="btn ghost"
+				onClick={() => pickSchedule(null)}
+			>
+				New schedule
+			</button>
+			{schedules.value.map((row) => (
 				<button
 					type="button"
-					class="btn ghost"
-					onClick={() => (scheduleId.value = null)}
+					key={row.id}
+					class={`c ${row.id === scheduleId.value ? "sel" : ""}`}
+					onClick={() => pickSchedule(row.id)}
 				>
-					New schedule
+					<div class="t">
+						{row.kind === "cron" ? "⏱" : "⏰"} {row.text.slice(0, 42)}
+					</div>
+					<div class="key">{targetLabel(row)}</div>
+					<div class="p">
+						{row.kind === "cron" ? `cron ${row.cron}` : "when · once"}
+						{row.nextRun
+							? ` · next ${new Date(row.nextRun).toLocaleString()}`
+							: ""}
+					</div>
 				</button>
-				{schedules.value.map((row) => (
+			))}
+			{count === 0 ? <p class="mu">No schedules yet.</p> : null}
+		</div>
+	);
+}
+
+export function Schedules() {
+	const draft = selected();
+	return (
+		<main class="main">
+			<div class="hd">
+				<button
+					type="button"
+					class="back"
+					title="Schedules"
+					onClick={() => (showList.value = true)}
+				>
+					‹
+				</button>
+				<div>
+					<div class="t">Schedules</div>
+					<div class="key">schedules.sqlite</div>
+				</div>
+				<div class="r">
 					<button
 						type="button"
-						key={row.id}
-						class={`c ${row.id === scheduleId.value ? "sel" : ""}`}
-						onClick={() => (scheduleId.value = row.id)}
+						class="btn pri"
+						onClick={() => pickSchedule(null)}
 					>
-						<div class="t">
-							{row.kind === "cron" ? "⏱" : "⏰"} {row.text.slice(0, 42)}
-						</div>
-						<div class="key">{targetLabel(row)}</div>
-						<div class="p">
-							{row.kind === "cron" ? `cron ${row.cron}` : "when · once"}
-							{row.nextRun
-								? ` · next ${new Date(row.nextRun).toLocaleString()}`
-								: ""}
-						</div>
+						+ New schedule
 					</button>
-				))}
-				{count === 0 ? <p class="mu">No schedules yet.</p> : null}
+				</div>
 			</div>
-			<main class="main">
-				<div class="hd">
-					<div>
-						<div class="t">Schedules</div>
-						<div class="key">schedules.sqlite</div>
+			<div class="pg">
+				<div class="panel">
+					<div class="sr h">
+						<span></span>
+						<span>Message</span>
+						<span>Target</span>
+						<span>When</span>
+						<span>Next</span>
 					</div>
-					<div class="r">
+					{schedules.value.map((row) => (
 						<button
 							type="button"
-							class="btn pri"
-							onClick={() => (scheduleId.value = null)}
+							key={row.id}
+							class={`sr ${row.id === scheduleId.value ? "sel" : ""}`}
+							onClick={() => pickSchedule(row.id)}
 						>
-							+ New schedule
+							<span>{row.kind === "cron" ? "⏱" : "⏰"}</span>
+							<span>{row.text}</span>
+							<span class="key">{targetLabel(row)}</span>
+							<span class="mono">
+								{row.kind === "cron" ? row.cron : "when · once"}
+							</span>
+							<span>
+								{row.nextRun ? new Date(row.nextRun).toLocaleString() : ""}
+							</span>
 						</button>
-					</div>
+					))}
 				</div>
-				<div class="pg">
-					<div class="panel">
-						<div class="sr h">
-							<span></span>
-							<span>Message</span>
-							<span>Target</span>
-							<span>When</span>
-							<span>Next</span>
-						</div>
-						{schedules.value.map((row) => (
-							<button
-								type="button"
-								key={row.id}
-								class={`sr ${row.id === scheduleId.value ? "sel" : ""}`}
-								onClick={() => (scheduleId.value = row.id)}
-							>
-								<span>{row.kind === "cron" ? "⏱" : "⏰"}</span>
-								<span>{row.text}</span>
-								<span class="key">{targetLabel(row)}</span>
-								<span class="mono">
-									{row.kind === "cron" ? row.cron : "when · once"}
-								</span>
-								<span>
-									{row.nextRun ? new Date(row.nextRun).toLocaleString() : ""}
-								</span>
-							</button>
-						))}
-					</div>
-					<Editor key={draft.id ?? "new"} draft={draft} />
-				</div>
-			</main>
-		</>
+				<Editor key={draft.id ?? "new"} draft={draft} />
+			</div>
+		</main>
 	);
 }
 

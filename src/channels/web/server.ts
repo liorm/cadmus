@@ -9,6 +9,15 @@ const SHELL = `<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>pi-bot</title>
+<script>
+try {
+  var t = localStorage.getItem("pi-bot.theme");
+  document.documentElement.dataset.theme =
+    t === "light" || t === "fire" ? t : "dark";
+} catch (e) {
+  document.documentElement.dataset.theme = "dark";
+}
+</script>
 <link rel="stylesheet" href="/app.css">
 </head>
 <body>
