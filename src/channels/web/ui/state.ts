@@ -51,10 +51,8 @@ export const notes = signal<HarvestNote[]>([]);
 export const partial = signal("");
 export const liveTools = signal<Chip[]>([]);
 export const busy = signal(false);
-export const modal = signal(false);
-export const tab = signal<"chats" | "knowledge" | "schedules" | "settings">(
-	"chats",
-);
+export const modal = signal<null | "create" | "edit">(null);
+export const tab = signal<"chats" | "knowledge" | "schedules">("chats");
 export const banner = signal("");
 export const saved = signal("");
 export const draft = signal("");

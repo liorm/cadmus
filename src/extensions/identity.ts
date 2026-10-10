@@ -1,11 +1,10 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { defineExtension, section } from "@earendil-works/pi-durable";
+import { DEFAULT_SOUL } from "./default-soul.ts";
 import { knowledgeIndex } from "./knowledge.ts";
 
-export const DEFAULT_SOUL = `You are a personal assistant that talks with your user through Telegram.
-Be direct, warm and concise. Plain text renders best; keep formatting light.
-You run on a durable runtime: your conversation survives restarts. If you were interrupted, say so plainly rather than guessing what happened.`;
+export { DEFAULT_SOUL };
 
 async function readOptional(path: string): Promise<string | undefined> {
 	try {

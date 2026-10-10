@@ -19,6 +19,7 @@ import {
 	type ScheduleService,
 	type ScheduleTarget,
 } from "../../schedules/service.ts";
+import { OFFERED_PROVIDERS, WEB_TOOLS } from "../bot-catalog.ts";
 import {
 	type BotWrite,
 	createBot,
@@ -40,7 +41,7 @@ import { chatEventResponse } from "./events.ts";
 import { listBotFiles, readBotFile, writeBotFile } from "./files.ts";
 import { projectEntries, type TranscriptItem } from "./transcript.ts";
 
-const EXTRA_TOOLS = new Set(["web.search", "web.fetch"]);
+const EXTRA_TOOLS = new Set<string>(WEB_TOOLS);
 const WEB_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
 
 export type WebDeps = {
@@ -82,6 +83,8 @@ export async function handleApi(
 		return Response.json({
 			bots: (await listBots(deps.harness)).map(publicBot),
 		});
+	if (path === "/api/models" && request.method === "GET")
+		return Response.json({ providers: offeredModels(deps.models) });
 	if (path === "/api/bots" && request.method === "POST")
 		return create(request, deps);
 
@@ -701,6 +704,11 @@ function parseBotWrite(
 		}
 		write.thinking = record.thinking;
 	}
+	if (creating && record.soul !== undefined) {
+		if (typeof record.soul !== "string")
+			return { ok: false, status: 400, error: "SOUL.md is missing." };
+		write.soul = record.soul;
+	}
 	if (record.tools !== undefined) {
 		if (
 			!Array.isArray(record.tools) ||
@@ -713,6 +721,16 @@ function parseBotWrite(
 		write.tools = [...new Set(record.tools as string[])];
 	}
 	return { ok: true, write: write as BotWrite };
+}
+
+function offeredModels(models: MutableModels): {
+	id: string;
+	models: string[];
+}[] {
+	return OFFERED_PROVIDERS.flatMap((id) => {
+		const found = models.getModels(id).map((model) => model.id);
+		return found.length > 0 ? [{ id, models: found }] : [];
+	});
 }
 
 function knownModel(models: MutableModels, ref: string): boolean {
