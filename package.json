@@ -13,7 +13,8 @@
 		"login": "bun scripts/auth.ts login",
 		"logout": "bun scripts/auth.ts logout",
 		"auth:status": "bun scripts/auth.ts status",
-		"coverage": "bun test --coverage"
+		"coverage": "bun test --coverage",
+		"build:binary": "bun scripts/build-binary.ts"
 	},
 	"dependencies": {
 		"@earendil-works/chord": "^1.1.0",

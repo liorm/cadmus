@@ -3,5 +3,6 @@ data/
 .env
 *.log
 coverage/
+dist/
 auth.json
 auth.json.lock

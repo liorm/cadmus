@@ -44,7 +44,13 @@ export async function startWeb(
 	};
 }
 
+// Set only by `bun run build:binary` (`scripts/build-binary.ts`). Absent under `bun start`.
+declare const PI_BOT_EMBEDDED_UI:
+	| { readonly js: string; readonly css: string }
+	| undefined;
+
 async function buildUi(): Promise<{ js: string; css: string }> {
+	if (typeof PI_BOT_EMBEDDED_UI !== "undefined") return PI_BOT_EMBEDDED_UI;
 	const built = await Bun.build({
 		entrypoints: [join(import.meta.dir, "ui/main.tsx")],
 		target: "browser",
