@@ -15,8 +15,8 @@ Never use node/npm/npx/vitest here.
 | test | `bun test` · one file: `bun test test/flows/chat.test.ts` |
 | coverage | `bun run coverage` |
 | typecheck | `bun check` (or `bun run typecheck`) |
-| lint / format | `bun run lint` (`biome check`) · `bun run format` (`biome check --write`) |
-| all checks | `bun run check:all` — Biome, typecheck, tests; must pass before every commit |
+| lint / format | `bun run lint` (`biome check`) · `bun run format` (`biome check --write`) · `bun run format:check` (`biome format`) |
+| all checks | `bun run check:all` — format, Biome, typecheck, tests; must pass before every commit |
 | Grok OAuth | `bun run login grok` · `bun run auth:status` · `bun run logout grok` |
 
 TypeScript runs unbuilt: imports use `.ts` extensions; only erasable syntax (no enums, namespaces, parameter properties).

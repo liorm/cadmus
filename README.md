@@ -12,7 +12,7 @@ The running shape — components, data model, data flow, and the HTTP client —
 curl -fsSL https://bun.sh/install | bash   # user-level, installs to ~/.bun (Bun >= 1.4.2)
 bun install
 cp .env.example .env                       # then fill it in
-bun run check:all                          # typecheck + tests
+bun run check:all                          # format, Biome, typecheck, tests
 bun start                                  # Bun loads .env automatically
 ```
 
