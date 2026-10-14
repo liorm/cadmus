@@ -33,7 +33,7 @@ src/schedules/              schedules.sqlite sidecar · cron.ts · harvest.ts (p
 src/harness/                storage.ts (SQLite + owner.lock) · models.ts · credentials.ts (auth.json) · login.ts · registry.ts · startup.ts · bot-env.ts
 src/channels/telegram/      transport.ts · poller.ts · chats.ts · deliver.ts · commands.ts
 src/channels/web/           Bun.serve API + SSE; ui/ is Preact, built at listen (no node:fs in the bundle)
-src/extensions/             prompt sections (identity.ts) and knowledge parsers; new features go here as pi-durable extensions
+src/extensions/             prompt sections (identity.ts), self tools, and knowledge parsers; new features go here as pi-durable extensions
 scripts/auth.ts             login/logout/status CLI
 test/flows/                 feature-flow tests (the main suite)
 test/egress/                fake egress HTTP server + fetch routing (+ preload for child processes)

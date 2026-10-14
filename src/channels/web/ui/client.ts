@@ -329,6 +329,15 @@ export async function deleteChat(): Promise<void> {
 	await loadChats();
 }
 
+export async function loadToolCatalog(): Promise<
+	{ group: string; name: string }[]
+> {
+	const body = await api<{ catalog: { group: string; name: string }[] }>(
+		"/api/tools",
+	);
+	return body.catalog;
+}
+
 export async function loadModels(): Promise<
 	{ id: string; models: string[] }[]
 > {

@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import { DEFAULT_SOUL } from "../../../extensions/default-soul.ts";
-import { FILE_TOOLS, WEB_TOOLS } from "../../bot-catalog.ts";
 import { slugifyBotName } from "../../bot-slug.ts";
 import {
 	createBot,
 	loadModels,
+	loadToolCatalog,
 	readBotText,
 	setTelegramToken,
 	updateBot,
@@ -97,8 +97,7 @@ type FormSnap = {
 	provider: string;
 	modelId: string;
 	thinking: string;
-	files: string;
-	web: string;
+	tools: string;
 	token: string;
 	soul: string;
 };
@@ -132,14 +131,9 @@ export function BotDialog() {
 	const [provider, setProvider] = useState(initial.provider);
 	const [modelId, setModelId] = useState(initial.modelId);
 	const [thinking, setThinking] = useState(initialThinking(editing, current));
-	const [files, setFiles] = useState<Set<string>>(() => new Set(FILE_TOOLS));
-	const [web, setWeb] = useState<Set<string>>(
-		new Set(
-			(current?.tools ?? []).filter((tool) =>
-				(WEB_TOOLS as readonly string[]).includes(tool),
-			),
-		),
-	);
+	const [catalog, setCatalog] = useState<{ group: string; name: string }[]>([]);
+	const catalogNames = useRef<string[]>([]);
+	const [selected, setSelected] = useState<Set<string>>(new Set());
 	const [token, setToken] = useState("");
 	const [soul, setSoul] = useState(editing ? "" : `${DEFAULT_SOUL}\n`);
 	const [soulReady, setSoulReady] = useState(!editing);
@@ -158,8 +152,7 @@ export function BotDialog() {
 			provider !== baseline.provider ||
 			modelId !== baseline.modelId ||
 			thinking !== baseline.thinking ||
-			toolKey(files) !== baseline.files ||
-			toolKey(web) !== baseline.web ||
+			toolKey(selected) !== baseline.tools ||
 			token !== baseline.token ||
 			soul !== baseline.soul);
 
@@ -197,12 +190,7 @@ export function BotDialog() {
 						provider: fallback.id,
 						modelId: keep,
 						thinking: initialThinking(false, current),
-						files: toolKey(FILE_TOOLS),
-						web: toolKey(
-							(current?.tools ?? []).filter((tool) =>
-								(WEB_TOOLS as readonly string[]).includes(tool),
-							),
-						),
+						tools: toolKey(catalogNames.current),
 						token: "",
 						soul: `${DEFAULT_SOUL}\n`,
 					});
@@ -215,12 +203,7 @@ export function BotDialog() {
 				provider: initial.provider,
 				modelId: initial.modelId,
 				thinking: initialThinking(true, current),
-				files: toolKey(FILE_TOOLS),
-				web: toolKey(
-					(current?.tools ?? []).filter((tool) =>
-						(WEB_TOOLS as readonly string[]).includes(tool),
-					),
-				),
+				tools: toolKey(catalogNames.current),
 				token: "",
 				soul: "",
 			});
@@ -233,6 +216,24 @@ export function BotDialog() {
 				})
 				.catch((caught: Error) => setError(caught.message));
 		}
+		const stored = current?.tools;
+		const picked = (names: string[]) =>
+			stored === undefined
+				? names
+				: names.filter((name) => stored.includes(name));
+		void loadToolCatalog()
+			.then((items) => {
+				if (cancel) return;
+				const names = items.map((item) => item.name);
+				catalogNames.current = names;
+				const initialTools = picked(names);
+				setCatalog(items);
+				setSelected(new Set(initialTools));
+				setBaseline((prev) =>
+					prev ? { ...prev, tools: toolKey(initialTools) } : prev,
+				);
+			})
+			.catch((caught: Error) => setError(caught.message));
 		return () => {
 			cancel = true;
 		};
@@ -263,7 +264,13 @@ export function BotDialog() {
 	}, [modelsOpen]);
 
 	const submit = () => {
-		const tools = WEB_TOOLS.filter((tool) => web.has(tool));
+		if (catalog.length === 0) {
+			setError("Tools are still loading.");
+			return;
+		}
+		const tools = catalog
+			.map((tool) => tool.name)
+			.filter((name) => selected.has(name));
 		const model = `${provider}/${modelId}`;
 		const done = editing
 			? updateBot({ name, model, thinking, tools })
@@ -399,20 +406,32 @@ export function BotDialog() {
 					<div class="f">
 						<div class="lab">Tools</div>
 						<div class="tools">
-							<ToolGroup
-								title="Files"
-								names={FILE_TOOLS}
-								selected={files}
-								onToggle={(tool) => setFiles((prev) => toggleTool(prev, tool))}
-								onAll={(on) => setFiles(new Set(on ? FILE_TOOLS : []))}
-							/>
-							<ToolGroup
-								title="Web"
-								names={WEB_TOOLS}
-								selected={web}
-								onToggle={(tool) => setWeb((prev) => toggleTool(prev, tool))}
-								onAll={(on) => setWeb(new Set(on ? WEB_TOOLS : []))}
-							/>
+							{[...new Set(catalog.map((tool) => tool.group))].map((group) => {
+								const names = catalog
+									.filter((tool) => tool.group === group)
+									.map((tool) => tool.name);
+								return (
+									<ToolGroup
+										key={group}
+										title={group}
+										names={names}
+										selected={selected}
+										onToggle={(tool) =>
+											setSelected((prev) => toggleTool(prev, tool))
+										}
+										onAll={(on) =>
+											setSelected((prev) => {
+												const next = new Set(prev);
+												for (const name of names) {
+													if (on) next.add(name);
+													else next.delete(name);
+												}
+												return next;
+											})
+										}
+									/>
+								);
+							})}
 						</div>
 					</div>
 					<div class="f">

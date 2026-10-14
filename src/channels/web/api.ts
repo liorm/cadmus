@@ -1,10 +1,11 @@
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { MutableModels } from "@earendil-works/pi-ai/models";
-import type {
-	ConversationId,
-	Cursor,
-	EntryRecord,
-	Harness,
+import {
+	type ConversationId,
+	type Cursor,
+	type EntryRecord,
+	type Harness,
+	LiveDoc,
 } from "@earendil-works/pi-durable";
 import type { Config } from "../../config.ts";
 import {
@@ -12,6 +13,7 @@ import {
 	parseModelRef,
 	THINKING_LEVELS,
 } from "../../harness/models.ts";
+import { resolvedEnabled, syncChatTools } from "../../harness/tool-policy.ts";
 import type { BotRuntime } from "../../runtime.ts";
 import { parseCron } from "../../schedules/cron.ts";
 import {
@@ -20,11 +22,12 @@ import {
 	isHarvestId,
 } from "../../schedules/harvest.ts";
 import {
+	type Schedule,
 	ScheduleRejected,
 	type ScheduleService,
 	type ScheduleTarget,
 } from "../../schedules/service.ts";
-import { OFFERED_PROVIDERS, WEB_TOOLS } from "../bot-catalog.ts";
+import { isToolName, OFFERED_PROVIDERS, TOOL_CATALOG } from "../bot-catalog.ts";
 import {
 	type BotWrite,
 	createBot,
@@ -51,7 +54,6 @@ import {
 	type TranscriptItem,
 } from "./transcript.ts";
 
-const EXTRA_TOOLS = new Set<string>(WEB_TOOLS);
 const WEB_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
 
 export type WebDeps = {
@@ -95,6 +97,8 @@ export async function handleApi(
 		});
 	if (path === "/api/models" && request.method === "GET")
 		return Response.json({ providers: offeredModels(deps.models) });
+	if (path === "/api/tools" && request.method === "GET")
+		return Response.json({ catalog: TOOL_CATALOG });
 	if (path === "/api/bots" && request.method === "POST")
 		return create(request, deps);
 
@@ -119,6 +123,12 @@ export async function handleApi(
 		const id = decodeURIComponent(schedules[1]);
 		if (request.method === "GET") return listSchedules(deps, id);
 		if (request.method === "POST") return createSchedule(request, deps, id);
+	}
+	const tools = /^\/api\/bots\/([^/]+)\/tools$/.exec(path);
+	if (tools?.[1]) {
+		const id = decodeURIComponent(tools[1]);
+		if (request.method === "GET") return getBotTools(deps, id);
+		if (request.method === "PUT") return putBotTools(request, deps, id);
 	}
 	const door = /^\/api\/bots\/([^/]+)\/telegram$/.exec(path);
 	if (door?.[1] && request.method === "PUT")
@@ -201,7 +211,66 @@ async function patchBot(
 	if (!updated.ok)
 		return Response.json({ error: updated.error }, { status: updated.status });
 	deps.ensureRuntime(id)?.refresh(updated.bot);
+	if (parsed.write.tools !== undefined)
+		await syncBotChats(deps, id, updated.bot);
 	return Response.json({ bot: publicBot(updated.bot) });
+}
+
+async function syncBotChats(
+	deps: WebDeps,
+	id: string,
+	bot: { tools?: string[] },
+): Promise<void> {
+	const chats = (await listChats(deps.harness)).filter(
+		(chat) => chat.botId === id,
+	);
+	for (const chat of chats) {
+		// A running turn already admitted its tool list. Leave that list so the
+		// tool gate can refuse a call that was offered, and sync on the next submit.
+		const live = await deps.harness.snapshot(
+			LiveDoc,
+			chat.conversationId,
+			BACKGROUND_CONTEXT,
+		);
+		if (live?.run) continue;
+		await syncChatTools(deps.harness, chat.conversationId, bot);
+	}
+}
+
+async function getBotTools(deps: WebDeps, id: string): Promise<Response> {
+	const bot = (await listBots(deps.harness)).find((item) => item.id === id);
+	if (!bot) return Response.json({ error: "No such bot." }, { status: 404 });
+	return Response.json({
+		catalog: TOOL_CATALOG,
+		enabled: resolvedEnabled(bot),
+	});
+}
+
+async function putBotTools(
+	request: Request,
+	deps: WebDeps,
+	id: string,
+): Promise<Response> {
+	const body = await readJson(request);
+	if (!body || typeof body !== "object" || Array.isArray(body))
+		return Response.json({ error: "Expected JSON." }, { status: 400 });
+	const enabled = (body as { enabled?: unknown }).enabled;
+	if (
+		!Array.isArray(enabled) ||
+		enabled.some((tool) => typeof tool !== "string" || !isToolName(tool))
+	)
+		return Response.json({ error: "Unknown tool." }, { status: 422 });
+	const updated = await updateBot(deps.harness, id, {
+		tools: enabled as string[],
+	});
+	if (!updated.ok)
+		return Response.json({ error: updated.error }, { status: updated.status });
+	deps.ensureRuntime(id)?.refresh(updated.bot);
+	await syncBotChats(deps, id, updated.bot);
+	return Response.json({
+		catalog: TOOL_CATALOG,
+		enabled: resolvedEnabled(updated.bot),
+	});
 }
 
 async function listBotChats(deps: WebDeps, id: string): Promise<Response> {
@@ -464,16 +533,15 @@ async function createSchedule(
 		id: `u-${crypto.randomUUID().replaceAll("-", "").slice(0, 16)}`,
 	};
 	try {
-		await deps.schedules.put(schedule);
+		return Response.json(
+			{ schedule: await saveSchedule(deps, schedule) },
+			{ status: 201 },
+		);
 	} catch (error) {
 		if (error instanceof ScheduleRejected)
 			return Response.json({ error: error.message }, { status: 422 });
 		throw error;
 	}
-	const stored = (await deps.schedules.list(id)).find(
-		(item) => item.id === schedule.id,
-	);
-	return Response.json({ schedule: stored ?? schedule }, { status: 201 });
 }
 
 async function replaceSchedule(
@@ -489,20 +557,46 @@ async function replaceSchedule(
 	const parsed = await parseScheduleBody(request, deps, existing.botId);
 	if (!parsed.ok)
 		return Response.json({ error: parsed.error }, { status: parsed.status });
+	const schedule = { ...parsed.schedule, id };
+	if (!parsed.hasName) schedule.name = existing.name;
+	if (!parsed.hasEnabled) schedule.enabled = existing.enabled;
 	try {
-		await deps.schedules.put(
-			{ ...parsed.schedule, id },
-			{ ifExists: "replace" },
-		);
+		return Response.json({
+			schedule: await saveSchedule(deps, schedule, "replace"),
+		});
 	} catch (error) {
 		if (error instanceof ScheduleRejected)
 			return Response.json({ error: error.message }, { status: 422 });
 		throw error;
 	}
-	const stored = (await deps.schedules.list(existing.botId)).find(
-		(item) => item.id === id,
+}
+
+/**
+ * A one-shot whose time has passed fires as soon as it is saved, and the row
+ * is gone before a later read. The response is the row that was written.
+ */
+async function saveSchedule(
+	deps: WebDeps,
+	schedule: Schedule,
+	ifExists?: "replace",
+): Promise<Schedule> {
+	const nextRun = deps.schedules.nextRun(schedule);
+	await deps.schedules.put(
+		{ ...schedule, nextRun },
+		ifExists ? { ifExists, nextRun } : { nextRun },
 	);
-	return Response.json({ schedule: stored });
+	return presentSchedule({ ...schedule, nextRun });
+}
+
+function presentSchedule(schedule: Schedule): Schedule {
+	const name = schedule.name?.trim() ? schedule.name.trim() : undefined;
+	return {
+		...schedule,
+		...(name ? { name } : { name: undefined }),
+		...(schedule.enabled === false
+			? { enabled: false }
+			: { enabled: undefined }),
+	};
 }
 
 async function deleteSchedule(deps: WebDeps, id: string): Promise<Response> {
@@ -606,17 +700,25 @@ function mergeTimeline(
 	return merged;
 }
 
-type ScheduleBody = { botId: string; text: string; target: ScheduleTarget } & (
-	| { kind: "cron"; cron: string }
-	| { kind: "when"; when: number }
-);
+type ScheduleBody = {
+	botId: string;
+	text: string;
+	target: ScheduleTarget;
+	name?: string;
+	enabled?: boolean;
+} & ({ kind: "cron"; cron: string } | { kind: "when"; when: number });
 
 async function parseScheduleBody(
 	request: Request,
 	deps: WebDeps,
 	botId: string,
 ): Promise<
-	| { ok: true; schedule: ScheduleBody }
+	| {
+			ok: true;
+			schedule: ScheduleBody;
+			hasName: boolean;
+			hasEnabled: boolean;
+	  }
 	| { ok: false; status: 400 | 422; error: string }
 > {
 	const body = await readJson(request);
@@ -635,17 +737,22 @@ async function parseScheduleBody(
 		if (!chat)
 			return { ok: false, status: 422, error: "That chat is not on this bot." };
 	}
+	const extras = readScheduleExtras(record);
+	if (!extras.ok) return extras;
 	if (record.kind === "cron") {
 		if (typeof record.cron !== "string" || !parseCron(record.cron))
 			return { ok: false, status: 422, error: "Cron must be five fields." };
 		return {
 			ok: true,
+			hasName: extras.hasName,
+			hasEnabled: extras.hasEnabled,
 			schedule: {
 				botId,
 				kind: "cron",
 				cron: record.cron.trim(),
 				text: record.text,
 				target: chosen,
+				...extras.fields,
 			},
 		};
 	}
@@ -656,16 +763,53 @@ async function parseScheduleBody(
 			return { ok: false, status: 422, error: "When is not a time." };
 		return {
 			ok: true,
+			hasName: extras.hasName,
+			hasEnabled: extras.hasEnabled,
 			schedule: {
 				botId,
 				kind: "when",
 				when,
 				text: record.text,
 				target: chosen,
+				...extras.fields,
 			},
 		};
 	}
 	return { ok: false, status: 422, error: "Kind must be cron or when." };
+}
+
+/** `name` and `enabled` are optional. An empty name clears. Omitted keys stay unset here. */
+function readScheduleExtras(record: Record<string, unknown>):
+	| {
+			ok: true;
+			hasName: boolean;
+			hasEnabled: boolean;
+			fields: { name?: string; enabled?: boolean };
+	  }
+	| { ok: false; status: 400 | 422; error: string } {
+	const fields: { name?: string; enabled?: boolean } = {};
+	let hasName = false;
+	let hasEnabled = false;
+	if ("name" in record && record.name !== undefined) {
+		hasName = true;
+		if (typeof record.name !== "string")
+			return { ok: false, status: 400, error: "Name is not text." };
+		const name = record.name.trim();
+		if (name.length > 80)
+			return { ok: false, status: 422, error: "Name is too long." };
+		if (name) fields.name = name;
+	}
+	if ("enabled" in record && record.enabled !== undefined) {
+		hasEnabled = true;
+		if (typeof record.enabled !== "boolean")
+			return {
+				ok: false,
+				status: 422,
+				error: "Enabled must be true or false.",
+			};
+		fields.enabled = record.enabled;
+	}
+	return { ok: true, hasName, hasEnabled, fields };
 }
 
 function parseTarget(
@@ -763,9 +907,7 @@ function parseBotWrite(
 	if (record.tools !== undefined) {
 		if (
 			!Array.isArray(record.tools) ||
-			record.tools.some(
-				(tool) => typeof tool !== "string" || !EXTRA_TOOLS.has(tool),
-			)
+			record.tools.some((tool) => typeof tool !== "string" || !isToolName(tool))
 		) {
 			return { ok: false, status: 422, error: "Unknown tool." };
 		}

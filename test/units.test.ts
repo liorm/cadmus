@@ -8,6 +8,11 @@ import { requestIdOf } from "../src/channels/telegram/poller.ts";
 import { parseUserIds } from "../src/config.ts";
 import { dayLine } from "../src/extensions/identity.ts";
 import { parseDescription, parseSlug } from "../src/extensions/knowledge.ts";
+import { botIdFromCwd } from "../src/extensions/self-tools/index.ts";
+import {
+	parseScheduleCreate,
+	parseScheduleUpdate,
+} from "../src/extensions/self-tools/schedules.ts";
 import { resolveProviderId } from "../src/harness/login.ts";
 import { modelConfigFromEnv, parseModelRef } from "../src/harness/models.ts";
 import { getLogger, setupLogger } from "../src/log.ts";
@@ -71,6 +76,88 @@ describe("pure helpers", () => {
 		expect(slugifyBotName("")).toBeUndefined();
 		expect(slugifyBotName("a".repeat(40))).toBe("a".repeat(32));
 		expect(slugifyBotName(`${"a".repeat(31)}!!!extra`)).toBe("a".repeat(31));
+	});
+
+	it("reads a bot id only from that bot's folder", () => {
+		const home = "/data";
+		expect(botIdFromCwd(home, "/data/bots/default")).toBe("default");
+		expect(botIdFromCwd(home, "/data/bots/persona-2")).toBe("persona-2");
+		expect(botIdFromCwd(home, "/data/bots/default/knowledge")).toBeUndefined();
+		expect(botIdFromCwd(home, "/data/other")).toBeUndefined();
+		expect(botIdFromCwd(home, "/data/bots/../default")).toBeUndefined();
+		expect(botIdFromCwd(home, undefined)).toBeUndefined();
+	});
+
+	it("rejects a schedule the model did not specify cleanly", () => {
+		expect(parseScheduleCreate({ text: "  " })).toEqual({
+			ok: false,
+			error: "Message is missing.",
+		});
+		expect(parseScheduleCreate({ text: "hi", cron: "nope", when: 1 })).toEqual({
+			ok: false,
+			error: "Pass cron or when, not both.",
+		});
+		expect(parseScheduleCreate({ text: "hi" })).toEqual({
+			ok: false,
+			error: "Pass a five-field cron or a when timestamp.",
+		});
+		expect(parseScheduleCreate({ text: "hi", cron: "* * *" })).toEqual({
+			ok: false,
+			error: "Cron must be five fields.",
+		});
+		expect(parseScheduleCreate({ text: "hi", when: Number.NaN })).toEqual({
+			ok: false,
+			error: "When is not a time.",
+		});
+		expect(
+			parseScheduleCreate({ text: "hi", cron: "0 9 * * 1", target: "fork" }),
+		).toEqual({
+			ok: true,
+			text: "hi",
+			targetMode: "fork",
+			when: { cron: "0 9 * * 1" },
+		});
+	});
+
+	it("rejects a schedule update the model did not specify cleanly", () => {
+		expect(parseScheduleUpdate({})).toEqual({
+			ok: false,
+			error: "Schedule id is missing.",
+		});
+		expect(parseScheduleUpdate({ id: "u-1" })).toEqual({
+			ok: false,
+			error: "Nothing to update.",
+		});
+		expect(
+			parseScheduleUpdate({ id: "u-1", cron: "0 9 * * *", when: 1 }),
+		).toEqual({
+			ok: false,
+			error: "Pass cron or when, not both.",
+		});
+		expect(parseScheduleUpdate({ id: "u-1", cron: "nope" })).toEqual({
+			ok: false,
+			error: "Cron must be five fields.",
+		});
+		expect(parseScheduleUpdate({ id: "u-1", name: "x".repeat(81) })).toEqual({
+			ok: false,
+			error: "Name is too long.",
+		});
+		expect(
+			parseScheduleUpdate({
+				id: " u-1 ",
+				text: "Later",
+				name: "  Morning ",
+				enabled: false,
+				cron: "0 9 * * 1",
+			}),
+		).toEqual({
+			ok: true,
+			id: "u-1",
+			text: "Later",
+			name: "Morning",
+			enabled: false,
+			when: { cron: "0 9 * * 1" },
+		});
 	});
 
 	it("parses bot and knowledge slugs", () => {

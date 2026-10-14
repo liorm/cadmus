@@ -6,9 +6,17 @@ import { join } from "node:path";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { App } from "../../src/app.ts";
 import { listChats } from "../../src/channels/telegram/chats.ts";
+import { resetTestClock, setTestClock } from "../../src/clock.ts";
 import { CHAT, FakeEgress } from "../egress/fake-egress.ts";
 import { routeEgress } from "../egress/route.ts";
-import { defined, settle, startBot, tempHome, until } from "../support.ts";
+import {
+	defined,
+	settle,
+	startBot,
+	tempHome,
+	until,
+	waitTestClockTicks,
+} from "../support.ts";
 
 const TOKEN = "test-web-token";
 
@@ -21,6 +29,7 @@ beforeEach(() => {
 	unroute = routeEgress(egress.url);
 });
 afterEach(async () => {
+	resetTestClock();
 	egress.xai.release();
 	for (const app of apps) await app.stop();
 	apps = [];
@@ -475,7 +484,7 @@ describe("web channel", () => {
 				name: "Files",
 				model: "faux/echo",
 				thinking: "off",
-				tools: ["read"],
+				tools: ["bash"],
 			}),
 		});
 		expect(rejected.status).toBe(422);
@@ -670,6 +679,94 @@ describe("web channel", () => {
 				.texts()
 				.filter((text) => text.includes("remind the plumber")),
 		).toHaveLength(1);
+	});
+
+	it("leaves a paused schedule off the clock and lets put rename or re-enable it", async () => {
+		let clock = Date.parse("2026-06-01T09:00:00.000Z");
+		setTestClock(() => clock);
+		const { app, url } = await boot(undefined, {
+			PI_BOT_HARVEST_DELAY_MS: "86400000",
+		});
+		egress.telegram.push("hi");
+		await until(() => egress.telegram.sent.length === 1, "the greeting reply");
+		await settle(app, egress);
+		const key = `default:tg:general:${CHAT}`;
+		const target = { mode: "chat", chatId: key };
+		const pausedWhen = clock + 1_000;
+		const liveWhen = clock + 5_000;
+		const paused = await json<{
+			schedule: { id: string; name?: string; enabled?: boolean; text: string };
+		}>(url, "/api/bots/default/schedules", {
+			method: "POST",
+			body: JSON.stringify({
+				text: "paused ping",
+				name: "Soon",
+				enabled: false,
+				kind: "when",
+				when: pausedWhen,
+				target,
+			}),
+		});
+		expect(paused.schedule.name).toBe("Soon");
+		expect(paused.schedule.enabled).toBe(false);
+		const kept = await json<{
+			schedule: { name?: string; enabled?: boolean; text: string };
+		}>(url, `/api/schedules/${paused.schedule.id}`, {
+			method: "PUT",
+			body: JSON.stringify({
+				text: "paused ping",
+				kind: "when",
+				when: pausedWhen,
+				target,
+			}),
+		});
+		expect(kept.schedule.name).toBe("Soon");
+		expect(kept.schedule.enabled).toBe(false);
+		expect(kept.schedule.text).toBe("paused ping");
+		await json(url, "/api/bots/default/schedules", {
+			method: "POST",
+			body: JSON.stringify({
+				text: "live ping",
+				kind: "when",
+				when: liveWhen,
+				target,
+			}),
+		});
+		clock = pausedWhen + 1;
+		await waitTestClockTicks();
+		await app.quiesce();
+		expect(
+			egress.telegram.texts().some((text) => text.includes("paused ping")),
+		).toBe(false);
+		expect(
+			egress.telegram.texts().some((text) => text.includes("live ping")),
+		).toBe(false);
+		clock = liveWhen;
+		await until(
+			() => egress.telegram.texts().some((text) => text.includes("live ping")),
+			"the enabled schedule",
+		);
+		const resumed = await json<{
+			schedule: { name?: string; enabled?: boolean; text: string };
+		}>(url, `/api/schedules/${paused.schedule.id}`, {
+			method: "PUT",
+			body: JSON.stringify({
+				text: "paused ping",
+				name: "",
+				enabled: true,
+				kind: "when",
+				when: pausedWhen,
+				target,
+			}),
+		});
+		expect(resumed.schedule.name).toBeUndefined();
+		expect(resumed.schedule.enabled).toBeUndefined();
+		await until(
+			() =>
+				egress.telegram.texts().some((text) => text.includes("paused ping")),
+			"the re-enabled schedule",
+		);
+		await settle(app, egress);
 	});
 
 	it("records one harvest note that later model requests do not see", async () => {

@@ -20,6 +20,7 @@ import {
 } from "./channels/telegram/transport.ts";
 import { startWeb, type WebListener } from "./channels/web/server.ts";
 import type { Config } from "./config.ts";
+import type { SelfHost } from "./extensions/self-tools/index.ts";
 import { botEnv } from "./harness/bot-env.ts";
 import { buildRegistry } from "./harness/registry.ts";
 import { runStartup } from "./harness/startup.ts";
@@ -72,10 +73,12 @@ export async function startApp({
 	const log = getLogger();
 	const { storage, lock } = await openOwnedStorage(config.home);
 	let harness: Harness;
+	const self: SelfHost = { home: config.home };
 	try {
 		const { registry } = buildRegistry({
 			home: config.home,
 			timeZone: config.timeZone,
+			self,
 		});
 		harness = await Harness.open(
 			storage,
@@ -136,6 +139,7 @@ export async function startApp({
 		harness,
 		runtime: (id) => runtimes.get(id),
 	});
+	self.schedules = schedules;
 	hooks.onInput = (chatKey) => schedules.remove(harvestId(chatKey));
 	hooks.onSettled = (chatKey, entryId) => {
 		const botId = chatKey.split(":")[0];

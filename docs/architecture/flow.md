@@ -81,4 +81,12 @@ A new user message removes that id. The child keeps the transcript up to the pin
 
 Before the fork, the host snapshots `SOUL.md`, `SYSTEM.md`, and `knowledge/`. After the child goes idle, it diffs. No change means no note. A change appends `{ chatKey, at, files: [{ path, diff }], when }` on `pi-bot.harvest-notes`. The note is shown on that chat's timeline, collapsed until opened. It is not a conversation entry, so later model requests do not see it, and it is not sent to Telegram.
 
-The schedule listing a client sees omits `harvest:*`. Those rows are not editable or deletable through the [client API](./client.md).
+The schedule listing a client sees omits `harvest:*`. Those rows are not editable or deletable through the [client API](./client.md) or through the model's schedule tools.
+
+## Model schedule tools
+
+`schedule_create`, `schedule_list`, `schedule_update`, and `schedule_delete` run inside the turn, on the schedule service. The bot id is the conversation's working directory (`bots/<id>`), not an argument. A `chat` or `fork` target defaults to this chat and must be a live chat of that bot. `new-chat` is the same target the HTTP API accepts. An update changes only the fields it is given: message, name, enabled, cron or `when`, and target. A disabled row stays listed and does not fire on the clock.
+
+The tools do not take a schedule id on create. They do not accept `harvest:` as something to update or delete. List results leave those rows out. A failed check (missing message, both cron and `when`, a cron that is not five fields, a chat on another bot, an update with no fields) returns an error to the model and writes nothing.
+
+Create and delete record their outcome on the tool task. A replayed call returns that outcome and does not insert or remove a second row. List is a read.

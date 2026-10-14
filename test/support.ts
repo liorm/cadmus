@@ -3,6 +3,7 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { App } from "../src/app.ts";
+import { testClockPollMs } from "../src/clock.ts";
 import { setupLogger } from "../src/log.ts";
 import { main } from "../src/main.ts";
 import type { FakeEgress } from "./egress/fake-egress.ts";
@@ -64,6 +65,14 @@ export async function until(
 		if (Date.now() > deadline) throw new Error(`Timed out waiting for ${what}`);
 		await new Promise((resolve) => setTimeout(resolve, 10));
 	}
+}
+
+/**
+ * A pinned test clock rechecks every `testClockPollMs`. Wait several of those
+ * ticks before asserting that a due row did not fire.
+ */
+export async function waitTestClockTicks(ticks = 4): Promise<void> {
+	await new Promise((resolve) => setTimeout(resolve, testClockPollMs * ticks));
 }
 
 /** Every pushed update handled, every run finished, every final answer delivered. */

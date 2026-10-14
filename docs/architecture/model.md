@@ -25,7 +25,7 @@ Persona and knowledge are files. The session stores identity, chat directories, 
 | `name` | display name |
 | `model` | provider and model id |
 | `thinking` | thinking level |
-| `tools` | extra tool names stored for the bot |
+| `tools` | enabled tool names; omitted means every tool is on |
 | `telegramToken` | optional second Telegram door; omitted from client reads |
 | `createdAt` | unix milliseconds |
 
@@ -107,4 +107,6 @@ Sidecar tables `schedules` and `fires`. A row is either `cron` (an expression) o
 
 `put` writes the row and its next wake. The default leaves an existing id unchanged. Replace overwrites the row and its wake in one transaction. `reschedule` moves only the next wake. `remove` deletes the row. `list` reads rows. `start` runs the in-process clock. `fire` loads the row and dispatches. The in-process clock and the HTTP fire route both call it. An external clock uses that route and does not open `durable.sqlite`.
 
-What each target does when it fires is in [a schedule fire](./flow.md#a-schedule-fire). Internal jobs use the same table. Client listings skip ids reserved for those jobs. Today that prefix is `harvest:`.
+What each target does when it fires is in [a schedule fire](./flow.md#a-schedule-fire). Internal jobs use the same table. Client listings and the model's schedule tools skip ids reserved for those jobs. Today that prefix is `harvest:`.
+
+The model reaches the same table through self tools, not through a second store. `schedule_create` assigns an `u-` id, checks the cron or `when`, and refuses a chat that is not on this bot. `schedule_list`, `schedule_update`, and `schedule_delete` see only this bot's rows. An update of a missing id, another bot's id, or a harvest id is the same "no such schedule" result as a delete. `name` is an optional label. `enabled` false keeps the row and stops the clock from firing it.

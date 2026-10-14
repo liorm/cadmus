@@ -1,11 +1,19 @@
 import { createRegistry, type Extension } from "@earendil-works/pi-durable";
 import { filesExtension } from "../extensions/files.ts";
 import { identityExtension } from "../extensions/identity.ts";
+import {
+	type SelfHost,
+	selfExtension,
+} from "../extensions/self-tools/index.ts";
+import { toolGateExtension } from "../extensions/tool-gate.ts";
+import { webExtension } from "../extensions/web.ts";
 
 export type RegistryOptions = {
 	home: string;
 	timeZone: string;
 	now?: () => Date;
+	/** Late-bound services for `pi-bot.self`. Defaults to a host with no services. */
+	self?: SelfHost;
 };
 
 /**
@@ -17,6 +25,9 @@ export function buildRegistry(options: RegistryOptions) {
 	const extensions: Extension[] = [
 		identityExtension(options),
 		filesExtension(),
+		webExtension(),
+		selfExtension(options.self ?? { home: options.home }),
+		toolGateExtension(options.home),
 	];
 	for (const extension of extensions) registry.install(extension);
 	return { registry, extensions };

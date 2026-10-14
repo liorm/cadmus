@@ -11,6 +11,7 @@ import {
 } from "./channels/telegram/chats.ts";
 import type { Deliverer } from "./channels/telegram/deliver.ts";
 import { parseModelRef, parseThinkingLevel } from "./harness/models.ts";
+import { agentToolChange, syncChatTools } from "./harness/tool-policy.ts";
 import { getLogger } from "./log.ts";
 
 /**
@@ -74,6 +75,7 @@ export function createBotRuntime(options: {
 			const web = webChatId(bot.id, chatId);
 			const address = web === undefined ? telegramTarget(chatId) : undefined;
 			const thinking = parseThinkingLevel(bot.thinking);
+			const tools = agentToolChange(bot);
 			return harness.commit(async (tx) => {
 				const chats = await tx.doc(ChatsDoc);
 				if ((chats.closed ?? []).includes(chatId)) throw new ChatClosed(chatId);
@@ -93,6 +95,7 @@ export function createBotRuntime(options: {
 					model: parseModelRef(bot.model),
 					...(thinking ? { thinkingLevel: thinking } : {}),
 					cwd: botDir(home, bot.id),
+					...(tools === null ? {} : { tools }),
 				});
 				const record: ChatRecord = {
 					key: chatId,
@@ -129,6 +132,7 @@ export function createBotRuntime(options: {
 				return existing !== undefined;
 			}, BACKGROUND_CONTEXT);
 			if (!duplicate) await options.hooks?.onInput?.(chat.key);
+			await syncChatTools(harness, chat.conversationId, bot);
 			const submission = await conversation.submit(
 				{ type: "input", content: text, requestId, whenBusy: "steer" },
 				BACKGROUND_CONTEXT,

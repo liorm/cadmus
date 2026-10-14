@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { EntryId, Harness } from "@earendil-works/pi-durable";
 import { listChats, webChatKey } from "../channels/telegram/chats.ts";
+import { now as clockNow, testClockActive, testClockPollMs } from "../clock.ts";
 import { getLogger } from "../log.ts";
 import type { BotRuntime } from "../runtime.ts";
 import { nextCron, parseCron } from "./cron.ts";
@@ -19,6 +20,10 @@ export type Schedule = {
 	botId: string;
 	target: ScheduleTarget;
 	text: string;
+	/** Display label. Omitted when the row has none. */
+	name?: string;
+	/** `false` keeps the row but the clock does not fire it. Omitted means on. */
+	enabled?: boolean;
 	nextRun?: number;
 } & ({ kind: "cron"; cron: string } | { kind: "when"; when: number });
 
@@ -38,13 +43,17 @@ type Row = {
 	next_run: number;
 	text: string;
 	target_json: string;
+	name: string | null;
+	enabled: number;
 };
 
 export type ScheduleService = {
 	put(
 		schedule: Schedule,
-		options?: { ifExists?: "reject" | "replace" },
+		options?: { ifExists?: "reject" | "replace"; nextRun?: number },
 	): Promise<"created" | "replaced" | "exists">;
+	/** Next fire time for `schedule`, using this service's clock and time zone. */
+	nextRun(schedule: Schedule): number;
 	reschedule(
 		id: string,
 		when: { cron: string } | { when: number },
@@ -86,15 +95,27 @@ export function createScheduleService(options: {
 			request_id TEXT PRIMARY KEY
 		);
 	`);
-	const now = () => options.now?.() ?? Date.now();
+	const columns = new Set(
+		db
+			.query<{ name: string }, []>("PRAGMA table_info(schedules)")
+			.all()
+			.map((column) => column.name),
+	);
+	if (!columns.has("name"))
+		db.exec("ALTER TABLE schedules ADD COLUMN name TEXT");
+	if (!columns.has("enabled"))
+		db.exec(
+			"ALTER TABLE schedules ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1",
+		);
+	const now = () => options.now?.() ?? clockNow();
 	const selectOne = db.query<Row, [string]>(
 		"SELECT * FROM schedules WHERE id = ?",
 	);
 	const selectDue = db.query<Row, [number]>(
-		"SELECT * FROM schedules WHERE next_run <= ? ORDER BY next_run, id",
+		"SELECT * FROM schedules WHERE next_run <= ? AND enabled != 0 ORDER BY next_run, id",
 	);
 	const selectNext = db.query<Row, [number]>(
-		"SELECT * FROM schedules WHERE next_run > ? ORDER BY next_run LIMIT 1",
+		"SELECT * FROM schedules WHERE next_run > ? AND enabled != 0 ORDER BY next_run LIMIT 1",
 	);
 	const selectAll = db.query<Row, []>(
 		"SELECT * FROM schedules ORDER BY next_run, id",
@@ -112,8 +133,8 @@ export function createScheduleService(options: {
 	);
 	const moveNext = db.query("UPDATE schedules SET next_run = ? WHERE id = ?");
 	const upsert = db.query(
-		`INSERT INTO schedules (id, bot_id, kind, cron, when_ms, next_run, text, target_json)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		`INSERT INTO schedules (id, bot_id, kind, cron, when_ms, next_run, text, target_json, name, enabled)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(id) DO UPDATE SET
 		   bot_id = excluded.bot_id,
 		   kind = excluded.kind,
@@ -121,7 +142,9 @@ export function createScheduleService(options: {
 		   when_ms = excluded.when_ms,
 		   next_run = excluded.next_run,
 		   text = excluded.text,
-		   target_json = excluded.target_json`,
+		   target_json = excluded.target_json,
+		   name = excluded.name,
+		   enabled = excluded.enabled`,
 	);
 
 	let started = false;
@@ -158,11 +181,14 @@ export function createScheduleService(options: {
 			Math.max(0, upcoming.next_run - now()),
 			2_147_483_647,
 		);
+		// A pinned test clock can jump; the wall-clock delay would not notice.
+		const wait =
+			testClockActive() && delay > testClockPollMs ? testClockPollMs : delay;
 		timer = setTimeout(() => {
 			timer = undefined;
 			dirty = true;
 			void pump();
-		}, delay);
+		}, wait);
 		timer.unref?.();
 	};
 
@@ -264,8 +290,13 @@ export function createScheduleService(options: {
 	}
 
 	return {
+		nextRun(schedule) {
+			return writeNext(schedule);
+		},
 		async put(schedule, putOptions) {
-			const nextRun = writeNext(schedule);
+			const nextRun = putOptions?.nextRun ?? writeNext(schedule);
+			if (!Number.isFinite(nextRun))
+				throw new ScheduleRejected("When is not a time.");
 			const replace = putOptions?.ifExists === "replace";
 			const outcome = db.transaction(() => {
 				const existing = selectOne.get(schedule.id);
@@ -279,6 +310,8 @@ export function createScheduleService(options: {
 					nextRun,
 					schedule.text,
 					JSON.stringify(schedule.target),
+					schedule.name?.trim() ? schedule.name.trim() : null,
+					schedule.enabled === false ? 0 : 1,
 				);
 				return existing ? ("replaced" as const) : ("created" as const);
 			})();
@@ -357,6 +390,8 @@ function fromRow(row: Row): Schedule {
 		botId: row.bot_id,
 		target,
 		text: row.text,
+		...(row.name ? { name: row.name } : {}),
+		...(row.enabled === 0 ? { enabled: false as const } : {}),
 		nextRun: row.next_run,
 	};
 	if (row.kind === "cron")

@@ -57,7 +57,9 @@ Tokens live in `data/auth.json` (0600, gitignored) and are refreshed automatical
 
 Set `WEB_TOKEN`, then open `http://127.0.0.1:8787/?token=<WEB_TOKEN>` once. The browser keeps an HttpOnly cookie. The page lists each bot's chats, streams replies, and edits that bot's `SOUL.md`, `SYSTEM.md`, and `knowledge/*.md`. Knowledge saves need a legal slug and a one-line description of at most 240 characters. A bad save is HTTP 422 and does not change the file.
 
-Schedules are cron (five fields, in `PI_BOT_TZ`) or a single `when`. A target is an existing chat, a new web chat, or a silent fork. Rows live in `schedules.sqlite`, not in `durable.sqlite`. A fire is admitted once per occurrence (`sched:<id>:<nextRun>`). Listings omit internal `harvest:` rows.
+Schedules are cron (five fields, in `PI_BOT_TZ`) or a single `when`. A target is an existing chat, a new web chat, or a silent fork. Rows live in `schedules.sqlite`, not in `durable.sqlite`. A fire is admitted once per occurrence (`sched:<id>:<nextRun>`). Listings omit internal `harvest:` rows. The model can create, list, update, and delete schedules for the bot it is talking to (`schedule_create`, `schedule_list`, `schedule_update`, `schedule_delete`). An update can change the message, name, enabled flag, cron or single time, and target. It cannot see or change another bot's rows or the harvest job.
+
+The bot dialog switches tools on and off. The choice is stored on the bot. A missing list means every tool is on. A tool that is off is not offered to the model and does not run. `GET /api/tools` lists them. `GET` and `PUT /api/bots/<id>/tools` read and replace one bot's set.
 
 The gear tab stores a second Telegram token on that bot. It is not returned by `GET /api/bots` and is not put in the prompt. That token polls separately. The same person on both doors of `default` gets `default:tg:general:<id>` and `default:tg:bot:<id>`.
 
@@ -92,6 +94,9 @@ src/
     commands.ts                 /new /stop /status /help, deduped via CommandsDoc
   channels/web/                 Bun.serve API, SSE, Preact page (built in memory at listen)
   extensions/identity.ts        sections: bots/<id>/SOUL.md, SYSTEM.md, knowledge index, daily date line
+  extensions/self-tools/        model tools for this bot's own services (schedules)
+  extensions/web.ts             web.search and web.fetch
+  extensions/tool-gate.ts       refuses a tool the bot has switched off
 test/
   flows/chat.test.ts            Telegram in → Grok → Telegram out: dedupe, /new /stop /status, steer, topics, errors, receipts, restart, guards
   flows/web.test.ts             token-gated page, streams, bots, knowledge, schedules, harvest, second Telegram door

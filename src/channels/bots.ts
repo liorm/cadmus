@@ -11,6 +11,7 @@ import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { defineDoc, type Harness } from "@earendil-works/pi-durable";
 import { DEFAULT_SOUL } from "../extensions/identity.ts";
 import { type ModelConfig, modelRefString } from "../harness/models.ts";
+import { normalizeEnabled } from "./bot-catalog.ts";
 import { slugifyBotName } from "./bot-slug.ts";
 
 /** The Telegram bot that exists today. Created on first start; this step never removes or renames it. */
@@ -23,7 +24,10 @@ export type BotRecord = {
 	model: string;
 	/** Thinking level, or `""` when the env left it unset. */
 	thinking: string;
-	/** Extra tool names such as `web.search`. Stored only; `read`, `write`, and `edit` are always on. */
+	/**
+	 * Enabled tool names. Omitted means every tool is on.
+	 * An empty list means every tool is off.
+	 */
 	tools?: string[];
 	/** Optional second Telegram door. Never returned by `GET /api/bots` and never placed in a prompt. */
 	telegramToken?: string;
@@ -205,12 +209,13 @@ export async function createBot(
 		await rm(dir, { recursive: true, force: true });
 		throw error;
 	}
+	const tools = normalizeEnabled(input.tools);
 	const record: BotRecord = {
 		id,
 		name: input.name.trim(),
 		model: input.model,
 		thinking: input.thinking,
-		...(input.tools && input.tools.length > 0 ? { tools: input.tools } : {}),
+		...(tools === undefined ? {} : { tools }),
 		createdAt: Date.now(),
 	};
 	try {
@@ -268,8 +273,9 @@ export async function updateBot(
 		if (patch.model !== undefined) bot.model = patch.model;
 		if (patch.thinking !== undefined) bot.thinking = patch.thinking;
 		if (patch.tools !== undefined) {
-			if (patch.tools.length === 0) delete bot.tools;
-			else bot.tools = patch.tools;
+			const tools = normalizeEnabled(patch.tools);
+			if (tools === undefined) delete bot.tools;
+			else bot.tools = tools;
 		}
 		return {
 			ok: true,

@@ -15,6 +15,7 @@ import {
 	parseModelRef,
 	parseThinkingLevel,
 } from "./models.ts";
+import { syncChatTools } from "./tool-policy.ts";
 
 /**
  * Restart policy ("restart any time"):
@@ -36,9 +37,12 @@ export async function runStartup(
 	await migrateLegacyChats(harness);
 	const bots = new Map((await listBots(harness)).map((bot) => [bot.id, bot]));
 	for (const chat of await listChats(harness)) {
+		const ownerId = chat.botId ?? DEFAULT_BOT_ID;
+		const owner = bots.get(ownerId);
+		if (owner) await syncChatTools(harness, chat.conversationId, owner);
 		// `default` follows the env model on every start. Other bots keep the model their chats were created with.
-		if ((chat.botId ?? DEFAULT_BOT_ID) !== DEFAULT_BOT_ID) continue;
-		const bot = bots.get(DEFAULT_BOT_ID);
+		if (ownerId !== DEFAULT_BOT_ID) continue;
+		const bot = owner;
 		if (!bot) continue;
 		const want = parseModelRef(bot.model);
 		const thinking = parseThinkingLevel(bot.thinking);

@@ -436,6 +436,16 @@ export class FakeEgress {
 	#primary: string | undefined;
 	readonly #extra = new Map<string, FakeTelegram>();
 
+	readonly webCalls: {
+		path: string;
+		body: unknown;
+		authorization: string | null;
+	}[] = [];
+	/** Next `web.search` responds with HTTP 503. */
+	failWebSearch = false;
+	/** Next `web.fetch` responds with HTTP 503. */
+	failWebFetch = false;
+
 	constructor() {
 		this.server = Bun.serve({
 			port: 0,
@@ -461,6 +471,10 @@ export class FakeEgress {
 				}
 				if (url.pathname === "/xai-api/v1/responses")
 					return this.xai.handleResponses(request);
+				if (url.pathname === "/xai-api/v1/web/search")
+					return this.#web(request, "search");
+				if (url.pathname === "/xai-api/v1/web/fetch")
+					return this.#web(request, "fetch");
 				if (url.pathname.startsWith("/xai-auth/"))
 					return this.xai.handleOAuth(
 						url.pathname.slice("/xai-auth".length),
@@ -497,6 +511,36 @@ export class FakeEgress {
 			if (!queue.drained()) return false;
 		}
 		return true;
+	}
+
+	async #web(request: Request, kind: "search" | "fetch"): Promise<Response> {
+		const body = (await request.json()) as { query?: string; url?: string };
+		this.webCalls.push({
+			path: kind === "search" ? "/v1/web/search" : "/v1/web/fetch",
+			body,
+			authorization: request.headers.get("authorization"),
+		});
+		const fail = kind === "search" ? this.failWebSearch : this.failWebFetch;
+		if (fail) {
+			if (kind === "search") this.failWebSearch = false;
+			else this.failWebFetch = false;
+			return new Response(`${kind} down`, { status: 503 });
+		}
+		if (kind === "search") {
+			return Response.json({
+				results: [
+					{
+						title: "Result",
+						url: "https://example.com",
+						snippet: body.query ?? "",
+					},
+				],
+			});
+		}
+		return Response.json({
+			url: body.url ?? "",
+			text: "fetched-body",
+		});
 	}
 
 	#telegramFor(token: string): FakeTelegram {

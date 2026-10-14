@@ -1,6 +1,9 @@
 // kill -9 the real bot process (`bun src/main.ts`) mid-turn and mid-send, then restart it over the same SQLite storage.
 
+import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { AssistantEntry, Harness, UserEntry } from "@earendil-works/pi-durable";
 import { ChatsDoc } from "../../src/channels/telegram/chats.ts";
@@ -31,10 +34,27 @@ afterEach(() => {
 	egress.stop();
 });
 
-function startProcess(home: string) {
-	const child = spawnBun(["src/main.ts"], botEnv(home), egress);
+function startProcess(
+	home: string,
+	overrides: Record<string, string | undefined> = {},
+) {
+	const child = spawnBun(["src/main.ts"], botEnv(home, overrides), egress);
 	children.push(child);
 	return child;
+}
+
+function userScheduleIds(home: string): string[] {
+	const db = new Database(join(home, "schedules.sqlite"), { readonly: true });
+	try {
+		return db
+			.query<{ id: string }, []>(
+				"SELECT id FROM schedules WHERE id LIKE 'u-%' ORDER BY id",
+			)
+			.all()
+			.map((row) => row.id);
+	} finally {
+		db.close();
+	}
 }
 
 async function waitFor(
@@ -320,4 +340,166 @@ describe("crash recovery (kill -9)", () => {
 		expect(egress.telegram.sent).toEqual([]);
 		await stop(second);
 	});
+
+	it("killed after schedule_create commits: replay returns that row and does not insert another", async () => {
+		const home = await tempHome();
+		const sentinel = join(home, "stall");
+		const first = startProcess(home, {
+			PI_BOT_STALL_SCHEDULE: "tx",
+			PI_BOT_STALL_SENTINEL: sentinel,
+		});
+		egress.xai.script.push(
+			{
+				tool: {
+					name: "schedule_create",
+					arguments: { text: "Morning check", cron: "0 9 * * *" },
+				},
+			},
+			{ text: "created" },
+		);
+		egress.telegram.push("remind me");
+		await waitFor(
+			first,
+			() => existsSync(sentinel),
+			"the schedule write to stall",
+		);
+		const inserted = userScheduleIds(home);
+		expect(inserted).toHaveLength(1);
+		first.proc.kill("SIGKILL");
+		await first.exited;
+
+		const second = startProcess(home);
+		await polling(second);
+		await waitFor(
+			second,
+			() => egress.telegram.texts().includes("created"),
+			"the resumed reply",
+		);
+		await stop(second);
+		expect(userScheduleIds(home)).toEqual(inserted);
+		const follow = egress.xai.requests
+			.slice(1)
+			.map((request) => JSON.stringify(request.body))
+			.join("\n");
+		expect(follow).toContain(defined(inserted[0], "schedule id"));
+		expect(follow).not.toContain("Schedule was not stored.");
+	}, 20_000);
+
+	it("killed after schedule_delete removes the row: replay returns the deleted id", async () => {
+		const home = await tempHome();
+		const created = startProcess(home);
+		egress.xai.script.push(
+			{
+				tool: {
+					name: "schedule_create",
+					arguments: { text: "Morning check", cron: "0 9 * * *" },
+				},
+			},
+			{ text: "created" },
+		);
+		egress.telegram.push("remind me");
+		await waitFor(
+			created,
+			() => egress.telegram.texts().includes("created"),
+			"the schedule to be created",
+		);
+		await stop(created);
+		const id = defined(userScheduleIds(home)[0], "schedule id");
+
+		const sentinel = join(home, "stall");
+		const first = startProcess(home, {
+			PI_BOT_STALL_SCHEDULE: "run",
+			PI_BOT_STALL_SENTINEL: sentinel,
+		});
+		egress.xai.script.push(
+			{ tool: { name: "schedule_delete", arguments: { id } } },
+			{ text: "removed" },
+		);
+		egress.telegram.push("drop it");
+		await waitFor(first, () => existsSync(sentinel), "the delete to stall");
+		expect(userScheduleIds(home)).toEqual([]);
+		first.proc.kill("SIGKILL");
+		await first.exited;
+
+		const second = startProcess(home);
+		await polling(second);
+		await waitFor(
+			second,
+			() => egress.telegram.texts().includes("removed"),
+			"the resumed reply",
+		);
+		await stop(second);
+		expect(userScheduleIds(home)).toEqual([]);
+		const follow = JSON.stringify(
+			defined(egress.xai.requests.at(-1), "follow-up").body,
+		);
+		expect(follow).toContain(id);
+		expect(follow).not.toContain("No such schedule.");
+	}, 20_000);
+
+	it("killed after schedule_update commits: replay returns that row and does not write another", async () => {
+		const home = await tempHome();
+		const created = startProcess(home);
+		egress.xai.script.push(
+			{
+				tool: {
+					name: "schedule_create",
+					arguments: { text: "Morning check", cron: "0 9 * * *" },
+				},
+			},
+			{ text: "created" },
+		);
+		egress.telegram.push("remind me");
+		await waitFor(
+			created,
+			() => egress.telegram.texts().includes("created"),
+			"the schedule to be created",
+		);
+		await stop(created);
+		const id = defined(userScheduleIds(home)[0], "schedule id");
+
+		const sentinel = join(home, "stall");
+		const first = startProcess(home, {
+			PI_BOT_STALL_SCHEDULE: "tx",
+			PI_BOT_STALL_SENTINEL: sentinel,
+		});
+		egress.xai.script.push(
+			{
+				tool: {
+					name: "schedule_update",
+					arguments: { id, text: "Evening check", cron: "30 18 * * 1" },
+				},
+			},
+			{ text: "updated" },
+		);
+		egress.telegram.push("move it");
+		await waitFor(first, () => existsSync(sentinel), "the update to stall");
+		const db = new Database(join(home, "schedules.sqlite"), { readonly: true });
+		const text = db
+			.query<{ text: string }, [string]>(
+				"SELECT text FROM schedules WHERE id = ?",
+			)
+			.get(id)?.text;
+		db.close();
+		expect(text).toBe("Evening check");
+		expect(userScheduleIds(home)).toEqual([id]);
+		first.proc.kill("SIGKILL");
+		await first.exited;
+
+		const second = startProcess(home);
+		await polling(second);
+		await waitFor(
+			second,
+			() => egress.telegram.texts().includes("updated"),
+			"the resumed reply",
+		);
+		await stop(second);
+		expect(userScheduleIds(home)).toEqual([id]);
+		const follow = JSON.stringify(
+			defined(egress.xai.requests.at(-1), "follow-up").body,
+		);
+		expect(follow).toContain("Evening check");
+		expect(follow).toContain("30 18 * * 1");
+		expect(follow).not.toContain("No such schedule.");
+	}, 20_000);
 });
