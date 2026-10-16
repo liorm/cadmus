@@ -12,6 +12,7 @@ import {
 import { knowledgeToolNames } from "../channels/bot-catalog.ts";
 import { BotsDoc, botDir } from "../channels/bots.ts";
 import { listChats } from "../channels/telegram/chats.ts";
+import { chatFields, getLogger } from "../log.ts";
 import { harvestId } from "./ids.ts";
 import type { Schedule, ScheduleService } from "./service.ts";
 
@@ -70,8 +71,15 @@ export async function armHarvest(
 		existing?.target.mode === "fork" &&
 		existing.target.chatId === input.chatKey &&
 		existing.target.at === input.entryId;
+	const log = getLogger().child({
+		chat: input.chatKey,
+		bot: input.botId,
+		harvest: id,
+		entryId: input.entryId,
+	});
 	if (same) {
 		await schedules.reschedule(id, { when: now + input.delayMs });
+		log.debug("harvest wake moved", { delayMs: input.delayMs });
 		return;
 	}
 	await schedules.put(
@@ -85,6 +93,7 @@ export async function armHarvest(
 		},
 		{ ifExists: "replace" },
 	);
+	log.debug("harvest armed", { delayMs: input.delayMs });
 }
 
 /**
@@ -99,19 +108,39 @@ export async function runHarvest(options: {
 	requestId: string;
 }): Promise<void> {
 	const target = options.schedule.target;
-	if (target.mode !== "fork") return;
+	const log = getLogger().child({
+		bot: options.schedule.botId,
+		harvest: options.schedule.id,
+		requestId: options.requestId,
+		...(target.mode === "fork" ? { chat: target.chatId } : {}),
+	});
+	if (target.mode !== "fork") {
+		log.debug("harvest skipped: target is not a fork");
+		return;
+	}
 	const chat = (await listChats(options.harness)).find(
 		(item) =>
 			item.key === target.chatId && item.botId === options.schedule.botId,
 	);
-	if (!chat) return;
+	if (!chat) {
+		log.warn("harvest skipped: chat missing");
+		return;
+	}
+	const sessionLog = log.child(chatFields(chat));
 	const parent = await options.harness.conversation(
 		chat.conversationId,
 		BACKGROUND_CONTEXT,
 	);
-	if (!parent) return;
+	if (!parent) {
+		sessionLog.warn("harvest skipped: conversation missing");
+		return;
+	}
 	const at = await resolveEntry(parent, target.at);
-	if (at === undefined) return;
+	if (at === undefined) {
+		sessionLog.warn("harvest skipped: no entry to fork");
+		return;
+	}
+	sessionLog.debug("harvest started", { at });
 	const root = botDir(options.home, options.schedule.botId);
 	const before = await snapshotBot(root);
 	const child = await parent.fork(
@@ -134,16 +163,25 @@ export async function runHarvest(options: {
 		},
 		BACKGROUND_CONTEXT,
 	);
-	await submission.wait(BACKGROUND_CONTEXT);
+	const settled = await submission.wait(BACKGROUND_CONTEXT);
 	await child.waitForIdle(BACKGROUND_CONTEXT);
 	const after = await snapshotBot(root);
 	const files = changedFiles(before, after);
-	if (files.length === 0) return;
+	if (files.length === 0) {
+		sessionLog.debug("harvest finished with no file changes", {
+			status: settled.status,
+		});
+		return;
+	}
 	const note: HarvestNote = { chatKey: chat.key, at, files, when: Date.now() };
 	await options.harness.commit(async (tx) => {
 		const notes = await tx.doc(HarvestNotesDoc);
 		notes.notes.push(note);
 	}, BACKGROUND_CONTEXT);
+	sessionLog.debug("harvest wrote knowledge", {
+		files: files.map((file) => file.path),
+		status: settled.status,
+	});
 }
 
 async function resolveEntry(

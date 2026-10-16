@@ -268,7 +268,14 @@ export function createScheduleService(options: {
 		schedule: Schedule,
 		requestId: string,
 	): Promise<void> {
+		const log = getLogger().child({
+			bot: schedule.botId,
+			schedule: schedule.id,
+			requestId,
+			mode: schedule.target.mode,
+		});
 		if (isHarvestId(schedule.id)) {
+			log.debug("harvest fire");
 			await runHarvest({
 				harness: options.harness,
 				registry: options.registry,
@@ -279,9 +286,13 @@ export function createScheduleService(options: {
 			return;
 		}
 		const runtime = options.runtime(schedule.botId);
-		if (!runtime) return;
+		if (!runtime) {
+			log.warn("schedule fire skipped: bot runtime missing");
+			return;
+		}
 		const target = schedule.target;
 		if (target.mode === "chat") {
+			log.debug("schedule fire into chat", { chat: target.chatId });
 			await runtime.submit(target.chatId, requestId, schedule.text);
 			return;
 		}
@@ -289,9 +300,11 @@ export function createScheduleService(options: {
 			const chat = await runtime.createChat(
 				webChatKey(schedule.botId, newChatId()),
 			);
+			log.debug("schedule fire into new chat", { chat: chat.key });
 			await runtime.submit(chat.key, requestId, schedule.text);
 			return;
 		}
+		log.debug("schedule fork fire", { chat: target.chatId });
 		await forkOnly(options.harness, schedule, requestId);
 	}
 

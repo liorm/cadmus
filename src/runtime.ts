@@ -1,7 +1,10 @@
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import {
+	type Conversation,
+	type ConversationView,
 	configure,
 	type Harness,
+	type LiveState,
 	type RegistryReader,
 } from "@earendil-works/pi-durable";
 import { type BotRecord, botDir } from "./channels/bots.ts";
@@ -16,7 +19,10 @@ import {
 import type { Deliverer } from "./channels/telegram/deliver.ts";
 import { parseModelRef, parseThinkingLevel } from "./harness/models.ts";
 import { agentToolChange, syncChatTools } from "./harness/tool-policy.ts";
-import { getLogger } from "./log.ts";
+import { chatFields, getLogger } from "./log.ts";
+
+/** Warn if a turn produces no visible answer (text or tool) within this time. */
+export const STUCK_CHAT_MS = 10_000;
 
 /**
  * What the poller (and, later, the web channel and the scheduler) call. In-process this is a handle on the
@@ -136,51 +142,105 @@ export function createBotRuntime(options: {
 				);
 				return existing !== undefined;
 			}, BACKGROUND_CONTEXT);
+			const log = getLogger().child(
+				chatFields(chat, { requestId, bot: bot.id }),
+			);
 			if (!duplicate) await options.hooks?.onInput?.(chat.key);
 			await syncChatTools(harness, chat.conversationId, bot, registry);
 			const submission = await conversation.submit(
 				{ type: "input", content: text, requestId, whenBusy: "steer" },
 				BACKGROUND_CONTEXT,
 			);
+			if (duplicate) log.debug("duplicate input ignored");
+			else log.debug("chat input admitted", { chars: text.length });
 			track(
 				(async () => {
-					const settled = await submission.wait(BACKGROUND_CONTEXT);
-					if (!duplicate) {
-						const page = await conversation.entries(
-							{ order: "descending" },
-							1,
-							undefined,
-							BACKGROUND_CONTEXT,
-						);
-						const entryId = page.items[0]?.id;
-						if (entryId !== undefined)
-							await options.hooks?.onSettled?.(chat.key, entryId);
+					const stopWatch = duplicate
+						? undefined
+						: await armStuckWatch(conversation, log);
+					try {
+						const settled = await submission.wait(BACKGROUND_CONTEXT);
+						if (!duplicate) {
+							const page = await conversation.entries(
+								{ order: "descending" },
+								1,
+								undefined,
+								BACKGROUND_CONTEXT,
+							);
+							const entryId = page.items[0]?.id;
+							if (entryId !== undefined)
+								await options.hooks?.onSettled?.(chat.key, entryId);
+						}
+						if (
+							settled.status === "unanswered" &&
+							!/abort|withdraw/i.test(settled.reason ?? "")
+						) {
+							const detail =
+								typeof settled.detail === "string"
+									? settled.detail
+									: settled.detail
+										? JSON.stringify(settled.detail)
+										: "";
+							log.warn("input unanswered", {
+								reason: settled.reason,
+								detail,
+							});
+							await deliverer.notice(
+								chat,
+								`unanswered:${submission.id}`,
+								`⚠️ I couldn't answer that (${settled.reason}${detail ? `: ${detail.slice(0, 500)}` : ""}).`,
+							);
+						} else if (!duplicate)
+							log.debug("chat turn settled", { status: settled.status });
+						await deliverer.kick(chat);
+					} finally {
+						stopWatch?.();
 					}
-					if (
-						settled.status === "unanswered" &&
-						!/abort|withdraw/i.test(settled.reason ?? "")
-					) {
-						const detail =
-							typeof settled.detail === "string"
-								? settled.detail
-								: settled.detail
-									? JSON.stringify(settled.detail)
-									: "";
-						getLogger().warn(
-							`Input unanswered in chat ${chat.key}: ${settled.reason} ${detail}`,
-						);
-						await deliverer.notice(
-							chat,
-							`unanswered:${submission.id}`,
-							`⚠️ I couldn't answer that (${settled.reason}${detail ? `: ${detail.slice(0, 500)}` : ""}).`,
-						);
-					}
-					await deliverer.kick(chat);
 				})(),
 			);
 		},
 		async settled() {
 			while (pending.size) await Promise.all(pending);
 		},
+	};
+}
+
+/** True once the model has started returning text or a tool call. */
+export function answerHasStarted(view: ConversationView): boolean {
+	const live = view.docs["pi.live"] as LiveState | undefined;
+	const message = live?.generation?.message as
+		| { content?: unknown }
+		| undefined;
+	const content = message?.content;
+	if (!Array.isArray(content)) return false;
+	for (const part of content) {
+		if (!part || typeof part !== "object") continue;
+		const typed = part as { type?: string; text?: unknown };
+		if (typed.type === "text" && typeof typed.text === "string" && typed.text)
+			return true;
+		if (typed.type === "toolCall" || typed.type === "serverTool") return true;
+	}
+	return false;
+}
+
+async function armStuckWatch(
+	conversation: Conversation,
+	log: ReturnType<typeof getLogger>,
+): Promise<() => void> {
+	const handle = await conversation.watch(BACKGROUND_CONTEXT);
+	let started = answerHasStarted(handle.value);
+	if (!started) {
+		handle.start(async (value) => {
+			if (answerHasStarted(value)) started = true;
+		});
+	}
+	const timer = setTimeout(() => {
+		if (!started)
+			log.warn("chat stuck: no answer started", { waitMs: STUCK_CHAT_MS });
+	}, STUCK_CHAT_MS);
+	timer.unref?.();
+	return () => {
+		clearTimeout(timer);
+		void handle.stop();
 	};
 }

@@ -1,4 +1,5 @@
 import { resolve } from "node:path";
+import { parseLogLevel } from "./log.ts";
 
 export type TelegramConfig = {
 	/** Absent when `TELEGRAM_BOT_TOKEN` is unset. The general door stays off; per-bot tokens still poll. */
@@ -78,7 +79,7 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): Config {
 		},
 		...(web ? { web } : {}),
 		timeZone: env.PI_BOT_TZ || Intl.DateTimeFormat().resolvedOptions().timeZone,
-		logLevel: env.LOG_LEVEL ?? "info",
+		logLevel: parseLogLevel(env.LOG_LEVEL),
 		deliverySweepMs: Number(env.PI_BOT_DELIVERY_SWEEP_MS ?? 15_000),
 		harvestDelayMs: harvestDelayFromEnv(env),
 		dev: env.PI_BOT_DEV === "1",

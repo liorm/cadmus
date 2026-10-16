@@ -9,16 +9,44 @@ export type Logger = {
 	info(message: string, fields?: LogFields): void;
 	warn(message: string, fields?: LogFields): void;
 	error(message: string, fields?: LogFields): void;
+	/** Bind fields onto every later line (chat, session, requestId). */
+	child(fields: LogFields): Logger;
 };
 
 const LEVELS = ["debug", "info", "warn", "error"] as const;
 type Level = (typeof LEVELS)[number];
 
+/** `LOG_LEVEL` value. Unknown or empty becomes `info`. */
+export function parseLogLevel(raw: string | undefined): Level {
+	const level = (raw ?? "info").trim().toLowerCase();
+	return LEVELS.includes(level as Level) ? (level as Level) : "info";
+}
+
 export type LoggerSetup =
 	| { type: "console"; level?: string; stream?: Writable; colors?: boolean }
 	| { type: "silent" };
 
-const silentLogger: Logger = { debug() {}, info() {}, warn() {}, error() {} };
+const silentLogger: Logger = {
+	debug() {},
+	info() {},
+	warn() {},
+	error() {},
+	child() {
+		return silentLogger;
+	},
+};
+
+/** Fields that identify a chat turn. `session` is the conversation id. */
+export function chatFields(
+	chat: { key: string; conversationId: unknown },
+	extra?: LogFields,
+): LogFields {
+	return {
+		chat: chat.key,
+		session: chat.conversationId,
+		...extra,
+	};
+}
 
 let active: Logger = silentLogger;
 let installed = false;
@@ -43,24 +71,39 @@ function consoleSink(
 	options: Extract<LoggerSetup, { type: "console" }>,
 ): Logger {
 	const stream = options.stream ?? stderr;
-	const min = levelRank(options.level ?? "info");
+	const min = levelRank(parseLogLevel(options.level));
 	const colors =
 		options.colors ?? Boolean((stream as { isTTY?: boolean }).isTTY);
 	const write = (level: Level) => (message: string, fields?: LogFields) => {
 		if (levelRank(level) < min) return;
 		stream.write(formatLine(level, message, fields, colors));
 	};
-	return {
+	const logger: Logger = {
 		debug: write("debug"),
 		info: write("info"),
 		warn: write("warn"),
 		error: write("error"),
+		child(fields) {
+			return withFields(logger, fields);
+		},
+	};
+	return logger;
+}
+
+function withFields(base: Logger, bound: LogFields): Logger {
+	const merge = (fields?: LogFields): LogFields =>
+		fields ? { ...bound, ...fields } : bound;
+	return {
+		debug: (message, fields) => base.debug(message, merge(fields)),
+		info: (message, fields) => base.info(message, merge(fields)),
+		warn: (message, fields) => base.warn(message, merge(fields)),
+		error: (message, fields) => base.error(message, merge(fields)),
+		child: (fields) => withFields(base, merge(fields)),
 	};
 }
 
-function levelRank(level: string): number {
-	const rank = LEVELS.indexOf(level as Level);
-	return rank === -1 ? LEVELS.indexOf("info") : rank;
+function levelRank(level: Level): number {
+	return LEVELS.indexOf(level);
 }
 
 const ANSI = {

@@ -62,6 +62,9 @@ function signal(pid: number, sig: NodeJS.Signals): void {
 	}
 }
 
+/** Paths this process currently holds. Empty after a `--watch` in-process restart (modules reloaded). */
+const heldHere = new Set<string>();
+
 /**
  * O_EXCL lock file holding `pid host startedAt`. A dead same-host pid is taken over (kill -9). A live owner, or an
  * owner on another host, is never stolen from — except `bun run dev`, which waits then signals the leftover process
@@ -85,11 +88,13 @@ export async function acquireOwnerLock(
 			);
 			await handle.sync();
 			let released = false;
+			heldHere.add(path);
 			return {
 				path,
 				async release() {
 					if (released) return;
 					released = true;
+					heldHere.delete(path);
 					await handle.close();
 					await unlink(path).catch(() => {});
 				},
@@ -101,6 +106,13 @@ export async function acquireOwnerLock(
 			const pid = Number(pidText);
 			const sameHost =
 				host === hostname() && Number.isSafeInteger(pid) && pid > 0;
+			if (sameHost && pid === process.pid && !heldHere.has(path)) {
+				getLogger().warn(
+					`Removing leftover owner.lock from this process after a watch restart`,
+				);
+				await unlink(path).catch(() => {});
+				continue;
+			}
 			if (sameHost && !alive(pid)) {
 				getLogger().warn(`Removing stale owner.lock of dead pid ${pid}`);
 				await unlink(path).catch(() => {});
@@ -116,7 +128,7 @@ export async function acquireOwnerLock(
 					continue;
 				}
 			}
-			if (sameHost && stealAfterWait && !stole) {
+			if (sameHost && stealAfterWait && !stole && pid !== process.pid) {
 				stole = true;
 				getLogger().warn(
 					`Signalling leftover owner.lock pid ${pid} so this process can start`,

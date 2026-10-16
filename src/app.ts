@@ -157,7 +157,10 @@ export async function startApp({
 	});
 	self.schedules = schedules;
 	harness.resume();
-	hooks.onInput = (chatKey) => schedules.remove(harvestId(chatKey));
+	hooks.onInput = (chatKey) => {
+		getLogger().debug("dropping harvest wake on new input", { chat: chatKey });
+		return schedules.remove(harvestId(chatKey));
+	};
 	hooks.onSettled = (chatKey, entryId) => {
 		const botId = chatKey.split(":")[0];
 		if (!botId) return Promise.resolve();

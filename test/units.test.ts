@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { Writable } from "node:stream";
-import type { EntryRecord } from "@earendil-works/pi-durable";
+import type { ConversationView, EntryRecord } from "@earendil-works/pi-durable";
 import { catalogGroup, toolCatalog } from "../src/channels/bot-catalog.ts";
 import { slugifyBotName } from "../src/channels/bot-slug.ts";
 import { chatKey } from "../src/channels/telegram/chats.ts";
@@ -34,7 +34,8 @@ import {
 import { resolveProviderId } from "../src/harness/login.ts";
 import { parseModelRef } from "../src/harness/models.ts";
 import { buildRegistry } from "../src/harness/registry.ts";
-import { getLogger, setupLogger } from "../src/log.ts";
+import { getLogger, parseLogLevel, setupLogger } from "../src/log.ts";
+import { answerHasStarted } from "../src/runtime.ts";
 import { nextCron, parseCron } from "../src/schedules/cron.ts";
 import { defined } from "./support.ts";
 
@@ -401,6 +402,77 @@ describe("pure helpers", () => {
 		expect(lines[1]).toContain("ERROR shutdown failed error=boom");
 		expect(lines[1]).toContain("Error: boom");
 		setupLogger({ type: "silent" });
+	});
+
+	it("binds chat and session onto child log lines", () => {
+		const lines: string[] = [];
+		const stream = new Writable({
+			write(chunk, _enc, callback) {
+				lines.push(String(chunk));
+				callback();
+			},
+		});
+		setupLogger({ type: "console", level: "debug", stream, colors: false });
+		getLogger()
+			.child({ chat: "default:web:1", session: "conv-1" })
+			.debug("chat input admitted", { requestId: "web:1", chars: 12 });
+		expect(lines[0]).toMatch(/ DEBUG chat input admitted /);
+		expect(lines[0]).toContain("chat=default:web:1");
+		expect(lines[0]).toContain("session=conv-1");
+		expect(lines[0]).toContain("requestId=web:1");
+		setupLogger({ type: "silent" });
+	});
+
+	it("prints debug lines when LOG_LEVEL is debug", () => {
+		expect(parseLogLevel("DEBUG")).toBe("debug");
+		expect(parseLogLevel("bogus")).toBe("info");
+		const lines: string[] = [];
+		const stream = new Writable({
+			write(chunk, _enc, callback) {
+				lines.push(String(chunk));
+				callback();
+			},
+		});
+		setupLogger({ type: "console", level: "DEBUG", stream, colors: false });
+		getLogger().debug("harvest started", { chat: "default:web:1" });
+		expect(lines).toHaveLength(1);
+		expect(lines[0]).toMatch(
+			/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3} DEBUG harvest started chat=default:web:1\n$/,
+		);
+		setupLogger({ type: "silent" });
+	});
+
+	it("treats first text or tool as the start of an answer", () => {
+		const empty = {
+			conversation: {} as ConversationView["conversation"],
+			entries: [],
+			docs: {},
+		};
+		expect(answerHasStarted(empty)).toBe(false);
+		expect(
+			answerHasStarted({
+				...empty,
+				docs: {
+					"pi.live": {
+						generation: {
+							message: { content: [{ type: "text", text: "Hi" }] },
+						},
+					},
+				},
+			}),
+		).toBe(true);
+		expect(
+			answerHasStarted({
+				...empty,
+				docs: {
+					"pi.live": {
+						generation: {
+							message: { content: [{ type: "toolCall", id: "1", name: "x" }] },
+						},
+					},
+				},
+			}),
+		).toBe(true);
 	});
 
 	it("parses five-field cron and rejects the rest", () => {

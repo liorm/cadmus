@@ -599,6 +599,19 @@ describe("startup guards", () => {
 		}
 	});
 
+	it("watch restart: takes over a lock that still names this process", async () => {
+		const home = await tempHome();
+		await writeFile(
+			join(home, "owner.lock"),
+			`${process.pid} ${hostname()} ${new Date().toISOString()}\n`,
+		);
+		const lock = await acquireOwnerLock(home, {
+			waitMs: 5_000,
+			stealAfterWait: true,
+		});
+		await lock.release();
+	});
+
 	it("dev steal: signals a leftover same-host holder and takes the lock", async () => {
 		const home = await tempHome();
 		const holder = Bun.spawn(["bun", "-e", "await Bun.sleep(30_000)"], {

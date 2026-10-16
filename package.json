@@ -5,7 +5,7 @@
 	"type": "module",
 	"scripts": {
 		"start": "bun src/main.ts",
-		"dev": "PI_BOT_DEV=1 bun --watch src/main.ts",
+		"dev": "PI_BOT_DEV=1 bun --watch --no-clear-screen src/main.ts",
 		"typecheck": "bun check && bun check -p tsconfig.web.json",
 		"lint": "biome check",
 		"format": "biome check --write",

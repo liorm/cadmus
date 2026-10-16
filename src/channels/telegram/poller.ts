@@ -147,9 +147,11 @@ export class TelegramPoller {
 		if (!message?.text) return;
 		const from = message.from;
 		if (!from || from.is_bot || !allowedUsers.has(from.id)) {
-			getLogger().warn(
-				`Ignoring message from non-allowed user ${from?.id ?? "?"} in chat ${message.chat.id}`,
-			);
+			getLogger().warn("ignoring telegram message from non-allowed user", {
+				user: from?.id,
+				telegramChat: message.chat.id,
+				bot: runtime.id,
+			});
 			return;
 		}
 		let chat: ChatRecord;

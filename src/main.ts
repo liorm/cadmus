@@ -46,7 +46,7 @@ export async function main(env: NodeJS.ProcessEnv = process.env): Promise<App> {
 }
 
 if (import.meta.main) {
-	setupLogger({ type: "console", level: process.env.LOG_LEVEL ?? "info" });
+	setupLogger({ type: "console", level: process.env.LOG_LEVEL });
 	let app: App;
 	try {
 		app = await main(process.env);

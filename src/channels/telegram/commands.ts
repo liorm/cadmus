@@ -6,6 +6,7 @@ import {
 	type Harness,
 	LiveDoc,
 } from "@earendil-works/pi-durable";
+import { chatFields, getLogger } from "../../log.ts";
 import type { ChatRecord } from "./chats.ts";
 import { type Deliverer, DeliveriesDoc } from "./deliver.ts";
 
@@ -76,6 +77,9 @@ export async function handleCommand(
 		return true;
 	}, BACKGROUND_CONTEXT);
 	if (!fresh) return;
+	getLogger()
+		.child(chatFields(chat, { requestId: requestKey }))
+		.debug("command", { name: command.name });
 	const conversation = await harness.conversation(
 		chat.conversationId,
 		BACKGROUND_CONTEXT,

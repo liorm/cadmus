@@ -48,7 +48,7 @@ export async function runStartup(
 				}),
 			BACKGROUND_CONTEXT,
 		);
-		log.info(`Chat ${chat.key} now uses ${model.provider}/${model.modelId}`);
+		log.debug(`Chat ${chat.key} now uses ${model.provider}/${model.modelId}`);
 	}
 	return { unknown };
 }
