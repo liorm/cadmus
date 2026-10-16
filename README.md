@@ -109,7 +109,7 @@ test/
 - **Input exactly once.** Each Telegram message is submitted with `requestId = tg:<chatId>:<messageId>`; the update offset advances only after admission. A web message uses `<chatKey>:<clientMsgId>`. A schedule fire uses `sched:<id>:<nextRun>` and a repeat of that occurrence does nothing. *Tests:* `flows/chat.test.ts`, `flows/web.test.ts`, `flows/crash.test.ts`.
 - **Replies at most once** (pi-imessage ADR 0003). A final answer is claimed `sending` in a commit, sent, then recorded `sent` (with Telegram message ids) or `unknown` on error. On startup every `sending` becomes `unknown`, is logged, shown in `/status`, and is **never resent**. *Tests:* kill -9 while `sendMessage` is in flight → restart → receipt `unknown`, no second send, and the next message is answered normally.
 - **Crash mid-turn resumes.** kill -9 while the model is answering → restart → `harness.resume()` continues the run → exactly one reply.
-- **One owner.** `owner.lock` refuses a second process while the owner is alive (`flows/chat.test.ts`, `flows/crash.test.ts`).
+- **One owner.** `owner.lock` refuses a second process while the owner is alive (`flows/chat.test.ts`, `flows/crash.test.ts`). `bun run dev` waits, then signals a leftover same-host owner so `--watch` can restart.
 - `/new` = `conversation.reset()`: the model's visible context restarts; a redelivered `/new` does not reset again.
 
 ## Tests
@@ -126,7 +126,7 @@ Policy (see AGENTS.md): flow tests through the public interface; only egress is 
 
 - Bun ≥ 1.4.2 provides `node:sqlite`, which pi-durable's `openNodeSqliteStorage` uses. pi-durable's own storage conformance suite passes under Bun (`test/storage-bun.test.ts`).
 - One process owns the storage. Don't run two bots on the same `PI_BOT_HOME`, or the same bot token anywhere else (Telegram returns 409).
-- `owner.lock` is removed on clean shutdown; after a crash, a lock whose pid is dead on the same host is taken over automatically.
+- `owner.lock` is removed on clean shutdown; after a crash, a lock whose pid is dead on the same host is taken over automatically. `bun run dev` waits for a leftover same-host owner, then signals it, so `--watch` can restart.
 
 ## Not yet (later phases)
 

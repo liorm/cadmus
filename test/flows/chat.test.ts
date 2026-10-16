@@ -14,7 +14,10 @@ import type { App } from "../../src/app.ts";
 import { ChatsDoc, listChats } from "../../src/channels/telegram/chats.ts";
 import { createModels } from "../../src/harness/models.ts";
 import { buildRegistry } from "../../src/harness/registry.ts";
-import { openOwnedStorage } from "../../src/harness/storage.ts";
+import {
+	acquireOwnerLock,
+	openOwnedStorage,
+} from "../../src/harness/storage.ts";
 import { CHAT, FakeEgress, STRANGER } from "../egress/fake-egress.ts";
 import { routeEgress } from "../egress/route.ts";
 import {
@@ -484,6 +487,51 @@ describe("startup guards", () => {
 			`4242 not-${hostname()} 2026-01-01T00:00:00Z\n`,
 		);
 		await expect(startBot(other)).rejects.toThrow(/owned by another process/);
+	});
+
+	it("waits for a same-host lock holder to exit, then takes the lock", async () => {
+		const home = await tempHome();
+		const holder = Bun.spawn(["bun", "-e", "await Bun.sleep(400)"], {
+			stdout: "ignore",
+			stderr: "ignore",
+		});
+		try {
+			const pid = holder.pid;
+			if (!pid) throw new Error("holder has no pid");
+			await writeFile(
+				join(home, "owner.lock"),
+				`${pid} ${hostname()} ${new Date().toISOString()}\n`,
+			);
+			const lock = await acquireOwnerLock(home, { waitMs: 5_000 });
+			await lock.release();
+			expect(await holder.exited).toBe(0);
+		} finally {
+			holder.kill();
+		}
+	});
+
+	it("dev steal: signals a leftover same-host holder and takes the lock", async () => {
+		const home = await tempHome();
+		const holder = Bun.spawn(["bun", "-e", "await Bun.sleep(30_000)"], {
+			stdout: "ignore",
+			stderr: "ignore",
+		});
+		try {
+			const pid = holder.pid;
+			if (!pid) throw new Error("holder has no pid");
+			await writeFile(
+				join(home, "owner.lock"),
+				`${pid} ${hostname()} ${new Date().toISOString()}\n`,
+			);
+			const lock = await acquireOwnerLock(home, {
+				waitMs: 150,
+				stealAfterWait: true,
+			});
+			await lock.release();
+			expect(await holder.exited).not.toBe(0);
+		} finally {
+			holder.kill();
+		}
 	});
 
 	it("refuses to start with no door, and without credentials for a stored xAI bot", async () => {

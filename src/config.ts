@@ -31,6 +31,8 @@ export type Config = {
 	readonly deliverySweepMs: number;
 	/** Idle time before a chat is forked to improve knowledge. Default 60 seconds. Not stored on the bot. */
 	readonly harvestDelayMs: number;
+	/** `PI_BOT_DEV=1` (`bun run dev`): wait for / signal a leftover owner.lock. */
+	readonly dev: boolean;
 };
 
 export function parseUserIds(raw: string | undefined): Set<number> {
@@ -79,6 +81,7 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): Config {
 		logLevel: env.LOG_LEVEL ?? "info",
 		deliverySweepMs: Number(env.PI_BOT_DELIVERY_SWEEP_MS ?? 15_000),
 		harvestDelayMs: harvestDelayFromEnv(env),
+		dev: env.PI_BOT_DEV === "1",
 	};
 }
 

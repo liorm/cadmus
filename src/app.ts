@@ -25,7 +25,7 @@ import { botEnv } from "./harness/bot-env.ts";
 import { checkModel, parseModelRef } from "./harness/models.ts";
 import { buildRegistry } from "./harness/registry.ts";
 import { runStartup } from "./harness/startup.ts";
-import { openOwnedStorage } from "./harness/storage.ts";
+import { DEV_LOCK_WAIT_MS, openOwnedStorage } from "./harness/storage.ts";
 import { getLogger } from "./log.ts";
 import {
 	type BotRuntime,
@@ -72,7 +72,10 @@ export async function startApp({
 	poll = true,
 }: AppOptions): Promise<App> {
 	const log = getLogger();
-	const { storage, lock } = await openOwnedStorage(config.home);
+	const { storage, lock } = await openOwnedStorage(
+		config.home,
+		config.dev ? { waitMs: DEV_LOCK_WAIT_MS, stealAfterWait: true } : undefined,
+	);
 	let harness: Harness;
 	const self: SelfHost = { home: config.home };
 	try {

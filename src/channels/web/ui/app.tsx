@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "preact/hooks";
+import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import {
 	createChat,
 	deleteChat,
@@ -353,8 +353,26 @@ function rowPreview(chat: Chat): string {
 
 function Main() {
 	const [confirmDelete, setConfirmDelete] = useState(false);
+	const pane = useRef<HTMLDivElement>(null);
+	const stick = useRef(true);
 	const key = chatKey.value;
 	const bot = selectedBot();
+	useLayoutEffect(() => {
+		stick.current = true;
+	}, [key]);
+	useLayoutEffect(() => {
+		const el = pane.current;
+		if (!el || !stick.current) return;
+		el.scrollTop = el.scrollHeight;
+	}, [
+		key,
+		messages.value,
+		partial.value,
+		liveTools.value,
+		rawEntries.value,
+		rawMode.value,
+		busy.value,
+	]);
 	if (!bot) {
 		return (
 			<main class="main">
@@ -457,7 +475,15 @@ function Main() {
 					{banner.value}
 				</div>
 			) : null}
-			<div class={`msgs ${rawMode.value ? "raw" : ""}`}>
+			<div
+				class={`msgs ${rawMode.value ? "raw" : ""}`}
+				ref={pane}
+				onScroll={() => {
+					const el = pane.current;
+					if (!el) return;
+					stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+				}}
+			>
 				{rawMode.value ? <RawTimeline /> : <Timeline />}
 				{partial.value || liveTools.value.length > 0 ? (
 					<div class="b">
