@@ -65,7 +65,7 @@ Doors admit user text through `BotRuntime`. So do `chat` and `new-chat` schedule
 
 - `submit` admits text on an existing chat and returns when that admission is durable. The reply is delivered in the background.
 - `listChats` and `createChat` are the chat directory for that bot. `createChat` finds an existing chat or opens an ownerless conversation, configures it, and records the row in one commit.
-- An edit through the API is picked up by chats created after it. Conversations that already exist keep the model, thinking level, and working directory they were given, except chats of `default`: every start sets those to the process model, thinking level, and `bots/default`.
+- An edit through the API is picked up by chats created after it. Conversations that already exist keep the model, thinking level, and working directory they were given.
 
 Inside the process every runtime is a handle on the shared harness. A later split replaces the handle with a client of another process. Doors, and chat and new-chat fires, stay on that handle. A fork stays with the storage owner, because the child is not a chat.
 

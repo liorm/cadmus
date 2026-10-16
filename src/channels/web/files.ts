@@ -7,7 +7,7 @@ import {
 	rm,
 	writeFile,
 } from "node:fs/promises";
-import { isAbsolute, join, relative, resolve } from "node:path";
+import { isAbsolute, join, relative } from "node:path";
 import { parseDescription, parseSlug } from "../../extensions/knowledge.ts";
 import { botDir } from "../bots.ts";
 
@@ -140,8 +140,6 @@ async function inside(root: string, full: string): Promise<boolean> {
 	} catch {
 		return false;
 	}
-	const lexical = relative(rootReal, resolve(full));
-	if (lexical.startsWith("..") || isAbsolute(lexical)) return false;
 	try {
 		const real = await realpath(full);
 		const rel = relative(rootReal, real);

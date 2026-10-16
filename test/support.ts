@@ -1,9 +1,23 @@
 import { type ChildProcess, spawn } from "node:child_process";
-import { mkdtemp } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
+import { Harness } from "@earendil-works/pi-durable";
 import type { App } from "../src/app.ts";
+import {
+	BotsDoc,
+	createBot,
+	DEFAULT_BOT_ID,
+	listBots,
+	SYSTEM_SEED,
+} from "../src/channels/bots.ts";
 import { testClockPollMs } from "../src/clock.ts";
+import { DEFAULT_SOUL } from "../src/extensions/identity.ts";
+import { botEnv as executionEnv } from "../src/harness/bot-env.ts";
+import { createModels } from "../src/harness/models.ts";
+import { buildRegistry } from "../src/harness/registry.ts";
+import { openOwnedStorage } from "../src/harness/storage.ts";
 import { setupLogger } from "../src/log.ts";
 import { main } from "../src/main.ts";
 import type { FakeEgress } from "./egress/fake-egress.ts";
@@ -27,7 +41,6 @@ export function botEnv(
 		TELEGRAM_BOT_TOKEN: "123:test-token",
 		TELEGRAM_ALLOWED_USERS: "1",
 		TELEGRAM_POLL_TIMEOUT_SEC: "1",
-		PI_MODEL: "xai/grok-4.7",
 		XAI_API_KEY: "test-api-key",
 		PI_BOT_TZ: "Asia/Jerusalem",
 		PI_BOT_DELIVERY_SWEEP_MS: "200",
@@ -38,6 +51,68 @@ export function botEnv(
 		else env[key] = value;
 	}
 	return env;
+}
+
+/**
+ * Previous state for a test that needs a bot before `main()`. Production start creates none.
+ * A row whose id is `default` is left as it is, including its files and model.
+ */
+export async function seedBot(
+	home: string,
+	options: { name?: string; model?: string; thinking?: string } = {},
+): Promise<string> {
+	const name = options.name ?? "Default";
+	const model = options.model ?? "xai/grok-4.7";
+	const thinking = options.thinking ?? "";
+	const { storage, lock } = await openOwnedStorage(home);
+	const { registry } = buildRegistry({
+		home,
+		timeZone: "UTC",
+		self: { home },
+	});
+	const harness = await Harness.open(
+		storage,
+		{
+			models: createModels(),
+			registry,
+			env: executionEnv(),
+			settings: {
+				steeringMode: "all",
+				compaction: { enabled: true },
+			},
+		},
+		BACKGROUND_CONTEXT,
+	);
+	try {
+		if (name === "Default") {
+			const existing = (await listBots(harness)).find(
+				(bot) => bot.id === DEFAULT_BOT_ID,
+			);
+			if (existing) return existing.id;
+			const dir = join(home, "bots", DEFAULT_BOT_ID);
+			await mkdir(join(dir, "knowledge"), { recursive: true });
+			await writeIfMissing(join(dir, "SOUL.md"), `${DEFAULT_SOUL}\n`);
+			await writeIfMissing(join(dir, "SYSTEM.md"), `${SYSTEM_SEED}\n`);
+			await harness.commit(async (tx) => {
+				const bots = await tx.doc(BotsDoc);
+				if (bots.items.some((bot) => bot.id === DEFAULT_BOT_ID)) return;
+				bots.items.push({
+					id: DEFAULT_BOT_ID,
+					name: "Default",
+					model,
+					thinking,
+					createdAt: Date.now(),
+				});
+			}, BACKGROUND_CONTEXT);
+			return DEFAULT_BOT_ID;
+		}
+		const created = await createBot(harness, home, { name, model, thinking });
+		if (!created.ok) throw new Error(created.error);
+		return created.bot.id;
+	} finally {
+		await harness.close(BACKGROUND_CONTEXT);
+		await lock.release();
+	}
 }
 
 /**
@@ -53,6 +128,14 @@ export async function startBot(
 	else process.env.XAI_API_KEY = env.XAI_API_KEY;
 	setupLogger({ type: "silent" });
 	return main(env);
+}
+
+async function writeIfMissing(path: string, text: string): Promise<void> {
+	try {
+		await writeFile(path, text, { flag: "wx" });
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+	}
 }
 
 export async function until(

@@ -19,6 +19,7 @@ import {
 	botEnv,
 	type Child,
 	defined,
+	seedBot,
 	spawnBun,
 	tempHome,
 	until,
@@ -34,10 +35,11 @@ afterEach(() => {
 	egress.stop();
 });
 
-function startProcess(
+async function startProcess(
 	home: string,
 	overrides: Record<string, string | undefined> = {},
 ) {
+	await seedBot(home);
 	const child = spawnBun(["src/main.ts"], botEnv(home, overrides), egress);
 	children.push(child);
 	return child;
@@ -142,7 +144,7 @@ describe("crash recovery (kill -9)", () => {
 	it("killed while Grok is answering: the turn resumes after restart and is answered exactly once", async () => {
 		const home = await tempHome();
 		egress.xai.hang = true;
-		const first = startProcess(home);
+		const first = await startProcess(home);
 		egress.telegram.push("hello");
 		await waitFor(
 			first,
@@ -158,7 +160,7 @@ describe("crash recovery (kill -9)", () => {
 		expect(egress.telegram.sendAttempts).toEqual([]);
 
 		egress.xai.hang = false;
-		const second = startProcess(home); // takes over the dead pid's owner.lock
+		const second = await startProcess(home); // takes over the dead pid's owner.lock
 		await polling(second);
 		egress.telegram.redeliverAll(); // Telegram also sends "hello" again
 		await waitFor(
@@ -184,7 +186,7 @@ describe("crash recovery (kill -9)", () => {
 	it("killed while sending the reply: it becomes 'unknown', is never resent, and the next message is answered", async () => {
 		const home = await tempHome();
 		egress.telegram.hangSend = true;
-		const first = startProcess(home);
+		const first = await startProcess(home);
 		egress.telegram.push("first");
 		await waitFor(
 			first,
@@ -195,7 +197,7 @@ describe("crash recovery (kill -9)", () => {
 		await first.exited;
 
 		egress.telegram.hangSend = false;
-		const second = startProcess(home);
+		const second = await startProcess(home);
 		await polling(second);
 		egress.telegram.redeliverAll();
 		egress.telegram.push("second");
@@ -231,6 +233,7 @@ describe("crash recovery (kill -9)", () => {
 
 	it("killed during a web reply: restart answers once and the same clientMsgId does not duplicate", async () => {
 		const home = await tempHome();
+		await seedBot(home);
 		const token = "test-web-token";
 		const headers = {
 			authorization: `Bearer ${token}`,
@@ -344,7 +347,7 @@ describe("crash recovery (kill -9)", () => {
 	it("killed after schedule_create commits: replay returns that row and does not insert another", async () => {
 		const home = await tempHome();
 		const sentinel = join(home, "stall");
-		const first = startProcess(home, {
+		const first = await startProcess(home, {
 			PI_BOT_STALL_SCHEDULE: "tx",
 			PI_BOT_STALL_SENTINEL: sentinel,
 		});
@@ -368,7 +371,7 @@ describe("crash recovery (kill -9)", () => {
 		first.proc.kill("SIGKILL");
 		await first.exited;
 
-		const second = startProcess(home);
+		const second = await startProcess(home);
 		await polling(second);
 		await waitFor(
 			second,
@@ -387,7 +390,7 @@ describe("crash recovery (kill -9)", () => {
 
 	it("killed after schedule_delete removes the row: replay returns the deleted id", async () => {
 		const home = await tempHome();
-		const created = startProcess(home);
+		const created = await startProcess(home);
 		egress.xai.script.push(
 			{
 				tool: {
@@ -407,7 +410,7 @@ describe("crash recovery (kill -9)", () => {
 		const id = defined(userScheduleIds(home)[0], "schedule id");
 
 		const sentinel = join(home, "stall");
-		const first = startProcess(home, {
+		const first = await startProcess(home, {
 			PI_BOT_STALL_SCHEDULE: "run",
 			PI_BOT_STALL_SENTINEL: sentinel,
 		});
@@ -421,7 +424,7 @@ describe("crash recovery (kill -9)", () => {
 		first.proc.kill("SIGKILL");
 		await first.exited;
 
-		const second = startProcess(home);
+		const second = await startProcess(home);
 		await polling(second);
 		await waitFor(
 			second,
@@ -439,7 +442,7 @@ describe("crash recovery (kill -9)", () => {
 
 	it("killed after schedule_update commits: replay returns that row and does not write another", async () => {
 		const home = await tempHome();
-		const created = startProcess(home);
+		const created = await startProcess(home);
 		egress.xai.script.push(
 			{
 				tool: {
@@ -459,7 +462,7 @@ describe("crash recovery (kill -9)", () => {
 		const id = defined(userScheduleIds(home)[0], "schedule id");
 
 		const sentinel = join(home, "stall");
-		const first = startProcess(home, {
+		const first = await startProcess(home, {
 			PI_BOT_STALL_SCHEDULE: "tx",
 			PI_BOT_STALL_SENTINEL: sentinel,
 		});
@@ -486,7 +489,7 @@ describe("crash recovery (kill -9)", () => {
 		first.proc.kill("SIGKILL");
 		await first.exited;
 
-		const second = startProcess(home);
+		const second = await startProcess(home);
 		await polling(second);
 		await waitFor(
 			second,

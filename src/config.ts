@@ -1,5 +1,4 @@
 import { resolve } from "node:path";
-import { type ModelConfig, modelConfigFromEnv } from "./harness/models.ts";
 
 export type TelegramConfig = {
 	/** Absent when `TELEGRAM_BOT_TOKEN` is unset. The general door stays off; per-bot tokens still poll. */
@@ -26,7 +25,6 @@ export type Config = {
 	readonly telegram: TelegramConfig;
 	/** Absent when `WEB_TOKEN` is unset. The page does not listen. */
 	readonly web?: WebConfig;
-	readonly model: ModelConfig;
 	readonly timeZone: string;
 	readonly logLevel: string;
 	/** How often every chat is swept for undelivered final answers (safety net; ms). */
@@ -77,7 +75,6 @@ export function configFromEnv(env: NodeJS.ProcessEnv = process.env): Config {
 			pollTimeoutSec: Number.isFinite(timeout) && timeout >= 0 ? timeout : 30,
 		},
 		...(web ? { web } : {}),
-		model: modelConfigFromEnv(env),
 		timeZone: env.PI_BOT_TZ || Intl.DateTimeFormat().resolvedOptions().timeZone,
 		logLevel: env.LOG_LEVEL ?? "info",
 		deliverySweepMs: Number(env.PI_BOT_DELIVERY_SWEEP_MS ?? 15_000),

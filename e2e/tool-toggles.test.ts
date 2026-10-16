@@ -9,7 +9,14 @@ import { chromium } from "playwright";
 import type { App } from "../src/app.ts";
 import { FakeEgress } from "../test/egress/fake-egress.ts";
 import { routeEgress } from "../test/egress/route.ts";
-import { defined, settle, startBot, tempHome, until } from "../test/support.ts";
+import {
+	defined,
+	seedBot,
+	settle,
+	startBot,
+	tempHome,
+	until,
+} from "../test/support.ts";
 
 const TOKEN = "test-web-token";
 const CHROME = `${process.env.HOME}/.cache/ms-playwright/chromium-1234/chrome-linux/chrome`;
@@ -47,6 +54,7 @@ describe.skipIf(!browser)("bot dialog tool toggles", () => {
 		egress = new FakeEgress();
 		unroute = routeEgress(egress.url);
 		const home = await tempHome();
+		await seedBot(home);
 		app = await startBot(home, { WEB_TOKEN: TOKEN, WEB_PORT: "0" });
 		if (!app.web) throw new Error("web listener did not start");
 		const url = app.web.url;

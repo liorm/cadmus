@@ -29,9 +29,9 @@ Persona and knowledge are files. The session stores identity, chat directories, 
 | `telegramToken` | optional second Telegram door; omitted from client reads |
 | `createdAt` | unix milliseconds |
 
-`default` is created on first start. On later starts its model and thinking follow the process environment, and every existing `default` chat is set to that model, thinking level, and `bots/default`. Its display name stays, and the API refuses a rename. For a missing `bots/default/`, a home-root `SOUL.md` is copied into `SOUL.md` when that file is present, and a home-root `AGENTS.md` is copied into `SYSTEM.md` when that file is present. Whichever of the two is absent gets the built-in seed. An existing directory is left as it is. `knowledge/` is created either way.
+A fresh home has no bots. Creating a bot allocates a slug from the name, writes the folder (built-in persona, unless the request includes a soul, plus the standing-instructions seed and `knowledge/`), then commits the row. The model and thinking level on that row are the ones in the request. A failed commit removes the new folder. A failed folder write does not commit the row. Slug rules are in [current policy](../architecture.md#current-policy). An existing row, including one whose id is `default`, keeps its stored model and thinking level across restarts. Its display name can change. The id does not.
 
-Creating any other bot allocates a slug from the name, writes the folder, then commits the row. A failed commit removes the new folder. A failed folder write does not commit the row. Slug rules are in [current policy](../architecture.md#current-policy).
+The id `default` is not reserved. The general door binds to it when that row is already stored. A name that slugs to `default` takes that id when it is free, and the env token attaches on the next start.
 
 The agent working directory of a new conversation is `bots/<botId>`.
 
@@ -56,7 +56,7 @@ Keys:
 <botId>:web:<chatId>
 ```
 
-A chat stays on one bot. The general door, the process token, opens chats only on `default` (`default:tg:general:…`). A token stored on a bot opens `<botId>:tg:bot:…` and nothing on the general door. Forum topics are their own conversations. A key from before this layout is rewritten once, onto `default` and the general door, and keeps its conversation.
+A chat stays on one bot. The general door, the process token, opens chats only on a stored bot whose id is `default` (`default:tg:general:…`). With no such bot the process still starts and that door does not poll. A token stored on a bot opens `<botId>:tg:bot:…` and nothing on the general door. Forum topics are their own conversations. A key from before this layout is rewritten once, onto `default` and the general door, and keeps its conversation.
 
 Closing a chat drops it from the live directory and refuses further admission. The conversation log remains.
 

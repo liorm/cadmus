@@ -17,7 +17,14 @@ import { buildRegistry } from "../../src/harness/registry.ts";
 import { openOwnedStorage } from "../../src/harness/storage.ts";
 import { CHAT, FakeEgress, STRANGER } from "../egress/fake-egress.ts";
 import { routeEgress } from "../egress/route.ts";
-import { defined, settle, startBot, tempHome, until } from "../support.ts";
+import {
+	defined,
+	seedBot,
+	settle,
+	startBot,
+	tempHome,
+	until,
+} from "../support.ts";
 
 let egress: FakeEgress;
 let unroute: () => void;
@@ -38,8 +45,14 @@ afterEach(async () => {
 async function boot(
 	home?: string,
 	overrides: Record<string, string | undefined> = {},
+	options: { seed?: boolean; model?: string } = {},
 ) {
-	const app = await startBot(home ?? (await tempHome()), overrides);
+	const dir = home ?? (await tempHome());
+	if (options.seed !== false)
+		await seedBot(dir, {
+			...(options.model ? { model: options.model } : {}),
+		});
+	const app = await startBot(dir, overrides);
 	apps.push(app);
 	return app;
 }
@@ -255,7 +268,7 @@ describe("chat flows", () => {
 
 	it("bots/default SOUL.md and SYSTEM.md reach Grok's prompt", async () => {
 		const home = await tempHome();
-		await mkdir(join(home, "bots", "default"), { recursive: true });
+		await seedBot(home);
 		await writeFile(
 			join(home, "bots", "default", "SOUL.md"),
 			"You are Pip, Lior's assistant.",
@@ -277,25 +290,6 @@ describe("chat flows", () => {
 		expect(request).toContain("Lior prefers short answers.");
 		expect(request).not.toContain("This home-root persona must not be read.");
 		expect(request).toContain("time zone Asia/Jerusalem");
-	});
-
-	it("a home-root SOUL.md and AGENTS.md are copied into bots/default once", async () => {
-		const home = await tempHome();
-		await writeFile(join(home, "SOUL.md"), "Copied soul.");
-		await writeFile(join(home, "AGENTS.md"), "Copied agents.");
-		const app = await boot(home);
-		expect(
-			await readFile(join(home, "bots", "default", "SOUL.md"), "utf8"),
-		).toBe("Copied soul.");
-		expect(
-			await readFile(join(home, "bots", "default", "SYSTEM.md"), "utf8"),
-		).toBe("Copied agents.");
-		tg().push("hi");
-		await until(() => tg().sent.length === 1, "reply");
-		await settle(app, egress);
-		const request = JSON.stringify(defined(xai().requests[0], "request").body);
-		expect(request).toContain("Copied soul.");
-		expect(request).toContain("Copied agents.");
 	});
 
 	it("a home from before this plan opens the same conversation", async () => {
@@ -479,25 +473,6 @@ describe("chat flows", () => {
 	});
 });
 
-describe("model switching", () => {
-	it("changing PI_MODEL between restarts moves existing chats to the new model, keeping their history", async () => {
-		const home = await tempHome();
-		const offline = await boot(home, {
-			PI_MODEL: "faux/echo",
-			XAI_API_KEY: undefined,
-		});
-		tg().push("before");
-		await until(() => tg().sent.length === 1, "echo reply");
-		await settle(offline, egress);
-		await offline.stop();
-		const grok = await boot(home);
-		tg().push("after");
-		await until(() => tg().sent.length === 2, "grok reply");
-		await settle(grok, egress);
-		expect(tg().texts()).toEqual(["echo(1): before", "grok(2): after"]);
-	});
-});
-
 describe("startup guards", () => {
 	it("one owner per data dir: a second bot is refused, and so is a lock held from another host", async () => {
 		const home = await tempHome();
@@ -511,26 +486,41 @@ describe("startup guards", () => {
 		await expect(startBot(other)).rejects.toThrow(/owned by another process/);
 	});
 
-	it("refuses to start with no door, with an unknown model, or without Grok credentials", async () => {
+	it("refuses to start with no door, and without credentials for a stored xAI bot", async () => {
 		await expect(
 			startBot(await tempHome(), { TELEGRAM_BOT_TOKEN: undefined }),
 		).rejects.toThrow(/TELEGRAM_BOT_TOKEN or WEB_TOKEN/);
-		await expect(
-			startBot(await tempHome(), { PI_MODEL: "xai/grok-0" }),
-		).rejects.toThrow(/Unknown model xai\/grok-0/);
-		await expect(
-			startBot(await tempHome(), { PI_MODEL: undefined }),
-		).rejects.toThrow(/PI_MODEL is required/);
-		await expect(
-			startBot(await tempHome(), { XAI_API_KEY: undefined }),
-		).rejects.toThrow(/XAI_API_KEY.*bun run login xai/);
+		const home = await tempHome();
+		await seedBot(home);
+		await expect(startBot(home, { XAI_API_KEY: undefined })).rejects.toThrow(
+			/XAI_API_KEY.*bun run login xai/,
+		);
 	});
 
-	it("runs offline with PI_MODEL=faux/echo (smoke mode)", async () => {
-		const app = await boot(undefined, {
-			PI_MODEL: "faux/echo",
-			XAI_API_KEY: undefined,
-		});
+	it("starts with no bots and does not poll the general door", async () => {
+		const home = await tempHome();
+		const app = await boot(
+			home,
+			{ WEB_TOKEN: "test-web-token", WEB_PORT: "0" },
+			{ seed: false },
+		);
+		if (!app.web) throw new Error("web listener did not start");
+		const listed = (await (
+			await fetch(`${app.web.url}/api/bots`, {
+				headers: { authorization: "Bearer test-web-token" },
+			})
+		).json()) as { bots: unknown[] };
+		expect(listed.bots).toEqual([]);
+		tg().push("nobody home");
+		await new Promise((resolve) => setTimeout(resolve, 400));
+		expect(egress.telegram.polls).toBe(0);
+		expect(tg().sent).toEqual([]);
+	});
+
+	it("runs offline when the stored bot is faux/echo", async () => {
+		const home = await tempHome();
+		await seedBot(home, { model: "faux/echo" });
+		const app = await boot(home, { XAI_API_KEY: undefined });
 		tg().push("ping");
 		await until(() => tg().sent.length === 1, "echo");
 		await settle(app, egress);

@@ -6,7 +6,14 @@ import { join } from "node:path";
 import type { App } from "../../src/app.ts";
 import { CHAT, FakeEgress } from "../egress/fake-egress.ts";
 import { routeEgress } from "../egress/route.ts";
-import { defined, settle, startBot, tempHome, until } from "../support.ts";
+import {
+	defined,
+	seedBot,
+	settle,
+	startBot,
+	tempHome,
+	until,
+} from "../support.ts";
 
 const TOKEN = "test-web-token";
 
@@ -27,6 +34,7 @@ afterEach(async () => {
 });
 
 async function boot(home: string) {
+	await seedBot(home);
 	const app = await startBot(home, { WEB_TOKEN: TOKEN, WEB_PORT: "0" });
 	apps.push(app);
 	if (!app.web) throw new Error("web listener did not start");

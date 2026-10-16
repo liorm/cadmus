@@ -10,6 +10,7 @@ import { routeEgress } from "../egress/route.ts";
 import {
 	botEnv,
 	defined,
+	seedBot,
 	settle,
 	spawnBun,
 	startBot,
@@ -88,6 +89,7 @@ describe("Grok subscription login (OAuth device code)", () => {
 	it("the bot talks to Grok with the subscription token, without XAI_API_KEY", async () => {
 		const home = await tempHome();
 		await login(home);
+		await seedBot(home);
 		const app = await startBot(home, { XAI_API_KEY: undefined });
 		apps.push(app);
 		egress.telegram.push("hi grok");
@@ -102,6 +104,7 @@ describe("Grok subscription login (OAuth device code)", () => {
 	it("an expiring token is refreshed via auth.x.ai, rotated in auth.json, and used", async () => {
 		const home = await tempHome();
 		await login(home);
+		await seedBot(home);
 		const store = FileCredentialStore.inHome(home);
 		await store.modify(
 			"xai",
@@ -139,6 +142,7 @@ describe("Grok subscription login (OAuth device code)", () => {
 			refresh: "revoked",
 			expires: Date.now() - 1,
 		}));
+		await seedBot(home);
 		await expect(startBot(home, { XAI_API_KEY: undefined })).rejects.toThrow(
 			/bun run login xai/,
 		);

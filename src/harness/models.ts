@@ -13,17 +13,6 @@ import {
 } from "@earendil-works/pi-ai/providers/faux";
 import type { ModelRef } from "@earendil-works/pi-durable";
 
-/**
- * Model choice is env-driven and not decided yet. `main` drives chat conversations; `reviewer` and `gate` are
- * reserved for the learning loop (Phase 4) and memory capture gate.
- */
-export type ModelConfig = {
-	readonly main: ModelRef;
-	readonly thinkingLevel?: ModelThinkingLevel;
-	readonly reviewer?: ModelRef;
-	readonly gate?: ModelRef;
-};
-
 export const THINKING_LEVELS = [
 	"off",
 	"minimal",
@@ -54,29 +43,6 @@ export function parseThinkingLevel(
 	return (THINKING_LEVELS as readonly string[]).includes(level)
 		? (level as ModelThinkingLevel)
 		: undefined;
-}
-
-export function modelConfigFromEnv(env: NodeJS.ProcessEnv): ModelConfig {
-	const main = env.PI_MODEL?.trim();
-	if (!main)
-		throw new Error(
-			"PI_MODEL is required (<provider>/<modelId>, or faux/echo for an offline smoke test)",
-		);
-	const thinking = env.PI_THINKING_LEVEL?.trim() as
-		| ModelThinkingLevel
-		| undefined;
-	if (thinking && !(THINKING_LEVELS as readonly string[]).includes(thinking))
-		throw new Error(`PI_THINKING_LEVEL: unknown level "${thinking}"`);
-	return {
-		main: parseModelRef(main, "PI_MODEL"),
-		...(thinking ? { thinkingLevel: thinking } : {}),
-		...(env.PI_REVIEW_MODEL
-			? { reviewer: parseModelRef(env.PI_REVIEW_MODEL, "PI_REVIEW_MODEL") }
-			: {}),
-		...(env.PI_GATE_MODEL
-			? { gate: parseModelRef(env.PI_GATE_MODEL, "PI_GATE_MODEL") }
-			: {}),
-	};
 }
 
 function lastUserText(context: TranscriptContext): string {

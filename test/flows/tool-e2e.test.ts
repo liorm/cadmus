@@ -12,6 +12,7 @@ import { FakeEgress } from "../egress/fake-egress.ts";
 import { routeEgress } from "../egress/route.ts";
 import {
 	defined,
+	seedBot,
 	settle,
 	startBot,
 	tempHome,
@@ -40,6 +41,7 @@ afterEach(async () => {
 
 async function boot(home?: string) {
 	const dir = home ?? (await tempHome());
+	await seedBot(dir);
 	const app = await startBot(dir, {
 		WEB_TOKEN: TOKEN,
 		WEB_PORT: "0",

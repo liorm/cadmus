@@ -18,6 +18,7 @@ import {
 	type Item,
 	liveTools,
 	messages,
+	modal,
 	narrow,
 	notes,
 	partial,
@@ -65,7 +66,9 @@ export function boot(): void {
 		narrow.value = media.matches;
 	});
 	void Promise.all([loadBots(), loadStatus()])
-		.then(() => loadChats())
+		.then(() => {
+			if (botId.value) return loadChats();
+		})
 		.catch((error: Error) => {
 			banner.value = error.message;
 		});
@@ -80,7 +83,8 @@ export async function loadBots(): Promise<void> {
 	const body = await api<{ bots: Bot[] }>("/api/bots");
 	bots.value = body.bots;
 	if (!body.bots.some((bot) => bot.id === botId.value))
-		botId.value = body.bots[0]?.id ?? "default";
+		botId.value = body.bots[0]?.id ?? "";
+	if (body.bots.length === 0) modal.value = "create";
 }
 
 export async function loadChats(): Promise<void> {

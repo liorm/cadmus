@@ -9,7 +9,7 @@ import {
 } from "@earendil-works/pi-durable";
 import type { Config } from "../../config.ts";
 import {
-	modelRefString,
+	checkModel,
 	parseModelRef,
 	THINKING_LEVELS,
 } from "../../harness/models.ts";
@@ -87,7 +87,6 @@ export async function handleApi(
 	const path = url.pathname;
 	if (path === "/api/status" && request.method === "GET") {
 		return Response.json({
-			model: modelRefString(deps.config.model.main),
 			telegram: Boolean(deps.config.telegram.token),
 		});
 	}
@@ -175,6 +174,8 @@ async function create(request: Request, deps: WebDeps): Promise<Response> {
 	const parsed = parseBotWrite(body, deps, true);
 	if (!parsed.ok)
 		return Response.json({ error: parsed.error }, { status: parsed.status });
+	const unusable = await modelFailure(deps.models, parsed.write.model);
+	if (unusable) return Response.json({ error: unusable }, { status: 422 });
 	const created = await createBot(deps.harness, deps.config.home, parsed.write);
 	if (!created.ok)
 		return Response.json({ error: created.error }, { status: created.status });
@@ -207,6 +208,10 @@ async function patchBot(
 	const parsed = parseBotWrite(record, deps, false);
 	if (!parsed.ok)
 		return Response.json({ error: parsed.error }, { status: parsed.status });
+	if (parsed.write.model) {
+		const unusable = await modelFailure(deps.models, parsed.write.model);
+		if (unusable) return Response.json({ error: unusable }, { status: 422 });
+	}
 	const updated = await updateBot(deps.harness, id, parsed.write);
 	if (!updated.ok)
 		return Response.json({ error: updated.error }, { status: updated.status });
@@ -924,6 +929,19 @@ function offeredModels(models: MutableModels): {
 		const found = models.getModels(id).map((model) => model.id);
 		return found.length > 0 ? [{ id, models: found }] : [];
 	});
+}
+
+/** `undefined` when the model can be used. Otherwise the message `checkModel` would throw. */
+async function modelFailure(
+	models: MutableModels,
+	ref: string,
+): Promise<string | undefined> {
+	try {
+		await checkModel(models, parseModelRef(ref, "model"));
+		return undefined;
+	} catch (error) {
+		return (error as Error).message;
+	}
 }
 
 function knownModel(models: MutableModels, ref: string): boolean {

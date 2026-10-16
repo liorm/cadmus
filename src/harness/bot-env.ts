@@ -33,9 +33,8 @@ async function staysInside(root: string, candidate: string): Promise<boolean> {
 	} catch {
 		return false;
 	}
-	const lexical = resolve(candidate);
-	if (outside(rootReal, lexical)) return false;
-	let current = lexical;
+	// Compare real paths. A lexical check treats a symlink prefix such as `/var` → `/private/var` as an escape.
+	let current = resolve(candidate);
 	const missing: string[] = [];
 	for (;;) {
 		try {

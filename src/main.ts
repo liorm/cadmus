@@ -2,7 +2,7 @@ import { type App, startApp } from "./app.ts";
 import { GrammyTransport } from "./channels/telegram/transport.ts";
 import { configFromEnv } from "./config.ts";
 import { FileCredentialStore } from "./harness/credentials.ts";
-import { checkModel, createModels } from "./harness/models.ts";
+import { createModels } from "./harness/models.ts";
 import { getLogger, loggerInstalled, setupLogger } from "./log.ts";
 
 /** Start pi-bot from environment variables. Throws on bad configuration or unusable model credentials. */
@@ -26,7 +26,6 @@ export async function main(env: NodeJS.ProcessEnv = process.env): Promise<App> {
 	const models = createModels({
 		credentials: FileCredentialStore.inHome(config.home),
 	});
-	log.info(`Model auth: ${await checkModel(models, config.model.main)}`);
 
 	const transport = config.telegram.token
 		? new GrammyTransport(

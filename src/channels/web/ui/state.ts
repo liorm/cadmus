@@ -47,7 +47,7 @@ export type ScheduleRow = {
 /** General env door (`TELEGRAM_BOT_TOKEN`). Separate from a token stored on a bot. */
 export const generalTelegram = signal(false);
 export const bots = signal<Bot[]>([]);
-export const botId = signal("default");
+export const botId = signal("");
 export const chats = signal<Chat[]>([]);
 export const chatKey = signal<string | null>(null);
 export const messages = signal<Item[]>([]);

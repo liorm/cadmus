@@ -11,6 +11,7 @@ import { CHAT, FakeEgress } from "../egress/fake-egress.ts";
 import { routeEgress } from "../egress/route.ts";
 import {
 	defined,
+	seedBot,
 	settle,
 	startBot,
 	tempHome,
@@ -40,15 +41,18 @@ afterEach(async () => {
 async function boot(
 	home?: string,
 	overrides: Record<string, string | undefined> = {},
+	options: { seed?: boolean } = {},
 ) {
-	const app = await startBot(home ?? (await tempHome()), {
+	const dir = home ?? (await tempHome());
+	if (options.seed !== false) await seedBot(dir);
+	const app = await startBot(dir, {
 		WEB_TOKEN: TOKEN,
 		WEB_PORT: "0",
 		...overrides,
 	});
 	apps.push(app);
 	if (!app.web) throw new Error("web listener did not start");
-	return { app, home: home ?? "", url: app.web.url };
+	return { app, home: dir, url: app.web.url };
 }
 
 function auth(token = TOKEN): Record<string, string> {
@@ -168,7 +172,7 @@ describe("web channel", () => {
 			headers: { cookie: `token=${TOKEN}` },
 		});
 		const body = await authed.json();
-		expect(body).toEqual({ model: "xai/grok-4.7", telegram: true });
+		expect(body).toEqual({ telegram: true });
 		const encoded = JSON.stringify(body);
 		expect(encoded).not.toContain(TOKEN);
 		expect(encoded).not.toContain("123:test-token");
@@ -212,9 +216,9 @@ describe("web channel", () => {
 		const { app, url } = await boot(undefined, {
 			TELEGRAM_BOT_TOKEN: undefined,
 		});
-		expect(
-			await json<{ model: string; telegram: boolean }>(url, "/api/status"),
-		).toEqual({ model: "xai/grok-4.7", telegram: false });
+		expect(await json<{ telegram: boolean }>(url, "/api/status")).toEqual({
+			telegram: false,
+		});
 		const key = await createWebChat(url);
 		const stream = readStream(url, key, "grok(1): hello");
 		await say(url, key, "hello");
@@ -530,14 +534,61 @@ describe("web channel", () => {
 			method: "PATCH",
 			body: JSON.stringify({ name: "Other" }),
 		});
-		expect(renamed.status).toBe(422);
+		expect(renamed.status).toBe(200);
 		const bots = await json<{
 			bots: { id: string; name: string; tools?: string[] }[];
 		}>(url, "/api/bots");
-		expect(bots.bots.find((bot) => bot.id === "default")?.name).toBe("Default");
+		expect(bots.bots.find((bot) => bot.id === "default")?.name).toBe("Other");
 		expect(bots.bots.find((bot) => bot.id === created.bot.id)?.tools).toEqual([
 			"web.search",
 		]);
+	});
+
+	it("rejects an unknown or unauthenticated model, and a faux bot answers offline", async () => {
+		const { url, app } = await boot(
+			undefined,
+			{ XAI_API_KEY: undefined },
+			{ seed: false },
+		);
+		const unknown = await call(url, "/api/bots", {
+			method: "POST",
+			body: JSON.stringify({
+				name: "Nope",
+				model: "xai/grok-0",
+				thinking: "",
+			}),
+		});
+		expect(unknown.status).toBe(422);
+		expect(await unknown.text()).toMatch(/Unknown model/);
+		const naked = await call(url, "/api/bots", {
+			method: "POST",
+			body: JSON.stringify({
+				name: "Needs a key",
+				model: "xai/grok-4.7",
+				thinking: "",
+			}),
+		});
+		expect(naked.status).toBe(422);
+		expect(await naked.text()).toMatch(/XAI_API_KEY/);
+		const created = await json<{ bot: { id: string } }>(url, "/api/bots", {
+			method: "POST",
+			body: JSON.stringify({
+				name: "Echo",
+				model: "faux/echo",
+				thinking: "",
+			}),
+		});
+		const key = await createWebChat(url, created.bot.id);
+		await say(url, key, "ping");
+		await until(
+			async () =>
+				(await messages(url, key)).some(
+					(item) => item.text === "echo(1): ping",
+				),
+			"echo reply",
+		);
+		await app.quiesce();
+		expect(egress.xai.requests).toEqual([]);
 	});
 
 	it("keeps bots, chats, and transcripts across a restart", async () => {

@@ -1,20 +1,15 @@
-import {
-	mkdir,
-	readdir,
-	readFile,
-	rm,
-	stat,
-	writeFile,
-} from "node:fs/promises";
+import { mkdir, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { defineDoc, type Harness } from "@earendil-works/pi-durable";
 import { DEFAULT_SOUL } from "../extensions/identity.ts";
-import { type ModelConfig, modelRefString } from "../harness/models.ts";
 import { normalizeEnabled } from "./bot-catalog.ts";
 import { slugifyBotName } from "./bot-slug.ts";
 
-/** The Telegram bot that exists today. Created on first start; this step never removes or renames it. */
+/**
+ * Id the general Telegram door (`TELEGRAM_BOT_TOKEN`) admits on.
+ * Nothing creates this row. It exists when a bot was named so its slug is `default`, or when an older home already had one.
+ */
 export const DEFAULT_BOT_ID = "default";
 
 export type BotRecord = {
@@ -22,7 +17,7 @@ export type BotRecord = {
 	name: string;
 	/** `provider/modelId`. */
 	model: string;
-	/** Thinking level, or `""` when the env left it unset. */
+	/** Thinking level, or `""` when unset. */
 	thinking: string;
 	/**
 	 * Enabled tool names. Omitted means every tool is on.
@@ -60,64 +55,6 @@ export const SYSTEM_SEED = `Knowledge lives in knowledge/<slug>.md. Every file s
 
 export function botDir(home: string, botId: string): string {
 	return join(home, "bots", botId);
-}
-
-async function readOptional(path: string): Promise<string | undefined> {
-	try {
-		return await readFile(path, "utf8");
-	} catch {
-		return undefined;
-	}
-}
-
-async function exists(path: string): Promise<boolean> {
-	try {
-		await stat(path);
-		return true;
-	} catch {
-		return false;
-	}
-}
-
-/**
- * Make sure `bots/default/` exists. A missing directory copies home-root `SOUL.md` and `AGENTS.md` when they are
- * there, and seeds whichever of the two is not. An existing directory is left as it is. `knowledge/` is created
- * either way.
- */
-export async function ensureDefaultBotFiles(home: string): Promise<void> {
-	const dir = botDir(home, DEFAULT_BOT_ID);
-	const existed = await exists(dir);
-	await mkdir(join(dir, "knowledge"), { recursive: true });
-	if (existed) return;
-	const soul = await readOptional(join(home, "SOUL.md"));
-	const agents = await readOptional(join(home, "AGENTS.md"));
-	await writeFile(join(dir, "SOUL.md"), soul ?? `${DEFAULT_SOUL}\n`);
-	await writeFile(join(dir, "SYSTEM.md"), agents ?? `${SYSTEM_SEED}\n`);
-}
-
-/** Insert `default` on first start. Later starts refresh its model and thinking from env; other rows stay. */
-export async function ensureDefaultBotDoc(
-	harness: Harness,
-	model: ModelConfig,
-): Promise<void> {
-	const modelId = modelRefString(model.main);
-	const thinking = model.thinkingLevel ?? "";
-	await harness.commit(async (tx) => {
-		const bots = await tx.doc(BotsDoc);
-		const existing = bots.items.find((bot) => bot.id === DEFAULT_BOT_ID);
-		if (existing) {
-			existing.model = modelId;
-			existing.thinking = thinking;
-			return;
-		}
-		bots.items.push({
-			id: DEFAULT_BOT_ID,
-			name: "Default",
-			model: modelId,
-			thinking,
-			createdAt: Date.now(),
-		});
-	}, BACKGROUND_CONTEXT);
 }
 
 export async function listBots(harness: Harness): Promise<BotRecord[]> {
@@ -261,15 +198,7 @@ export async function updateBot(
 		const bots = await tx.doc(BotsDoc);
 		const bot = bots.items.find((item) => item.id === id);
 		if (!bot) return { ok: false, status: 404, error: "No such bot." };
-		if (name !== undefined && name !== bot.name) {
-			if (id === DEFAULT_BOT_ID)
-				return {
-					ok: false,
-					status: 422,
-					error: "The default bot cannot be renamed.",
-				};
-			bot.name = name;
-		}
+		if (name !== undefined && name !== bot.name) bot.name = name;
 		if (patch.model !== undefined) bot.model = patch.model;
 		if (patch.thinking !== undefined) bot.thinking = patch.thinking;
 		if (patch.tools !== undefined) {

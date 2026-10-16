@@ -16,7 +16,7 @@ bun run check:all                          # format, Biome, typecheck, tests
 bun start                                  # Bun loads .env automatically
 ```
 
-Optional: put `SOUL.md` (persona; a default is used when absent) and `SYSTEM.md` (standing context) in `PI_BOT_HOME/bots/default/`. They are read at render time; edits apply to the next request. On first start, a home that still has `SOUL.md` and `AGENTS.md` at its root is copied into that folder (`AGENTS.md` becomes `SYSTEM.md`).
+A fresh home has no bots. Create the first one on the web page and choose its model there. Each bot keeps `SOUL.md` (persona; the create dialog starts from a built-in one) and `SYSTEM.md` in `PI_BOT_HOME/bots/<id>/`. They are read at render time; edits apply to the next request.
 
 ## Environment
 
@@ -24,11 +24,8 @@ Optional: put `SOUL.md` (persona; a default is used when absent) and `SYSTEM.md`
 |---|---|---|
 | `TELEGRAM_BOT_TOKEN` | one door | Token from @BotFather. Unset: the general Telegram door stays off. Set this or `WEB_TOKEN` (or both) |
 | `TELEGRAM_ALLOWED_USERS` | with Telegram | Comma-separated numeric Telegram user IDs. Empty = every message on a configured door is ignored (logged) |
-| `PI_MODEL` | yes | `<provider>/<modelId>` from any pi-ai built-in provider (e.g. `anthropic/…`, `openai/…`, `xai/…`, `openrouter/<vendor>/<model>`). `faux/echo` is an offline echo model for smoke tests |
-| provider auth | yes (real models) | Either an OAuth login (`bun run login <provider>`, stored in `PI_BOT_HOME/auth.json`, preferred when present) or the provider's API key env var (below) |
-| provider key | alt. | The provider's standard env var, read by pi-ai: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `XAI_API_KEY`, `OPENROUTER_API_KEY`, `GEMINI_API_KEY`, … Startup fails fast if the model is unknown or the key is missing |
-| `PI_THINKING_LEVEL` | no | `off`/`minimal`/`low`/`medium`/`high`/`xhigh` |
-| `PI_REVIEW_MODEL`, `PI_GATE_MODEL` | no | Reserved for Phase 4 (review fork, memory-capture gate); parsed, unused |
+| provider auth | when a bot uses that provider | Either an OAuth login (`bun run login <provider>`, stored in `PI_BOT_HOME/auth.json`, preferred when present) or the provider's API key env var (below). Each bot stores its own `<provider>/<modelId>`. `faux/echo` is an offline echo model and needs no key |
+| provider key | alt. | The provider's standard env var, read by pi-ai: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `XAI_API_KEY`, `OPENROUTER_API_KEY`, `GEMINI_API_KEY`, … Creating a bot, or starting with a stored bot, fails when that model is unknown or the provider has no credentials |
 | `PI_BOT_HOME` | no | Data dir (default `./data`): `durable.sqlite`, `owner.lock`, `schedules.sqlite`, `bots/<id>/` |
 | `PI_BOT_TZ` | no | IANA zone for the daily date line and cron (default: system zone) |
 | `PI_BOT_HARVEST_DELAY_MS` | no | Idle time before a chat is forked to update knowledge (default 60000) |
@@ -38,7 +35,7 @@ Optional: put `SOUL.md` (persona; a default is used when absent) and `SYSTEM.md`
 | `WEB_HOST`, `WEB_PORT` | no | Page bind address (default `127.0.0.1:8787`) |
 | `LOG_LEVEL` | no | `debug`/`info`/`warn`/`error` |
 
-Changing `PI_MODEL` applies to existing chats at the next start.
+A bot's model and thinking level are chosen when it is created, and can be changed on that bot. Chats that already exist keep the model they were given. The general Telegram door (`TELEGRAM_BOT_TOKEN`) polls only when a stored bot has id `default`. A new home has no such bot; set a token on the bot instead. A bot named so its slug is `default` picks up the env token on the next start.
 
 ## Grok via SuperGrok / X Premium (OAuth, no API key)
 
@@ -47,7 +44,7 @@ pi-ai ships xAI's device-code OAuth ("Sign in with SuperGrok or X Premium"). On 
 ```bash
 bun run login grok        # alias of xai; prints a URL + code, open it in any browser (phone is fine), approve
 bun run auth:status       # shows stored credentials (types only) and whether they resolve
-# .env: PI_MODEL=xai/grok-4.7   (catalog: grok-4.3, grok-4.5, grok-4.6, grok-4.7); no XAI_API_KEY needed
+# Create a bot on the page and choose xai/grok-4.7 (catalog: grok-4.3, grok-4.5, grok-4.6, grok-4.7); no XAI_API_KEY needed
 bun run logout grok       # remove the token
 ```
 
@@ -61,7 +58,7 @@ Schedules are cron (five fields, in `PI_BOT_TZ`) or a single `when`. A target is
 
 The bot dialog switches tools on and off. The choice is stored on the bot. A missing list means every tool is on. A tool that is off is not offered to the model and does not run. `GET /api/tools` lists them. `GET` and `PUT /api/bots/<id>/tools` read and replace one bot's set.
 
-The gear tab stores a second Telegram token on that bot. It is not returned by `GET /api/bots` and is not put in the prompt. That token polls separately. The same person on both doors of `default` gets `default:tg:general:<id>` and `default:tg:bot:<id>`.
+The gear tab stores a Telegram token on that bot. It is not returned by `GET /api/bots` and is not put in the prompt. That token polls separately. When the general env token is also polling for a bot whose id is `default`, the same person on both doors gets `default:tg:general:<id>` and `default:tg:bot:<id>`.
 
 A web message uses request id `<chatKey>:<clientMsgId>`. Posting into a Telegram chat delivers the assistant reply only.
 

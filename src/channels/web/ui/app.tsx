@@ -349,6 +349,18 @@ function Main() {
 	const [confirmDelete, setConfirmDelete] = useState(false);
 	const key = chatKey.value;
 	const bot = selectedBot();
+	if (!bot) {
+		return (
+			<main class="main">
+				<div class="hd">
+					<div class="t">No bot</div>
+				</div>
+				<div class="pg">
+					<p class="mu">Create a bot to start. Choose its name and model.</p>
+				</div>
+			</main>
+		);
+	}
 	if (!key) {
 		return (
 			<main class="main">
@@ -356,9 +368,7 @@ function Main() {
 					<div class="t">No chat</div>
 				</div>
 				<div class="pg">
-					<p class="mu">
-						Start a new chat to talk to {bot?.name ?? "this bot"}.
-					</p>
+					<p class="mu">Start a new chat to talk to {bot.name}.</p>
 				</div>
 			</main>
 		);

@@ -14,7 +14,7 @@ import {
 	parseScheduleUpdate,
 } from "../src/extensions/self-tools/schedules.ts";
 import { resolveProviderId } from "../src/harness/login.ts";
-import { modelConfigFromEnv, parseModelRef } from "../src/harness/models.ts";
+import { parseModelRef } from "../src/harness/models.ts";
 import { getLogger, setupLogger } from "../src/log.ts";
 import { nextCron, parseCron } from "../src/schedules/cron.ts";
 import { defined } from "./support.ts";
@@ -43,13 +43,6 @@ describe("pure helpers", () => {
 			modelId: "anthropic/some-model",
 		});
 		expect(() => parseModelRef("nope")).toThrow(/provider/);
-		expect(() => modelConfigFromEnv({})).toThrow(/PI_MODEL is required/);
-		expect(
-			modelConfigFromEnv({ PI_MODEL: "faux/echo", PI_THINKING_LEVEL: "low" }),
-		).toEqual({
-			main: { provider: "faux", modelId: "echo" },
-			thinkingLevel: "low",
-		});
 	});
 
 	it("parses the allowlist", () => {

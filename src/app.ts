@@ -22,6 +22,7 @@ import { startWeb, type WebListener } from "./channels/web/server.ts";
 import type { Config } from "./config.ts";
 import type { SelfHost } from "./extensions/self-tools/index.ts";
 import { botEnv } from "./harness/bot-env.ts";
+import { checkModel, parseModelRef } from "./harness/models.ts";
 import { buildRegistry } from "./harness/registry.ts";
 import { runStartup } from "./harness/startup.ts";
 import { openOwnedStorage } from "./harness/storage.ts";
@@ -103,10 +104,7 @@ export async function startApp({
 		throw error;
 	}
 
-	const { unknown } = await runStartup(harness, {
-		home: config.home,
-		model: config.model,
-	});
+	const { unknown } = await runStartup(harness, { home: config.home });
 	const deliverer = new Deliverer(harness, transport);
 	const hooks: TurnHooks = {};
 	const runtimes = new Map<string, BotRuntime>();
@@ -126,9 +124,19 @@ export async function startApp({
 		runtimes.set(bot.id, created);
 		return created;
 	};
-	for (const bot of await listBots(harness)) addRuntime(bot);
-	const runtime = runtimes.get(DEFAULT_BOT_ID);
-	if (!runtime) throw new Error("default bot is missing after startup");
+	const bots = await listBots(harness);
+	try {
+		for (const bot of bots) {
+			const source = await checkModel(models, parseModelRef(bot.model));
+			log.info(`Model auth for ${bot.id} (${bot.model}): ${source}`);
+		}
+	} catch (error) {
+		await harness.close(BACKGROUND_CONTEXT).catch(() => {});
+		await lock.release();
+		throw error;
+	}
+	for (const bot of bots) addRuntime(bot);
+	const defaultRuntime = runtimes.get(DEFAULT_BOT_ID);
 
 	await harness.commit(async (tx) => {
 		await tx.doc(HarvestNotesDoc);
@@ -140,6 +148,7 @@ export async function startApp({
 		runtime: (id) => runtimes.get(id),
 	});
 	self.schedules = schedules;
+	harness.resume();
 	hooks.onInput = (chatKey) => schedules.remove(harvestId(chatKey));
 	hooks.onSettled = (chatKey, entryId) => {
 		const botId = chatKey.split(":")[0];
@@ -226,18 +235,23 @@ export async function startApp({
 		}
 		log.info(`web ${web.url}`);
 	}
-	const poller = transport
-		? new TelegramPoller({
-				harness,
-				runtime,
-				transport,
-				deliverer,
-				allowedUsers: config.telegram.allowedUsers,
-				pollTimeoutSec: config.telegram.pollTimeoutSec,
-				ingress: "general",
-				cursor: generalCursor(harness),
-			})
-		: undefined;
+	if (transport && !defaultRuntime)
+		log.info(
+			"TELEGRAM_BOT_TOKEN is set and there is no default bot; the general door is off",
+		);
+	const poller =
+		transport && defaultRuntime
+			? new TelegramPoller({
+					harness,
+					runtime: defaultRuntime,
+					transport,
+					deliverer,
+					allowedUsers: config.telegram.allowedUsers,
+					pollTimeoutSec: config.telegram.pollTimeoutSec,
+					ingress: "general",
+					cursor: generalCursor(harness),
+				})
+			: undefined;
 
 	const background = new Set<Promise<unknown>>();
 	const track = (work: Promise<unknown>) => {
@@ -275,9 +289,7 @@ export async function startApp({
 					.run(abort.signal)
 					.catch((error) => getLogger().error("poll loop crashed", { error }))
 			: Promise.resolve();
-	log.info(
-		`pi-bot started (model ${config.model.main.provider}/${config.model.main.modelId}, home ${config.home})`,
-	);
+	log.info(`pi-bot started (${bots.length} bots, home ${config.home})`);
 
 	let stopping: Promise<void> | undefined;
 	return {
