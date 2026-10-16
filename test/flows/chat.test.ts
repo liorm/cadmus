@@ -339,7 +339,7 @@ describe("chat flows", () => {
 		).toEqual([conversationId]);
 	});
 
-	it("a read of knowledge/people.md returns the file body to the model", async () => {
+	it("knowledge_read of people returns the file body to the model", async () => {
 		const home = await tempHome();
 		const dir = join(home, "bots", "default", "knowledge");
 		await mkdir(dir, { recursive: true });
@@ -349,7 +349,7 @@ describe("chat flows", () => {
 		);
 		const app = await boot(home);
 		xai().script.push(
-			{ tool: { name: "read", arguments: { path: "knowledge/people.md" } } },
+			{ tool: { name: "knowledge_read", arguments: { slug: "people" } } },
 			{ text: "noted" },
 		);
 		tg().push("who is in the notes?");
@@ -361,19 +361,145 @@ describe("chat flows", () => {
 		const first = JSON.stringify(defined(xai().requests[0], "request").body);
 		expect(first).toContain("People Lior mentions.");
 		expect(first).not.toContain("Lior likes tea.");
-		expect(
-			JSON.stringify(defined(xai().requests[1], "request").body),
-		).toContain("Lior likes tea.");
+		const follow = JSON.stringify(defined(xai().requests[1], "request").body);
+		expect(follow).toContain("Lior likes tea.");
+		expect(follow).toContain('\\"version\\":0');
+		expect(follow).toContain('\\"exists\\":true');
 	});
 
-	it("a path outside the bot folder is refused", async () => {
+	it("knowledge_update creates, compare-and-swap rejects a stale version, and delete removes the file", async () => {
+		const home = await tempHome();
+		const path = join(home, "bots", "default", "knowledge", "people.md");
+		const app = await boot(home);
+		xai().script.push(
+			{ tool: { name: "knowledge_read", arguments: { slug: "people" } } },
+			{
+				tool: {
+					name: "knowledge_update",
+					arguments: {
+						slug: "people",
+						description: "x".repeat(241),
+						body: "too long\n",
+						version: 0,
+					},
+				},
+			},
+			{
+				tool: {
+					name: "knowledge_update",
+					arguments: {
+						slug: "people",
+						description: "People Lior mentions.",
+						body: "---\ndescription: pasted\n---\nLior likes tea.\n",
+						version: 0,
+					},
+				},
+			},
+			{
+				tool: {
+					name: "knowledge_update",
+					arguments: {
+						slug: "people",
+						description: "People Lior mentions.",
+						body: "Lior likes tea.\n",
+						version: 0,
+						category: "people",
+					},
+				},
+			},
+			{ text: "saved" },
+		);
+		tg().push("remember Lior likes tea");
+		await until(() => tg().texts().includes("saved"), "created");
+		expect(
+			xai()
+				.requests.map((request) => JSON.stringify(request.body))
+				.join("\n"),
+		).toContain("description is required, one line, at most 240 characters.");
+		expect(
+			xai()
+				.requests.map((request) => JSON.stringify(request.body))
+				.join("\n"),
+		).toContain("body must not start with frontmatter");
+		expect(await readFile(path, "utf8")).toBe(
+			"---\ndescription: People Lior mentions.\ncategory: people\nversion: 1\n---\nLior likes tea.\n",
+		);
+		xai().script.push(
+			{
+				tool: {
+					name: "knowledge_update",
+					arguments: {
+						slug: "people",
+						description: "People Lior mentions.",
+						body: "stale body\n",
+						version: 0,
+					},
+				},
+			},
+			{
+				tool: {
+					name: "knowledge_update",
+					arguments: {
+						slug: "people",
+						description: "People Lior mentions.",
+						body: "Lior likes tea and coffee.\n",
+						version: 1,
+					},
+				},
+			},
+			{ text: "patched" },
+		);
+		tg().push("add coffee");
+		await until(() => tg().texts().includes("patched"), "patched");
+		const afterPatch = xai()
+			.requests.map((request) => JSON.stringify(request.body))
+			.join("\n");
+		expect(afterPatch).toContain("Version does not match.");
+		expect(await readFile(path, "utf8")).toBe(
+			"---\ndescription: People Lior mentions.\ncategory: people\nversion: 2\n---\nLior likes tea and coffee.\n",
+		);
+		xai().script.push(
+			{
+				tool: {
+					name: "knowledge_delete",
+					arguments: { slug: "people", version: 1 },
+				},
+			},
+			{
+				tool: {
+					name: "knowledge_delete",
+					arguments: { slug: "people", version: 2 },
+				},
+			},
+			{ text: "gone" },
+		);
+		tg().push("forget people");
+		await until(() => tg().texts().includes("gone"), "deleted");
+		await settle(app, egress);
+		expect(
+			await readFile(path, "utf8").catch(
+				(error: { code?: string }) => error.code,
+			),
+		).toBe("ENOENT");
+	});
+
+	it("knowledge tools refuse a slug that is not a legal knowledge slug", async () => {
 		const home = await tempHome();
 		await writeFile(join(home, "secret.txt"), "outside-secret");
 		const app = await boot(home);
 		xai().script.push(
-			{ tool: { name: "read", arguments: { path: "../../secret.txt" } } },
+			{ tool: { name: "knowledge_read", arguments: { slug: "../secret" } } },
+			{ tool: { name: "knowledge_read", arguments: { slug: "SOUL" } } },
 			{
-				tool: { name: "read", arguments: { path: "disk/../../../secret.txt" } },
+				tool: {
+					name: "knowledge_update",
+					arguments: {
+						slug: "disk/notes",
+						description: "Nope.",
+						body: "secret-1",
+						version: 0,
+					},
+				},
 			},
 			{ text: "refused" },
 		);
@@ -384,51 +510,14 @@ describe("chat flows", () => {
 			.requests.slice(1)
 			.map((request) => JSON.stringify(request.body))
 			.join("\n");
-		expect(followups).toContain("Path is outside the bot folder");
+		expect(followups).toContain("The name is not a legal slug.");
 		expect(followups).not.toContain("outside-secret");
-	});
-
-	it("one user's disk/notes.txt is absent from another's", async () => {
-		const home = await tempHome();
-		const app = await boot(home, { TELEGRAM_ALLOWED_USERS: "1,2" });
-		const eve = { id: 2, first_name: "Eve", username: "eve" };
-		xai().script.push(
-			{
-				tool: {
-					name: "write",
-					arguments: { path: "disk/notes.txt", content: "secret-1" },
-				},
-			},
-			{ text: "saved" },
-		);
-		tg().push("save a note");
-		await until(() => tg().texts().includes("saved"), "user 1 saved");
-		xai().script.push(
-			{ tool: { name: "read", arguments: { path: "disk/notes.txt" } } },
-			{ text: "read mine" },
-		);
-		tg().push("read it back");
-		await until(() => tg().texts().includes("read mine"), "user 1 read");
-		expect(
-			JSON.stringify(defined(xai().requests.at(-1), "request").body),
-		).toContain("secret-1");
-		const mark = xai().requests.length;
-		xai().script.push(
-			{ tool: { name: "read", arguments: { path: "disk/notes.txt" } } },
-			{ tool: { name: "read", arguments: { path: "users/1/disk/notes.txt" } } },
-			{ text: "nothing" },
-		);
-		tg().push("read their note", { from: eve, chatId: 200 });
-		await until(() => tg().texts().includes("nothing"), "user 2 done");
-		await settle(app, egress);
-		for (const request of xai().requests.slice(mark))
-			expect(JSON.stringify(request.body)).not.toContain("secret-1");
 		expect(
 			await readFile(
-				join(home, "bots", "default", "users", "1", "disk", "notes.txt"),
+				join(home, "bots", "default", "knowledge", "disk", "notes.md"),
 				"utf8",
-			),
-		).toBe("secret-1");
+			).catch((error: { code?: string }) => error.code),
+		).toBe("ENOENT");
 	});
 
 	it("the knowledge index caps at 80 files and warns on unreadable frontmatter", async () => {

@@ -33,7 +33,7 @@ src/schedules/              schedules.sqlite sidecar · cron.ts · harvest.ts (p
 src/harness/                storage.ts (SQLite + owner.lock) · models.ts · credentials.ts (auth.json) · login.ts · registry.ts · startup.ts · bot-env.ts
 src/channels/telegram/      transport.ts · poller.ts · chats.ts · deliver.ts · commands.ts
 src/channels/web/           Bun.serve API + SSE; ui/ is Preact, built at listen (no node:fs in the bundle)
-src/extensions/             prompt sections (identity.ts), self tools, and knowledge parsers; new features go here as pi-durable extensions
+src/extensions/             prompt sections (identity.ts), knowledge tools, self tools, and knowledge parsers; new features go here as pi-durable extensions
 scripts/auth.ts             login/logout/status CLI
 test/flows/                 feature-flow tests (the main suite)
 test/egress/                fake egress HTTP server + fetch routing (+ preload for child processes)
@@ -46,7 +46,7 @@ test/storage-bun.test.ts    pi-durable storage conformance under Bun
 - **One storage owner.** `owner.lock` in `PI_BOT_HOME`; never open `durable.sqlite` from a second process. Don't write foreign tables into it. Schedules live in `schedules.sqlite`.
 - **Inbound exactly once.** Every Telegram message is submitted with `requestId = tg:<chatId>:<messageId>`; the update offset advances only after admission. A web message uses `<chatKey>:<clientMsgId>`. A schedule occurrence uses `sched:<id>:<nextRun>` (harvest ids look like `sched:harvest:<chatKey>:<nextRun>`), claimed in the sidecar `fires` table before the fork or submit. Commands are deduped in `CommandsDoc` (claim before effect). Harvest notes are `pi-bot.harvest-notes` and are not conversation messages.
 - **Outbound at most once.** Every send goes through `Deliverer`: commit `sending` → send → commit `sent`/`unknown`. A `sending` found at startup becomes `unknown` and is **never resent**. Never add automatic retries of Telegram sends (no idempotency key).
-- **Tool replay classes** (pi-durable `replay`): pure reads → `safe`; idempotent internal writes (memory, skills, schedules) → `safe`, keyed by `taskId:callId` or content hash, doc writes in the same commit; external side effects (sends, HTTP POST) → `unsafe` + receipt; shell/exec → `unsafe`.
+- **Tool replay classes** (pi-durable `replay`): pure reads → `safe`; idempotent internal writes (memory, skills, schedules, knowledge) → `safe`, keyed by `taskId:callId` or content hash, doc writes in the same commit; external side effects (sends, HTTP POST) → `unsafe` + receipt; shell/exec → `unsafe`.
 - Hooks are read-only (HookApi); trigger work by committing tasks from host code. Keep prompt sections stable (they are cached); volatile data at most daily.
 - Every async pi-durable call takes a Chord context (`BACKGROUND_CONTEXT`). Verify APIs against `node_modules/@earendil-works/pi-durable` types, not memory.
 

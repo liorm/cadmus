@@ -403,9 +403,9 @@ describe("tool results", () => {
 		);
 		const names = body.catalog.map((tool) => tool.name);
 		expect(names).toEqual([
-			"read",
-			"write",
-			"edit",
+			"knowledge_read",
+			"knowledge_update",
+			"knowledge_delete",
 			"schedule_create",
 			"schedule_list",
 			"schedule_update",

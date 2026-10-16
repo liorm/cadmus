@@ -1,4 +1,5 @@
 import { signal } from "@preact/signals";
+import type { KnowledgeDraft } from "../../../extensions/knowledge-parse.ts";
 
 export type Bot = {
 	id: string;
@@ -75,6 +76,10 @@ export type BotFile = {
 	valid?: boolean;
 	text?: string;
 };
+export type {
+	KnowledgeDraft,
+	KnowledgeRecord,
+} from "../../../extensions/knowledge-parse.ts";
 export type ScheduleRow = {
 	id: string;
 	botId: string;
@@ -114,6 +119,7 @@ export const contextPercent = signal<number | undefined>(undefined);
 export const files = signal<BotFile[]>([]);
 export const filePath = signal<string | null>(null);
 export const fileText = signal("");
+export const knowledgeDraft = signal<KnowledgeDraft | null>(null);
 export const schedules = signal<ScheduleRow[]>([]);
 export const scheduleId = signal<string | null>(null);
 export const narrow = signal(false);

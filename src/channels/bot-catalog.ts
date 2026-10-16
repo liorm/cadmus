@@ -1,8 +1,8 @@
 /** Every model tool this process registers, in offer order. */
 export const TOOL_CATALOG = [
-	{ group: "Files", name: "read" },
-	{ group: "Files", name: "write" },
-	{ group: "Files", name: "edit" },
+	{ group: "Knowledge", name: "knowledge_read" },
+	{ group: "Knowledge", name: "knowledge_update" },
+	{ group: "Knowledge", name: "knowledge_delete" },
 	{ group: "Schedules", name: "schedule_create" },
 	{ group: "Schedules", name: "schedule_list" },
 	{ group: "Schedules", name: "schedule_update" },
@@ -13,7 +13,11 @@ export const TOOL_CATALOG = [
 	{ group: "Provider", name: "code.execute" },
 ] as const;
 
-export const FILE_TOOLS = ["read", "write", "edit"] as const;
+export const KNOWLEDGE_TOOLS = [
+	"knowledge_read",
+	"knowledge_update",
+	"knowledge_delete",
+] as const;
 export const WEB_TOOLS = ["web.search", "web.fetch"] as const;
 
 export const TOOL_NAMES: readonly string[] = TOOL_CATALOG.map(

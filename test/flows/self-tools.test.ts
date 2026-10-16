@@ -445,7 +445,7 @@ describe("self tools", () => {
 		expect(current.enabled).toEqual(current.catalog.map((tool) => tool.name));
 		expect(current.enabled).toContain("schedule_update");
 		const enabled = current.enabled.filter(
-			(name) => name !== "schedule_create" && name !== "read",
+			(name) => name !== "schedule_create" && name !== "knowledge_read",
 		);
 		const saved = await json<{ enabled: string[] }>(
 			url,
@@ -473,7 +473,7 @@ describe("self tools", () => {
 			JSON.stringify(request.body).replaceAll(" ", ""),
 		);
 		expect(bodies[0]).not.toContain('"name":"schedule_create"');
-		expect(bodies[0]).not.toContain('"name":"read"');
+		expect(bodies[0]).not.toContain('"name":"knowledge_read"');
 		expect(bodies[0]).toContain('"type":"web_search"');
 		expect(bodies[0]).not.toContain('"name":"web.search"');
 		expect(bodies[0]).toContain('"name":"schedule_update"');

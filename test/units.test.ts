@@ -9,7 +9,17 @@ import { requestIdOf } from "../src/channels/telegram/poller.ts";
 import { liveTools, projectEntries } from "../src/channels/web/transcript.ts";
 import { parseUserIds } from "../src/config.ts";
 import { dayLine } from "../src/extensions/identity.ts";
-import { parseDescription, parseSlug } from "../src/extensions/knowledge.ts";
+import {
+	formatKnowledge,
+	KNOWLEDGE_FIELDS,
+	parseCategoryField,
+	parseDescription,
+	parseDescriptionField,
+	parseKnowledge,
+	parseKnowledgeBody,
+	parseKnowledgeWrite,
+	parseSlug,
+} from "../src/extensions/knowledge.ts";
 import {
 	applyServerTools,
 	attachNativeTools,
@@ -217,6 +227,130 @@ describe("pure helpers", () => {
 		expect(
 			parseDescription("---\ndescription: line one\nline two\n---\n"),
 		).toBeUndefined();
+		expect(
+			parseDescription(
+				"---\ndescription: People Lior mentions.\nversion: 3\n---\n\nBody.\n",
+			),
+		).toBe("People Lior mentions.");
+	});
+
+	it("parses knowledge description fields, documents, and canonical format", () => {
+		expect(parseDescriptionField(" People Lior mentions. ")).toBe(
+			"People Lior mentions.",
+		);
+		expect(parseDescriptionField("")).toBeUndefined();
+		expect(parseDescriptionField("x".repeat(241))).toBeUndefined();
+		expect(parseDescriptionField("one\ntwo")).toBeUndefined();
+		expect(
+			parseKnowledge(
+				"---\ndescription: People Lior mentions.\n---\n\nLior likes tea.\n",
+			),
+		).toEqual({
+			description: "People Lior mentions.",
+			version: 0,
+			body: "\nLior likes tea.\n",
+		});
+		expect(
+			parseKnowledge(
+				"---\nversion: 4\ndescription: People Lior mentions.\n---\nbody",
+			),
+		).toEqual({
+			description: "People Lior mentions.",
+			version: 4,
+			body: "body",
+		});
+		expect(
+			parseKnowledge("---\ndescription: People.\nversion: 01\n---\n"),
+		).toBeUndefined();
+		expect(
+			formatKnowledge({
+				description: "People Lior mentions.",
+				body: "Lior likes tea.\n",
+				version: 1,
+			}),
+		).toBe(
+			"---\ndescription: People Lior mentions.\nversion: 1\n---\nLior likes tea.\n",
+		);
+		expect(
+			parseKnowledge(
+				formatKnowledge({
+					description: "People Lior mentions.",
+					body: "Lior likes tea.\n",
+					version: 2,
+				}),
+			),
+		).toEqual({
+			description: "People Lior mentions.",
+			version: 2,
+			body: "Lior likes tea.\n",
+		});
+		expect(parseCategoryField(" people ")).toBe("people");
+		expect(parseCategoryField("x".repeat(64))).toBe("x".repeat(64));
+		expect(parseCategoryField("x".repeat(65))).toBeUndefined();
+		expect(parseCategoryField("one\ntwo")).toBeUndefined();
+		expect(
+			parseKnowledge(
+				"---\ndescription: People Lior mentions.\ncategory: people\nversion: 3\n---\nLior likes tea.\n",
+			),
+		).toEqual({
+			description: "People Lior mentions.",
+			version: 3,
+			category: "people",
+			body: "Lior likes tea.\n",
+		});
+		expect(
+			formatKnowledge({
+				description: "People Lior mentions.",
+				body: "Lior likes tea.\n",
+				version: 1,
+				category: "people",
+			}),
+		).toBe(
+			"---\ndescription: People Lior mentions.\ncategory: people\nversion: 1\n---\nLior likes tea.\n",
+		);
+		expect(parseKnowledgeBody("Lior likes tea.\n")).toBe("Lior likes tea.\n");
+		expect(parseKnowledgeBody("")).toBe("");
+		expect(
+			parseKnowledgeBody("---\ndescription: pasted\n---\nbody\n"),
+		).toBeUndefined();
+		expect(parseKnowledgeBody("---\n")).toBeUndefined();
+		expect(
+			parseKnowledge("---\ndescription: People.\nversion: 1\n---\n---\nbody\n"),
+		).toBeUndefined();
+		expect(KNOWLEDGE_FIELDS.map((field) => field.name)).toEqual([
+			"description",
+			"category",
+			"version",
+			"body",
+		]);
+		expect(
+			parseKnowledgeWrite({
+				description: "People Lior mentions.",
+				body: "Lior likes tea.\n",
+				version: 0,
+				category: "people",
+			}).ok,
+		).toBe(true);
+		expect(
+			parseKnowledgeWrite({
+				description: "x".repeat(241),
+				body: "body",
+				version: 0,
+			}),
+		).toEqual({
+			ok: false,
+			error: "description is required, one line, at most 240 characters.",
+		});
+		expect(
+			parseKnowledgeWrite({
+				description: "People.",
+				body: "---\npasted\n",
+				version: 0,
+			}),
+		).toEqual({
+			ok: false,
+			error: "body must not start with frontmatter (---).",
+		});
 	});
 
 	it("chunks long replies under Telegram's limit", () => {

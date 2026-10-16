@@ -64,18 +64,18 @@ Closing a chat drops it from the live directory and refuses further admission. T
 Sections, stable toward volatile, from that bot's folder. Identity renders them when a request is built.
 
 1. `soul` — `SOUL.md`. An empty file falls back to a built-in persona.
-2. `knowledge` — a description index, rebuilt by scanning `knowledge/` when the prompt is rendered. Bodies stay out of the prompt. The model opens a file with `read` when the index matches.
+2. `knowledge` — a description index, rebuilt by scanning `knowledge/` when the prompt is rendered. Bodies stay out of the prompt. The model opens a file with `knowledge_read` when the index matches.
 3. `date` — a daily line.
 
-A knowledge file is markdown with a single `description` frontmatter line. A file the parser cannot read, or whose real path leaves the bot folder, is left out of the index and named in a warning line. There is no separate index file.
+A knowledge file is markdown with a `description` frontmatter line, an optional `version` integer (missing means 0), and an optional `category`. The body must not start with `---`. A file the parser cannot read, or whose real path leaves the bot folder, is left out of the index and named in a warning line. There is no separate index file.
 
-Client writes of knowledge files are checked first (legal slug, readable description). A failed check leaves the file unchanged. Model writes go through the file tools, which accept any text. A file that then fails the parser drops out of the index.
+Client writes of knowledge files use the same structured fields as `knowledge_update` (legal slug, description, body, version, optional category). Frontmatter is composed on disk and is not accepted as the write body. A failed check leaves the file unchanged. Model writes go through `knowledge_update`, which takes description, body, optional category, and the version from `knowledge_read`, and writes canonical frontmatter. A stale version does not write. A body that starts with `---` does not write.
 
 ## Shared and private
 
 Everyone who reaches a bot shares that bot's `SOUL.md`, `knowledge/`, model, thinking level, and stored tool list.
 
-Each person has their own chats. Schedule rows name one chat, or create one new chat. Harvest notes attach to the chat that was forked. `users/<userId>/disk/` is visible to the file tools as `disk/` for the conversation's user. A path that leaves the bot folder, or that reaches another user's tree, is refused. A conversation with no user id cannot use `disk/`.
+Each person has their own chats. Schedule rows name one chat, or create one new chat. Harvest notes attach to the chat that was forked. Private files stay at `users/<userId>/disk/`.
 
 A harvest from one chat writes the shared knowledge folder. Other chats see the new description on their next prompt. They do not receive that chat's transcript or its harvest note. How the note is produced is in [idle harvest](./flow.md#idle-harvest).
 

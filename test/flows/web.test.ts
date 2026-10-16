@@ -657,6 +657,8 @@ describe("web channel", () => {
 		const script = await (await call(url, "/app.js")).text();
 		expect(script).toContain("Knowledge updated");
 		expect(script).toContain("Can't save");
+		expect(script).toContain("Description");
+		expect(script).toContain("Version");
 		expect(script).toContain("Run now");
 		expect(script).toContain("New schedule");
 		expect(script).toContain("/status");
@@ -664,30 +666,117 @@ describe("web channel", () => {
 		expect(css).toContain("max-width: 700px");
 	});
 
-	it("rejects an invalid knowledge save and leaves the file unchanged", async () => {
+	it("reads and writes knowledge as structured fields, hiding frontmatter", async () => {
 		const home = await tempHome();
 		const { url } = await boot(home);
 		const dir = join(home, "bots", "default", "knowledge");
 		await mkdir(dir, { recursive: true });
-		const original = "---\ndescription: Travel notes.\n---\n\nkeep me\n";
+		const original =
+			"---\ndescription: Travel notes.\ncategory: trips\nversion: 2\n---\n\nkeep me\n";
 		await writeFile(join(dir, "travel.md"), original);
-		const tooLong = `---\ndescription: ${"x".repeat(241)}\n---\n\nchanged\n`;
-		const rejected = await call(
+		const raw = await call(url, "/api/bots/default/files/knowledge/travel.md", {
+			method: "PUT",
+			body: JSON.stringify({ text: original }),
+		});
+		expect(raw.status).toBe(400);
+		const got = await json<{
+			slug: string;
+			version: number;
+			description: string;
+			category?: string;
+			body: string;
+			text?: string;
+		}>(url, "/api/bots/default/files/knowledge/travel.md");
+		expect(got).toMatchObject({
+			slug: "travel",
+			exists: true,
+			version: 2,
+			description: "Travel notes.",
+			category: "trips",
+			body: "\nkeep me\n",
+		});
+		expect(got.text).toBeUndefined();
+		expect(JSON.stringify(got)).not.toContain("---");
+		const tooLong = await call(
 			url,
 			"/api/bots/default/files/knowledge/travel.md",
 			{
 				method: "PUT",
-				body: JSON.stringify({ text: tooLong }),
+				body: JSON.stringify({
+					description: "x".repeat(241),
+					body: "changed\n",
+					version: 2,
+				}),
 			},
 		);
-		expect(rejected.status).toBe(422);
+		expect(tooLong.status).toBe(422);
 		expect(await readFile(join(dir, "travel.md"), "utf8")).toBe(original);
+		const fenced = await call(
+			url,
+			"/api/bots/default/files/knowledge/travel.md",
+			{
+				method: "PUT",
+				body: JSON.stringify({
+					description: "Travel notes.",
+					body: "---\nchanged\n",
+					version: 2,
+				}),
+			},
+		);
+		expect(fenced.status).toBe(422);
+		expect(await fenced.json()).toMatchObject({
+			error: expect.stringContaining("frontmatter"),
+		});
+		expect(await readFile(join(dir, "travel.md"), "utf8")).toBe(original);
+		const stale = await call(
+			url,
+			"/api/bots/default/files/knowledge/travel.md",
+			{
+				method: "PUT",
+				body: JSON.stringify({
+					description: "Travel notes.",
+					body: "stale\n",
+					version: 1,
+				}),
+			},
+		);
+		expect(stale.status).toBe(422);
+		expect(await readFile(join(dir, "travel.md"), "utf8")).toBe(original);
+		const saved = await json<{
+			slug: string;
+			version: number;
+			description: string;
+			category?: string;
+			body: string;
+			created: boolean;
+		}>(url, "/api/bots/default/files/knowledge/travel.md", {
+			method: "PUT",
+			body: JSON.stringify({
+				description: "Updated travel notes.",
+				body: "Lisbon in May.\n",
+				version: 2,
+				category: "trips",
+			}),
+		});
+		expect(saved).toMatchObject({
+			slug: "travel",
+			version: 3,
+			description: "Updated travel notes.",
+			category: "trips",
+			body: "Lisbon in May.\n",
+			created: false,
+		});
+		expect(await readFile(join(dir, "travel.md"), "utf8")).toBe(
+			"---\ndescription: Updated travel notes.\ncategory: trips\nversion: 3\n---\nLisbon in May.\n",
+		);
 		const escaped = await call(url, "/api/bots/default/files/..%2Fsecret.txt", {
 			method: "PUT",
 			body: JSON.stringify({ text: "nope" }),
 		});
 		expect(escaped.status).toBe(400);
-		expect(await readFile(join(dir, "travel.md"), "utf8")).toBe(original);
+		expect(await readFile(join(dir, "travel.md"), "utf8")).toBe(
+			"---\ndescription: Updated travel notes.\ncategory: trips\nversion: 3\n---\nLisbon in May.\n",
+		);
 	});
 
 	it("fires a past reminder once, hides harvest rows, and rejects a bad cron", async () => {
@@ -848,13 +937,15 @@ describe("web channel", () => {
 		const key = await createWebChat(url);
 		egress.xai.script.push({ text: "noted" });
 		egress.xai.script.push(
+			{ tool: { name: "knowledge_read", arguments: { slug: "notes" } } },
 			{
 				tool: {
-					name: "write",
+					name: "knowledge_update",
 					arguments: {
-						path: "knowledge/notes.md",
-						content:
-							"---\ndescription: Harvested notes.\n---\n\nHARVEST_BODY_LINE\n",
+						slug: "notes",
+						description: "Harvested notes.",
+						body: "HARVEST_BODY_LINE\n",
+						version: 0,
 					},
 				},
 			},
@@ -877,6 +968,24 @@ describe("web channel", () => {
 		const body = JSON.stringify(defined(follow, "follow-up").body);
 		expect(body).not.toContain("HARVEST_BODY_LINE");
 		expect(body).not.toContain("Improve knowledge from this chat.");
+		const harvestRequest = egress.xai.requests.find((request) =>
+			JSON.stringify(request.body).includes(
+				"Improve knowledge from this chat.",
+			),
+		);
+		const harvestJson = JSON.stringify(
+			defined(harvestRequest, "harvest request").body,
+		);
+		expect(harvestJson).toContain("Skip local answers");
+		expect(harvestJson).toContain("code.execute");
+		expect(harvestJson).toContain("If nothing qualifies, make no writes");
+		const harvestBody = harvestJson.replaceAll(" ", "");
+		expect(harvestBody).toContain('"name":"knowledge_read"');
+		expect(harvestBody).toContain('"name":"knowledge_update"');
+		expect(harvestBody).not.toContain('"name":"schedule_create"');
+		expect(harvestBody).not.toContain('"name":"web.search"');
+		expect(harvestBody).not.toContain('"name":"read"');
+		expect(harvestBody).not.toContain('"name":"write"');
 		const transcript = await messages(url, key);
 		expect(transcript.some((item) => item.type === "harvest")).toBe(true);
 		expect(
@@ -894,12 +1003,15 @@ describe("web channel", () => {
 		const key = await createWebChat(first.url);
 		egress.xai.script.push({ text: "ok" });
 		egress.xai.script.push(
+			{ tool: { name: "knowledge_read", arguments: { slug: "notes" } } },
 			{
 				tool: {
-					name: "write",
+					name: "knowledge_update",
 					arguments: {
-						path: "knowledge/notes.md",
-						content: "---\ndescription: Kept.\n---\n\nHARVEST_BODY_LINE\n",
+						slug: "notes",
+						description: "Kept.",
+						body: "HARVEST_BODY_LINE\n",
+						version: 0,
 					},
 				},
 			},

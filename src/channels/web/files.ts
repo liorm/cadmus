@@ -8,7 +8,14 @@ import {
 	writeFile,
 } from "node:fs/promises";
 import { isAbsolute, join, relative } from "node:path";
-import { parseDescription, parseSlug } from "../../extensions/knowledge.ts";
+import {
+	commitKnowledgeUpdate,
+	type KnowledgeRecord,
+	knowledgeReadRecord,
+	loadKnowledge,
+	parseKnowledge,
+	parseSlug,
+} from "../../extensions/knowledge.ts";
 import { botDir } from "../bots.ts";
 
 export type ListedFile =
@@ -37,15 +44,57 @@ export async function listBotFiles(
 		const text = await readFile(join(root, "knowledge", name), "utf8").catch(
 			() => undefined,
 		);
-		const description = text === undefined ? undefined : parseDescription(text);
-		const valid = Boolean(parseSlug(slug, "knowledge") && description);
+		const doc = text === undefined ? undefined : parseKnowledge(text);
+		const valid = Boolean(parseSlug(slug, "knowledge") && doc);
 		files.push({
 			path: `knowledge/${name}`,
-			description: description ?? null,
+			description: doc?.description ?? null,
 			valid,
 		});
 	}
 	return files;
+}
+
+export function knowledgeSlugFromRel(rel: string): string | undefined {
+	if (!rel.startsWith("knowledge/") || !rel.endsWith(".md")) return undefined;
+	return parseSlug(rel.slice("knowledge/".length, -".md".length), "knowledge");
+}
+
+export async function readBotKnowledge(
+	home: string,
+	botId: string,
+	slug: string,
+): Promise<
+	| { ok: true; record: KnowledgeRecord }
+	| { ok: false; status: 404 | 422; error: string }
+> {
+	const loaded = await loadKnowledge(botDir(home, botId), slug);
+	if (loaded.status === "outside" || loaded.status === "missing")
+		return { ok: false, status: 404, error: "No such file." };
+	if (loaded.status === "unreadable")
+		return {
+			ok: false,
+			status: 422,
+			error: `knowledge/${slug}.md — unreadable frontmatter.`,
+		};
+	return { ok: true, record: knowledgeReadRecord(slug, loaded.doc) };
+}
+
+export async function writeBotKnowledge(
+	home: string,
+	botId: string,
+	slug: string,
+	args: Record<string, unknown>,
+): Promise<
+	| { ok: true; record: KnowledgeRecord }
+	| { ok: false; status: 422; error: string }
+> {
+	const result = await commitKnowledgeUpdate(botDir(home, botId), {
+		...args,
+		slug,
+	});
+	if (!result.ok) return { ok: false, status: 422, error: result.error };
+	return { ok: true, record: result.record };
 }
 
 export async function readBotFile(
@@ -65,8 +114,8 @@ export async function readBotFile(
 }
 
 /**
- * Write one bot file. Knowledge files need a legal slug and a one-line description.
- * A failed check leaves the file as it was.
+ * Write one bot file that is not knowledge (SOUL.md). A failed check leaves
+ * the file as it was.
  */
 export async function writeBotFile(
 	home: string,
@@ -74,8 +123,6 @@ export async function writeBotFile(
 	rel: string,
 	text: string,
 ): Promise<{ ok: true } | { ok: false; status: 400 | 422; error: string }> {
-	const problem = knowledgeProblem(rel, text);
-	if (problem) return { ok: false, status: 422, error: problem };
 	const full = await resolveBotFile(home, botId, rel);
 	if (!full.ok) return full;
 	const tmp = `${full.path}.${process.pid}.tmp`;
@@ -88,20 +135,6 @@ export async function writeBotFile(
 		throw error;
 	}
 	return { ok: true };
-}
-
-function knowledgeProblem(rel: string, text: string): string | undefined {
-	if (!rel.startsWith("knowledge/")) return undefined;
-	const slug = rel.slice("knowledge/".length, -".md".length);
-	if (!parseSlug(slug, "knowledge"))
-		return "The file name is not a legal slug.";
-	const description = parseDescription(text);
-	if (description) return undefined;
-	const line = /^---\r?\ndescription:[ \t]*([^\r\n]*)/m.exec(text);
-	const length = line?.[1]?.trim().length ?? 0;
-	if (length > 240)
-		return `description is ${length} characters — max 240, one line. The file was not changed.`;
-	return "description is required, one line, at most 240 characters. The file was not changed.";
 }
 
 async function resolveBotFile(

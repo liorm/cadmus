@@ -35,9 +35,7 @@ A plain message calls `submit`. While a turn is in progress, further input steer
 
 ## A turn
 
-The conversation's agent directory is the bot folder from the [data model](./model.md). Prompt sections are read from that folder. File tools resolve paths against it. `disk/…` is rewritten to `users/<userId>/disk/…` before the boundary check. `exec` reports that no shell is available.
-
-`write` and `edit` leave replay unset. Recovery does not run them again. It records that the call was interrupted and may have partially run, and the turn continues.
+The conversation's agent directory is the bot folder from the [data model](./model.md). Prompt sections are read from that folder. Knowledge tools resolve `knowledge/<slug>.md` under it. `knowledge_update` and `knowledge_delete` are replay `safe` and memoized; a stale version does not write.
 
 The web client watches the conversation. On connect, harvest notes already stored for that chat are sent first, then a `state` frame that includes the same notes. Later frames are `state` or `delta`, tool status, completion, errors, and `harvest`. The event names are listed on the [client surface](./client.md).
 
@@ -73,11 +71,11 @@ Harvest is a caller of the schedule service and uses the same clock. After a use
 
 - id `harvest:<chatKey>`
 - target `fork` of that chat at the entry the chat rested on
-- text `Improve knowledge from this chat.`
+- text that tells the child to keep only durable notes (preferences, standing instructions, working methods), skip local answers and instance values, then `knowledge_read` then `knowledge_update` with that version
 - wake at now plus the harvest delay ([current policy](../architecture.md#current-policy))
 - replace when the rested entry changed; `reschedule` when only the wake should move
 
-A new user message removes that id. The child keeps the transcript up to the pinned entry and the same bot directory, so its writes land in the shared knowledge folder. The parent transcript is unchanged.
+A new user message removes that id. After the fork, the child is configured with only the knowledge tools the bot still has on. It patches `knowledge/` through compare-and-swap versions. The parent transcript is unchanged.
 
 Before the fork, the host snapshots `SOUL.md` and `knowledge/`. After the child goes idle, it diffs. No change means no note. A change appends `{ chatKey, at, files: [{ path, diff }], when }` on `pi-bot.harvest-notes`. The note is shown on that chat's timeline, collapsed until opened. It is not a conversation entry, so later model requests do not see it, and it is not sent to Telegram.
 

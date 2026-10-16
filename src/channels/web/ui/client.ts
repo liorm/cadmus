@@ -1,4 +1,8 @@
 import {
+	draftFromRecord,
+	knowledgeWriteArgs,
+} from "../../../extensions/knowledge-parse.ts";
+import {
 	type Bot,
 	type BotFile,
 	banner,
@@ -16,6 +20,8 @@ import {
 	generalTelegram,
 	type HarvestNote,
 	type Item,
+	type KnowledgeRecord,
+	knowledgeDraft,
 	liveTools,
 	messages,
 	modal,
@@ -107,6 +113,7 @@ export async function openBot(id: string): Promise<void> {
 	files.value = [];
 	filePath.value = null;
 	fileText.value = "";
+	knowledgeDraft.value = null;
 	saved.value = "";
 	schedules.value = [];
 	scheduleId.value = null;
@@ -249,6 +256,16 @@ export async function loadFiles(): Promise<void> {
 export async function openFile(path: string): Promise<void> {
 	filePath.value = path;
 	saved.value = "";
+	if (path.startsWith("knowledge/")) {
+		knowledgeDraft.value = null;
+		fileText.value = "";
+		const body = await api<KnowledgeRecord>(
+			`/api/bots/${encodeURIComponent(botId.value)}/files/${encodeURIComponent(path)}`,
+		);
+		knowledgeDraft.value = draftFromRecord(body);
+		return;
+	}
+	knowledgeDraft.value = null;
 	const body = await api<{ text: string }>(
 		`/api/bots/${encodeURIComponent(botId.value)}/files/${encodeURIComponent(path)}`,
 	);
@@ -266,6 +283,24 @@ export async function saveFile(path: string, text: string): Promise<void> {
 	fileText.value = text;
 	await loadFiles();
 	filePath.value = path;
+}
+
+export async function saveKnowledge(): Promise<void> {
+	const draft = knowledgeDraft.value;
+	if (!draft) return;
+	const path = `knowledge/${draft.slug}.md`;
+	const body = await api<KnowledgeRecord>(
+		`/api/bots/${encodeURIComponent(botId.value)}/files/${encodeURIComponent(path)}`,
+		{
+			method: "PUT",
+			body: JSON.stringify(knowledgeWriteArgs(draft)),
+		},
+	);
+	filePath.value = path;
+	knowledgeDraft.value = draftFromRecord(body);
+	await loadFiles();
+	filePath.value = path;
+	knowledgeDraft.value = draftFromRecord(body);
 }
 
 export async function loadSchedules(): Promise<void> {

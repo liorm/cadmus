@@ -1,36 +1,185 @@
-import { readdir, readFile, realpath } from "node:fs/promises";
+import {
+	mkdir,
+	readdir,
+	readFile,
+	realpath,
+	rename,
+	rm,
+	writeFile,
+} from "node:fs/promises";
 import { isAbsolute, join, relative } from "node:path";
 
 /** How many knowledge files a prompt lists before a `N more` line. */
 export const KNOWLEDGE_INDEX_CAP = 80;
 
-const SLUG: Record<"bot" | "knowledge", RegExp> = {
-	/** `bots/<botId>`, 1–32 characters. */
-	bot: /^[a-z0-9][a-z0-9-]{0,31}$/,
-	/** `knowledge/<slug>.md`, 1–64 characters. */
-	knowledge: /^[a-z0-9][a-z0-9-]{0,63}$/,
-};
+export {
+	applyKnowledgeWrite,
+	draftFromRecord,
+	emptyKnowledgeDraft,
+	formatKnowledge,
+	KNOWLEDGE_BODY_FIELD,
+	KNOWLEDGE_FIELDS,
+	KNOWLEDGE_LINE_FIELDS,
+	KNOWLEDGE_VERSION_FIELD,
+	type KnowledgeDoc,
+	type KnowledgeDraft,
+	type KnowledgeField,
+	type KnowledgeRecord,
+	knowledgeIndexLine,
+	knowledgeParseError,
+	knowledgeReadRecord,
+	knowledgeWriteArgs,
+	knowledgeWriteRecord,
+	parseCategoryField,
+	parseDescription,
+	parseDescriptionField,
+	parseKnowledge,
+	parseKnowledgeBody,
+	parseKnowledgeWrite,
+	parseSlug,
+	parseVersion,
+} from "./knowledge-parse.ts";
 
-/** The slug when `value` matches `kind`, otherwise `undefined`. */
-export function parseSlug(
-	value: string,
-	kind: "bot" | "knowledge",
-): string | undefined {
-	return SLUG[kind].test(value) ? value : undefined;
+import {
+	applyKnowledgeWrite,
+	formatKnowledge,
+	type KnowledgeDoc,
+	type KnowledgeRecord,
+	knowledgeIndexLine,
+	knowledgeReadRecord,
+	knowledgeWriteRecord,
+	parseKnowledge,
+	parseKnowledgeWrite,
+	parseSlug,
+} from "./knowledge-parse.ts";
+
+export type LoadedKnowledge =
+	| { status: "outside" }
+	| { status: "missing"; path: string }
+	| { status: "unreadable"; path: string }
+	| { status: "ok"; path: string; doc: KnowledgeDoc; text: string };
+
+/** Resolve `knowledge/<slug>.md` under the bot folder. */
+export async function loadKnowledge(
+	cwd: string,
+	slug: string,
+): Promise<LoadedKnowledge> {
+	const resolved = await resolveKnowledgePath(cwd, slug);
+	if (!resolved.ok) return { status: "outside" };
+	const text = await readFile(resolved.path, "utf8").catch(() => undefined);
+	if (text === undefined) return { status: "missing", path: resolved.path };
+	const doc = parseKnowledge(text);
+	if (!doc) return { status: "unreadable", path: resolved.path };
+	return { status: "ok", path: resolved.path, doc, text };
 }
 
 /**
- * The `description` of a knowledge file: a single frontmatter line, 1–240 characters.
- * Any other shape is unreadable.
+ * Create or replace one knowledge entry. Same write the knowledge_update tool
+ * and the HTTP knowledge API use. Frontmatter is composed here.
  */
-export function parseDescription(text: string): string | undefined {
-	const match = /^---\r?\ndescription:[ \t]*([^\r\n]*)\r?\n---(?:\r?\n|$)/.exec(
-		text,
-	);
-	if (!match) return undefined;
-	const description = (match[1] ?? "").trim();
-	if (!description || description.length > 240) return undefined;
-	return description;
+export async function commitKnowledgeUpdate(
+	cwd: string,
+	args: Record<string, unknown>,
+): Promise<
+	{ ok: true; record: KnowledgeRecord } | { ok: false; error: string }
+> {
+	const slug =
+		typeof args.slug === "string"
+			? parseSlug(args.slug, "knowledge")
+			: undefined;
+	if (!slug) return { ok: false, error: "The name is not a legal slug." };
+	const parsed = parseKnowledgeWrite(args);
+	if (!parsed.ok) return parsed;
+	const loaded = await loadKnowledge(cwd, slug);
+	if (loaded.status === "outside")
+		return { ok: false, error: "The name is not a legal slug." };
+	const existing = loaded.status === "ok" ? loaded.doc : undefined;
+	const next = applyKnowledgeWrite(existing, parsed.value);
+	const intended = formatKnowledge(next);
+	const created = loaded.status === "missing";
+	const record = knowledgeWriteRecord(slug, next, created);
+	if (loaded.status === "ok" && loaded.text === intended) {
+		record.created = false;
+		return { ok: true, record };
+	}
+	if (loaded.status === "unreadable")
+		return {
+			ok: false,
+			error: `knowledge/${slug}.md — unreadable frontmatter. Version does not match.`,
+		};
+	if (loaded.status === "missing") {
+		if (parsed.value.version !== 0)
+			return { ok: false, error: "Version does not match." };
+	} else if (loaded.doc.version !== parsed.value.version) {
+		return { ok: false, error: "Version does not match." };
+	}
+	await writeKnowledgeFile(loaded.path, intended);
+	return { ok: true, record };
+}
+
+export function knowledgeReadPayload(
+	slug: string,
+	loaded: LoadedKnowledge,
+):
+	| {
+			ok: true;
+			record: KnowledgeRecord | { slug: string; exists: false; version: 0 };
+	  }
+	| { ok: false; error: string } {
+	if (loaded.status === "outside")
+		return { ok: false, error: "The name is not a legal slug." };
+	if (loaded.status === "missing")
+		return { ok: true, record: { slug, exists: false, version: 0 } };
+	if (loaded.status === "unreadable")
+		return {
+			ok: false,
+			error: `knowledge/${slug}.md — unreadable frontmatter. knowledge_update will not overwrite it; knowledge_delete removes it.`,
+		};
+	return { ok: true, record: knowledgeReadRecord(slug, loaded.doc) };
+}
+
+/** Atomic write of a knowledge entry. Caller already confined the path. */
+async function writeKnowledgeFile(path: string, text: string): Promise<void> {
+	const tmp = `${path}.${process.pid}.tmp`;
+	try {
+		await mkdir(join(path, ".."), { recursive: true });
+		await writeFile(tmp, text);
+		await rename(tmp, path);
+	} catch (error) {
+		await rm(tmp, { force: true });
+		throw error;
+	}
+}
+
+export async function deleteKnowledge(
+	cwd: string,
+	slug: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+	const resolved = await resolveKnowledgePath(cwd, slug);
+	if (!resolved.ok)
+		return { ok: false, error: "The name is not a legal slug." };
+	await rm(resolved.path, { force: true });
+	return { ok: true };
+}
+
+async function resolveKnowledgePath(
+	cwd: string,
+	slug: string,
+): Promise<{ ok: true; path: string } | { ok: false }> {
+	let rootReal: string;
+	try {
+		rootReal = await realpath(cwd);
+	} catch {
+		return { ok: false };
+	}
+	const path = join(cwd, "knowledge", `${slug}.md`);
+	const real = await realpath(path).catch(() => undefined);
+	if (real) return inside(rootReal, real) ? { ok: true, path } : { ok: false };
+	const parent = join(cwd, "knowledge");
+	const parentReal = await realpath(parent).catch(() => undefined);
+	if (parentReal)
+		return inside(rootReal, parentReal) ? { ok: true, path } : { ok: false };
+	return { ok: true, path };
 }
 
 function inside(rootReal: string, candidate: string): boolean {
@@ -63,10 +212,10 @@ export async function knowledgeIndex(
 			real && inside(rootReal, real)
 				? await readFile(path, "utf8").catch(() => undefined)
 				: undefined;
-		const description = text === undefined ? undefined : parseDescription(text);
-		if (!parseSlug(slug, "knowledge") || !description)
+		const doc = text === undefined ? undefined : parseKnowledge(text);
+		if (!parseSlug(slug, "knowledge") || !doc)
 			warnings.push(`knowledge/${name} — unreadable frontmatter`);
-		else valid.push(`knowledge/${name} — ${description}`);
+		else valid.push(knowledgeIndexLine(name, doc));
 	}
 	if (valid.length === 0 && warnings.length === 0) return undefined;
 	const shown = valid.slice(0, KNOWLEDGE_INDEX_CAP);

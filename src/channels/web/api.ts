@@ -46,7 +46,14 @@ import {
 import { handleCommand, parseCommand } from "../telegram/commands.ts";
 import type { Deliverer } from "../telegram/deliver.ts";
 import { chatEventResponse } from "./events.ts";
-import { listBotFiles, readBotFile, writeBotFile } from "./files.ts";
+import {
+	knowledgeSlugFromRel,
+	listBotFiles,
+	readBotFile,
+	readBotKnowledge,
+	writeBotFile,
+	writeBotKnowledge,
+} from "./files.ts";
 import {
 	latestTranscriptText,
 	openingTranscriptText,
@@ -500,6 +507,13 @@ async function readFileRoute(
 ): Promise<Response> {
 	if (!deps.ensureRuntime(id))
 		return Response.json({ error: "No such bot." }, { status: 404 });
+	const slug = knowledgeSlugFromRel(rel);
+	if (slug) {
+		const file = await readBotKnowledge(deps.config.home, id, slug);
+		if (!file.ok)
+			return Response.json({ error: file.error }, { status: file.status });
+		return Response.json(file.record);
+	}
 	const file = await readBotFile(deps.config.home, id, rel);
 	if (!file.ok)
 		return Response.json({ error: file.error }, { status: file.status });
@@ -515,20 +529,27 @@ async function writeFileRoute(
 	if (!deps.ensureRuntime(id))
 		return Response.json({ error: "No such bot." }, { status: 404 });
 	const body = await readJson(request);
-	if (
-		!body ||
-		typeof body !== "object" ||
-		Array.isArray(body) ||
-		typeof (body as { text?: unknown }).text !== "string"
-	) {
+	if (!body || typeof body !== "object" || Array.isArray(body))
 		return Response.json({ error: "Expected JSON." }, { status: 400 });
+	const record = body as Record<string, unknown>;
+	const slug = knowledgeSlugFromRel(rel);
+	if (slug) {
+		if (typeof record.text === "string")
+			return Response.json(
+				{ error: "Knowledge writes take description, body, and version." },
+				{ status: 400 },
+			);
+		const written = await writeBotKnowledge(deps.config.home, id, slug, record);
+		if (!written.ok)
+			return Response.json(
+				{ error: written.error },
+				{ status: written.status },
+			);
+		return Response.json(written.record);
 	}
-	const written = await writeBotFile(
-		deps.config.home,
-		id,
-		rel,
-		(body as { text: string }).text,
-	);
+	if (typeof record.text !== "string")
+		return Response.json({ error: "Expected JSON." }, { status: 400 });
+	const written = await writeBotFile(deps.config.home, id, rel, record.text);
 	if (!written.ok)
 		return Response.json({ error: written.error }, { status: written.status });
 	return Response.json({ ok: true });

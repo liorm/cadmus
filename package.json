@@ -11,7 +11,7 @@
 		"format": "biome check --write",
 		"format:check": "biome format",
 		"test": "bun test",
-		"test:e2e": "bun test ./e2e/tool-toggles.test.ts",
+		"test:e2e": "bun test ./e2e",
 		"check:all": "bun run format:check && biome check && bun run typecheck && bun test",
 		"login": "bun scripts/auth.ts login",
 		"logout": "bun scripts/auth.ts logout",

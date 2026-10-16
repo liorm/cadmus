@@ -1057,6 +1057,20 @@ button.sr {
 .err {
 	color: var(--bad);
 }
+.kf {
+	display: flex;
+	flex-direction: column;
+	gap: 14px;
+}
+.kf .span {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+}
+.kf input[readonly] {
+	color: var(--mu);
+	cursor: default;
+}
 .ed {
 	display: grid;
 	grid-template-columns: 42px 1fr;

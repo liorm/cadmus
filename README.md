@@ -52,7 +52,7 @@ Tokens live in `data/auth.json` (0600, gitignored) and are refreshed automatical
 
 ## Web page
 
-Set `WEB_TOKEN`, then open `http://127.0.0.1:8787/?token=<WEB_TOKEN>` once. The browser keeps an HttpOnly cookie. The page lists each bot's chats, streams replies, and edits that bot's `SOUL.md` and `knowledge/*.md`. Knowledge saves need a legal slug and a one-line description of at most 240 characters. A bad save is HTTP 422 and does not change the file.
+Set `WEB_TOKEN`, then open `http://127.0.0.1:8787/?token=<WEB_TOKEN>` once. The browser keeps an HttpOnly cookie. The page lists each bot's chats, streams replies, and edits that bot's `SOUL.md` and `knowledge/*.md`. Knowledge is edited as description, optional category, version (read-only), and body — the same fields as `knowledge_update`. Frontmatter stays on disk. A bad save is HTTP 422 and does not change the file.
 
 Schedules are cron (five fields, in `PI_BOT_TZ`) or a single `when`. A target is an existing chat, a new web chat, or a silent fork. Rows live in `schedules.sqlite`, not in `durable.sqlite`. A fire is admitted once per occurrence (`sched:<id>:<nextRun>`). Listings omit internal `harvest:` rows. The model can create, list, update, and delete schedules for the bot it is talking to (`schedule_create`, `schedule_list`, `schedule_update`, `schedule_delete`). An update can change the message, name, enabled flag, cron or single time, and target. It cannot see or change another bot's rows or the harvest job.
 
@@ -91,6 +91,7 @@ src/
     commands.ts                 /new /stop /status /help, deduped via CommandsDoc
   channels/web/                 Bun.serve API, SSE, Preact page (built in memory at listen)
   extensions/identity.ts        sections: bots/<id>/SOUL.md, knowledge index, daily date line
+  extensions/knowledge-tools.ts knowledge_read, knowledge_update, knowledge_delete
   extensions/self-tools/        model tools for this bot's own services (schedules)
   extensions/web.ts             web.search and web.fetch
   extensions/tool-gate.ts       refuses a tool the bot has switched off
