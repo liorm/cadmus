@@ -485,16 +485,19 @@ button:disabled {
 	font-weight: 600;
 }
 .msgs {
-	flex: 1;
+	flex: 1 1 0;
+	min-height: 0;
 	padding: 18px 44px;
 	display: flex;
 	flex-direction: column;
-	justify-content: flex-end;
 	gap: 11px;
 	overflow: auto;
+	overscroll-behavior: contain;
+}
+.msgs:not(.raw) > :first-child {
+	margin-top: auto;
 }
 .msgs.raw {
-	justify-content: flex-start;
 	padding: 14px 20px 24px;
 	gap: 8px;
 }
@@ -507,6 +510,7 @@ button:disabled {
 	flex: none;
 }
 .raw-turn {
+	flex: none;
 	max-width: 100%;
 	border: 1px solid var(--line);
 	border-radius: 10px;
@@ -530,13 +534,14 @@ button:disabled {
 .raw-turn pre {
 	margin: 0;
 	padding: 10px 12px;
-	overflow: auto;
+	overflow: visible;
 	white-space: pre-wrap;
 	word-break: break-word;
 	font: 12px / 1.55 var(--mono);
 	color: var(--tx);
 }
 .b {
+	flex: none;
 	max-width: 68%;
 	padding: 9px 13px;
 	border-radius: 14px;
@@ -549,6 +554,7 @@ button:disabled {
 	border-color: var(--user-line);
 }
 .comp {
+	flex: none;
 	padding: 12px 20px 14px;
 	border-top: 1px solid var(--line);
 	background: var(--p);
@@ -914,6 +920,7 @@ button.sr {
 	color: var(--bad);
 }
 .note {
+	flex: none;
 	align-self: stretch;
 	margin: 2px 0;
 	font-size: 12.5px;
