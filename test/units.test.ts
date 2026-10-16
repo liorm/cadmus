@@ -9,7 +9,7 @@ import { chunkText } from "../src/channels/telegram/deliver.ts";
 import { requestIdOf } from "../src/channels/telegram/poller.ts";
 import { liveTools, projectEntries } from "../src/channels/web/transcript.ts";
 import { parseUserIds } from "../src/config.ts";
-import { dayLine } from "../src/extensions/identity.ts";
+import { dayLine, soulWithName } from "../src/extensions/identity.ts";
 import {
 	formatKnowledge,
 	KNOWLEDGE_FIELDS,
@@ -731,5 +731,13 @@ describe("pure helpers", () => {
 		expect(dayLine("Asia/Jerusalem", new Date("2026-10-09T22:30:00Z"))).toBe(
 			"Today is 2026-10-10 (Saturday), time zone Asia/Jerusalem.",
 		);
+	});
+
+	it("puts the bot name above the soul", () => {
+		expect(soulWithName("Be concise.", "Pip")).toBe(
+			"Your name is Pip.\n\nBe concise.",
+		);
+		expect(soulWithName("Be concise.", "  ")).toBe("Be concise.");
+		expect(soulWithName("Be concise.")).toBe("Be concise.");
 	});
 });

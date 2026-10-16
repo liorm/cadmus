@@ -1,9 +1,16 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { defineExtension, section } from "@earendil-works/pi-durable";
+import type { Context } from "@earendil-works/chord";
+import {
+	defineExtension,
+	type PromptInput,
+	section,
+} from "@earendil-works/pi-durable";
+import { BotsDoc } from "../channels/bots.ts";
 import { DEFAULT_SOUL, SYSTEM_PROMPT } from "./default-soul.ts";
 import { knowledgeIndex } from "./knowledge.ts";
 import { memorySection } from "./memory.ts";
+import { botIdFromCwd } from "./self-tools/host.ts";
 
 export { DEFAULT_SOUL };
 
@@ -31,8 +38,26 @@ export function dayLine(timeZone: string, now = new Date()): string {
 	return `Today is ${date} (${weekday}), time zone ${timeZone}.`;
 }
 
+/** Stored display name as a line above the persona. Empty or missing name leaves the soul as-is. */
+export function soulWithName(soul: string, name?: string): string {
+	const label = name?.trim();
+	if (!label) return soul;
+	return `Your name is ${label}.\n\n${soul}`;
+}
+
+async function botName(
+	home: string,
+	input: PromptInput,
+	context: Context,
+): Promise<string | undefined> {
+	const id = botIdFromCwd(home, input.agent.cwd);
+	if (!id) return undefined;
+	const bots = await input.read.snapshot(BotsDoc, context);
+	return bots?.items.find((bot) => bot.id === id)?.name;
+}
+
 /**
- * Identity sections, stable → volatile: `SOUL.md`, system, knowledge index, MEMORY.md body, then a daily date.
+ * Identity sections, stable → volatile: `SOUL.md` (with the bot's name), system, knowledge index, MEMORY.md body, then a daily date.
  * Files are read from the conversation's agent cwd (`bots/<botId>`) at render time.
  */
 export function identityExtension(options: {
@@ -46,10 +71,13 @@ export function identityExtension(options: {
 		sections: [
 			section(
 				"soul",
-				async (input) =>
-					(input.agent.cwd
-						? await readOptional(join(input.agent.cwd, "SOUL.md"))
-						: undefined) ?? DEFAULT_SOUL,
+				async (input, context) =>
+					soulWithName(
+						(input.agent.cwd
+							? await readOptional(join(input.agent.cwd, "SOUL.md"))
+							: undefined) ?? DEFAULT_SOUL,
+						await botName(options.home, input, context),
+					),
 				{ tag: false },
 			),
 			section("system", (_input) => SYSTEM_PROMPT),

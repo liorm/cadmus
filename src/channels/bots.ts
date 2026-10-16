@@ -2,7 +2,7 @@ import { mkdir, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { defineDoc, type Harness } from "@earendil-works/pi-durable";
-import { DEFAULT_SOUL } from "../extensions/identity.ts";
+import { DEFAULT_SOUL } from "../extensions/default-soul.ts";
 import { normalizeEnabled } from "./bot-catalog.ts";
 import { slugifyBotName } from "./bot-slug.ts";
 

@@ -290,6 +290,7 @@ describe("chat flows", () => {
 		await settle(app, egress);
 		const request = JSON.stringify(defined(xai().requests[0], "request").body);
 		expect(request).toContain("You are Pip, Lior's assistant.");
+		expect(request).toContain("Your name is Default.");
 		expect(request).not.toContain("This leftover SYSTEM.md must not be read.");
 		expect(request).not.toContain("This home-root persona must not be read.");
 		expect(request).toContain("time zone Asia/Jerusalem");

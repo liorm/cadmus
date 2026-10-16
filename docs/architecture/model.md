@@ -64,7 +64,7 @@ Closing a chat drops it from the live directory and refuses further admission. T
 
 Sections, stable toward volatile, from that bot's folder. Identity renders them when a request is built.
 
-1. `soul` — `SOUL.md`. An empty file falls back to a built-in persona.
+1. `soul` — the bot's display name, then `SOUL.md`. An empty file falls back to a built-in persona.
 2. `knowledge` — a description index, rebuilt by scanning `knowledge/` when the prompt is rendered. Bodies stay out of the prompt. The model opens a file with `knowledge_read` when the index matches.
 3. `memory` — the body of `MEMORY.md` when it is non-empty, plus its version for `memory_update`. Frontmatter stays on disk. Empty or missing omits the section.
 4. `date` — a daily line.
