@@ -12,10 +12,10 @@ import { parseDescription, parseSlug } from "../../extensions/knowledge.ts";
 import { botDir } from "../bots.ts";
 
 export type ListedFile =
-	| { path: "SOUL.md" | "SYSTEM.md" }
+	| { path: "SOUL.md" }
 	| { path: string; description: string | null; valid: boolean };
 
-const ROOTS = new Set(["SOUL.md", "SYSTEM.md"]);
+const ROOTS = new Set(["SOUL.md"]);
 
 export async function listBotFiles(
 	home: string,
@@ -23,7 +23,7 @@ export async function listBotFiles(
 ): Promise<ListedFile[] | undefined> {
 	const root = botDir(home, botId);
 	if (!(await exists(root))) return undefined;
-	const files: ListedFile[] = [{ path: "SOUL.md" }, { path: "SYSTEM.md" }];
+	const files: ListedFile[] = [{ path: "SOUL.md" }];
 	let names: string[] = [];
 	try {
 		names = (await readdir(join(root, "knowledge")))

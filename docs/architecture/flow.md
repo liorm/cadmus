@@ -65,7 +65,7 @@ The row shape is in [schedules](./model.md#schedules).
 
 If the row's wake is still the one that was claimed, a `when` row is deleted and a `cron` row's next wake moves forward. A row that was already due at startup fires once. A cron row then skips ahead rather than replaying every missed slot.
 
-Harvest ids take the fork path and then, when `SOUL.md`, `SYSTEM.md`, or a file under `knowledge/` changed, append a note.
+Harvest ids take the fork path and then, when `SOUL.md` or a file under `knowledge/` changed, append a note.
 
 ## Idle harvest
 
@@ -79,7 +79,7 @@ Harvest is a caller of the schedule service and uses the same clock. After a use
 
 A new user message removes that id. The child keeps the transcript up to the pinned entry and the same bot directory, so its writes land in the shared knowledge folder. The parent transcript is unchanged.
 
-Before the fork, the host snapshots `SOUL.md`, `SYSTEM.md`, and `knowledge/`. After the child goes idle, it diffs. No change means no note. A change appends `{ chatKey, at, files: [{ path, diff }], when }` on `pi-bot.harvest-notes`. The note is shown on that chat's timeline, collapsed until opened. It is not a conversation entry, so later model requests do not see it, and it is not sent to Telegram.
+Before the fork, the host snapshots `SOUL.md` and `knowledge/`. After the child goes idle, it diffs. No change means no note. A change appends `{ chatKey, at, files: [{ path, diff }], when }` on `pi-bot.harvest-notes`. The note is shown on that chat's timeline, collapsed until opened. It is not a conversation entry, so later model requests do not see it, and it is not sent to Telegram.
 
 The schedule listing a client sees omits `harvest:*`. Those rows are not editable or deletable through the [client API](./client.md) or through the model's schedule tools.
 

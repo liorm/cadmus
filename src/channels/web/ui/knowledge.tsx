@@ -109,7 +109,7 @@ export function Knowledge() {
 					{knowledge ? (
 						<span class={error ? "err" : ""}>description {count ?? 0}/240</span>
 					) : (
-						<span>SOUL.md and SYSTEM.md have no description</span>
+						<span>SOUL.md has no description</span>
 					)}
 					<span>
 						index line:{" "}

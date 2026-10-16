@@ -50,9 +50,6 @@ export const BotsDoc = defineDoc<{ items: BotRecord[] }>({
 	initial: () => ({ items: [] }),
 });
 
-/** Standing ops seeded into `SYSTEM.md`. Knowledge bodies stay out of the prompt; this tells the model to open files. */
-export const SYSTEM_SEED = `Knowledge lives in knowledge/<slug>.md. Every file starts with a one-line description frontmatter (required, at most 240 characters). Put new facts in the file whose description already covers them, or add a new file. Do not edit SOUL.md or SYSTEM.md unless the user asks.`;
-
 export function botDir(home: string, botId: string): string {
 	return join(home, "bots", botId);
 }
@@ -123,7 +120,6 @@ async function writeNewBotFiles(
 	const dir = botDir(home, id);
 	await mkdir(join(dir, "knowledge"), { recursive: true });
 	await writeFile(join(dir, "SOUL.md"), soul ?? `${DEFAULT_SOUL}\n`);
-	await writeFile(join(dir, "SYSTEM.md"), `${SYSTEM_SEED}\n`);
 }
 
 /**

@@ -31,7 +31,7 @@ export function dayLine(timeZone: string, now = new Date()): string {
 }
 
 /**
- * Identity sections, stable → volatile: `SOUL.md`, `SYSTEM.md`, the knowledge description index, then a daily date.
+ * Identity sections, stable → volatile: `SOUL.md`, the knowledge description index, then a daily date.
  * Files are read from the conversation's agent cwd (`bots/<botId>`) at render time.
  */
 export function identityExtension(options: {
@@ -50,11 +50,6 @@ export function identityExtension(options: {
 						? await readOptional(join(input.agent.cwd, "SOUL.md"))
 						: undefined) ?? DEFAULT_SOUL,
 				{ tag: false },
-			),
-			section("system", (input) =>
-				input.agent.cwd
-					? readOptional(join(input.agent.cwd, "SYSTEM.md"))
-					: undefined,
 			),
 			section("knowledge", (input) =>
 				input.agent.cwd ? knowledgeIndex(input.agent.cwd) : undefined,

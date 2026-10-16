@@ -269,7 +269,7 @@ describe("chat flows", () => {
 		expect(tg().texts()[0]).toContain("Replies sent: 0, unknown: 1");
 	});
 
-	it("bots/default SOUL.md and SYSTEM.md reach Grok's prompt", async () => {
+	it("bots/default SOUL.md reaches Grok's prompt", async () => {
 		const home = await tempHome();
 		await seedBot(home);
 		await writeFile(
@@ -278,7 +278,7 @@ describe("chat flows", () => {
 		);
 		await writeFile(
 			join(home, "bots", "default", "SYSTEM.md"),
-			"Lior prefers short answers.",
+			"This leftover SYSTEM.md must not be read.",
 		);
 		await writeFile(
 			join(home, "SOUL.md"),
@@ -290,7 +290,7 @@ describe("chat flows", () => {
 		await settle(app, egress);
 		const request = JSON.stringify(defined(xai().requests[0], "request").body);
 		expect(request).toContain("You are Pip, Lior's assistant.");
-		expect(request).toContain("Lior prefers short answers.");
+		expect(request).not.toContain("This leftover SYSTEM.md must not be read.");
 		expect(request).not.toContain("This home-root persona must not be read.");
 		expect(request).toContain("time zone Asia/Jerusalem");
 	});

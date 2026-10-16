@@ -8,7 +8,6 @@ PI_BOT_HOME/
   schedules.sqlite        schedule rows and fire claims
   bots/<botId>/
     SOUL.md               persona
-    SYSTEM.md             standing instructions
     knowledge/<slug>.md   one topic per file
     users/<userId>/disk/  private files for one user of this bot
 ```
@@ -29,7 +28,7 @@ Persona and knowledge are files. The session stores identity, chat directories, 
 | `telegramToken` | optional second Telegram door; omitted from client reads |
 | `createdAt` | unix milliseconds |
 
-A fresh home has no bots. Creating a bot allocates a slug from the name, writes the folder (built-in persona, unless the request includes a soul, plus the standing-instructions seed and `knowledge/`), then commits the row. The model and thinking level on that row are the ones in the request. A failed commit removes the new folder. A failed folder write does not commit the row. Slug rules are in [current policy](../architecture.md#current-policy). An existing row, including one whose id is `default`, keeps its stored model and thinking level across restarts. Its display name can change. The id does not.
+A fresh home has no bots. Creating a bot allocates a slug from the name, writes the folder (built-in persona, unless the request includes a soul, plus `knowledge/`), then commits the row. The model and thinking level on that row are the ones in the request. A failed commit removes the new folder. A failed folder write does not commit the row. Slug rules are in [current policy](../architecture.md#current-policy). An existing row, including one whose id is `default`, keeps its stored model and thinking level across restarts. Its display name can change. The id does not.
 
 The id `default` is not reserved. The general door binds to it when that row is already stored. A name that slugs to `default` takes that id when it is free, and the env token attaches on the next start.
 
@@ -65,9 +64,8 @@ Closing a chat drops it from the live directory and refuses further admission. T
 Sections, stable toward volatile, from that bot's folder. Identity renders them when a request is built.
 
 1. `soul` — `SOUL.md`. An empty file falls back to a built-in persona.
-2. `system` — `SYSTEM.md`.
-3. `knowledge` — a description index, rebuilt by scanning `knowledge/` when the prompt is rendered. Bodies stay out of the prompt. The model opens a file with `read` when the index matches.
-4. `date` — a daily line.
+2. `knowledge` — a description index, rebuilt by scanning `knowledge/` when the prompt is rendered. Bodies stay out of the prompt. The model opens a file with `read` when the index matches.
+3. `date` — a daily line.
 
 A knowledge file is markdown with a single `description` frontmatter line. A file the parser cannot read, or whose real path leaves the bot folder, is left out of the index and named in a warning line. There is no separate index file.
 
@@ -75,7 +73,7 @@ Client writes of knowledge files are checked first (legal slug, readable descrip
 
 ## Shared and private
 
-Everyone who reaches a bot shares that bot's `SOUL.md`, `SYSTEM.md`, `knowledge/`, model, thinking level, and stored tool list.
+Everyone who reaches a bot shares that bot's `SOUL.md`, `knowledge/`, model, thinking level, and stored tool list.
 
 Each person has their own chats. Schedule rows name one chat, or create one new chat. Harvest notes attach to the chat that was forked. `users/<userId>/disk/` is visible to the file tools as `disk/` for the conversation's user. A path that leaves the bot folder, or that reaches another user's tree, is refused. A conversation with no user id cannot use `disk/`.
 

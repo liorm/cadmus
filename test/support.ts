@@ -10,7 +10,6 @@ import {
 	createBot,
 	DEFAULT_BOT_ID,
 	listBots,
-	SYSTEM_SEED,
 } from "../src/channels/bots.ts";
 import { testClockPollMs } from "../src/clock.ts";
 import { DEFAULT_SOUL } from "../src/extensions/identity.ts";
@@ -92,7 +91,6 @@ export async function seedBot(
 			const dir = join(home, "bots", DEFAULT_BOT_ID);
 			await mkdir(join(dir, "knowledge"), { recursive: true });
 			await writeIfMissing(join(dir, "SOUL.md"), `${DEFAULT_SOUL}\n`);
-			await writeIfMissing(join(dir, "SYSTEM.md"), `${SYSTEM_SEED}\n`);
 			await harness.commit(async (tx) => {
 				const bots = await tx.doc(BotsDoc);
 				if (bots.items.some((bot) => bot.id === DEFAULT_BOT_ID)) return;

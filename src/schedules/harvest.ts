@@ -150,10 +150,8 @@ async function snapshotBot(root: string): Promise<Map<string, string>> {
 	} catch {
 		return files;
 	}
-	for (const name of ["SOUL.md", "SYSTEM.md"]) {
-		const text = await readInside(rootReal, join(root, name));
-		if (text !== undefined) files.set(name, text);
-	}
+	const soul = await readInside(rootReal, join(root, "SOUL.md"));
+	if (soul !== undefined) files.set("SOUL.md", soul);
 	let names: string[] = [];
 	try {
 		names = (await readdir(join(root, "knowledge")))

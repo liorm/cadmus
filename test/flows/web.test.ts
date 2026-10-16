@@ -460,11 +460,17 @@ describe("web channel", () => {
 			`/api/bots/${created.bot.id}/files/SOUL.md`,
 		);
 		expect(soul.text).toBe("CUSTOM SOUL\n");
-		const system = await json<{ text: string }>(
+		const listed = await json<{ files: { path: string }[] }>(
+			url,
+			`/api/bots/${created.bot.id}/files`,
+		);
+		expect(listed.files.map((file) => file.path)).toContain("SOUL.md");
+		expect(listed.files.map((file) => file.path)).not.toContain("SYSTEM.md");
+		const system = await call(
 			url,
 			`/api/bots/${created.bot.id}/files/SYSTEM.md`,
 		);
-		expect(system.text).toContain("Knowledge lives in knowledge/");
+		expect(system.status).toBe(400);
 		const patched = await call(url, `/api/bots/${created.bot.id}`, {
 			method: "PATCH",
 			body: JSON.stringify({
