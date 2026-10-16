@@ -71,7 +71,7 @@ Harvest is a caller of the schedule service and uses the same clock. After a use
 
 - id `harvest:<chatKey>`
 - target `fork` of that chat at the entry the chat rested on
-- text that tells the child to keep only durable notes: preferences and voice via `memory_read` then `memory_update`; named facts via `knowledge_read` then `knowledge_update`; skip local answers and instance values
+- text that tells the child to persist standing notes as a single source of truth (rewrite, do not changelog): voice and operating corrections via `memory_read` then `memory_update`; named facts (including home and country) via `knowledge_read` then `knowledge_update`; skip local answers and instance values
 - wake at now plus the harvest delay ([current policy](../architecture.md#current-policy))
 - replace when the rested entry changed; `reschedule` when only the wake should move
 

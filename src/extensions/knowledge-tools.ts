@@ -171,7 +171,7 @@ export function knowledgeExtension() {
 			defineTool({
 				name: "memory_update",
 				description:
-					"Create or replace this bot's MEMORY.md. Pass the version from memory_read (0 when it does not exist) and the full body without a --- frontmatter fence. Empty body clears memory (the file stays; later prompts omit it). Use this when the user says memorize, remember, keep this, from now on, or otherwise gives a standing preference or instruction. Harvest uses it for voice and working methods. A stale version does not write. Body is at most 8192 bytes.",
+					"Create or replace this bot's MEMORY.md. Pass the version from memory_read (0 when it does not exist) and the full body without a --- frontmatter fence. The body replaces the whole file. Empty body clears memory (the file stays; later prompts omit it). A stale version does not write. Body is at most 8192 bytes.",
 				parameters: Type.Object({
 					version: Type.Number({
 						description:
