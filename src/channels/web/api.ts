@@ -57,8 +57,10 @@ import {
 	listBotFiles,
 	readBotFile,
 	readBotKnowledge,
+	readBotMemory,
 	writeBotFile,
 	writeBotKnowledge,
+	writeBotMemory,
 } from "./files.ts";
 import {
 	latestTranscriptText,
@@ -529,6 +531,12 @@ async function readFileRoute(
 ): Promise<Response> {
 	if (!deps.ensureRuntime(id))
 		return Response.json({ error: "No such bot." }, { status: 404 });
+	if (rel === "MEMORY.md") {
+		const file = await readBotMemory(deps.config.home, id);
+		if (!file.ok)
+			return Response.json({ error: file.error }, { status: file.status });
+		return Response.json(file.record);
+	}
 	const slug = knowledgeSlugFromRel(rel);
 	if (slug) {
 		const file = await readBotKnowledge(deps.config.home, id, slug);
@@ -554,6 +562,20 @@ async function writeFileRoute(
 	if (!body || typeof body !== "object" || Array.isArray(body))
 		return Response.json({ error: "Expected JSON." }, { status: 400 });
 	const record = body as Record<string, unknown>;
+	if (rel === "MEMORY.md") {
+		if (typeof record.text === "string")
+			return Response.json(
+				{ error: "MEMORY.md writes take body and version." },
+				{ status: 400 },
+			);
+		const written = await writeBotMemory(deps.config.home, id, record);
+		if (!written.ok)
+			return Response.json(
+				{ error: written.error },
+				{ status: written.status },
+			);
+		return Response.json(written.record);
+	}
 	const slug = knowledgeSlugFromRel(rel);
 	if (slug) {
 		if (typeof record.text === "string")

@@ -406,6 +406,8 @@ describe("tool results", () => {
 			"knowledge_read",
 			"knowledge_update",
 			"knowledge_delete",
+			"memory_read",
+			"memory_update",
 			"web.search",
 			"web.fetch",
 			"x.search",

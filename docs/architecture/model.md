@@ -8,6 +8,7 @@ PI_BOT_HOME/
   schedules.sqlite        schedule rows and fire claims
   bots/<botId>/
     SOUL.md               persona
+    MEMORY.md             standing preferences (always in the prompt)
     knowledge/<slug>.md   one topic per file
     users/<userId>/disk/  private files for one user of this bot
 ```
@@ -65,7 +66,8 @@ Sections, stable toward volatile, from that bot's folder. Identity renders them 
 
 1. `soul` — `SOUL.md`. An empty file falls back to a built-in persona.
 2. `knowledge` — a description index, rebuilt by scanning `knowledge/` when the prompt is rendered. Bodies stay out of the prompt. The model opens a file with `knowledge_read` when the index matches.
-3. `date` — a daily line.
+3. `memory` — the body of `MEMORY.md` when it is non-empty, plus its version for `memory_update`. Frontmatter stays on disk. Empty or missing omits the section.
+4. `date` — a daily line.
 
 A knowledge file is markdown with a `description` frontmatter line, an optional `version` integer (missing means 0), and an optional `category`. The body must not start with `---`. A file the parser cannot read, or whose real path leaves the bot folder, is left out of the index and named in a warning line. There is no separate index file.
 
@@ -77,7 +79,7 @@ Everyone who reaches a bot shares that bot's `SOUL.md`, `knowledge/`, model, thi
 
 Each person has their own chats. Schedule rows name one chat, or create one new chat. Harvest notes attach to the chat that was forked. Private files stay at `users/<userId>/disk/`.
 
-A harvest from one chat writes the shared knowledge folder. Other chats see the new description on their next prompt. They do not receive that chat's transcript or its harvest note. How the note is produced is in [idle harvest](./flow.md#idle-harvest).
+A harvest from one chat writes the shared knowledge folder and `MEMORY.md`. Other chats see the new description or memory body on their next prompt. They do not receive that chat's transcript or its harvest note. How the note is produced is in [idle harvest](./flow.md#idle-harvest).
 
 There is no owner role. Doors are gates: a shared web credential, a Telegram allowlist, and an optional token stored on a bot. The same person on two doors of one bot has two chats. The web credential is not a user id, and the chat list for a bot is every live chat of that bot. Per-person hiding of transcripts is not applied on this door. A later admin mode needs a real user identity; the web credential is not that role. Group chats are outside this model.
 

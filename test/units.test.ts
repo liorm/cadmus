@@ -22,6 +22,12 @@ import {
 	parseSlug,
 } from "../src/extensions/knowledge.ts";
 import {
+	formatMemory,
+	MEMORY_BODY_MAX,
+	parseMemory,
+	parseMemoryWrite,
+} from "../src/extensions/memory.ts";
+import {
 	applyServerTools,
 	attachNativeTools,
 	noteServerTool,
@@ -367,6 +373,34 @@ describe("pure helpers", () => {
 		).toEqual({
 			ok: false,
 			error: "body must not start with frontmatter (---).",
+		});
+	});
+
+	it("parses MEMORY.md as version frontmatter and body", () => {
+		expect(parseMemory("---\nversion: 0\n---\n")).toEqual({
+			version: 0,
+			body: "",
+		});
+		expect(parseMemory("---\nversion: 2\n---\nprefer emo voice\n")).toEqual({
+			version: 2,
+			body: "prefer emo voice\n",
+		});
+		expect(
+			parseMemory("---\ndescription: no\nversion: 1\n---\nbody"),
+		).toBeUndefined();
+		expect(formatMemory({ version: 1, body: "x\n" })).toBe(
+			"---\nversion: 1\n---\nx\n",
+		);
+		expect(parseMemoryWrite({ version: 0, body: "ok" }).ok).toBe(true);
+		expect(parseMemoryWrite({ version: 0, body: "---\npasted\n" })).toEqual({
+			ok: false,
+			error: "body must not start with frontmatter (---).",
+		});
+		expect(
+			parseMemoryWrite({ version: 0, body: "x".repeat(MEMORY_BODY_MAX + 1) }),
+		).toEqual({
+			ok: false,
+			error: `body is at most ${MEMORY_BODY_MAX} bytes.`,
 		});
 	});
 

@@ -9,13 +9,20 @@ import {
 	parseKnowledgeWrite,
 	parseSlug,
 } from "../../../extensions/knowledge-parse.ts";
-import { loadFiles, openFile, saveFile, saveKnowledge } from "./client.ts";
+import {
+	loadFiles,
+	openFile,
+	saveFile,
+	saveKnowledge,
+	saveMemory,
+} from "./client.ts";
 import {
 	banner,
 	filePath,
 	files,
 	fileText,
 	knowledgeDraft,
+	memoryDraft,
 	saved,
 	showList,
 } from "./state.ts";
@@ -50,7 +57,33 @@ export function Knowledge() {
 	const path = filePath.value;
 	const knowledge = path?.startsWith("knowledge/") ?? false;
 	if (knowledge) return <KnowledgeEditor />;
+	if (path === "MEMORY.md") return <MemoryEditor />;
 	return <SoulEditor path={path} />;
+}
+
+function MemoryEditor() {
+	const draft = memoryDraft.value;
+	return (
+		<main class="main">
+			<EditorHeader path="MEMORY.md" error={undefined} onSave={saveMem} />
+			<div class="pg">
+				<BodyEditor
+					value={draft?.body ?? ""}
+					onInput={(value) => {
+						if (!memoryDraft.value) {
+							memoryDraft.value = { version: 0, body: value };
+							return;
+						}
+						memoryDraft.value = { ...memoryDraft.value, body: value };
+					}}
+				/>
+				<div class="mu filemeta">
+					<span>version {draft?.version ?? 0}</span>
+					{saved.value ? <span class="ok">{saved.value}</span> : null}
+				</div>
+			</div>
+		</main>
+	);
 }
 
 function SoulEditor({ path }: { path: string | null }) {
@@ -260,6 +293,12 @@ async function createFile() {
 	fileText.value = "";
 	knowledgeDraft.value = emptyKnowledgeDraft(slug);
 	showList.value = false;
+}
+
+async function saveMem() {
+	await saveMemory();
+	banner.value = "";
+	saved.value = "Knowledge updated";
 }
 
 async function saveSoul() {

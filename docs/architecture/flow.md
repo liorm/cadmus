@@ -71,13 +71,13 @@ Harvest is a caller of the schedule service and uses the same clock. After a use
 
 - id `harvest:<chatKey>`
 - target `fork` of that chat at the entry the chat rested on
-- text that tells the child to keep only durable notes (preferences, standing instructions, working methods), skip local answers and instance values, then `knowledge_read` then `knowledge_update` with that version
+- text that tells the child to keep only durable notes: preferences and voice via `memory_read` then `memory_update`; named facts via `knowledge_read` then `knowledge_update`; skip local answers and instance values
 - wake at now plus the harvest delay ([current policy](../architecture.md#current-policy))
 - replace when the rested entry changed; `reschedule` when only the wake should move
 
-A new user message removes that id. After the fork, the child is configured with only the knowledge tools the bot still has on. It patches `knowledge/` through compare-and-swap versions. The parent transcript is unchanged. After restart, each chat is waited until idle; if that rested entry is not yet in `completed`, a missing wake is armed (immediately when a child was already pending).
+A new user message removes that id. After the fork, the child is configured with only the knowledge tools the bot still has on (`knowledge_*` and `memory_*`). It patches `knowledge/` and `MEMORY.md` through compare-and-swap versions. The parent transcript is unchanged. After restart, each chat is waited until idle; if that rested entry is not yet in `completed`, a missing wake is armed (immediately when a child was already pending).
 
-Before the fork, the host snapshots `SOUL.md` and `knowledge/`. After the child goes idle, it diffs. No change means no note. A change appends `{ chatKey, at, files: [{ path, diff }], when }` on `pi-bot.harvest-notes`. The note is shown on that chat's timeline, collapsed until opened. It is not a conversation entry, so later model requests do not see it, and it is not sent to Telegram.
+Before the fork, the host snapshots `SOUL.md`, `MEMORY.md`, and `knowledge/`. After the child goes idle, it diffs. No change means no note. A change appends `{ chatKey, at, files: [{ path, diff }], when }` on `pi-bot.harvest-notes`. The note is shown on that chat's timeline, collapsed until opened. It is not a conversation entry, so later model requests do not see it, and it is not sent to Telegram.
 
 The schedule listing a client sees omits `harvest:*`. Those rows are not editable or deletable through the [client API](./client.md) or through the model's schedule tools.
 

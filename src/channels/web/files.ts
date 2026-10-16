@@ -16,13 +16,21 @@ import {
 	parseKnowledge,
 	parseSlug,
 } from "../../extensions/knowledge.ts";
+import {
+	commitMemoryUpdate,
+	loadMemory,
+	MEMORY_FILE,
+	type MemoryRecord,
+	memoryReadPayload,
+} from "../../extensions/memory.ts";
 import { botDir } from "../bots.ts";
 
 export type ListedFile =
 	| { path: "SOUL.md" }
+	| { path: "MEMORY.md" }
 	| { path: string; description: string | null; valid: boolean };
 
-const ROOTS = new Set(["SOUL.md"]);
+const ROOTS = new Set(["SOUL.md", MEMORY_FILE]);
 
 export async function listBotFiles(
 	home: string,
@@ -30,7 +38,7 @@ export async function listBotFiles(
 ): Promise<ListedFile[] | undefined> {
 	const root = botDir(home, botId);
 	if (!(await exists(root))) return undefined;
-	const files: ListedFile[] = [{ path: "SOUL.md" }];
+	const files: ListedFile[] = [{ path: "SOUL.md" }, { path: "MEMORY.md" }];
 	let names: string[] = [];
 	try {
 		names = (await readdir(join(root, "knowledge")))
@@ -80,6 +88,30 @@ export async function readBotKnowledge(
 	return { ok: true, record: knowledgeReadRecord(slug, loaded.doc) };
 }
 
+export async function readBotMemory(
+	home: string,
+	botId: string,
+): Promise<
+	{ ok: true; record: MemoryRecord } | { ok: false; status: 422; error: string }
+> {
+	const loaded = await loadMemory(botDir(home, botId));
+	const payload = memoryReadPayload(loaded);
+	if (!payload.ok) return { ok: false, status: 422, error: payload.error };
+	return { ok: true, record: payload.record };
+}
+
+export async function writeBotMemory(
+	home: string,
+	botId: string,
+	args: Record<string, unknown>,
+): Promise<
+	{ ok: true; record: MemoryRecord } | { ok: false; status: 422; error: string }
+> {
+	const result = await commitMemoryUpdate(botDir(home, botId), args);
+	if (!result.ok) return { ok: false, status: 422, error: result.error };
+	return { ok: true, record: result.record };
+}
+
 export async function writeBotKnowledge(
 	home: string,
 	botId: string,
@@ -114,7 +146,7 @@ export async function readBotFile(
 }
 
 /**
- * Write one bot file that is not knowledge (SOUL.md). A failed check leaves
+ * Write one bot file that is not knowledge or memory (SOUL.md). A failed check leaves
  * the file as it was.
  */
 export async function writeBotFile(

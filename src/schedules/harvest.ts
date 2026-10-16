@@ -22,7 +22,11 @@ import type { Schedule, ScheduleService } from "./service.ts";
 export { harvestId, isHarvestId } from "./ids.ts";
 
 export const HARVEST_DELAY_MS = 60_000;
-export const HARVEST_TEXT = `Improve knowledge from this chat. Keep only notes that will still matter in later conversations: user preferences, standing instructions, working methods, names and durable facts about the user or their work, and corrections of how you should operate. Skip local answers. Do not store one-off questions, encyclopedia trivia, or instance values such as a specific arithmetic result. Prefer the method over the instance: keep that calculations should use code.execute for precision; do not keep the numbers from one sum. A correction of how you should work is knowledge; the answer you gave is not. If nothing qualifies, make no writes. For each note worth keeping, knowledge_read the matching slug (a missing file returns version 0), merge it into the returned body, then knowledge_update with that version, a one-line description (at most 240 characters), the same category unless it should change, and the full new body without a --- frontmatter fence. Put a note in the file whose description already covers that topic, or add a new file; do not append unrelated notes to an existing file. Do not update without a read. Do not delete a file unless it should go away.`;
+export const HARVEST_TEXT = `Improve knowledge from this chat. Keep only notes that will still matter in later conversations. Skip local answers. Do not store one-off questions, encyclopedia trivia, or instance values such as a specific arithmetic result. Prefer the method over the instance: keep that calculations should use code.execute for precision; do not keep the numbers from one sum. A correction of how you should work is knowledge; the answer you gave is not. If nothing qualifies, make no writes.
+
+Standing preferences, voice, and how to operate go in MEMORY.md. memory_read (missing file returns version 0), then memory_update with that version and the full new body without a --- frontmatter fence. MEMORY.md is already in the prompt when non-empty; merge into that body. Empty body clears it. Do not invent a knowledge slug for a preference.
+
+Named durable facts (people, projects, long notes) go in knowledge/<slug>.md. knowledge_read the matching slug (a missing file returns version 0), merge it into the returned body, then knowledge_update with that version, a one-line description (at most 240 characters), the same category unless it should change, and the full new body without a --- frontmatter fence. Put a note in the file whose description already covers that topic, or add a new file; do not append unrelated notes to an existing file. Do not update without a read. Do not delete a file unless it should go away.`;
 
 export type HarvestFile = { path: string; diff: string };
 
@@ -156,8 +160,7 @@ export async function armIdleHarvest(options: {
 		)
 	)
 		return;
-	const id = harvestId(options.chatKey);
-	const existing = await options.schedules.get(id);
+	const existing = await options.schedules.get(harvestId(options.chatKey));
 	const sameEntry =
 		existing?.target.mode === "fork" &&
 		existing.target.chatId === options.chatKey &&
@@ -338,6 +341,8 @@ async function snapshotBot(root: string): Promise<Map<string, string>> {
 	}
 	const soul = await readInside(rootReal, join(root, "SOUL.md"));
 	if (soul !== undefined) files.set("SOUL.md", soul);
+	const memory = await readInside(rootReal, join(root, "MEMORY.md"));
+	if (memory !== undefined) files.set("MEMORY.md", memory);
 	let names: string[] = [];
 	try {
 		names = (await readdir(join(root, "knowledge")))

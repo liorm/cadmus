@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { defineExtension, section } from "@earendil-works/pi-durable";
 import { DEFAULT_SOUL, SYSTEM_PROMPT } from "./default-soul.ts";
 import { knowledgeIndex } from "./knowledge.ts";
+import { memorySection } from "./memory.ts";
 
 export { DEFAULT_SOUL };
 
@@ -31,7 +32,7 @@ export function dayLine(timeZone: string, now = new Date()): string {
 }
 
 /**
- * Identity sections, stable → volatile: `SOUL.md`, the knowledge description index, then a daily date.
+ * Identity sections, stable → volatile: `SOUL.md`, system, knowledge index, MEMORY.md body, then a daily date.
  * Files are read from the conversation's agent cwd (`bots/<botId>`) at render time.
  */
 export function identityExtension(options: {
@@ -54,6 +55,9 @@ export function identityExtension(options: {
 			section("system", (_input) => SYSTEM_PROMPT),
 			section("knowledge", (input) =>
 				input.agent.cwd ? knowledgeIndex(input.agent.cwd) : undefined,
+			),
+			section("memory", (input) =>
+				input.agent.cwd ? memorySection(input.agent.cwd) : undefined,
 			),
 			section("date", () => dayLine(options.timeZone, now())),
 		],

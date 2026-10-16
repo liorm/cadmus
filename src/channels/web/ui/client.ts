@@ -23,6 +23,8 @@ import {
 	type KnowledgeRecord,
 	knowledgeDraft,
 	liveTools,
+	type MemoryDraft,
+	memoryDraft,
 	messages,
 	modal,
 	narrow,
@@ -258,6 +260,7 @@ export async function openFile(path: string): Promise<void> {
 	saved.value = "";
 	if (path.startsWith("knowledge/")) {
 		knowledgeDraft.value = null;
+		memoryDraft.value = null;
 		fileText.value = "";
 		const body = await api<KnowledgeRecord>(
 			`/api/bots/${encodeURIComponent(botId.value)}/files/${encodeURIComponent(path)}`,
@@ -265,7 +268,17 @@ export async function openFile(path: string): Promise<void> {
 		knowledgeDraft.value = draftFromRecord(body);
 		return;
 	}
+	if (path === "MEMORY.md") {
+		knowledgeDraft.value = null;
+		fileText.value = "";
+		const body = await api<MemoryDraft & { exists?: boolean }>(
+			`/api/bots/${encodeURIComponent(botId.value)}/files/${encodeURIComponent(path)}`,
+		);
+		memoryDraft.value = { version: body.version, body: body.body };
+		return;
+	}
 	knowledgeDraft.value = null;
+	memoryDraft.value = null;
 	const body = await api<{ text: string }>(
 		`/api/bots/${encodeURIComponent(botId.value)}/files/${encodeURIComponent(path)}`,
 	);
@@ -283,6 +296,23 @@ export async function saveFile(path: string, text: string): Promise<void> {
 	fileText.value = text;
 	await loadFiles();
 	filePath.value = path;
+}
+
+export async function saveMemory(): Promise<void> {
+	const draft = memoryDraft.value;
+	if (!draft) return;
+	const body = await api<MemoryDraft>(
+		`/api/bots/${encodeURIComponent(botId.value)}/files/MEMORY.md`,
+		{
+			method: "PUT",
+			body: JSON.stringify({ version: draft.version, body: draft.body }),
+		},
+	);
+	filePath.value = "MEMORY.md";
+	memoryDraft.value = { version: body.version, body: body.body };
+	await loadFiles();
+	filePath.value = "MEMORY.md";
+	memoryDraft.value = { version: body.version, body: body.body };
 }
 
 export async function saveKnowledge(): Promise<void> {

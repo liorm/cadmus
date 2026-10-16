@@ -15,6 +15,12 @@ import {
 	parseSlug,
 	parseVersion,
 } from "./knowledge.ts";
+import {
+	commitMemoryUpdate,
+	loadMemory,
+	MEMORY_BODY_MAX,
+	memoryReadPayload,
+} from "./memory.ts";
 import { toolError, toolText } from "./self-tools/host.ts";
 
 const slugSchema = Type.String({
@@ -144,6 +150,51 @@ export function knowledgeExtension() {
 					if (!deleted.ok) return toolError(deleted.error);
 					await api.memo("deleted", { deleted: slug }, context);
 					return toolText(JSON.stringify({ deleted: slug }));
+				},
+			}),
+			defineTool({
+				name: "memory_read",
+				description:
+					"Read this bot's MEMORY.md. Returns exists, version, and body. A missing file returns exists false and version 0. Use that version on memory_update. The body is already in the prompt when it is non-empty.",
+				parameters: Type.Object({}),
+				replay: "safe",
+				async execute(_args, api, context) {
+					const cwd = await botFolder(api, context);
+					if (!cwd)
+						return toolError("This conversation is not inside a bot folder.");
+					const loaded = await loadMemory(cwd);
+					const payload = memoryReadPayload(loaded);
+					if (!payload.ok) return toolError(payload.error);
+					return toolText(JSON.stringify(payload.record));
+				},
+			}),
+			defineTool({
+				name: "memory_update",
+				description:
+					"Create or replace this bot's MEMORY.md. Pass the version from memory_read (0 when it does not exist) and the full body without a --- frontmatter fence. Empty body clears memory (the file stays; later prompts omit it). Use this when the user says memorize, remember, keep this, from now on, or otherwise gives a standing preference or instruction. Harvest uses it for voice and working methods. A stale version does not write. Body is at most 8192 bytes.",
+				parameters: Type.Object({
+					version: Type.Number({
+						description:
+							"Version returned by memory_read. 0 when the file does not exist.",
+					}),
+					body: Type.String({
+						description: `Markdown body without frontmatter. Empty clears memory. Must not start with ---. At most ${MEMORY_BODY_MAX} bytes.`,
+					}),
+				}),
+				replay: "safe",
+				async execute(args, api, context) {
+					const prior = await remembered<JsonValue>(api, "result", context);
+					if (prior) return toolText(JSON.stringify(prior));
+					const cwd = await botFolder(api, context);
+					if (!cwd)
+						return toolError("This conversation is not inside a bot folder.");
+					const result = await commitMemoryUpdate(
+						cwd,
+						args as Record<string, unknown>,
+					);
+					if (!result.ok) return toolError(result.error);
+					await api.memo("result", result.record, context);
+					return toolText(JSON.stringify(result.record));
 				},
 			}),
 		],

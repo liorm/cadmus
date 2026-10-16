@@ -1,6 +1,6 @@
 # AGENTS.md — pi-bot
 
-Personal Hermes-style agent on `@earendil-works/pi-durable` (pinned 1.1.0), talking over Telegram (grammY) and a local web page. Default model: Grok via pi-ai (`xai/…`, API key or SuperGrok/X Premium OAuth). Several bots share one harness. Each has a folder, a knowledge index, and optional own Telegram token. User schedules live in a sidecar SQLite file. Idle harvest notes stay out of the model. Memory, skills, the learning loop, and delegation are still later (README "Not yet").
+Personal Hermes-style agent on `@earendil-works/pi-durable` (pinned 1.1.0), talking over Telegram (grammY) and a local web page. Default model: Grok via pi-ai (`xai/…`, API key or SuperGrok/X Premium OAuth). Several bots share one harness. Each has a folder, a knowledge index, `MEMORY.md`, and optional own Telegram token. User schedules live in a sidecar SQLite file. Idle harvest notes stay out of the model. Per-user memory, skills, the learning loop, and delegation are still later (README "Not yet").
 
 The running shape — components, data model, data flow, and the HTTP client — is [docs/architecture.md](docs/architecture.md).
 
@@ -40,6 +40,14 @@ test/egress/                fake egress HTTP server + fetch routing (+ preload f
 test/units.test.ts          pure helpers only
 test/storage-bun.test.ts    pi-durable storage conformance under Bun
 ```
+
+## Logging
+
+Default `LOG_LEVEL` is `info`. **Use `debug` for operational traces.** Turns, harvest arm/resume, schedule fires, duplicate input, and other per-event lifecycle belong at `debug`. Operators turn that on when they need it.
+
+Use `info` sparsely: process lifecycle (started, stopped, listening URL, shutdown), one-shot configuration at boot (model auth, a door that is off). Not once per chat, schedule, harvest, or request.
+
+`warn` is for degraded but continuing states (unknown delivery, unanswered turn, ignored Telegram user). `error` is for failures that drop work (poll crash, harvest fire that will retry, shutdown failure).
 
 ## Durability rules (do not break)
 

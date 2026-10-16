@@ -295,6 +295,81 @@ describe("chat flows", () => {
 		expect(request).toContain("time zone Asia/Jerusalem");
 	});
 
+	it("MEMORY.md body reaches the prompt without frontmatter", async () => {
+		const home = await tempHome();
+		await seedBot(home);
+		await writeFile(
+			join(home, "bots", "default", "MEMORY.md"),
+			"---\nversion: 3\n---\nprefer emo voice\n",
+		);
+		const app = await boot(home);
+		tg().push("hi");
+		await until(() => tg().sent.length === 1, "reply");
+		await settle(app, egress);
+		const request = JSON.stringify(defined(xai().requests[0], "request").body);
+		expect(request).toContain("prefer emo voice");
+		expect(request).toContain("version 3");
+		expect(request).not.toContain("version: 3");
+	});
+
+	it("memory_update creates, compare-and-swap rejects a stale version, empty body clears the prompt", async () => {
+		const home = await tempHome();
+		const path = join(home, "bots", "default", "MEMORY.md");
+		const app = await boot(home);
+		xai().script.push(
+			{ tool: { name: "memory_read", arguments: {} } },
+			{
+				tool: {
+					name: "memory_update",
+					arguments: { version: 0, body: "---\nversion: 1\n---\nnope\n" },
+				},
+			},
+			{
+				tool: {
+					name: "memory_update",
+					arguments: { version: 0, body: "prefer emo voice\n" },
+				},
+			},
+			{ text: "saved" },
+		);
+		tg().push("memorize this: prefer emo voice");
+		await until(() => tg().texts().includes("saved"), "created");
+		expect(
+			xai()
+				.requests.map((request) => JSON.stringify(request.body))
+				.join("\n"),
+		).toContain("body must not start with frontmatter");
+		expect(await readFile(path, "utf8")).toBe(
+			"---\nversion: 1\n---\nprefer emo voice\n",
+		);
+		xai().script.push(
+			{
+				tool: {
+					name: "memory_update",
+					arguments: { version: 0, body: "stale\n" },
+				},
+			},
+			{
+				tool: {
+					name: "memory_update",
+					arguments: { version: 1, body: "" },
+				},
+			},
+			{ text: "cleared" },
+		);
+		tg().push("forget that");
+		await until(() => tg().texts().includes("cleared"), "cleared");
+		expect(
+			xai()
+				.requests.map((request) => JSON.stringify(request.body))
+				.join("\n"),
+		).toContain("Version does not match.");
+		expect(await readFile(path, "utf8")).toBe("---\nversion: 2\n---\n");
+		await settle(app, egress);
+		const after = JSON.stringify(defined(xai().requests.at(-1), "last").body);
+		expect(after).not.toContain("<memory>");
+	});
+
 	it("a home from before this plan opens the same conversation", async () => {
 		const home = await tempHome();
 		const { storage, lock } = await openOwnedStorage(home);

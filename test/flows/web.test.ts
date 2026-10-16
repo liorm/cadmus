@@ -465,7 +465,32 @@ describe("web channel", () => {
 			`/api/bots/${created.bot.id}/files`,
 		);
 		expect(listed.files.map((file) => file.path)).toContain("SOUL.md");
+		expect(listed.files.map((file) => file.path)).toContain("MEMORY.md");
 		expect(listed.files.map((file) => file.path)).not.toContain("SYSTEM.md");
+		const memory = await json<{
+			exists: boolean;
+			version: number;
+			body: string;
+		}>(url, `/api/bots/${created.bot.id}/files/MEMORY.md`);
+		expect(memory).toEqual({ exists: false, version: 0, body: "" });
+		const written = await call(
+			url,
+			`/api/bots/${created.bot.id}/files/MEMORY.md`,
+			{
+				method: "PUT",
+				body: JSON.stringify({ version: 0, body: "prefer short replies\n" }),
+			},
+		);
+		expect(written.status).toBe(200);
+		const stale = await call(
+			url,
+			`/api/bots/${created.bot.id}/files/MEMORY.md`,
+			{
+				method: "PUT",
+				body: JSON.stringify({ version: 0, body: "nope\n" }),
+			},
+		);
+		expect(stale.status).toBe(422);
 		const system = await call(
 			url,
 			`/api/bots/${created.bot.id}/files/SYSTEM.md`,
@@ -982,6 +1007,8 @@ describe("web channel", () => {
 		const harvestBody = harvestJson.replaceAll(" ", "");
 		expect(harvestBody).toContain('"name":"knowledge_read"');
 		expect(harvestBody).toContain('"name":"knowledge_update"');
+		expect(harvestBody).toContain('"name":"memory_read"');
+		expect(harvestBody).toContain('"name":"memory_update"');
 		expect(harvestBody).not.toContain('"name":"schedule_create"');
 		expect(harvestBody).not.toContain('"name":"web.search"');
 		expect(harvestBody).not.toContain('"name":"read"');
@@ -995,6 +1022,42 @@ describe("web channel", () => {
 					item.text === "Improve knowledge from this chat.",
 			),
 		).toBe(false);
+	});
+
+	it("records a harvest note when harvest writes MEMORY.md", async () => {
+		const { app, url, home } = await boot(undefined, {
+			PI_BOT_HARVEST_DELAY_MS: "300",
+		});
+		const key = await createWebChat(url);
+		egress.xai.script.push({ text: "noted" });
+		egress.xai.script.push(
+			{ tool: { name: "memory_read", arguments: {} } },
+			{
+				tool: {
+					name: "memory_update",
+					arguments: { version: 0, body: "prefer emo voice\n" },
+				},
+			},
+			{ text: "filed" },
+		);
+		const stream = readStream(url, key, "event: harvest");
+		await say(url, key, "talk like an emo from now on");
+		const seen = await stream;
+		expect(seen).toContain("prefer emo voice");
+		expect(
+			await readFile(join(home, "bots", "default", "MEMORY.md"), "utf8"),
+		).toBe("---\nversion: 1\n---\nprefer emo voice\n");
+		await app.quiesce();
+		const before = egress.xai.requests.length;
+		await say(url, key, "hello again");
+		await until(() => egress.xai.requests.length > before, "the follow-up");
+		await app.quiesce();
+		const follow = egress.xai.requests.find((request) =>
+			JSON.stringify(request.body).includes("hello again"),
+		);
+		const body = JSON.stringify(defined(follow, "follow-up").body);
+		expect(body).toContain("prefer emo voice");
+		expect(body).not.toContain("version: 1");
 	});
 
 	it("does not fork the same idle point again after a restart", async () => {

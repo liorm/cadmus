@@ -4,12 +4,13 @@
  *   bun .agents/skills/debug-session/scripts/inspect.ts [--home <dir>] [selector]
  *
  * selector is a bot id, a chat-key substring, or a conversation id.
- * Default home is ./data.
+ * Default home is ./data. A selector also dumps harvest forks for that chat.
  */
 
 import { Database } from "bun:sqlite";
 import { join, resolve } from "node:path";
 import { apply } from "@earendil-works/chord/delta";
+import { dumpHarvest } from "./harvest.ts";
 
 type Doc = { id: number; kind: string; owner: number; value: unknown };
 
@@ -171,6 +172,7 @@ for (const chat of picked) {
 		(d) => d.owner === chat.conversationId,
 	);
 	console.log(`deliveries ${JSON.stringify(deliveries?.value ?? null)}`);
+	dumpHarvest(db, chat, join(home, "schedules.sqlite"));
 }
 
 const schedPath = join(home, "schedules.sqlite");

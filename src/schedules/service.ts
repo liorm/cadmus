@@ -222,6 +222,19 @@ export function createScheduleService(options: {
 		},
 		start() {
 			timer.start();
+			const at = now();
+			const due = store.due(at);
+			const next = store.nextAfter(at);
+			if (due.length === 0 && !next) return;
+			getLogger().debug("schedule clock resumed", {
+				due: due.length,
+				...(next
+					? {
+							next: next.id,
+							delayMs: Math.max(0, next.nextRun - at),
+						}
+					: {}),
+			});
 		},
 		async stop() {
 			timer.stop();
