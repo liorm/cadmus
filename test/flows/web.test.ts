@@ -286,6 +286,21 @@ describe("web channel", () => {
 		);
 		await app.quiesce();
 
+		const formatted = await messages(url, key);
+		expect(formatted.some((item) => item.type === "notice")).toBe(true);
+		const raw = await json<{ entries: { kind: string; id: number }[] }>(
+			url,
+			`/api/chats/${encodeURIComponent(key)}/entries`,
+		);
+		const kinds = raw.entries.map((entry) => entry.kind);
+		expect(kinds).toContain("pi.user");
+		expect(kinds).toContain("pi.assistant");
+		expect(kinds).toContain("pi.reset");
+		expect(kinds).toContain("pi-bot.notice");
+		expect(raw.entries.length).toBeGreaterThan(formatted.length);
+		const missing = await call(url, "/api/chats/no-such/entries");
+		expect(missing.status).toBe(404);
+
 		egress.xai.hold();
 		await say(url, key, "write me an essay");
 		await until(() => egress.xai.requests.length === 3, "essay request");

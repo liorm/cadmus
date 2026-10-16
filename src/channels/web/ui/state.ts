@@ -51,6 +51,17 @@ export const botId = signal("");
 export const chats = signal<Chat[]>([]);
 export const chatKey = signal<string | null>(null);
 export const messages = signal<Item[]>([]);
+export type RawEntry = {
+	id: number;
+	kind: string;
+	model?: unknown;
+	data?: unknown;
+	head?: number;
+	edits?: unknown;
+	byTaskId?: number;
+};
+export const rawMode = signal(false);
+export const rawEntries = signal<RawEntry[]>([]);
 export const notes = signal<HarvestNote[]>([]);
 export const partial = signal("");
 export const liveTools = signal<Chip[]>([]);

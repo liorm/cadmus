@@ -160,6 +160,9 @@ export async function handleApi(
 		if (request.method === "GET") return getMessages(deps, key);
 		if (request.method === "POST") return postMessage(request, deps, key);
 	}
+	const entries = /^\/api\/chats\/([^/]+)\/entries$/.exec(path);
+	if (entries?.[1] && request.method === "GET")
+		return getEntries(deps, decodeURIComponent(entries[1]));
 	const events = /^\/api\/chats\/([^/]+)\/events$/.exec(path);
 	if (events?.[1] && request.method === "GET")
 		return streamEvents(request, deps, decodeURIComponent(events[1]));
@@ -378,15 +381,17 @@ async function createChat(
 	}
 }
 
-async function getMessages(deps: WebDeps, key: string): Promise<Response> {
+async function conversationEntries(
+	deps: WebDeps,
+	key: string,
+): Promise<EntryRecord[] | undefined> {
 	const chat = (await listChats(deps.harness)).find((item) => item.key === key);
-	if (!chat) return Response.json({ error: "No such chat." }, { status: 404 });
+	if (!chat) return undefined;
 	const conversation = await deps.harness.conversation(
 		chat.conversationId,
 		BACKGROUND_CONTEXT,
 	);
-	if (!conversation)
-		return Response.json({ error: "No such chat." }, { status: 404 });
+	if (!conversation) return undefined;
 	const entries: EntryRecord[] = [];
 	let cursor: Cursor | undefined;
 	do {
@@ -399,6 +404,13 @@ async function getMessages(deps: WebDeps, key: string): Promise<Response> {
 		entries.push(...page.items);
 		cursor = page.next;
 	} while (cursor);
+	return entries;
+}
+
+async function getMessages(deps: WebDeps, key: string): Promise<Response> {
+	const entries = await conversationEntries(deps, key);
+	if (!entries)
+		return Response.json({ error: "No such chat." }, { status: 404 });
 	const notes = (
 		(await deps.harness.snapshot(HarvestNotesDoc, BACKGROUND_CONTEXT))?.notes ??
 		[]
@@ -406,6 +418,14 @@ async function getMessages(deps: WebDeps, key: string): Promise<Response> {
 	return Response.json({
 		messages: mergeTimeline(projectEntries(entries), notes),
 	});
+}
+
+/** Every stored entry, including system, reset, and tool-result rows the chat view omits. */
+async function getEntries(deps: WebDeps, key: string): Promise<Response> {
+	const entries = await conversationEntries(deps, key);
+	if (!entries)
+		return Response.json({ error: "No such chat." }, { status: 404 });
+	return Response.json({ entries });
 }
 
 async function postMessage(

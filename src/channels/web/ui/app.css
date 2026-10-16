@@ -453,6 +453,49 @@ button:disabled {
 	gap: 11px;
 	overflow: auto;
 }
+.msgs.raw {
+	justify-content: flex-start;
+	padding: 14px 20px 24px;
+	gap: 8px;
+}
+.view-seg {
+	width: auto;
+	flex: none;
+}
+.view-seg button {
+	padding: 5px 10px;
+	flex: none;
+}
+.raw-turn {
+	max-width: 100%;
+	border: 1px solid var(--line);
+	border-radius: 10px;
+	background: var(--code);
+	overflow: hidden;
+}
+.raw-turn header {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	align-items: baseline;
+	padding: 6px 10px;
+	border-bottom: 1px solid var(--line);
+	background: var(--p2);
+	font: 11.5px var(--mono);
+}
+.raw-turn .kind {
+	color: var(--ac);
+	font-weight: 600;
+}
+.raw-turn pre {
+	margin: 0;
+	padding: 10px 12px;
+	overflow: auto;
+	white-space: pre-wrap;
+	word-break: break-word;
+	font: 12px / 1.55 var(--mono);
+	color: var(--tx);
+}
 .b {
 	max-width: 68%;
 	padding: 9px 13px;

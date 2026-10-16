@@ -22,6 +22,9 @@ import {
 	narrow,
 	notes,
 	partial,
+	type RawEntry,
+	rawEntries,
+	rawMode,
 	type ScheduleRow,
 	saved,
 	scheduleId,
@@ -114,6 +117,7 @@ export function watchChat(key: string): void {
 	chatKey.value = key;
 	closeWatch();
 	messages.value = [];
+	rawEntries.value = [];
 	notes.value = [];
 	partial.value = "";
 	liveTools.value = [];
@@ -129,6 +133,7 @@ export function watchChat(key: string): void {
 		busy.value = data.busy;
 		messages.value = data.messages;
 		rememberSnippet(key, data.messages);
+		if (rawMode.value) void loadRawEntries(key);
 		partial.value = data.partial ?? "";
 		liveTools.value = data.tools ?? [];
 		if (data.notes) notes.value = data.notes;
@@ -203,6 +208,20 @@ function clientMessageId(): string {
 	return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join(
 		"",
 	);
+}
+
+export async function loadRawEntries(key = chatKey.value): Promise<void> {
+	if (!key) return;
+	const body = await api<{ entries: RawEntry[] }>(
+		`/api/chats/${encodeURIComponent(key)}/entries`,
+	);
+	if (chatKey.value !== key) return;
+	rawEntries.value = body.entries;
+}
+
+export async function showRaw(on: boolean): Promise<void> {
+	rawMode.value = on;
+	if (on) await loadRawEntries();
 }
 
 export async function send(text: string): Promise<void> {

@@ -5,6 +5,7 @@ import {
 	openBot,
 	renameChat,
 	send,
+	showRaw,
 	watchChat,
 } from "./client.ts";
 import { ConfirmDialog } from "./confirm.tsx";
@@ -32,6 +33,9 @@ import {
 	notes,
 	openNote,
 	partial,
+	type RawEntry,
+	rawEntries,
+	rawMode,
 	selectedBot,
 	showList,
 	tab,
@@ -407,6 +411,22 @@ function Main() {
 					{percent === undefined ? null : (
 						<span class="tag">ctx {percent}%</span>
 					)}
+					<div class="seg view-seg">
+						<button
+							type="button"
+							class={rawMode.value ? "" : "on"}
+							onClick={() => void showRaw(false).catch(showError)}
+						>
+							Chat
+						</button>
+						<button
+							type="button"
+							class={rawMode.value ? "on" : ""}
+							onClick={() => void showRaw(true).catch(showError)}
+						>
+							Raw
+						</button>
+					</div>
 					<button
 						type="button"
 						class="btn ghost"
@@ -435,8 +455,8 @@ function Main() {
 					{banner.value}
 				</div>
 			) : null}
-			<div class="msgs">
-				<Timeline />
+			<div class={`msgs ${rawMode.value ? "raw" : ""}`}>
+				{rawMode.value ? <RawTimeline /> : <Timeline />}
 				{partial.value || liveTools.value.length > 0 ? (
 					<div class="b">
 						{liveTools.value.map((tool) => (
@@ -470,6 +490,36 @@ function Main() {
 				</ConfirmDialog>
 			) : null}
 		</main>
+	);
+}
+
+function RawTimeline() {
+	if (rawEntries.value.length === 0)
+		return <p class="mu">No stored entries yet.</p>;
+	return (
+		<>
+			{rawEntries.value.map((entry) => (
+				<RawTurn key={entry.id} entry={entry} />
+			))}
+		</>
+	);
+}
+
+function RawTurn({ entry }: { entry: RawEntry }) {
+	return (
+		<article class="raw-turn">
+			<header>
+				<span class="kind">{entry.kind}</span>
+				<span class="mu">#{entry.id}</span>
+				{entry.head !== undefined ? (
+					<span class="mu">head {entry.head}</span>
+				) : null}
+				{entry.byTaskId !== undefined ? (
+					<span class="mu">task {entry.byTaskId}</span>
+				) : null}
+			</header>
+			<pre>{JSON.stringify(entry, null, 2)}</pre>
+		</article>
 	);
 }
 
