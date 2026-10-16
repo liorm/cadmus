@@ -406,14 +406,14 @@ describe("tool results", () => {
 			"knowledge_read",
 			"knowledge_update",
 			"knowledge_delete",
-			"schedule_create",
-			"schedule_list",
-			"schedule_update",
-			"schedule_delete",
 			"web.search",
 			"web.fetch",
 			"x.search",
 			"code.execute",
+			"schedule_create",
+			"schedule_list",
+			"schedule_update",
+			"schedule_delete",
 		]);
 	});
 });

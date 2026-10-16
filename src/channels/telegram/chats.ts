@@ -4,7 +4,7 @@ import {
 	defineDoc,
 	type Harness,
 } from "@earendil-works/pi-durable";
-import { DEFAULT_BOT_ID } from "../bots.ts";
+import { DEFAULT_BOT_ID } from "../bot-slug.ts";
 import type { TgMessage } from "./transport.ts";
 
 /** One conversation on a bot: a Telegram chat, a forum topic, or a web chat. */

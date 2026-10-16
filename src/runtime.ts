@@ -1,5 +1,9 @@
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import { configure, type Harness } from "@earendil-works/pi-durable";
+import {
+	configure,
+	type Harness,
+	type RegistryReader,
+} from "@earendil-works/pi-durable";
 import { type BotRecord, botDir } from "./channels/bots.ts";
 import {
 	ChatClosed,
@@ -44,12 +48,13 @@ export type TurnHooks = {
 
 export function createBotRuntime(options: {
 	harness: Harness;
+	registry: RegistryReader;
 	deliverer: Deliverer;
 	bot: BotRecord;
 	home: string;
 	hooks?: TurnHooks;
 }): BotRuntime {
-	const { harness, deliverer, home } = options;
+	const { harness, registry, deliverer, home } = options;
 	let bot = options.bot;
 	const pending = new Set<Promise<void>>();
 
@@ -75,7 +80,7 @@ export function createBotRuntime(options: {
 			const web = webChatId(bot.id, chatId);
 			const address = web === undefined ? telegramTarget(chatId) : undefined;
 			const thinking = parseThinkingLevel(bot.thinking);
-			const tools = agentToolChange(bot);
+			const tools = agentToolChange(bot, registry);
 			return harness.commit(async (tx) => {
 				const chats = await tx.doc(ChatsDoc);
 				if ((chats.closed ?? []).includes(chatId)) throw new ChatClosed(chatId);
@@ -132,7 +137,7 @@ export function createBotRuntime(options: {
 				return existing !== undefined;
 			}, BACKGROUND_CONTEXT);
 			if (!duplicate) await options.hooks?.onInput?.(chat.key);
-			await syncChatTools(harness, chat.conversationId, bot);
+			await syncChatTools(harness, chat.conversationId, bot, registry);
 			const submission = await conversation.submit(
 				{ type: "input", content: text, requestId, whenBusy: "steer" },
 				BACKGROUND_CONTEXT,

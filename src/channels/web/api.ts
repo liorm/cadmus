@@ -6,6 +6,7 @@ import {
 	type EntryRecord,
 	type Harness,
 	LiveDoc,
+	type RegistryReader,
 } from "@earendil-works/pi-durable";
 import type { Config } from "../../config.ts";
 import {
@@ -27,7 +28,12 @@ import {
 	type ScheduleService,
 	type ScheduleTarget,
 } from "../../schedules/service.ts";
-import { isToolName, OFFERED_PROVIDERS, TOOL_CATALOG } from "../bot-catalog.ts";
+import {
+	isToolName,
+	OFFERED_PROVIDERS,
+	toolCatalog,
+	toolNames,
+} from "../bot-catalog.ts";
 import {
 	type BotWrite,
 	createBot,
@@ -67,6 +73,7 @@ export type WebDeps = {
 	config: Config;
 	models: MutableModels;
 	harness: Harness;
+	registry: RegistryReader;
 	deliverer: Deliverer;
 	ensureRuntime(botId: string): BotRuntime | undefined;
 	addRuntime(bot: {
@@ -104,7 +111,7 @@ export async function handleApi(
 	if (path === "/api/models" && request.method === "GET")
 		return Response.json({ providers: offeredModels(deps.models) });
 	if (path === "/api/tools" && request.method === "GET")
-		return Response.json({ catalog: TOOL_CATALOG });
+		return Response.json({ catalog: toolCatalog(deps.registry) });
 	if (path === "/api/bots" && request.method === "POST")
 		return create(request, deps);
 
@@ -186,7 +193,12 @@ async function create(request: Request, deps: WebDeps): Promise<Response> {
 		return Response.json({ error: parsed.error }, { status: parsed.status });
 	const unusable = await modelFailure(deps.models, parsed.write.model);
 	if (unusable) return Response.json({ error: unusable }, { status: 422 });
-	const created = await createBot(deps.harness, deps.config.home, parsed.write);
+	const created = await createBot(
+		deps.harness,
+		deps.config.home,
+		parsed.write,
+		toolNames(deps.registry),
+	);
 	if (!created.ok)
 		return Response.json({ error: created.error }, { status: created.status });
 	deps.addRuntime(created.bot);
@@ -222,7 +234,12 @@ async function patchBot(
 		const unusable = await modelFailure(deps.models, parsed.write.model);
 		if (unusable) return Response.json({ error: unusable }, { status: 422 });
 	}
-	const updated = await updateBot(deps.harness, id, parsed.write);
+	const updated = await updateBot(
+		deps.harness,
+		id,
+		parsed.write,
+		toolNames(deps.registry),
+	);
 	if (!updated.ok)
 		return Response.json({ error: updated.error }, { status: updated.status });
 	deps.ensureRuntime(id)?.refresh(updated.bot);
@@ -248,7 +265,7 @@ async function syncBotChats(
 			BACKGROUND_CONTEXT,
 		);
 		if (live?.run) continue;
-		await syncChatTools(deps.harness, chat.conversationId, bot);
+		await syncChatTools(deps.harness, chat.conversationId, bot, deps.registry);
 	}
 }
 
@@ -256,8 +273,8 @@ async function getBotTools(deps: WebDeps, id: string): Promise<Response> {
 	const bot = (await listBots(deps.harness)).find((item) => item.id === id);
 	if (!bot) return Response.json({ error: "No such bot." }, { status: 404 });
 	return Response.json({
-		catalog: TOOL_CATALOG,
-		enabled: resolvedEnabled(bot),
+		catalog: toolCatalog(deps.registry),
+		enabled: resolvedEnabled(bot, deps.registry),
 	});
 }
 
@@ -272,19 +289,24 @@ async function putBotTools(
 	const enabled = (body as { enabled?: unknown }).enabled;
 	if (
 		!Array.isArray(enabled) ||
-		enabled.some((tool) => typeof tool !== "string" || !isToolName(tool))
+		enabled.some(
+			(tool) => typeof tool !== "string" || !isToolName(deps.registry, tool),
+		)
 	)
 		return Response.json({ error: "Unknown tool." }, { status: 422 });
-	const updated = await updateBot(deps.harness, id, {
-		tools: enabled as string[],
-	});
+	const updated = await updateBot(
+		deps.harness,
+		id,
+		{ tools: enabled as string[] },
+		toolNames(deps.registry),
+	);
 	if (!updated.ok)
 		return Response.json({ error: updated.error }, { status: updated.status });
 	deps.ensureRuntime(id)?.refresh(updated.bot);
 	await syncBotChats(deps, id, updated.bot);
 	return Response.json({
-		catalog: TOOL_CATALOG,
-		enabled: resolvedEnabled(updated.bot),
+		catalog: toolCatalog(deps.registry),
+		enabled: resolvedEnabled(updated.bot, deps.registry),
 	});
 }
 
@@ -953,7 +975,9 @@ function parseBotWrite(
 	if (record.tools !== undefined) {
 		if (
 			!Array.isArray(record.tools) ||
-			record.tools.some((tool) => typeof tool !== "string" || !isToolName(tool))
+			record.tools.some(
+				(tool) => typeof tool !== "string" || !isToolName(deps.registry, tool),
+			)
 		) {
 			return { ok: false, status: 422, error: "Unknown tool." };
 		}

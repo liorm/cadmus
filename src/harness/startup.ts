@@ -1,5 +1,10 @@
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import { AgentDoc, configure, type Harness } from "@earendil-works/pi-durable";
+import {
+	AgentDoc,
+	configure,
+	type Harness,
+	type RegistryReader,
+} from "@earendil-works/pi-durable";
 import { botDir, DEFAULT_BOT_ID, listBots } from "../channels/bots.ts";
 import { listChats, migrateLegacyChats } from "../channels/telegram/chats.ts";
 import { reconcileInterrupted } from "../channels/telegram/deliver.ts";
@@ -15,7 +20,10 @@ import { syncChatTools } from "./tool-policy.ts";
  * 4. The caller resumes unfinished runs after schedule services exist. Final answers they produce are delivered normally.
  * `write` and `edit` stay replay-unsafe, so an interrupted call runs again rather than being skipped.
  */
-export async function runStartup(harness: Harness, options: { home: string }) {
+export async function runStartup(
+	harness: Harness,
+	options: { home: string; registry: RegistryReader },
+) {
 	const log = getLogger();
 	const unknown = await reconcileInterrupted(harness);
 	await migrateLegacyChats(harness);
@@ -23,7 +31,7 @@ export async function runStartup(harness: Harness, options: { home: string }) {
 	for (const chat of await listChats(harness)) {
 		const owner = bots.get(chat.botId ?? DEFAULT_BOT_ID);
 		if (!owner) continue;
-		await syncChatTools(harness, chat.conversationId, owner);
+		await syncChatTools(harness, chat.conversationId, owner, options.registry);
 		const stored = await harness.snapshot(
 			AgentDoc,
 			chat.conversationId,

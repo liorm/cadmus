@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { Writable } from "node:stream";
 import type { EntryRecord } from "@earendil-works/pi-durable";
+import { catalogGroup, toolCatalog } from "../src/channels/bot-catalog.ts";
 import { slugifyBotName } from "../src/channels/bot-slug.ts";
 import { chatKey } from "../src/channels/telegram/chats.ts";
 import { parseCommand } from "../src/channels/telegram/commands.ts";
@@ -32,6 +33,7 @@ import {
 } from "../src/extensions/self-tools/schedules.ts";
 import { resolveProviderId } from "../src/harness/login.ts";
 import { parseModelRef } from "../src/harness/models.ts";
+import { buildRegistry } from "../src/harness/registry.ts";
 import { getLogger, setupLogger } from "../src/log.ts";
 import { nextCron, parseCron } from "../src/schedules/cron.ts";
 import { defined } from "./support.ts";
@@ -41,6 +43,20 @@ describe("pure helpers", () => {
 	it("maps login aliases", () => {
 		expect(resolveProviderId("grok")).toBe("xai");
 		expect(resolveProviderId("XAI")).toBe("xai");
+	});
+
+	it("lists registry tools as the dialog catalog", () => {
+		expect(catalogGroup("pi-bot.knowledge")).toBe("Knowledge");
+		expect(catalogGroup("pi-bot.self")).toBe("Schedules");
+		expect(catalogGroup("pi-bot.web")).toBe("Web");
+		const { registry } = buildRegistry({ home: "/tmp", timeZone: "UTC" });
+		const catalog = toolCatalog(registry);
+		expect(catalog.map((tool) => tool.name)).toEqual(
+			registry
+				.snapshot()
+				.tools()
+				.map((entry) => entry.tool.name),
+		);
 	});
 
 	it("parses commands, including /cmd@Bot, and ignores other bots and unknown commands", () => {

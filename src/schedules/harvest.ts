@@ -6,12 +6,16 @@ import {
 	defineDoc,
 	type EntryId,
 	type Harness,
+	type RegistryReader,
 	type ToolRegistration,
 } from "@earendil-works/pi-durable";
-import { KNOWLEDGE_TOOLS } from "../channels/bot-catalog.ts";
+import { knowledgeToolNames } from "../channels/bot-catalog.ts";
 import { BotsDoc, botDir } from "../channels/bots.ts";
 import { listChats } from "../channels/telegram/chats.ts";
+import { harvestId } from "./ids.ts";
 import type { Schedule, ScheduleService } from "./service.ts";
+
+export { harvestId, isHarvestId } from "./ids.ts";
 
 export const HARVEST_DELAY_MS = 60_000;
 export const HARVEST_TEXT = `Improve knowledge from this chat. Keep only notes that will still matter in later conversations: user preferences, standing instructions, working methods, names and durable facts about the user or their work, and corrections of how you should operate. Skip local answers. Do not store one-off questions, encyclopedia trivia, or instance values such as a specific arithmetic result. Prefer the method over the instance: keep that calculations should use code.execute for precision; do not keep the numbers from one sum. A correction of how you should work is knowledge; the answer you gave is not. If nothing qualifies, make no writes. For each note worth keeping, knowledge_read the matching slug (a missing file returns version 0), merge it into the returned body, then knowledge_update with that version, a one-line description (at most 240 characters), the same category unless it should change, and the full new body without a --- frontmatter fence. Put a note in the file whose description already covers that topic, or add a new file; do not append unrelated notes to an existing file. Do not update without a read. Do not delete a file unless it should go away.`;
@@ -33,25 +37,17 @@ export const HarvestNotesDoc = defineDoc<{ notes: HarvestNote[] }>({
 	initial: () => ({ notes: [] }),
 });
 
-export function harvestId(chatKey: string): string {
-	return `harvest:${chatKey}`;
-}
-
-export function isHarvestId(id: string): boolean {
-	return id.startsWith("harvest:");
-}
-
 /** Knowledge tools the bot still has switched on. Harvest cannot call anything else. */
 export function harvestTools(
 	bot: { tools?: readonly string[] } | undefined,
+	registry: RegistryReader,
 ): ToolRegistration[] {
+	const knowledge = knowledgeToolNames(registry);
 	const allow =
-		bot?.tools === undefined
-			? new Set<string>(KNOWLEDGE_TOOLS)
-			: new Set(bot.tools);
-	return KNOWLEDGE_TOOLS.filter((name) => allow.has(name)).map(
-		(name) => ({ name }) as ToolRegistration,
-	);
+		bot?.tools === undefined ? new Set<string>(knowledge) : new Set(bot.tools);
+	return knowledge
+		.filter((name) => allow.has(name))
+		.map((name) => ({ name }) as ToolRegistration);
 }
 
 /** Arm the idle fork. The same rested entry only moves the wake. */
@@ -97,6 +93,7 @@ export async function armHarvest(
  */
 export async function runHarvest(options: {
 	harness: Harness;
+	registry: RegistryReader;
 	home: string;
 	schedule: Schedule;
 	requestId: string;
@@ -124,7 +121,10 @@ export async function runHarvest(options: {
 	);
 	const bots = await options.harness.snapshot(BotsDoc, BACKGROUND_CONTEXT);
 	const bot = bots?.items.find((item) => item.id === options.schedule.botId);
-	await child.configure({ tools: harvestTools(bot) }, BACKGROUND_CONTEXT);
+	await child.configure(
+		{ tools: harvestTools(bot, options.registry) },
+		BACKGROUND_CONTEXT,
+	);
 	const submission = await child.submit(
 		{
 			type: "input",

@@ -1,37 +1,57 @@
-/** Every model tool this process registers, in offer order. */
-export const TOOL_CATALOG = [
-	{ group: "Knowledge", name: "knowledge_read" },
-	{ group: "Knowledge", name: "knowledge_update" },
-	{ group: "Knowledge", name: "knowledge_delete" },
-	{ group: "Schedules", name: "schedule_create" },
-	{ group: "Schedules", name: "schedule_list" },
-	{ group: "Schedules", name: "schedule_update" },
-	{ group: "Schedules", name: "schedule_delete" },
-	{ group: "Web", name: "web.search" },
-	{ group: "Web", name: "web.fetch" },
-	{ group: "Provider", name: "x.search" },
-	{ group: "Provider", name: "code.execute" },
-] as const;
+import type { RegistryReader } from "@earendil-works/pi-durable";
 
-export const KNOWLEDGE_TOOLS = [
-	"knowledge_read",
-	"knowledge_update",
-	"knowledge_delete",
-] as const;
-export const WEB_TOOLS = ["web.search", "web.fetch"] as const;
+export type CatalogTool = { group: string; name: string };
 
-export const TOOL_NAMES: readonly string[] = TOOL_CATALOG.map(
-	(tool) => tool.name,
-);
+const GROUPS: Record<string, string> = {
+	"pi-bot.knowledge": "Knowledge",
+	"pi-bot.self": "Schedules",
+	"pi-bot.web": "Web",
+};
 
-const TOOL_NAME_SET = new Set<string>(TOOL_NAMES);
+/** Dialog group for an installed extension. Unknown names keep the suffix after `pi-bot.`. */
+export function catalogGroup(extensionName: string): string | undefined {
+	const mapped = GROUPS[extensionName];
+	if (mapped) return mapped;
+	if (!extensionName.startsWith("pi-bot.")) return undefined;
+	const rest = extensionName.slice("pi-bot.".length);
+	if (!rest) return undefined;
+	return rest.charAt(0).toUpperCase() + rest.slice(1);
+}
+
+/** Tools the registry has installed, in install order, grouped for the dialog. */
+export function toolCatalog(registry: RegistryReader): CatalogTool[] {
+	return registry
+		.snapshot()
+		.tools()
+		.flatMap((entry) => {
+			const group = catalogGroup(entry.extension.name);
+			if (!group) return [];
+			return [{ group, name: entry.tool.name }];
+		});
+}
+
+export function toolNames(registry: RegistryReader): readonly string[] {
+	return toolCatalog(registry).map((tool) => tool.name);
+}
+
+/** Knowledge tools the harvest fork may call. */
+export function knowledgeToolNames(
+	registry: RegistryReader,
+): readonly string[] {
+	return (
+		registry
+			.snapshot()
+			.extension("pi-bot.knowledge")
+			?.tools?.map((tool) => tool.name) ?? []
+	);
+}
+
+export function isToolName(registry: RegistryReader, name: string): boolean {
+	return toolNames(registry).includes(name);
+}
 
 /** Providers the bot dialog offers. */
 export const OFFERED_PROVIDERS = ["xai", "faux"] as const;
-
-export function isToolName(name: string): boolean {
-	return TOOL_NAME_SET.has(name);
-}
 
 /**
  * `undefined` means every tool is on, including tools added later.
@@ -39,12 +59,14 @@ export function isToolName(name: string): boolean {
  */
 export function normalizeEnabled(
 	tools: readonly string[] | undefined,
+	all: readonly string[],
 ): string[] | undefined {
 	if (tools === undefined) return undefined;
 	const unique = [...new Set(tools)];
 	if (
-		unique.length === TOOL_NAMES.length &&
-		TOOL_NAMES.every((name) => unique.includes(name))
+		all.length > 0 &&
+		unique.length === all.length &&
+		all.every((name) => unique.includes(name))
 	)
 		return undefined;
 	return unique;

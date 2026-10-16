@@ -2,7 +2,11 @@ import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import type { EntryId, Harness } from "@earendil-works/pi-durable";
+import type {
+	EntryId,
+	Harness,
+	RegistryReader,
+} from "@earendil-works/pi-durable";
 import { listChats, webChatKey } from "../channels/telegram/chats.ts";
 import { now as clockNow, testClockActive, testClockPollMs } from "../clock.ts";
 import { getLogger } from "../log.ts";
@@ -74,6 +78,7 @@ export function createScheduleService(options: {
 	home: string;
 	timeZone: string;
 	harness: Harness;
+	registry: RegistryReader;
 	runtime(botId: string): BotRuntime | undefined;
 	now?: () => number;
 }): ScheduleService {
@@ -266,6 +271,7 @@ export function createScheduleService(options: {
 		if (isHarvestId(schedule.id)) {
 			await runHarvest({
 				harness: options.harness,
+				registry: options.registry,
 				home: options.home,
 				schedule,
 				requestId,

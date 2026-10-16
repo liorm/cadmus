@@ -78,12 +78,12 @@ export async function startApp({
 	);
 	let harness: Harness;
 	const self: SelfHost = { home: config.home };
+	const { registry } = buildRegistry({
+		home: config.home,
+		timeZone: config.timeZone,
+		self,
+	});
 	try {
-		const { registry } = buildRegistry({
-			home: config.home,
-			timeZone: config.timeZone,
-			self,
-		});
 		harness = await Harness.open(
 			storage,
 			{
@@ -107,7 +107,10 @@ export async function startApp({
 		throw error;
 	}
 
-	const { unknown } = await runStartup(harness, { home: config.home });
+	const { unknown } = await runStartup(harness, {
+		home: config.home,
+		registry,
+	});
 	const deliverer = new Deliverer(harness, transport);
 	const hooks: TurnHooks = {};
 	const runtimes = new Map<string, BotRuntime>();
@@ -119,6 +122,7 @@ export async function startApp({
 		}
 		const created = createBotRuntime({
 			harness,
+			registry,
 			deliverer,
 			bot,
 			home: config.home,
@@ -148,6 +152,7 @@ export async function startApp({
 		home: config.home,
 		timeZone: config.timeZone,
 		harness,
+		registry,
 		runtime: (id) => runtimes.get(id),
 	});
 	self.schedules = schedules;
@@ -217,6 +222,7 @@ export async function startApp({
 				config,
 				models,
 				harness,
+				registry,
 				deliverer,
 				ensureRuntime: (id) => runtimes.get(id),
 				addRuntime,

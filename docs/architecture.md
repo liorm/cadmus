@@ -89,5 +89,5 @@ These are the knobs the running process uses. They are not separate subsystems.
 - The knowledge section lists at most 80 valid files, in path order, then a count of the rest.
 - Idle harvest waits 60 seconds unless `PI_BOT_HARVEST_DELAY_MS` overrides it. The delay is process-wide.
 - Cron is five fields. A bad expression is rejected and writes nothing.
-- Every registered tool (`knowledge_read`, `knowledge_update`, `knowledge_delete`, the schedule tools, `web.search`, `web.fetch`, `x.search`, and `code.execute`) is on unless the bot row lists an enabled set. An omitted `tools` field means all of them. An empty list means none. A disabled tool is left out of the model request and is not run. `GET` and `PUT /api/bots/<id>/tools` read and replace that set. The bot dialog shows the same switches.
+- Every tool the registry has installed is on unless the bot row lists an enabled set. The dialog catalog is that list, grouped by extension. An omitted `tools` field means all of them. An empty list means none. A disabled tool is left out of the model request and is not run. `GET` and `PUT /api/bots/<id>/tools` read and replace that set. The bot dialog shows the same switches.
 - The host does not delete bots. It does not run a shell.

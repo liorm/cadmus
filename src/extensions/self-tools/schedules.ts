@@ -3,7 +3,7 @@ import type { ToolExecutionApi } from "@earendil-works/pi-durable";
 import { Type } from "typebox";
 import { ChatsDoc } from "../../channels/telegram/chats.ts";
 import { parseCron } from "../../schedules/cron.ts";
-import { isHarvestId } from "../../schedules/harvest.ts";
+import { isHarvestId } from "../../schedules/ids.ts";
 import {
 	type Schedule,
 	ScheduleRejected,

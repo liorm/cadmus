@@ -4,19 +4,23 @@ import {
 	type ConversationId,
 	configure,
 	type Harness,
+	type RegistryReader,
 	type ToolRegistration,
 } from "@earendil-works/pi-durable";
-import { TOOL_CATALOG, TOOL_NAMES } from "../channels/bot-catalog.ts";
+import { toolNames } from "../channels/bot-catalog.ts";
 
 /** Names the agent may call. `null` means every registered tool. */
-export function agentToolChange(bot: {
-	tools?: readonly string[];
-}): ToolRegistration[] | null {
+export function agentToolChange(
+	bot: {
+		tools?: readonly string[];
+	},
+	registry: RegistryReader,
+): ToolRegistration[] | null {
 	if (bot.tools === undefined) return null;
 	const allow = new Set(bot.tools);
-	return TOOL_CATALOG.filter((tool) => allow.has(tool.name)).map(
-		(tool) => ({ name: tool.name }) as ToolRegistration,
-	);
+	return toolNames(registry)
+		.filter((name) => allow.has(name))
+		.map((name) => ({ name }) as ToolRegistration);
 }
 
 function sameTools(
@@ -33,8 +37,9 @@ export async function syncChatTools(
 	harness: Harness,
 	conversationId: ConversationId,
 	bot: { tools?: readonly string[] },
+	registry: RegistryReader,
 ): Promise<void> {
-	const next = agentToolChange(bot);
+	const next = agentToolChange(bot, registry);
 	const names = next === null ? null : next.map((tool) => tool.name);
 	const stored = await harness.snapshot(
 		AgentDoc,
@@ -52,8 +57,12 @@ export async function syncChatTools(
 }
 
 /** Enabled names for a client. An omitted bot list is every catalog tool. */
-export function resolvedEnabled(bot: { tools?: readonly string[] }): string[] {
-	if (bot.tools === undefined) return [...TOOL_NAMES];
+export function resolvedEnabled(
+	bot: { tools?: readonly string[] },
+	registry: RegistryReader,
+): string[] {
+	const all = toolNames(registry);
+	if (bot.tools === undefined) return [...all];
 	const allow = new Set(bot.tools);
-	return TOOL_NAMES.filter((name) => allow.has(name));
+	return all.filter((name) => allow.has(name));
 }

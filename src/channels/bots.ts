@@ -6,11 +6,7 @@ import { DEFAULT_SOUL } from "../extensions/identity.ts";
 import { normalizeEnabled } from "./bot-catalog.ts";
 import { slugifyBotName } from "./bot-slug.ts";
 
-/**
- * Id the general Telegram door (`TELEGRAM_BOT_TOKEN`) admits on.
- * Nothing creates this row. It exists when a bot was named so its slug is `default`, or when an older home already had one.
- */
-export const DEFAULT_BOT_ID = "default";
+export { DEFAULT_BOT_ID } from "./bot-slug.ts";
 
 export type BotRecord = {
 	id: string;
@@ -130,6 +126,7 @@ export async function createBot(
 	harness: Harness,
 	home: string,
 	input: BotWrite,
+	all: readonly string[] = [],
 ): Promise<BotCreateResult> {
 	const base = slugifyBotName(input.name);
 	if (!base)
@@ -142,7 +139,7 @@ export async function createBot(
 		await rm(dir, { recursive: true, force: true });
 		throw error;
 	}
-	const tools = normalizeEnabled(input.tools);
+	const tools = normalizeEnabled(input.tools, all);
 	const record: BotRecord = {
 		id,
 		name: input.name.trim(),
@@ -186,6 +183,7 @@ export async function updateBot(
 	harness: Harness,
 	id: string,
 	patch: Partial<BotWrite>,
+	all: readonly string[] = [],
 ): Promise<BotUpdateResult> {
 	const name = patch.name?.trim();
 	if (patch.name !== undefined && !name)
@@ -198,7 +196,7 @@ export async function updateBot(
 		if (patch.model !== undefined) bot.model = patch.model;
 		if (patch.thinking !== undefined) bot.thinking = patch.thinking;
 		if (patch.tools !== undefined) {
-			const tools = normalizeEnabled(patch.tools);
+			const tools = normalizeEnabled(patch.tools, all);
 			if (tools === undefined) delete bot.tools;
 			else bot.tools = tools;
 		}
