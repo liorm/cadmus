@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { defineExtension, section } from "@earendil-works/pi-durable";
-import { DEFAULT_SOUL } from "./default-soul.ts";
+import { DEFAULT_SOUL, SYSTEM_PROMPT } from "./default-soul.ts";
 import { knowledgeIndex } from "./knowledge.ts";
 
 export { DEFAULT_SOUL };
@@ -51,6 +51,7 @@ export function identityExtension(options: {
 						: undefined) ?? DEFAULT_SOUL,
 				{ tag: false },
 			),
+			section("system", (_input) => SYSTEM_PROMPT),
 			section("knowledge", (input) =>
 				input.agent.cwd ? knowledgeIndex(input.agent.cwd) : undefined,
 			),
