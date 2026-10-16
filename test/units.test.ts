@@ -334,13 +334,66 @@ describe("pure helpers", () => {
 			{ id: 110, kind: "pi.assistant", model: [message] } as never,
 		]);
 		expect(item).toMatchObject({
-			type: "tool",
-			name: "web.search",
-			status: "done",
-			detail: {
-				callId: "ws_hourly",
-				arguments: { type: "search", query: "Jerusalem hourly weather" },
+			type: "assistant",
+			id: 110,
+			text: "Jerusalem – last 5 hours",
+			segments: [
+				{ type: "text", text: "Jerusalem – last 5 hours" },
+				{
+					type: "tool",
+					name: "web.search",
+					status: "done",
+					detail: {
+						callId: "ws_hourly",
+						arguments: { type: "search", query: "Jerusalem hourly weather" },
+					},
+				},
+			],
+		});
+	});
+
+	it("projects an assistant message with thinking, tool calls, and text into a single block", () => {
+		const entries = [
+			{
+				id: 153,
+				kind: "pi.assistant",
+				model: [
+					{
+						role: "assistant",
+						content: [
+							{ type: "thinking", thinking: "", thinkingSignature: "sig_abc" },
+							{ type: "text", text: "Top headlines" },
+							{
+								type: "serverTool",
+								id: "ws_search_1",
+								name: "web.search",
+								arguments: { query: "breaking news" },
+								status: "done",
+							},
+						],
+					},
+				],
 			},
+		] as unknown as EntryRecord[];
+		const items = projectEntries(entries);
+		expect(items).toHaveLength(1);
+		expect(items[0]).toMatchObject({
+			type: "assistant",
+			id: 153,
+			text: "Top headlines",
+			segments: [
+				{ type: "thinking", thinking: "", signature: "sig_abc" },
+				{ type: "text", text: "Top headlines" },
+				{
+					type: "tool",
+					name: "web.search",
+					status: "done",
+					detail: {
+						callId: "ws_search_1",
+						arguments: { query: "breaking news" },
+					},
+				},
+			],
 		});
 	});
 
@@ -386,14 +439,20 @@ describe("pure helpers", () => {
 		] as unknown as EntryRecord[];
 		const [item] = projectEntries(entries);
 		expect(item).toMatchObject({
-			type: "tool",
-			name: "read",
-			status: "error",
-			detail: {
-				callId,
-				arguments: { path: "knowledge/SOUL.md" },
-				result: "<harness>\n[error] ENOENT\n</harness>",
-			},
+			type: "assistant",
+			id: 61,
+			segments: [
+				{
+					type: "tool",
+					name: "read",
+					status: "error",
+					detail: {
+						callId,
+						arguments: { path: "knowledge/SOUL.md" },
+						result: "<harness>\n[error] ENOENT\n</harness>",
+					},
+				},
+			],
 		});
 		const live = liveTools(
 			{

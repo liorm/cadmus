@@ -25,9 +25,32 @@ export type ToolDetail = {
 	result?: string;
 	output?: string;
 };
+export type ThinkingSegment = {
+	type: "thinking";
+	thinking: string;
+	signature?: string;
+	redacted?: boolean;
+};
+export type ToolSegment = {
+	type: "tool";
+	id: string;
+	name: string;
+	status: string;
+	detail: ToolDetail;
+};
+export type TextSegment = {
+	type: "text";
+	text: string;
+};
+export type AssistantSegment = ThinkingSegment | ToolSegment | TextSegment;
 export type Item =
 	| { type: "user"; id: number; text: string }
-	| { type: "assistant"; id: number; text: string }
+	| {
+			type: "assistant";
+			id: number;
+			text: string;
+			segments?: AssistantSegment[];
+	  }
 	| {
 			type: "tool";
 			id: string;

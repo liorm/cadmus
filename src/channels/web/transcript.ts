@@ -24,9 +24,36 @@ export type ToolDetail = {
 	output?: string;
 };
 
+export type ThinkingSegment = {
+	type: "thinking";
+	thinking: string;
+	signature?: string;
+	redacted?: boolean;
+};
+
+export type ToolSegment = {
+	type: "tool";
+	id: string;
+	name: string;
+	status: "pending" | "running" | "done" | "error";
+	detail: ToolDetail;
+};
+
+export type TextSegment = {
+	type: "text";
+	text: string;
+};
+
+export type AssistantSegment = ThinkingSegment | ToolSegment | TextSegment;
+
 export type TranscriptItem =
 	| { type: "user"; id: number; text: string }
-	| { type: "assistant"; id: number; text: string }
+	| {
+			type: "assistant";
+			id: number;
+			text: string;
+			segments?: AssistantSegment[];
+	  }
 	| {
 			type: "tool";
 			id: string;
@@ -159,28 +186,122 @@ export function projectEntries(
 			continue;
 		}
 		if (!AssistantEntry.is(entry)) continue;
-		for (const call of recordedTools(entry.model?.[0])) {
-			const outcome = outcomes.get(call.id);
-			const result = outcome?.text
-				? clip(outcome.text)
-				: call.result
-					? clip(call.result)
-					: undefined;
-			const failed = outcome ? outcome.isError : call.failed;
-			items.push({
-				type: "tool",
-				id: `${entry.id}:${call.id}`,
-				name: call.name,
-				status: failed ? "error" : "done",
-				detail: {
-					callId: call.id,
-					...(call.arguments ? { arguments: call.arguments } : {}),
-					...(result ? { result } : {}),
-				},
-			});
+		const message = entry.model?.[0];
+		if (message?.role !== "assistant") continue;
+
+		const segments: AssistantSegment[] = [];
+		const text = textOf(message) ?? "";
+
+		if (Array.isArray(message.content)) {
+			for (const part of message.content as readonly {
+				type?: string;
+				id?: string;
+				name?: string;
+				text?: string;
+				thinking?: string;
+				thinkingSignature?: string;
+				signature?: string;
+				redacted?: boolean;
+				arguments?: JsonObject;
+				status?: string;
+				result?: string;
+			}[]) {
+				if (!part || typeof part !== "object") continue;
+				if (part.type === "thinking") {
+					const thinking =
+						typeof part.thinking === "string"
+							? part.thinking
+							: typeof part.text === "string"
+								? part.text
+								: "";
+					const signature =
+						typeof part.thinkingSignature === "string"
+							? part.thinkingSignature
+							: typeof part.signature === "string"
+								? part.signature
+								: undefined;
+					const redacted = Boolean(part.redacted);
+					segments.push({
+						type: "thinking",
+						thinking,
+						...(signature ? { signature } : {}),
+						...(redacted ? { redacted } : {}),
+					});
+					continue;
+				}
+				if (part.type === "toolCall" && part.id && part.name) {
+					const outcome = outcomes.get(part.id);
+					const result = outcome?.text ? clip(outcome.text) : undefined;
+					const failed = outcome ? outcome.isError : false;
+					segments.push({
+						type: "tool",
+						id: `${entry.id}:${part.id}`,
+						name: part.name,
+						status: failed ? "error" : "done",
+						detail: {
+							callId: part.id,
+							...(part.arguments
+								? { arguments: jsonObject(part.arguments) }
+								: {}),
+							...(result ? { result } : {}),
+						},
+					});
+					continue;
+				}
+				if (part.type === "serverTool" && part.id && part.name) {
+					const outcome = outcomes.get(part.id);
+					const result = outcome?.text
+						? clip(outcome.text)
+						: typeof part.result === "string"
+							? clip(part.result)
+							: undefined;
+					const failed = outcome
+						? outcome.isError
+						: part.status === "error" || part.status === "failed";
+					segments.push({
+						type: "tool",
+						id: `${entry.id}:${part.id}`,
+						name: part.name,
+						status: failed ? "error" : "done",
+						detail: {
+							callId: part.id,
+							...(part.arguments
+								? { arguments: jsonObject(part.arguments) }
+								: {}),
+							...(result ? { result } : {}),
+						},
+					});
+					continue;
+				}
+				if (
+					part.type === "text" &&
+					typeof part.text === "string" &&
+					part.text.trim()
+				) {
+					segments.push({
+						type: "text",
+						text: part.text.trim(),
+					});
+				}
+			}
+		} else {
+			const raw = message.content as unknown;
+			if (typeof raw === "string" && raw.trim()) {
+				segments.push({
+					type: "text",
+					text: raw.trim(),
+				});
+			}
 		}
-		const text = textOf(entry.model?.[0]);
-		if (text) items.push({ type: "assistant", id: entry.id, text });
+
+		if (segments.length === 0 && !text) continue;
+
+		items.push({
+			type: "assistant",
+			id: entry.id,
+			text,
+			...(segments.length > 0 ? { segments } : {}),
+		});
 	}
 	return items;
 }

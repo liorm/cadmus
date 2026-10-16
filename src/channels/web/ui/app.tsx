@@ -14,6 +14,7 @@ import { renderMarkdown } from "./markdown.ts";
 import { BotDialog } from "./new-bot.tsx";
 import { ensureSchedules, ScheduleList, Schedules } from "./schedules.tsx";
 import {
+	type AssistantSegment,
 	banner,
 	botId,
 	bots,
@@ -460,19 +461,28 @@ function Main() {
 				{rawMode.value ? <RawTimeline /> : <Timeline />}
 				{partial.value || liveTools.value.length > 0 ? (
 					<div class="b">
-						{liveTools.value.map((tool) => (
-							<Chip
-								key={tool.detail?.callId ?? tool.name}
-								name={tool.name}
-								status={tool.status}
-								detail={tool.detail}
+						{liveTools.value.length > 0 ? (
+							<div class="b-meta">
+								<div class="b-chips">
+									{liveTools.value.map((tool) => (
+										<Chip
+											key={tool.detail?.callId ?? tool.name}
+											name={tool.name}
+											status={tool.status}
+											detail={tool.detail}
+										/>
+									))}
+								</div>
+							</div>
+						) : null}
+						{partial.value ? (
+							<span
+								class="b-text"
+								dangerouslySetInnerHTML={{
+									__html: renderMarkdown(partial.value),
+								}}
 							/>
-						))}
-						<span
-							dangerouslySetInnerHTML={{
-								__html: renderMarkdown(partial.value),
-							}}
-						/>
+						) : null}
 						{busy.value ? <span class="caret" /> : null}
 					</div>
 				) : null}
@@ -627,6 +637,9 @@ function Bubble({ item }: { item: Item }) {
 				dangerouslySetInnerHTML={{ __html: renderMarkdown(item.text) }}
 			/>
 		);
+	if (item.type === "assistant") {
+		return <AssistantBubble item={item} />;
+	}
 	return (
 		<div
 			class="b"
@@ -635,28 +648,206 @@ function Bubble({ item }: { item: Item }) {
 	);
 }
 
+function AssistantBubble({
+	item,
+}: {
+	item: Extract<Item, { type: "assistant" }>;
+}) {
+	const segments = item.segments ?? [];
+	const thinkings = segments.filter(
+		(s): s is Extract<AssistantSegment, { type: "thinking" }> =>
+			s.type === "thinking",
+	);
+	const tools = segments.filter(
+		(s): s is Extract<AssistantSegment, { type: "tool" }> => s.type === "tool",
+	);
+	const hasMeta = thinkings.length > 0 || tools.length > 0;
+	const [allOpen, setAllOpen] = useState<boolean | null>(null);
+
+	return (
+		<div class="b">
+			{hasMeta ? (
+				<div class="b-meta">
+					<div class="b-chips">
+						{thinkings.map((th, i) => (
+							<ThinkingChip
+								key={`th-${i}`}
+								thinking={th.thinking}
+								signature={th.signature}
+								redacted={th.redacted}
+								index={i + 1}
+								total={thinkings.length}
+								forceOpen={allOpen ?? undefined}
+								onToggle={() => setAllOpen(null)}
+							/>
+						))}
+						{tools.map((tool) => (
+							<Chip
+								key={tool.id || tool.detail?.callId || tool.name}
+								name={tool.name}
+								status={tool.status}
+								detail={tool.detail}
+								forceOpen={allOpen ?? undefined}
+								onToggle={() => setAllOpen(null)}
+							/>
+						))}
+					</div>
+					{thinkings.length + tools.length > 1 ? (
+						<button
+							type="button"
+							class="expand-all-btn"
+							onClick={() => setAllOpen((prev) => !prev)}
+							title={allOpen ? "Collapse details" : "Expand all details"}
+						>
+							{allOpen ? "Collapse details ▴" : "Expand details ▾"}
+						</button>
+					) : null}
+				</div>
+			) : null}
+			{item.text ? (
+				<div
+					class="b-text"
+					dangerouslySetInnerHTML={{ __html: renderMarkdown(item.text) }}
+				/>
+			) : null}
+		</div>
+	);
+}
+
+function ThinkingChip({
+	thinking,
+	signature,
+	redacted,
+	index,
+	total,
+	forceOpen,
+	onToggle,
+}: {
+	thinking?: string;
+	signature?: string;
+	redacted?: boolean;
+	index?: number;
+	total?: number;
+	forceOpen?: boolean;
+	onToggle?: () => void;
+}) {
+	const [selfOpen, setSelfOpen] = useState(false);
+	const open = forceOpen !== undefined ? forceOpen : selfOpen;
+	const label = total && total > 1 ? `Thought ${index ?? 1}` : "Thought";
+
+	const toggle = () => {
+		if (onToggle) onToggle();
+		setSelfOpen(!open);
+	};
+
+	return (
+		<span class="tool-wrap">
+			<button
+				type="button"
+				class="chip th"
+				aria-expanded={open}
+				onClick={toggle}
+			>
+				💭 {label}
+			</button>
+			{open ? (
+				<ThinkingBody
+					thinking={thinking}
+					signature={signature}
+					redacted={redacted}
+				/>
+			) : null}
+		</span>
+	);
+}
+
+function ThinkingBody({
+	thinking,
+	signature,
+	redacted,
+}: {
+	thinking?: string;
+	signature?: string;
+	redacted?: boolean;
+}) {
+	if (redacted) {
+		return (
+			<div class="tool-detail">
+				<div class="mu">Thinking was redacted by safety filters.</div>
+			</div>
+		);
+	}
+	if (thinking?.trim()) {
+		return (
+			<div class="tool-detail">
+				<div class="lab">Thinking</div>
+				<pre>{thinking}</pre>
+			</div>
+		);
+	}
+	return (
+		<div class="tool-detail">
+			<div class="mu">Reasoning process hidden or encrypted by provider.</div>
+			{signature ? (
+				<>
+					<div class="lab">Signature</div>
+					<pre class="sig">
+						{signature.length > 80 ? `${signature.slice(0, 80)}…` : signature}
+					</pre>
+				</>
+			) : null}
+		</div>
+	);
+}
+
 function Chip({
 	name,
 	status,
 	detail,
+	forceOpen,
+	onToggle,
 }: {
 	name: string;
 	status: string;
 	detail?: ToolDetail;
+	forceOpen?: boolean;
+	onToggle?: () => void;
 }) {
-	const [open, setOpen] = useState(false);
+	const [selfOpen, setSelfOpen] = useState(false);
+	const open = forceOpen !== undefined ? forceOpen : selfOpen;
 	const running = status === "running" || status === "pending";
 	const failed = status === "error";
 	const tone = running ? "run" : failed ? "bad" : "w";
+
+	const query =
+		typeof detail?.arguments?.query === "string"
+			? detail.arguments.query
+			: undefined;
+	const path =
+		typeof detail?.arguments?.path === "string"
+			? detail.arguments.path
+			: undefined;
+	const hint = query
+		? `: "${query.length > 28 ? `${query.slice(0, 28)}…` : query}"`
+		: path
+			? `: ${path}`
+			: "";
+
+	const toggle = () => {
+		if (onToggle) onToggle();
+		setSelfOpen(!open);
+	};
+
 	return (
 		<span class="tool-wrap">
 			<button
 				type="button"
 				class={`chip ${tone}`}
 				aria-expanded={open}
-				onClick={() => setOpen((value) => !value)}
+				onClick={toggle}
 			>
 				{running ? <span class="spin" /> : failed ? "✗" : "✓"} {name}
+				{hint}
 			</button>
 			{open ? <ToolBody detail={detail} /> : null}
 		</span>

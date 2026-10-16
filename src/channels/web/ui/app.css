@@ -189,6 +189,10 @@ button:disabled {
 	border-color: var(--bad);
 	color: var(--bad);
 }
+.chip.th {
+	border-color: var(--vio);
+	color: var(--vio);
+}
 .tool-detail {
 	margin-top: 6px;
 	width: min(520px, 100%);
@@ -215,6 +219,12 @@ button:disabled {
 	font: 12px / 1.45 var(--mono);
 	white-space: pre-wrap;
 	word-break: break-word;
+	max-height: 360px;
+	overflow-y: auto;
+}
+.tool-detail pre.sig {
+	color: var(--mu);
+	font-size: 11px;
 }
 .spin {
 	width: 10px;
@@ -547,6 +557,44 @@ button:disabled {
 	border-radius: 14px;
 	background: var(--p2);
 	border: 1px solid var(--line);
+}
+.b-meta {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	margin-bottom: 8px;
+}
+.b-meta:last-child {
+	margin-bottom: 0;
+}
+.b-chips {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+	align-items: flex-start;
+}
+.b-chips .tool-wrap {
+	margin: 0;
+}
+.b .tool-detail {
+	width: 100%;
+}
+.b-text {
+	word-break: break-word;
+}
+.expand-all-btn {
+	align-self: flex-start;
+	background: transparent;
+	border: 0;
+	padding: 2px 4px;
+	font: 11px / 1 var(--mono);
+	color: var(--mu);
+	cursor: pointer;
+	border-radius: 4px;
+}
+.expand-all-btn:hover {
+	color: var(--tx);
+	text-decoration: underline;
 }
 .b.u {
 	align-self: flex-end;
