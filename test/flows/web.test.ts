@@ -1044,6 +1044,140 @@ describe("web channel", () => {
 		).toBe(false);
 	});
 
+	it("fires a when reminder after a restart", async () => {
+		const home = await tempHome();
+		const first = await boot(home, { PI_BOT_HARVEST_DELAY_MS: "86400000" });
+		egress.telegram.push("hi");
+		await until(() => egress.telegram.sent.length === 1, "the greeting reply");
+		await settle(first.app, egress);
+		const key = `default:tg:general:${CHAT}`;
+		const when = Date.now() + 800;
+		const created = await call(first.url, "/api/bots/default/schedules", {
+			method: "POST",
+			body: JSON.stringify({
+				text: "remind after restart",
+				kind: "when",
+				when,
+				target: { mode: "chat", chatId: key },
+			}),
+		});
+		expect(created.status).toBe(201);
+		await first.app.stop();
+
+		const second = await boot(home, { PI_BOT_HARVEST_DELAY_MS: "86400000" });
+		await until(
+			() =>
+				egress.telegram
+					.texts()
+					.some((text) => text.includes("remind after restart")),
+			"the reminder after restart",
+		);
+		await settle(second.app, egress);
+		expect(
+			egress.telegram
+				.texts()
+				.filter((text) => text.includes("remind after restart")),
+		).toHaveLength(1);
+	}, 15_000);
+
+	it("fires a cron reminder after a restart", async () => {
+		let clock = Date.parse("2026-06-01T09:00:00.000Z");
+		setTestClock(() => clock);
+		const home = await tempHome();
+		const first = await boot(home, {
+			PI_BOT_HARVEST_DELAY_MS: "86400000",
+			PI_BOT_TZ: "UTC",
+		});
+		egress.telegram.push("hi");
+		await until(() => egress.telegram.sent.length === 1, "the greeting reply");
+		await settle(first.app, egress);
+		const key = `default:tg:general:${CHAT}`;
+		const created = await call(first.url, "/api/bots/default/schedules", {
+			method: "POST",
+			body: JSON.stringify({
+				text: "cron after restart",
+				kind: "cron",
+				cron: "1 9 * * *",
+				target: { mode: "chat", chatId: key },
+			}),
+		});
+		expect(created.status).toBe(201);
+		await first.app.stop();
+
+		const second = await boot(home, {
+			PI_BOT_HARVEST_DELAY_MS: "86400000",
+			PI_BOT_TZ: "UTC",
+		});
+		clock = Date.parse("2026-06-01T09:01:00.000Z");
+		await until(
+			() =>
+				egress.telegram
+					.texts()
+					.some((text) => text.includes("cron after restart")),
+			"the cron after restart",
+		);
+		await settle(second.app, egress);
+		expect(
+			egress.telegram
+				.texts()
+				.filter((text) => text.includes("cron after restart")),
+		).toHaveLength(1);
+	});
+
+	it("fires a pending harvest after a restart", async () => {
+		resetTestClock();
+		const home = await tempHome();
+		const first = await boot(home, { PI_BOT_HARVEST_DELAY_MS: "400" });
+		const key = await createWebChat(first.url);
+		egress.xai.script.push({ text: "ok" });
+		egress.xai.script.push(
+			{ tool: { name: "knowledge_read", arguments: { slug: "notes" } } },
+			{
+				tool: {
+					name: "knowledge_update",
+					arguments: {
+						slug: "notes",
+						description: "Kept.",
+						body: "HARVEST_AFTER_RESTART\n",
+						version: 0,
+					},
+				},
+			},
+			{ text: "done" },
+		);
+		await say(first.url, key, "settle once");
+		await first.app.quiesce();
+		expect(
+			egress.xai.requests.some((request) =>
+				JSON.stringify(request.body).includes(
+					"Improve knowledge from this chat.",
+				),
+			),
+		).toBe(false);
+		await first.app.stop();
+
+		const second = await boot(home, { PI_BOT_HARVEST_DELAY_MS: "400" });
+		await until(
+			() =>
+				egress.xai.requests.some((request) =>
+					JSON.stringify(request.body).includes(
+						"Improve knowledge from this chat.",
+					),
+				),
+			"the harvest after restart",
+		);
+		await second.app.quiesce();
+		expect(
+			egress.xai.requests.some((request) =>
+				JSON.stringify(request.body).includes(
+					"Improve knowledge from this chat.",
+				),
+			),
+		).toBe(true);
+		const transcript = await messages(second.url, key);
+		expect(transcript.some((item) => item.type === "harvest")).toBe(true);
+	}, 15_000);
+
 	it("admits the general token and a bot token as separate chats without leaking the token", async () => {
 		const { app, url } = await boot();
 		const saved = await call(url, "/api/bots/default/telegram", {

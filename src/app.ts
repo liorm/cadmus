@@ -32,7 +32,12 @@ import {
 	createBotRuntime,
 	type TurnHooks,
 } from "./runtime.ts";
-import { armHarvest, HarvestNotesDoc, harvestId } from "./schedules/harvest.ts";
+import {
+	armHarvest,
+	armIdleHarvest,
+	HarvestNotesDoc,
+	harvestId,
+} from "./schedules/harvest.ts";
 import { createScheduleService } from "./schedules/service.ts";
 
 export type AppOptions = {
@@ -275,6 +280,7 @@ export async function startApp({
 	};
 
 	// Runs resumed from the last process: deliver their answers once they finish.
+	// Harvest is armed after idle so a crash mid-turn still gets a wake.
 	for (const chat of await listChats(harness)) {
 		track(
 			(async () => {
@@ -284,6 +290,14 @@ export async function startApp({
 				);
 				await conversation?.waitForIdle(BACKGROUND_CONTEXT);
 				await deliverer.kick(chat);
+				await armIdleHarvest({
+					harness,
+					schedules,
+					botId: chat.botId ?? DEFAULT_BOT_ID,
+					chatKey: chat.key,
+					conversationId: chat.conversationId,
+					delayMs: config.harvestDelayMs,
+				});
 			})(),
 		);
 	}

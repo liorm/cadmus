@@ -3,6 +3,7 @@
 import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { existsSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { AssistantEntry, Harness, UserEntry } from "@earendil-works/pi-durable";
@@ -14,6 +15,7 @@ import {
 import { createModels } from "../../src/harness/models.ts";
 import { buildRegistry } from "../../src/harness/registry.ts";
 import { openOwnedStorage } from "../../src/harness/storage.ts";
+import { HarvestNotesDoc } from "../../src/schedules/harvest.ts";
 import { FakeEgress } from "../egress/fake-egress.ts";
 import {
 	botEnv,
@@ -40,7 +42,11 @@ async function startProcess(
 	overrides: Record<string, string | undefined> = {},
 ) {
 	await seedBot(home);
-	const child = spawnBun(["src/main.ts"], botEnv(home, overrides), egress);
+	const child = spawnBun(
+		["src/main.ts"],
+		botEnv(home, { WEB_TOKEN: "", ...overrides }),
+		egress,
+	);
 	children.push(child);
 	return child;
 }
@@ -504,5 +510,73 @@ describe("crash recovery (kill -9)", () => {
 		expect(follow).toContain("Evening check");
 		expect(follow).toContain("30 18 * * 1");
 		expect(follow).not.toContain("No such schedule.");
+	}, 20_000);
+
+	it("killed during harvest: restart finishes that idle point once", async () => {
+		const home = await tempHome();
+		const first = await startProcess(home, {
+			PI_BOT_HARVEST_DELAY_MS: "200",
+		});
+		await polling(first);
+		egress.telegram.push("remember the red mug");
+		await waitFor(first, () => egress.telegram.sent.length === 1, "the reply");
+		egress.xai.hang = true;
+		await waitFor(
+			first,
+			() =>
+				egress.xai.requests.some((request) =>
+					JSON.stringify(request.body).includes(
+						"Improve knowledge from this chat.",
+					),
+				),
+			"harvest to start",
+		);
+		first.proc.kill("SIGKILL");
+		await first.exited;
+
+		egress.xai.hang = false;
+		egress.xai.script.push(
+			{ tool: { name: "knowledge_read", arguments: { slug: "notes" } } },
+			{
+				tool: {
+					name: "knowledge_update",
+					arguments: {
+						slug: "notes",
+						description: "Kept.",
+						body: "red mug\n",
+						version: 0,
+					},
+				},
+			},
+			{ text: "done" },
+		);
+		const second = await startProcess(home, {
+			PI_BOT_HARVEST_DELAY_MS: "200",
+		});
+		await polling(second);
+		const notesPath = join(home, "bots", "default", "knowledge", "notes.md");
+		await waitFor(second, () => existsSync(notesPath), "harvested knowledge");
+		await new Promise((resolve) => setTimeout(resolve, 600));
+		await stop(second);
+		expect(await readFile(notesPath, "utf8")).toContain("red mug");
+		const { storage, lock } = await openOwnedStorage(home);
+		const { registry } = buildRegistry({ home, timeZone: "UTC" });
+		const harness = await Harness.open(
+			storage,
+			{ models: createModels(), registry },
+			BACKGROUND_CONTEXT,
+		);
+		try {
+			const notes = await harness.snapshot(HarvestNotesDoc, BACKGROUND_CONTEXT);
+			expect(notes?.notes).toEqual([
+				expect.objectContaining({
+					files: [expect.objectContaining({ path: "knowledge/notes.md" })],
+				}),
+			]);
+			expect(Object.keys(notes?.completed ?? {})).toHaveLength(1);
+		} finally {
+			await harness.close(BACKGROUND_CONTEXT);
+			await lock.release();
+		}
 	}, 20_000);
 });

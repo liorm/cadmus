@@ -54,7 +54,7 @@ Tokens live in `data/auth.json` (0600, gitignored) and are refreshed automatical
 
 Set `WEB_TOKEN`, then open `http://127.0.0.1:8787/?token=<WEB_TOKEN>` once. The browser keeps an HttpOnly cookie. The page lists each bot's chats, streams replies, and edits that bot's `SOUL.md` and `knowledge/*.md`. Knowledge is edited as description, optional category, version (read-only), and body — the same fields as `knowledge_update`. Frontmatter stays on disk. A bad save is HTTP 422 and does not change the file.
 
-Schedules are cron (five fields, in `PI_BOT_TZ`) or a single `when`. A target is an existing chat, a new web chat, or a silent fork. Rows live in `schedules.sqlite`, not in `durable.sqlite`. A fire is admitted once per occurrence (`sched:<id>:<nextRun>`). Listings omit internal `harvest:` rows. The model can create, list, update, and delete schedules for the bot it is talking to (`schedule_create`, `schedule_list`, `schedule_update`, `schedule_delete`). An update can change the message, name, enabled flag, cron or single time, and target. It cannot see or change another bot's rows or the harvest job.
+Schedules are cron (five fields, in `PI_BOT_TZ`) or a single `when`. A target is an existing chat, a new web chat, or a silent fork. Rows live in `schedules.sqlite`, not in `durable.sqlite`. A fire is admitted once per occurrence (`sched:<id>:<nextRun>`). Rows and their next wake survive a process restart. Harvest is at-least-once per idle entry until it completes. Listings omit internal `harvest:` rows. The model can create, list, update, and delete schedules for the bot it is talking to (`schedule_create`, `schedule_list`, `schedule_update`, `schedule_delete`). An update can change the message, name, enabled flag, cron or single time, and target. It cannot see or change another bot's rows or the harvest job.
 
 The bot dialog switches tools on and off. The choice is stored on the bot. A missing list means every tool is on. A tool that is off is not offered to the model and does not run. `GET /api/tools` lists them. `GET` and `PUT /api/bots/<id>/tools` read and replace one bot's set.
 
@@ -75,7 +75,7 @@ src/
   main.ts                       entry: env config, optional grammY transport, model check, signals
   app.ts                        wires storage, Harness, startup, deliverer, pollers, schedules, web
   config.ts, log.ts, runtime.ts
-  schedules/                    sidecar schedules.sqlite, cron, idle harvest
+  schedules/                    sidecar store, in-process clock, dispatch, idle harvest
   harness/
     storage.ts                  owner.lock (O_EXCL, pid+host; only a dead same-host pid is taken over) + openNodeSqliteStorage
     registry.ts                 extensions installed in prompt order

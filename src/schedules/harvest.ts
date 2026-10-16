@@ -3,17 +3,20 @@ import { isAbsolute, join, relative } from "node:path";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import {
 	type Conversation,
+	type ConversationId,
 	defineDoc,
 	type EntryId,
 	type Harness,
+	LiveDoc,
 	type RegistryReader,
 	type ToolRegistration,
 } from "@earendil-works/pi-durable";
 import { knowledgeToolNames } from "../channels/bot-catalog.ts";
 import { BotsDoc, botDir } from "../channels/bots.ts";
 import { listChats } from "../channels/telegram/chats.ts";
+import { now as clockNow } from "../clock.ts";
 import { chatFields, getLogger } from "../log.ts";
-import { harvestId } from "./ids.ts";
+import { harvestId, harvestRequestId } from "./ids.ts";
 import type { Schedule, ScheduleService } from "./service.ts";
 
 export { harvestId, isHarvestId } from "./ids.ts";
@@ -30,8 +33,22 @@ export type HarvestNote = {
 	when: number;
 };
 
+/** In-flight harvest so a restart can attach to the same child instead of forking again. */
+export type HarvestPending = {
+	at: number;
+	before: Record<string, string>;
+	childId?: number;
+};
+
+export type HarvestNotesState = {
+	notes: HarvestNote[];
+	/** Last idle entry that finished harvest for this chat, including no-op harvests. */
+	completed?: Record<string, number>;
+	pending?: Record<string, HarvestPending>;
+};
+
 /** Notes on the parent chat. Not a conversation entry, so later model requests do not see them. */
-export const HarvestNotesDoc = defineDoc<{ notes: HarvestNote[] }>({
+export const HarvestNotesDoc = defineDoc<HarvestNotesState>({
 	kind: "pi-bot.harvest-notes",
 	version: 1,
 	scope: "session",
@@ -62,11 +79,9 @@ export async function armHarvest(
 		now?: number;
 	},
 ): Promise<void> {
-	const now = input.now ?? Date.now();
+	const now = input.now ?? clockNow();
 	const id = harvestId(input.chatKey);
-	const existing = (await schedules.list(input.botId)).find(
-		(row) => row.id === id,
-	);
+	const existing = await schedules.get(id);
 	const same =
 		existing?.target.mode === "fork" &&
 		existing.target.chatId === input.chatKey &&
@@ -97,8 +112,70 @@ export async function armHarvest(
 }
 
 /**
+ * After a chat is idle, keep a harvest wake for its rested entry unless that
+ * entry already finished. An existing row is left for the clock. A pending
+ * child is woken immediately so a restart finishes the fork.
+ */
+export async function armIdleHarvest(options: {
+	harness: Harness;
+	schedules: ScheduleService;
+	botId: string;
+	chatKey: string;
+	conversationId: ConversationId;
+	delayMs: number;
+	now?: number;
+}): Promise<void> {
+	const now = options.now ?? clockNow();
+	const conversation = await options.harness.conversation(
+		options.conversationId,
+		BACKGROUND_CONTEXT,
+	);
+	if (!conversation) return;
+	const live = await options.harness.snapshot(
+		LiveDoc,
+		options.conversationId,
+		BACKGROUND_CONTEXT,
+	);
+	if (live?.run) return;
+	const page = await conversation.entries(
+		{ order: "descending" },
+		1,
+		undefined,
+		BACKGROUND_CONTEXT,
+	);
+	const entryId = page.items[0]?.id;
+	if (entryId === undefined) return;
+	const state = await options.harness.snapshot(
+		HarvestNotesDoc,
+		BACKGROUND_CONTEXT,
+	);
+	if (state?.completed?.[options.chatKey] === entryId) return;
+	if (
+		state?.notes.some(
+			(note) => note.chatKey === options.chatKey && note.at === entryId,
+		)
+	)
+		return;
+	const id = harvestId(options.chatKey);
+	const existing = await options.schedules.get(id);
+	const sameEntry =
+		existing?.target.mode === "fork" &&
+		existing.target.chatId === options.chatKey &&
+		existing.target.at === entryId;
+	if (sameEntry) return;
+	const inflight = state?.pending?.[options.chatKey]?.at === entryId;
+	await armHarvest(options.schedules, {
+		botId: options.botId,
+		chatKey: options.chatKey,
+		entryId,
+		delayMs: inflight ? 0 : options.delayMs,
+		now,
+	});
+}
+
+/**
  * Fork the chat, let the child edit the bot folder, and leave a note on the parent when files changed.
- * The child is not a chat and nothing is delivered.
+ * The child is not a chat and nothing is delivered. A restart attaches to the same child.
  */
 export async function runHarvest(options: {
 	harness: Harness;
@@ -124,6 +201,7 @@ export async function runHarvest(options: {
 	);
 	if (!chat) {
 		log.warn("harvest skipped: chat missing");
+		await clearHarvest(options.harness, target.chatId);
 		return;
 	}
 	const sessionLog = log.child(chatFields(chat));
@@ -133,32 +211,60 @@ export async function runHarvest(options: {
 	);
 	if (!parent) {
 		sessionLog.warn("harvest skipped: conversation missing");
+		await clearHarvest(options.harness, chat.key);
 		return;
 	}
 	const at = await resolveEntry(parent, target.at);
 	if (at === undefined) {
 		sessionLog.warn("harvest skipped: no entry to fork");
+		await clearHarvest(options.harness, chat.key);
+		return;
+	}
+	const state = await options.harness.snapshot(
+		HarvestNotesDoc,
+		BACKGROUND_CONTEXT,
+	);
+	if (state?.completed?.[chat.key] === at) {
+		sessionLog.debug("harvest skipped: entry already completed");
+		await clearHarvest(options.harness, chat.key);
 		return;
 	}
 	sessionLog.debug("harvest started", { at });
 	const root = botDir(options.home, options.schedule.botId);
-	const before = await snapshotBot(root);
-	const child = await parent.fork(
-		at,
-		{ ownership: { kind: "ownerless" } },
-		BACKGROUND_CONTEXT,
-	);
+	const existingPending = state?.pending?.[chat.key];
+	let pending: HarvestPending;
+	if (existingPending && existingPending.at === at) pending = existingPending;
+	else {
+		pending = { at, before: Object.fromEntries(await snapshotBot(root)) };
+		await writePending(options.harness, chat.key, pending);
+	}
+	let child = pending.childId
+		? await options.harness.conversation(
+				pending.childId as unknown as ConversationId,
+				BACKGROUND_CONTEXT,
+			)
+		: undefined;
+	if (!child) {
+		child = await parent.fork(
+			at,
+			{ ownership: { kind: "ownerless" } },
+			BACKGROUND_CONTEXT,
+		);
+		pending = { ...pending, childId: child.id as unknown as number };
+		await writePending(options.harness, chat.key, pending);
+	}
 	const bots = await options.harness.snapshot(BotsDoc, BACKGROUND_CONTEXT);
 	const bot = bots?.items.find((item) => item.id === options.schedule.botId);
 	await child.configure(
 		{ tools: harvestTools(bot, options.registry) },
 		BACKGROUND_CONTEXT,
 	);
+	const requestId = harvestRequestId(chat.key, at);
 	const submission = await child.submit(
 		{
 			type: "input",
 			content: options.schedule.text,
-			requestId: options.requestId,
+			requestId,
 			whenBusy: "steer",
 		},
 		BACKGROUND_CONTEXT,
@@ -166,22 +272,46 @@ export async function runHarvest(options: {
 	const settled = await submission.wait(BACKGROUND_CONTEXT);
 	await child.waitForIdle(BACKGROUND_CONTEXT);
 	const after = await snapshotBot(root);
+	const before = new Map(Object.entries(pending.before));
 	const files = changedFiles(before, after);
-	if (files.length === 0) {
+	const note: HarvestNote | undefined =
+		files.length === 0
+			? undefined
+			: { chatKey: chat.key, at, files, when: Date.now() };
+	await options.harness.commit(async (tx) => {
+		const notes = await tx.doc(HarvestNotesDoc);
+		notes.completed = { ...notes.completed, [chat.key]: at };
+		if (notes.pending) delete notes.pending[chat.key];
+		if (note) notes.notes.push(note);
+	}, BACKGROUND_CONTEXT);
+	if (!note) {
 		sessionLog.debug("harvest finished with no file changes", {
 			status: settled.status,
 		});
 		return;
 	}
-	const note: HarvestNote = { chatKey: chat.key, at, files, when: Date.now() };
-	await options.harness.commit(async (tx) => {
-		const notes = await tx.doc(HarvestNotesDoc);
-		notes.notes.push(note);
-	}, BACKGROUND_CONTEXT);
 	sessionLog.debug("harvest wrote knowledge", {
 		files: files.map((file) => file.path),
 		status: settled.status,
 	});
+}
+
+async function writePending(
+	harness: Harness,
+	chatKey: string,
+	pending: HarvestPending,
+): Promise<void> {
+	await harness.commit(async (tx) => {
+		const notes = await tx.doc(HarvestNotesDoc);
+		notes.pending = { ...notes.pending, [chatKey]: pending };
+	}, BACKGROUND_CONTEXT);
+}
+
+async function clearHarvest(harness: Harness, chatKey: string): Promise<void> {
+	await harness.commit(async (tx) => {
+		const notes = await tx.doc(HarvestNotesDoc);
+		if (notes.pending) delete notes.pending[chatKey];
+	}, BACKGROUND_CONTEXT);
 }
 
 async function resolveEntry(

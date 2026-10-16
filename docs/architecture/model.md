@@ -89,7 +89,7 @@ There is no owner role. Doors are gates: a shared web credential, a Telegram all
 | `pi-bot.telegram.commands` | command request keys already claimed |
 | `pi-bot.telegram.cursor` | `getUpdates` offset for the general door |
 | `pi-bot.telegram.bot-cursors` | offsets for per-bot doors |
-| `pi-bot.harvest-notes` | out-of-band notes on parent chats |
+| `pi-bot.harvest-notes` | out-of-band notes on parent chats; `completed` and `pending` for harvest restart |
 
 Receipts and command claims are applied in [data flow](./flow.md).
 
@@ -105,6 +105,8 @@ Sidecar tables `schedules` and `fires`. A row is either `cron` (an expression) o
 
 `put` writes the row and its next wake. The default leaves an existing id unchanged. Replace overwrites the row and its wake in one transaction. `reschedule` moves only the next wake. `remove` deletes the row. `list` reads rows. `start` runs the in-process clock. `fire` loads the row and dispatches. The in-process clock and the HTTP fire route both call it. An external clock uses that route and does not open `durable.sqlite`.
 
-What each target does when it fires is in [a schedule fire](./flow.md#a-schedule-fire). Internal jobs use the same table. Client listings and the model's schedule tools skip ids reserved for those jobs. Today that prefix is `harvest:`.
+The manager is three replaceable pieces: a **store** (sidecar SQLite today), a **clock** (in-process `setTimeout` today), and **dispatch** (always on the harness owner). A later Durable Object or central scheduler replaces the store and/or the clock. Dispatch stays with the process that owns `durable.sqlite`.
+
+What each target does when it fires is in [a schedule fire](./flow.md#a-schedule-fire). Internal jobs use the same table. Client listings and the model's schedule tools skip ids reserved for those jobs. Today that prefix is `harvest:`. User chat and new-chat fires are exactly-once per `sched:<id>:<nextRun>`. Harvest is at-least-once per idle entry (`sched:harvest:<chatKey>:<entryId>` on the child) until `pi-bot.harvest-notes.completed` records that entry.
 
 The model reaches the same table through self tools, not through a second store. `schedule_create` assigns an `u-` id, checks the cron or `when`, and refuses a chat that is not on this bot. `schedule_list`, `schedule_update`, and `schedule_delete` see only this bot's rows. An update of a missing id, another bot's id, or a harvest id is the same "no such schedule" result as a delete. `name` is an optional label. `enabled` false keeps the row and stops the clock from firing it.

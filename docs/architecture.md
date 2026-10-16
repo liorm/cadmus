@@ -54,7 +54,7 @@ The host (`startApp`) owns the process:
 - **Bot runtimes.** One in-process handle per bot, all on that harness.
 - **Deliverer.** Telegram sends, with receipts. The receipt rule is in [data flow](./architecture/flow.md).
 - **Pollers.** One long-poll loop per Telegram door.
-- **Schedule service.** Sidecar rows, an in-process clock, and the fire path. Chat and new-chat fires go through a runtime. Fork and harvest submit into a child conversation.
+- **Schedule manager.** Sidecar store (`schedules.sqlite`), an in-process clock, and fire dispatch. `fire(id)` is the only dispatch entry (the clock, `POST /api/schedules/:id/fire`, tests). Chat and new-chat fires go through a runtime. Fork and harvest stay with the storage owner. A later central clock (Durable Object alarm, cron, another process) ticks and calls `fire`; it does not open `durable.sqlite`.
 - **HTTP channel.** The API a client uses, plus the bundled page when a web credential is set. Resources are in the [client surface](./architecture/client.md).
 
 Session services stay on the host. A bot runtime is not the lock, the deliverer, the poller, the clock, or the HTTP server.
@@ -87,7 +87,7 @@ These are the knobs the running process uses. They are not separate subsystems.
 - Bot ids match `[a-z0-9][a-z0-9-]{0,31}`. A slug that matches a bot id or an existing `bots/<id>/` directory gains a numeric suffix. Knowledge slugs match `[a-z0-9][a-z0-9-]{0,63}`.
 - A knowledge `description` is one frontmatter line, 1–240 characters. Allowed extra keys are `version` (a non-negative integer; missing means 0) and optional `category` (one line, 1–64 characters). The body must not start with a `---` fence.
 - The knowledge section lists at most 80 valid files, in path order, then a count of the rest.
-- Idle harvest waits 60 seconds unless `PI_BOT_HARVEST_DELAY_MS` overrides it. The delay is process-wide.
+- Idle harvest waits 60 seconds unless `PI_BOT_HARVEST_DELAY_MS` overrides it. The delay is process-wide. Harvest is at-least-once per idle entry until it completes; a restart re-arms an unfinished wake and does not fork the same completed entry again.
 - Cron is five fields. A bad expression is rejected and writes nothing.
 - Every tool the registry has installed is on unless the bot row lists an enabled set. The dialog catalog is that list, grouped by extension. An omitted `tools` field means all of them. An empty list means none. A disabled tool is left out of the model request and is not run. `GET` and `PUT /api/bots/<id>/tools` read and replace that set. The bot dialog shows the same switches.
 - The host does not delete bots. It does not run a shell.
