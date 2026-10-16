@@ -172,7 +172,7 @@ export function frameEmitter(
 		const live = view.docs["pi.live"] as LiveState | undefined;
 		const busy = live?.run !== undefined;
 		const partial = partialText(live?.generation?.message);
-		const tools = liveTools(live);
+		const tools = liveTools(live, view.entries as readonly EntryRecord[]);
 		const messages = projectEntries(view.entries as readonly EntryRecord[]);
 		const messagesKey = JSON.stringify(messages);
 		const toolsKey = JSON.stringify(tools);
@@ -205,14 +205,13 @@ export function frameEmitter(
 				data: { text: partial.slice(lastPartial.length) },
 			});
 		if (primed && toolsKey !== lastTools) {
-			const previous = new Map<string, string>(
-				JSON.parse(lastTools || "[]").map((tool: ToolChip) => [
-					`${tool.name}:${tool.status}`,
-					tool.status,
-				]),
+			const previous = new Set<string>(
+				JSON.parse(lastTools || "[]").map(
+					(tool: ToolChip) => `${tool.detail.callId}:${tool.status}`,
+				),
 			);
 			for (const tool of tools) {
-				if (previous.get(`${tool.name}:${tool.status}`) === undefined)
+				if (!previous.has(`${tool.detail.callId}:${tool.status}`))
 					send({ event: "tool", data: tool });
 			}
 		}

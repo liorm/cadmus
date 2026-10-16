@@ -364,85 +364,35 @@ describe("tool results", () => {
 		expect(scheduleRow(home, id)).toBeNull();
 	});
 
-	it("web.search returns mocked xAI results, and an error, to the model", async () => {
+	it("offers xAI web, X, and code tools as server tools, and fails a local call", async () => {
 		const { app } = await boot();
 		egress.xai.script.push(
-			{ tool: { name: "web.search", arguments: { query: "pi-bot docs" } } },
-			{ text: "searched" },
+			{
+				tool: { name: "web.fetch", arguments: { url: "https://example.com" } },
+			},
+			{ tool: { name: "x.search", arguments: { query: "pi-bot" } } },
+			{ text: "noted" },
 		);
 		egress.telegram.push("search the web");
-		await until(() => egress.telegram.texts().includes("searched"), "searched");
+		await until(() => egress.telegram.texts().includes("noted"), "noted");
 		await settle(app, egress);
-		expect(egress.webCalls.map((call) => call.path)).toEqual([
-			"/v1/web/search",
+		const offered = JSON.stringify(egress.xai.requests[0]?.body).replaceAll(
+			" ",
+			"",
+		);
+		expect(offered).toContain('"type":"web_search"');
+		expect(offered).toContain('"type":"x_search"');
+		expect(offered).toContain('"type":"code_interpreter"');
+		expect(offered).not.toContain('"name":"web.search"');
+		expect(offered).not.toContain('"name":"x.search"');
+		expect(offered).not.toContain('"name":"code.execute"');
+		expect(offered).toContain('"name":"web.fetch"');
+		expect(egress.webCalls).toEqual([]);
+		const errors = (await toolResults(app)).filter((result) => result.isError);
+		expect(errors.map((result) => result.text).sort()).toEqual([
+			'web.fetch is not available on provider "xai"',
+			'x.search is not available on provider "xai"',
 		]);
-		expect(egress.webCalls[0]?.authorization).toBe("Bearer test-api-key");
-		expect(egress.webCalls[0]?.body).toEqual({ query: "pi-bot docs" });
-		expect(followUp()).toContain("pi-bot docs");
-		expect(followUp()).toContain("https://example.com");
-		egress.failWebSearch = true;
-		egress.xai.script.push(
-			{ tool: { name: "web.search", arguments: { query: "again" } } },
-			{ text: "failed" },
-		);
-		egress.telegram.push("search again");
-		await until(() => egress.telegram.texts().includes("failed"), "failed");
-		await settle(app, egress);
-		expect(followUp()).toContain("search down");
-		const errored = (await toolResults(app)).filter(
-			(result) =>
-				result.name === "web.search" && result.text.includes("search down"),
-		);
-		expect(errored).toEqual([
-			expect.objectContaining({ name: "web.search", isError: true }),
-		]);
-		expect(egress.telegram.texts().at(-1)).toBe("failed");
-	});
-
-	it("web.fetch returns mocked page text, and an error, to the model", async () => {
-		const { app } = await boot();
-		egress.xai.script.push(
-			{
-				tool: {
-					name: "web.fetch",
-					arguments: { url: "https://example.com/note" },
-				},
-			},
-			{ text: "fetched" },
-		);
-		egress.telegram.push("open that page");
-		await until(() => egress.telegram.texts().includes("fetched"), "fetched");
-		await settle(app, egress);
-		expect(egress.webCalls.map((call) => call.path)).toEqual(["/v1/web/fetch"]);
-		expect(egress.webCalls[0]?.body).toEqual({
-			url: "https://example.com/note",
-		});
-		expect(followUp()).toContain("fetched-body");
-		egress.failWebFetch = true;
-		egress.xai.script.push(
-			{
-				tool: {
-					name: "web.fetch",
-					arguments: { url: "https://example.com/missing" },
-				},
-			},
-			{ text: "fetch failed" },
-		);
-		egress.telegram.push("open the missing page");
-		await until(
-			() => egress.telegram.texts().includes("fetch failed"),
-			"fetch failed",
-		);
-		await settle(app, egress);
-		expect(followUp()).toContain("fetch down");
-		const errored = (await toolResults(app)).filter(
-			(result) =>
-				result.name === "web.fetch" && result.text.includes("fetch down"),
-		);
-		expect(errored).toEqual([
-			expect.objectContaining({ name: "web.fetch", isError: true }),
-		]);
-		expect(egress.telegram.texts().at(-1)).toBe("fetch failed");
 	});
 
 	it("GET /api/tools lists every registered tool", async () => {
@@ -462,6 +412,8 @@ describe("tool results", () => {
 			"schedule_delete",
 			"web.search",
 			"web.fetch",
+			"x.search",
+			"code.execute",
 		]);
 	});
 });

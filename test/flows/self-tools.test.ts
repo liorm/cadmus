@@ -474,11 +474,12 @@ describe("self tools", () => {
 		);
 		expect(bodies[0]).not.toContain('"name":"schedule_create"');
 		expect(bodies[0]).not.toContain('"name":"read"');
-		expect(bodies[0]).toContain('"name":"web.search"');
+		expect(bodies[0]).toContain('"type":"web_search"');
+		expect(bodies[0]).not.toContain('"name":"web.search"');
 		expect(bodies[0]).toContain('"name":"schedule_update"');
 		const follow = bodies.slice(1).join("\n");
 		expect(follow).toContain("Toolschedule_createisnotavailable");
-		expect(follow).toContain("pi-bot");
+		expect(follow).toContain("web.searchisnotavailableonprovider");
 		expect(await listed(url)).toEqual([]);
 		const unknown = await call(url, "/api/bots/default/tools", {
 			method: "PUT",

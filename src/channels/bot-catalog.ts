@@ -9,6 +9,8 @@ export const TOOL_CATALOG = [
 	{ group: "Schedules", name: "schedule_delete" },
 	{ group: "Web", name: "web.search" },
 	{ group: "Web", name: "web.fetch" },
+	{ group: "Provider", name: "x.search" },
+	{ group: "Provider", name: "code.execute" },
 ] as const;
 
 export const FILE_TOOLS = ["read", "write", "edit"] as const;

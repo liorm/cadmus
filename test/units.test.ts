@@ -1,13 +1,20 @@
 import { describe, expect, it } from "bun:test";
 import { Writable } from "node:stream";
+import type { EntryRecord } from "@earendil-works/pi-durable";
 import { slugifyBotName } from "../src/channels/bot-slug.ts";
 import { chatKey } from "../src/channels/telegram/chats.ts";
 import { parseCommand } from "../src/channels/telegram/commands.ts";
 import { chunkText } from "../src/channels/telegram/deliver.ts";
 import { requestIdOf } from "../src/channels/telegram/poller.ts";
+import { liveTools, projectEntries } from "../src/channels/web/transcript.ts";
 import { parseUserIds } from "../src/config.ts";
 import { dayLine } from "../src/extensions/identity.ts";
 import { parseDescription, parseSlug } from "../src/extensions/knowledge.ts";
+import {
+	applyServerTools,
+	attachNativeTools,
+	noteServerTool,
+} from "../src/extensions/provider-tools.ts";
 import { botIdFromCwd } from "../src/extensions/self-tools/index.ts";
 import {
 	parseScheduleCreate,
@@ -35,6 +42,31 @@ describe("pure helpers", () => {
 		expect(parseCommand("/new@other_bot", "pi_test_bot")).toBeUndefined();
 		expect(parseCommand("/frobnicate")).toBeUndefined();
 		expect(parseCommand("hello /new")).toBeUndefined();
+	});
+
+	it("promotes xAI catalog functions to server tools and leaves other providers alone", () => {
+		const body = {
+			model: "grok",
+			tools: [
+				{ type: "function", name: "read", parameters: {} },
+				{ type: "function", name: "web.search", parameters: {} },
+				{ type: "function", name: "web.fetch", parameters: {} },
+				{ type: "function", name: "x.search", parameters: {} },
+				{ type: "function", name: "code.execute", parameters: {} },
+			],
+		};
+		expect(attachNativeTools("xai", body)).toEqual({
+			model: "grok",
+			tools: [
+				{ type: "function", name: "read", parameters: {} },
+				{ type: "web_search" },
+				{ type: "function", name: "web.fetch", parameters: {} },
+				{ type: "x_search" },
+				{ type: "code_interpreter" },
+			],
+		});
+		expect(attachNativeTools("faux", body)).toBe(body);
+		expect(attachNativeTools("xai", { input: "hi" })).toEqual({ input: "hi" });
 	});
 
 	it("parses model refs whose id contains slashes", () => {
@@ -280,6 +312,104 @@ describe("pure helpers", () => {
 		);
 		expect(minute % 15).toBe(0);
 		expect(quarter - after).toBeLessThanOrEqual(15 * 60 * 1000);
+	});
+
+	it("keeps a provider web search on the assistant message", () => {
+		const found = new Map();
+		noteServerTool(found, {
+			type: "response.output_item.done",
+			item: {
+				type: "web_search_call",
+				id: "ws_hourly",
+				status: "completed",
+				action: { type: "search", query: "Jerusalem hourly weather" },
+			},
+		});
+		const message = {
+			role: "assistant" as const,
+			content: [{ type: "text" as const, text: "Jerusalem – last 5 hours" }],
+		};
+		applyServerTools(message as never, found);
+		const [item] = projectEntries([
+			{ id: 110, kind: "pi.assistant", model: [message] } as never,
+		]);
+		expect(item).toMatchObject({
+			type: "tool",
+			name: "web.search",
+			status: "done",
+			detail: {
+				callId: "ws_hourly",
+				arguments: { type: "search", query: "Jerusalem hourly weather" },
+			},
+		});
+	});
+
+	it("marks a failed tool call and keeps its arguments and result", () => {
+		const callId =
+			"call-605b7dda-ee45-4aca-95df-0adce23cbb89-0|fc_a3277a76-7f6f-91c1-a223-cbe066a6c91a_0";
+		const entries = [
+			{
+				id: 61,
+				kind: "pi.assistant",
+				model: [
+					{
+						role: "assistant",
+						content: [
+							{
+								type: "toolCall",
+								id: callId,
+								name: "read",
+								arguments: { path: "knowledge/SOUL.md" },
+							},
+						],
+					},
+				],
+			},
+			{
+				id: 64,
+				kind: "pi.tool-result",
+				model: [
+					{
+						role: "toolResult",
+						toolCallId: callId,
+						toolName: "read",
+						isError: true,
+						content: [
+							{
+								type: "text",
+								text: "<harness>\n[error] ENOENT\n</harness>",
+							},
+						],
+					},
+				],
+			},
+		] as unknown as EntryRecord[];
+		const [item] = projectEntries(entries);
+		expect(item).toMatchObject({
+			type: "tool",
+			name: "read",
+			status: "error",
+			detail: {
+				callId,
+				arguments: { path: "knowledge/SOUL.md" },
+				result: "<harness>\n[error] ENOENT\n</harness>",
+			},
+		});
+		const live = liveTools(
+			{
+				tools: [
+					{
+						callId,
+						name: "read",
+						status: "done",
+						entry: 64 as EntryRecord["id"],
+					},
+				],
+			},
+			entries,
+		);
+		expect(live[0]?.status).toBe("error");
+		expect(live[0]?.detail.result).toContain("ENOENT");
 	});
 
 	it("renders a daily date line", () => {

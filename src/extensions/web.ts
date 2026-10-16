@@ -1,28 +1,30 @@
+import type { Context } from "@earendil-works/chord";
+import type { ToolExecutionApi } from "@earendil-works/pi-durable";
 import { defineExtension, defineTool } from "@earendil-works/pi-durable";
 import { Type } from "typebox";
-
-const SEARCH_URL = "https://api.x.ai/v1/web/search";
-const FETCH_URL = "https://api.x.ai/v1/web/fetch";
-
-async function postJson(url: string, body: unknown): Promise<string> {
-	const headers = new Headers({ "content-type": "application/json" });
-	const key = process.env.XAI_API_KEY;
-	if (key) headers.set("authorization", `Bearer ${key}`);
-	const response = await fetch(url, {
-		method: "POST",
-		headers,
-		body: JSON.stringify(body),
-	});
-	const text = await response.text();
-	if (!response.ok)
-		throw new Error(text || `Web request failed (${response.status}).`);
-	return text;
-}
+import { unavailableToolMessage } from "./provider-tools.ts";
 
 /**
- * `web.search` and `web.fetch` call the xAI web endpoints. Replay stays unsafe:
- * a repeated call is another request.
+ * Catalog tools whose real work is either a provider server tool or, later, a
+ * local implementation. Nothing here calls the network. Replay stays unsafe.
  */
+async function unavailable(
+	name: string,
+	api: ToolExecutionApi,
+	context: Context,
+) {
+	const agent = await api.agent(context);
+	return {
+		content: [
+			{
+				type: "text" as const,
+				text: unavailableToolMessage(name, agent.model?.provider ?? "unknown"),
+			},
+		],
+		isError: true,
+	};
+}
+
 export function webExtension() {
 	return defineExtension({
 		name: "pi-bot.web",
@@ -34,24 +36,8 @@ export function webExtension() {
 					query: Type.String({ description: "Search query." }),
 				}),
 				replay: "unsafe",
-				async execute(args) {
-					try {
-						const text = await postJson(SEARCH_URL, { query: args.query });
-						return { content: [{ type: "text", text }] };
-					} catch (error) {
-						return {
-							content: [
-								{
-									type: "text",
-									text:
-										error instanceof Error
-											? error.message
-											: "Web search failed.",
-								},
-							],
-							isError: true,
-						};
-					}
+				execute(_args, api, context) {
+					return unavailable("web.search", api, context);
 				},
 			}),
 			defineTool({
@@ -61,24 +47,30 @@ export function webExtension() {
 					url: Type.String({ description: "Absolute URL to fetch." }),
 				}),
 				replay: "unsafe",
-				async execute(args) {
-					try {
-						const text = await postJson(FETCH_URL, { url: args.url });
-						return { content: [{ type: "text", text }] };
-					} catch (error) {
-						return {
-							content: [
-								{
-									type: "text",
-									text:
-										error instanceof Error
-											? error.message
-											: "Web fetch failed.",
-								},
-							],
-							isError: true,
-						};
-					}
+				execute(_args, api, context) {
+					return unavailable("web.fetch", api, context);
+				},
+			}),
+			defineTool({
+				name: "x.search",
+				description: "Search posts and profiles on X.",
+				parameters: Type.Object({
+					query: Type.String({ description: "Search query." }),
+				}),
+				replay: "unsafe",
+				execute(_args, api, context) {
+					return unavailable("x.search", api, context);
+				},
+			}),
+			defineTool({
+				name: "code.execute",
+				description: "Run Python in a sandbox and return the output.",
+				parameters: Type.Object({
+					code: Type.String({ description: "Python source to run." }),
+				}),
+				replay: "unsafe",
+				execute(_args, api, context) {
+					return unavailable("code.execute", api, context);
 				},
 			}),
 		],

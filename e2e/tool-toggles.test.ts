@@ -91,7 +91,9 @@ describe.skipIf(!browser)("bot dialog tool toggles", () => {
 			defined(egress.xai.requests[0], "request").body,
 		).replaceAll(" ", "");
 		expect(offered).not.toContain('"name":"web.search"');
+		expect(offered).not.toContain('"type":"web_search"');
 		expect(offered).toContain('"name":"web.fetch"');
+		expect(offered).toContain('"type":"x_search"');
 		expect(egress.telegram.texts()).toContain("hello back");
 		await page.close();
 		await app.stop();

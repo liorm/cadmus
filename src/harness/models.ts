@@ -2,6 +2,7 @@ import type {
 	AssistantMessage,
 	CredentialStore,
 	ModelThinkingLevel,
+	SimpleStreamOptions,
 	TranscriptContext,
 } from "@earendil-works/pi-ai";
 import type { MutableModels } from "@earendil-works/pi-ai/models";
@@ -12,6 +13,12 @@ import {
 	fauxProvider,
 } from "@earendil-works/pi-ai/providers/faux";
 import type { ModelRef } from "@earendil-works/pi-durable";
+import {
+	applyServerTools,
+	attachNativeTools,
+	noteServerTool,
+	type ServerToolPart,
+} from "../extensions/provider-tools.ts";
 
 export const THINKING_LEVELS = [
 	"off",
@@ -100,7 +107,76 @@ export function createModels(
 		options.credentials ? { credentials: options.credentials } : {},
 	);
 	addFauxProvider(models);
-	return models;
+	return withNativeTools(models);
+}
+
+/**
+ * pi-durable does not forward `onPayload`. Swap catalog functions for the
+ * provider's server tools on every simple request, then run a caller's hook.
+ */
+function withNativeTools(models: MutableModels): MutableModels {
+	const streamSimple = models.streamSimple.bind(models);
+	const completeSimple = models.completeSimple.bind(models);
+	const attach = <
+		T extends {
+			onPayload?: SimpleStreamOptions["onPayload"];
+			onProviderStreamEvent?: SimpleStreamOptions["onProviderStreamEvent"];
+		},
+	>(
+		model: { provider: string },
+		options: T | undefined,
+		serverTools?: Map<string, ServerToolPart>,
+	): T => {
+		const previous = options?.onPayload;
+		const previousEvent = options?.onProviderStreamEvent;
+		return {
+			...options,
+			onPayload: async (payload, requested) => {
+				const rewritten = attachNativeTools(model.provider, payload);
+				if (!previous) return rewritten;
+				const next = await previous(rewritten, requested);
+				return next === undefined ? rewritten : next;
+			},
+			onProviderStreamEvent: async (event, streamed) => {
+				if (serverTools) noteServerTool(serverTools, event);
+				await previousEvent?.(event, streamed);
+			},
+		} as T;
+	};
+	return new Proxy(models, {
+		get(target, prop, receiver) {
+			if (prop === "streamSimple") {
+				return (
+					model: Parameters<MutableModels["streamSimple"]>[0],
+					context: Parameters<MutableModels["streamSimple"]>[1],
+					options?: Parameters<MutableModels["streamSimple"]>[2],
+				) => {
+					const serverTools = new Map<string, ServerToolPart>();
+					const events = streamSimple(
+						model,
+						context,
+						attach(model, options, serverTools),
+					);
+					const read = events.result.bind(events);
+					events.result = () =>
+						read().then((message) => {
+							applyServerTools(message, serverTools);
+							return message;
+						});
+					return events;
+				};
+			}
+			if (prop === "completeSimple") {
+				return (
+					model: Parameters<MutableModels["completeSimple"]>[0],
+					context: Parameters<MutableModels["completeSimple"]>[1],
+					options?: Parameters<MutableModels["completeSimple"]>[2],
+				) => completeSimple(model, context, attach(model, options));
+			}
+			const value = Reflect.get(target, prop, receiver);
+			return typeof value === "function" ? value.bind(target) : value;
+		},
+	});
 }
 
 /** Fail fast with an actionable message when the configured model is unknown or its provider has no credentials. */

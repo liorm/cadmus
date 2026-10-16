@@ -38,6 +38,7 @@ import {
 	rawMode,
 	selectedBot,
 	showList,
+	type ToolDetail,
 	tab,
 } from "./state.ts";
 import { setTheme, THEMES, theme, themeLabel } from "./theme.ts";
@@ -461,9 +462,10 @@ function Main() {
 					<div class="b">
 						{liveTools.value.map((tool) => (
 							<Chip
-								key={`${tool.name}:${tool.status}`}
+								key={tool.detail?.callId ?? tool.name}
 								name={tool.name}
 								status={tool.status}
+								detail={tool.detail}
 							/>
 						))}
 						<span
@@ -617,7 +619,7 @@ async function askRename() {
 
 function Bubble({ item }: { item: Item }) {
 	if (item.type === "tool")
-		return <Chip name={item.name} status={item.status} />;
+		return <Chip name={item.name} status={item.status} detail={item.detail} />;
 	if (item.type === "user")
 		return (
 			<div
@@ -633,12 +635,64 @@ function Bubble({ item }: { item: Item }) {
 	);
 }
 
-function Chip({ name, status }: { name: string; status: string }) {
+function Chip({
+	name,
+	status,
+	detail,
+}: {
+	name: string;
+	status: string;
+	detail?: ToolDetail;
+}) {
+	const [open, setOpen] = useState(false);
 	const running = status === "running" || status === "pending";
+	const failed = status === "error";
+	const tone = running ? "run" : failed ? "bad" : "w";
 	return (
-		<span class={`chip ${running ? "run" : "w"}`}>
-			{running ? <span class="spin" /> : "✓"} {name}
+		<span class="tool-wrap">
+			<button
+				type="button"
+				class={`chip ${tone}`}
+				aria-expanded={open}
+				onClick={() => setOpen((value) => !value)}
+			>
+				{running ? <span class="spin" /> : failed ? "✗" : "✓"} {name}
+			</button>
+			{open ? <ToolBody detail={detail} /> : null}
 		</span>
+	);
+}
+
+function ToolBody({ detail }: { detail?: ToolDetail }) {
+	const args =
+		detail?.arguments === undefined
+			? undefined
+			: JSON.stringify(detail.arguments, null, 2);
+	const output = detail?.output;
+	const result = detail?.result;
+	if (!args && !output && !result)
+		return <div class="tool-detail">No details yet.</div>;
+	return (
+		<div class="tool-detail">
+			{args ? (
+				<>
+					<div class="lab">Arguments</div>
+					<pre>{args}</pre>
+				</>
+			) : null}
+			{output ? (
+				<>
+					<div class="lab">Output</div>
+					<pre>{output}</pre>
+				</>
+			) : null}
+			{result ? (
+				<>
+					<div class="lab">Result</div>
+					<pre>{result}</pre>
+				</>
+			) : null}
+		</div>
 	);
 }
 

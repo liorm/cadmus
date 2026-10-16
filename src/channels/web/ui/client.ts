@@ -155,7 +155,9 @@ export function watchChat(key: string): void {
 	events.addEventListener("tool", (event) => {
 		const chip = JSON.parse((event as MessageEvent).data) as Chip;
 		liveTools.value = [
-			...liveTools.value.filter((tool) => tool.name !== chip.name),
+			...liveTools.value.filter(
+				(tool) => tool.detail?.callId !== chip.detail?.callId,
+			),
 			chip,
 		];
 	});

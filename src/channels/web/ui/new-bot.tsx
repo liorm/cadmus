@@ -110,10 +110,11 @@ function initialThinking(
 	editing: boolean,
 	current: { thinking?: string } | undefined,
 ): string {
+	if (!editing) return "";
 	const stored = current?.thinking;
 	if ((LEVELS as readonly string[]).includes(stored ?? "\0"))
 		return stored ?? "";
-	return editing ? (stored ?? "medium") : "medium";
+	return stored ?? "medium";
 }
 
 function splitModel(ref: string): { provider: string; modelId: string } {

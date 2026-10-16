@@ -19,12 +19,28 @@ export type Chat = {
 	/** Latest user, assistant, or notice text. */
 	preview?: string;
 };
+export type ToolDetail = {
+	callId: string;
+	arguments?: Record<string, unknown>;
+	result?: string;
+	output?: string;
+};
 export type Item =
 	| { type: "user"; id: number; text: string }
 	| { type: "assistant"; id: number; text: string }
-	| { type: "tool"; id: string; name: string; status: string }
+	| {
+			type: "tool";
+			id: string;
+			name: string;
+			status: string;
+			detail: ToolDetail;
+	  }
 	| { type: "notice"; id: number; text: string };
-export type Chip = { name: string; status: string };
+export type Chip = {
+	name: string;
+	status: string;
+	detail: ToolDetail;
+};
 export type HarvestNote = {
 	at: number;
 	when: number;

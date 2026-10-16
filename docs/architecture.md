@@ -75,7 +75,7 @@ Three extensions sit on the harness:
 
 - Identity renders the bot folder into prompt sections when a request is built. The sections are in the [data model](./architecture/model.md).
 - File tools are pi-durable `read`, `write`, and `edit`, aimed at an execution environment rooted at that bot's folder. There is no shell.
-- Web tools are `web.search` and `web.fetch`. They POST to the xAI web endpoints. A repeat is another request, so their replay class is unsafe.
+- `web.search`, `web.fetch`, `x.search`, and `code.execute` are catalog tools. On xAI, `web.search`, `x.search`, and `code.execute` are removed from the function list and sent as the server tools `web_search`, `x_search`, and `code_interpreter` on the Responses request. The OAuth bearer or API key already on that request is what authorizes them. A provider without that server tool leaves the function in place, and running it returns an error. There is no local web or code implementation yet. A repeat of a local run would be another effect, so their replay class is unsafe.
 - Self tools (`pi-bot.self`) call host services for the bot that owns the conversation. The registry is built before those services exist, so the host object is filled in before a turn runs. Schedule create, list, update, and delete are the tools installed today. They read and write the sidecar for that bot only, and they never show or change a `harvest:` row. Creating, updating, or deleting a schedule is replay `safe` and memoized on the tool task, so recovery returns the same outcome instead of inserting, editing, or removing another row.
 
 `write` and `edit` leave replay unset. The library treats that as unsafe: recovery does not run the tool again. It records that the call was interrupted and may have partially run. The model sees that result and the turn continues.
@@ -89,5 +89,5 @@ These are the knobs the running process uses. They are not separate subsystems.
 - The knowledge section lists at most 80 valid files, in path order, then a count of the rest.
 - Idle harvest waits 60 seconds unless `PI_BOT_HARVEST_DELAY_MS` overrides it. The delay is process-wide.
 - Cron is five fields. A bad expression is rejected and writes nothing.
-- Every registered tool (`read`, `write`, `edit`, the schedule tools, `web.search`, and `web.fetch`) is on unless the bot row lists an enabled set. An omitted `tools` field means all of them. An empty list means none. A disabled tool is left out of the model request and is not run. `GET` and `PUT /api/bots/<id>/tools` read and replace that set. The bot dialog shows the same switches.
+- Every registered tool (`read`, `write`, `edit`, the schedule tools, `web.search`, `web.fetch`, `x.search`, and `code.execute`) is on unless the bot row lists an enabled set. An omitted `tools` field means all of them. An empty list means none. A disabled tool is left out of the model request and is not run. `GET` and `PUT /api/bots/<id>/tools` read and replace that set. The bot dialog shows the same switches.
 - The host does not delete bots. It does not run a shell.
