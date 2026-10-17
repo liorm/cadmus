@@ -416,6 +416,9 @@ describe("tool results", () => {
 			"schedule_list",
 			"schedule_update",
 			"schedule_delete",
+			"create_bot",
+			"search_bot",
+			"message_bot",
 		]);
 	});
 });

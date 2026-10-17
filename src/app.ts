@@ -161,6 +161,8 @@ export async function startApp({
 		runtime: (id) => runtimes.get(id),
 	});
 	self.schedules = schedules;
+	self.harness = harness;
+	self.onBot = addRuntime;
 	harness.resume();
 	hooks.onInput = (chatKey) => {
 		getLogger().debug("dropping harvest wake on new input", { chat: chatKey });

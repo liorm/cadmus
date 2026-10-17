@@ -5,7 +5,7 @@ import type {
 	SimpleStreamOptions,
 	TranscriptContext,
 } from "@earendil-works/pi-ai";
-import type { MutableModels } from "@earendil-works/pi-ai/models";
+import type { Models, MutableModels } from "@earendil-works/pi-ai/models";
 import { builtinModels } from "@earendil-works/pi-ai/providers/all";
 import {
 	type FauxResponseStep,
@@ -181,7 +181,7 @@ function withNativeTools(models: MutableModels): MutableModels {
 
 /** Fail fast with an actionable message when the configured model is unknown or its provider has no credentials. */
 export async function checkModel(
-	models: MutableModels,
+	models: Models,
 	ref: ModelRef,
 ): Promise<string | undefined> {
 	if (!models.getModel(ref.provider, ref.modelId)) {

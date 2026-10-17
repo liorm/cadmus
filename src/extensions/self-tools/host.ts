@@ -1,12 +1,14 @@
 import { join, relative, sep } from "node:path";
 import type { Context } from "@earendil-works/chord";
 import type {
+	Harness,
 	ToolExecutionApi,
 	ToolExecutionResult,
 	ToolRegistration,
 } from "@earendil-works/pi-durable";
 import { defineExtension, defineTool } from "@earendil-works/pi-durable";
 import type { Static, TSchema } from "typebox";
+import type { BotRecord } from "../../channels/bots.ts";
 import { ChatsDoc } from "../../channels/telegram/chats.ts";
 import type { ScheduleService } from "../../schedules/service.ts";
 
@@ -17,6 +19,10 @@ import type { ScheduleService } from "../../schedules/service.ts";
 export type SelfHost = {
 	home: string;
 	schedules?: ScheduleService;
+	/** Set once the harness is open. Bot tools refuse to run before that. */
+	harness?: Harness;
+	/** Register a bot created during a turn so it can take chats without a restart. */
+	onBot?: (bot: BotRecord) => void;
 };
 
 /** The bot (and chat, when this conversation is one) the tool is allowed to touch. */

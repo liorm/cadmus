@@ -29,7 +29,9 @@ Persona and knowledge are files. The session stores identity, chat directories, 
 | `telegramToken` | optional second Telegram door; omitted from client reads |
 | `createdAt` | unix milliseconds |
 
-A fresh home has no bots. Creating a bot allocates a slug from the name, writes the folder (built-in persona, unless the request includes a soul, plus `knowledge/`), then commits the row. The model and thinking level on that row are the ones in the request. A failed commit removes the new folder. A failed folder write does not commit the row. Slug rules are in [current policy](../architecture.md#current-policy). An existing row, including one whose id is `default`, keeps its stored model and thinking level across restarts. Its display name can change. The id does not.
+A fresh home has no bots. Creating a bot from the HTTP API allocates a slug from the name, writes the folder (built-in persona, unless the request includes a soul, plus `knowledge/`), then commits the row. The model and thinking level on that row are the ones in the request. `create_bot` instead takes the slug as given, writes the supplied `SOUL.md`, and can also write `MEMORY.md` and knowledge files at version 0. An omitted model or thinking level copies the calling conversation. A failed commit removes the new folder when the row was not stored. A failed folder write does not commit the row. Slug rules are in [current policy](../architecture.md#current-policy). An existing row, including one whose id is `default`, keeps its stored model and thinking level across restarts. Its display name can change. The id does not.
+
+`search_bot` freezes a catalog (slug, name, model, a short soul, knowledge descriptions) and asks a task-owned conversation to pick one slug. That conversation is not a chat-directory row. It has no tools and no identity sections. `message_bot` does not start one.
 
 The id `default` is not reserved. The general door binds to it when that row is already stored. A name that slugs to `default` takes that id when it is free, and the env token attaches on the next start.
 

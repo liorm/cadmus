@@ -5,6 +5,7 @@ export type CatalogTool = { group: string; name: string };
 const GROUPS: Record<string, string> = {
 	"pi-bot.knowledge": "Knowledge",
 	"pi-bot.self": "Schedules",
+	"pi-bot.internal": "Internal",
 	"pi-bot.web": "Web",
 };
 

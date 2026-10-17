@@ -1,5 +1,6 @@
 import { createRegistry, type Extension } from "@earendil-works/pi-durable";
 import { identityExtension } from "../extensions/identity.ts";
+import { internalExtension } from "../extensions/internal/index.ts";
 import { knowledgeExtension } from "../extensions/knowledge-tools.ts";
 import {
 	type SelfHost,
@@ -27,6 +28,7 @@ export function buildRegistry(options: RegistryOptions) {
 		knowledgeExtension(),
 		webExtension(),
 		selfExtension(options.self ?? { home: options.home }),
+		internalExtension(options.self ?? { home: options.home }),
 		toolGateExtension(options.home),
 	];
 	for (const extension of extensions) registry.install(extension);

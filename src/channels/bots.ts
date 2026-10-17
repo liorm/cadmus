@@ -3,6 +3,14 @@ import { join } from "node:path";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { defineDoc, type Harness } from "@earendil-works/pi-durable";
 import { DEFAULT_SOUL } from "../extensions/default-soul.ts";
+import {
+	applyKnowledgeWrite,
+	formatKnowledge,
+	type KnowledgeDoc,
+	parseKnowledgeWrite,
+	parseSlug,
+} from "../extensions/knowledge.ts";
+import { formatMemory, parseMemoryWrite } from "../extensions/memory.ts";
 import { normalizeEnabled } from "./bot-catalog.ts";
 import { slugifyBotName } from "./bot-slug.ts";
 
@@ -56,6 +64,14 @@ export async function listBots(harness: Harness): Promise<BotRecord[]> {
 	];
 }
 
+/** One knowledge file written with the new bot, at version 0. */
+export type BotKnowledgeSeed = {
+	slug: string;
+	description: string;
+	body: string;
+	category?: string;
+};
+
 export type BotWrite = {
 	name: string;
 	model: string;
@@ -63,7 +79,26 @@ export type BotWrite = {
 	tools?: string[];
 	/** Initial `SOUL.md`. Omitted means the default persona. */
 	soul?: string;
+	/**
+	 * When set, this is the id. A taken id or a value that is not a bot slug
+	 * fails. Omitted means slugify `name` and add a numeric suffix if needed.
+	 */
+	id?: string;
+	/** Initial `MEMORY.md` body. Omitted means no memory file. */
+	memory?: string;
+	/** Initial knowledge files. Omitted means an empty `knowledge/` directory. */
+	knowledge?: BotKnowledgeSeed[];
 };
+
+/** Why an explicit id cannot be used, or `undefined` when it is free. */
+export function explicitSlugError(
+	id: string,
+	taken: ReadonlySet<string>,
+): string | undefined {
+	if (!parseSlug(id, "bot")) return "Slug is not a bot id.";
+	if (taken.has(id)) return "Slug is taken.";
+	return undefined;
+}
 
 export type BotFailure = { ok: false; status: 422; error: string };
 export type BotCreateResult = { ok: true; bot: BotRecord } | BotFailure;
@@ -108,14 +143,87 @@ async function takenBotIds(
 	return taken;
 }
 
+type PreparedBotFiles = {
+	soul?: string;
+	memory?: string;
+	knowledge: { slug: string; doc: KnowledgeDoc }[];
+};
+
+/** Check memory and knowledge before any folder write. */
+function prepareBotFiles(
+	input: BotWrite,
+): { ok: true; files: PreparedBotFiles } | BotFailure {
+	let memory: string | undefined;
+	if (input.memory !== undefined) {
+		const parsed = parseMemoryWrite({ version: 0, body: input.memory });
+		if (!parsed.ok) return { ok: false, status: 422, error: parsed.error };
+		memory = parsed.body;
+	}
+	const knowledge: PreparedBotFiles["knowledge"] = [];
+	const seen = new Set<string>();
+	for (const item of input.knowledge ?? []) {
+		const slug = parseSlug(item.slug, "knowledge");
+		if (!slug)
+			return {
+				ok: false,
+				status: 422,
+				error: "The knowledge name is not a legal slug.",
+			};
+		if (seen.has(slug))
+			return {
+				ok: false,
+				status: 422,
+				error: `Knowledge slug ${slug} is repeated.`,
+			};
+		seen.add(slug);
+		const parsed = parseKnowledgeWrite({
+			version: 0,
+			description: item.description,
+			body: item.body,
+			...(item.category === undefined ? {} : { category: item.category }),
+		});
+		if (!parsed.ok) return { ok: false, status: 422, error: parsed.error };
+		// `applyKnowledgeWrite` stores the next version. Keep the seed at 0.
+		const applied = applyKnowledgeWrite(undefined, parsed.value);
+		knowledge.push({ slug, doc: { ...applied, version: 0 } });
+	}
+	return {
+		ok: true,
+		files: { soul: input.soul, memory, knowledge },
+	};
+}
+
 async function writeNewBotFiles(
 	home: string,
 	id: string,
-	soul?: string,
+	files: PreparedBotFiles,
 ): Promise<void> {
 	const dir = botDir(home, id);
 	await mkdir(join(dir, "knowledge"), { recursive: true });
-	await writeFile(join(dir, "SOUL.md"), soul ?? `${DEFAULT_SOUL}\n`);
+	await writeFile(join(dir, "SOUL.md"), files.soul ?? `${DEFAULT_SOUL}\n`);
+	if (files.memory !== undefined) {
+		await writeFile(
+			join(dir, "MEMORY.md"),
+			formatMemory({ version: 0, body: files.memory }),
+		);
+	}
+	for (const item of files.knowledge) {
+		await writeFile(
+			join(dir, "knowledge", `${item.slug}.md`),
+			formatKnowledge(item.doc),
+		);
+	}
+}
+
+/** Remove a folder this call created when the row was not stored. */
+async function discardUnstoredFolder(
+	harness: Harness,
+	home: string,
+	id: string,
+): Promise<void> {
+	const stored = (await listBots(harness)).some((bot) => bot.id === id);
+	if (stored) return;
+	await rm(botDir(home, id), { recursive: true, force: true });
 }
 
 /**
@@ -128,21 +236,32 @@ export async function createBot(
 	input: BotWrite,
 	all: readonly string[] = [],
 ): Promise<BotCreateResult> {
-	const base = slugifyBotName(input.name);
-	if (!base)
-		return { ok: false, status: 422, error: "Name does not make a slug." };
-	const id = allocateBotId(base, await takenBotIds(harness, home));
-	const dir = botDir(home, id);
+	const name = input.name.trim();
+	if (!name) return { ok: false, status: 422, error: "Name is empty." };
+	const prepared = prepareBotFiles(input);
+	if (!prepared.ok) return prepared;
+	let id: string;
+	if (input.id !== undefined) {
+		const taken = new Set((await listBots(harness)).map((bot) => bot.id));
+		const error = explicitSlugError(input.id, taken);
+		if (error) return { ok: false, status: 422, error };
+		id = input.id;
+	} else {
+		const base = slugifyBotName(name);
+		if (!base)
+			return { ok: false, status: 422, error: "Name does not make a slug." };
+		id = allocateBotId(base, await takenBotIds(harness, home));
+	}
 	try {
-		await writeNewBotFiles(home, id, input.soul);
+		await writeNewBotFiles(home, id, prepared.files);
 	} catch (error) {
-		await rm(dir, { recursive: true, force: true });
+		await discardUnstoredFolder(harness, home, id);
 		throw error;
 	}
 	const tools = normalizeEnabled(input.tools, all);
 	const record: BotRecord = {
 		id,
-		name: input.name.trim(),
+		name,
 		model: input.model,
 		thinking: input.thinking,
 		...(tools === undefined ? {} : { tools }),
@@ -156,7 +275,7 @@ export async function createBot(
 			bots.items.push(record);
 		}, BACKGROUND_CONTEXT);
 	} catch (error) {
-		await rm(dir, { recursive: true, force: true });
+		await discardUnstoredFolder(harness, home, id);
 		throw error;
 	}
 	return { ok: true, bot: record };

@@ -3,6 +3,7 @@ import { Writable } from "node:stream";
 import type { ConversationView, EntryRecord } from "@earendil-works/pi-durable";
 import { catalogGroup, toolCatalog } from "../src/channels/bot-catalog.ts";
 import { slugifyBotName } from "../src/channels/bot-slug.ts";
+import { explicitSlugError } from "../src/channels/bots.ts";
 import { chatKey } from "../src/channels/telegram/chats.ts";
 import { parseCommand } from "../src/channels/telegram/commands.ts";
 import { chunkText } from "../src/channels/telegram/deliver.ts";
@@ -10,6 +11,13 @@ import { requestIdOf } from "../src/channels/telegram/poller.ts";
 import { liveTools, projectEntries } from "../src/channels/web/transcript.ts";
 import { parseUserIds } from "../src/config.ts";
 import { dayLine, soulWithName } from "../src/extensions/identity.ts";
+import {
+	excerptSoul,
+	formatSearchCatalog,
+	parseSearchAnswer,
+	SEARCH_BOT_CAP,
+	SOUL_EXCERPT,
+} from "../src/extensions/internal/match.ts";
 import {
 	formatKnowledge,
 	KNOWLEDGE_FIELDS,
@@ -55,6 +63,7 @@ describe("pure helpers", () => {
 	it("lists registry tools as the dialog catalog", () => {
 		expect(catalogGroup("pi-bot.knowledge")).toBe("Knowledge");
 		expect(catalogGroup("pi-bot.self")).toBe("Schedules");
+		expect(catalogGroup("pi-bot.internal")).toBe("Internal");
 		expect(catalogGroup("pi-bot.web")).toBe("Web");
 		const { registry } = buildRegistry({ home: "/tmp", timeZone: "UTC" });
 		const catalog = toolCatalog(registry);
@@ -216,6 +225,60 @@ describe("pure helpers", () => {
 			enabled: false,
 			when: { cron: "0 9 * * 1" },
 		});
+	});
+
+	it("rejects an explicit bot slug that is illegal or taken", () => {
+		expect(explicitSlugError("researcher", new Set())).toBeUndefined();
+		expect(explicitSlugError("Bad", new Set())).toBe("Slug is not a bot id.");
+		expect(explicitSlugError("researcher", new Set(["researcher"]))).toBe(
+			"Slug is taken.",
+		);
+	});
+
+	it("parses a search answer as a catalog slug, none, or invalid", () => {
+		const slugs = ["researcher", "null"];
+		expect(parseSearchAnswer("  researcher  ", slugs)).toEqual({
+			kind: "slug",
+			slug: "researcher",
+		});
+		expect(parseSearchAnswer("", slugs)).toEqual({ kind: "none" });
+		expect(parseSearchAnswer("  \n", slugs)).toEqual({ kind: "none" });
+		expect(parseSearchAnswer("NULL", ["researcher"])).toEqual({ kind: "none" });
+		expect(parseSearchAnswer("null", slugs)).toEqual({
+			kind: "slug",
+			slug: "null",
+		});
+		expect(parseSearchAnswer("resercher", slugs)).toEqual({ kind: "invalid" });
+		expect(parseSearchAnswer("none", slugs)).toEqual({ kind: "invalid" });
+		expect(parseSearchAnswer("the researcher bot", slugs)).toEqual({
+			kind: "invalid",
+		});
+	});
+
+	it("caps the search catalog and keeps slugs in order", () => {
+		expect(excerptSoul(` ${"a".repeat(SOUL_EXCERPT + 5)} `)).toHaveLength(
+			SOUL_EXCERPT + 1,
+		);
+		const bots = Array.from({ length: SEARCH_BOT_CAP + 2 }, (_, index) => ({
+			slug: `b${String(index).padStart(2, "0")}`,
+			name: `Bot ${index}`,
+			model: "xai/grok",
+			soul: "",
+		}));
+		bots.push({
+			slug: "aaa",
+			name: "First",
+			model: "xai/grok",
+			soul: "Hello",
+		});
+		const catalog = formatSearchCatalog(bots);
+		expect(catalog.slugs).toHaveLength(SEARCH_BOT_CAP);
+		expect(catalog.slugs[0]).toBe("aaa");
+		expect(catalog.text).toContain("soul: Hello");
+		expect(catalog.text).toContain("more bots are not listed.");
+		expect(catalog.slugs).not.toContain(
+			`b${String(SEARCH_BOT_CAP).padStart(2, "0")}`,
+		);
 	});
 
 	it("parses bot and knowledge slugs", () => {
