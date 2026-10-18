@@ -7,7 +7,6 @@ import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { ToolResultEntry } from "@earendil-works/pi-durable";
 import type { App } from "../../src/app.ts";
 import { listChats } from "../../src/channels/telegram/chats.ts";
-import { resetTestClock, setTestClock } from "../../src/clock.ts";
 import { FakeEgress } from "../egress/fake-egress.ts";
 import { routeEgress } from "../egress/route.ts";
 import {
@@ -17,7 +16,6 @@ import {
 	startBot,
 	tempHome,
 	until,
-	waitTestClockTicks,
 } from "../support.ts";
 
 const TOKEN = "test-web-token";
@@ -31,7 +29,6 @@ beforeEach(() => {
 	unroute = routeEgress(egress.url);
 });
 afterEach(async () => {
-	resetTestClock();
 	egress.xai.release();
 	for (const app of apps) await app.stop();
 	apps = [];
@@ -288,12 +285,10 @@ describe("tool results", () => {
 		expect(left.schedules).toEqual([]);
 	});
 
-	it("a created schedule fires on the test clock, a paused one does not, and re-enabling fires it", async () => {
-		let clock = Date.parse("2026-06-01T09:00:00.000Z");
-		setTestClock(() => clock);
+	it("a created schedule fires when due, a paused one does not, and re-enabling fires it", async () => {
 		const home = await tempHome();
 		const { app, url } = await boot(home);
-		const when = clock + 1_000;
+		const when = Date.now() + 800;
 		egress.xai.script.push(
 			{
 				tool: {
@@ -328,9 +323,9 @@ describe("tool results", () => {
 		await until(() => egress.telegram.texts().includes("paused"), "paused");
 		await settle(app, egress);
 		expect(scheduleRow(home, id)?.enabled).toBe(0);
-		clock = when + 1;
-		await waitTestClockTicks();
+		await new Promise((resolve) => setTimeout(resolve, 1_100));
 		await app.quiesce();
+		expect(scheduleRow(home, id)?.enabled).toBe(0);
 		expect(
 			egress.telegram.texts().some((text) => text.includes("clock ping")),
 		).toBe(false);
@@ -342,12 +337,14 @@ describe("tool results", () => {
 				},
 			},
 			{ text: "resumed clock ping" },
+			{ text: "fired" },
 		);
 		egress.telegram.push("turn it back on");
 		await until(
-			() => egress.telegram.texts().some((text) => text.includes("clock ping")),
-			"the fire",
+			() => egress.telegram.texts().includes("resumed clock ping"),
+			"the resume reply",
 		);
+		await until(() => scheduleRow(home, id) === null, "the one-shot to fire");
 		await settle(app, egress);
 		const db = new Database(join(home, "schedules.sqlite"), { readonly: true });
 		try {

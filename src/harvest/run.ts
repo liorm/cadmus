@@ -6,16 +6,14 @@ import {
 	defineExtension,
 	defineTask,
 	type EntryId,
-	type Harness,
 	LiveDoc,
-	type RegistryReader,
 	type TaskId,
 	type TaskRuntime,
 } from "@earendil-works/pi-durable";
 import { BotsDoc, botDir, ensureBotRoot } from "../channels/bots.ts";
 import { listChats } from "../channels/telegram/chats.ts";
-import { testClockActive, testClockPollMs } from "../clock.ts";
 import { getLogger } from "../log.ts";
+import { type AppServices, requireServices } from "../services.ts";
 import {
 	changedFiles,
 	HARVEST_RETRY_MS,
@@ -27,20 +25,9 @@ import {
 	snapshotBot,
 } from "./notes.ts";
 
-export type HarvestHost = {
-	harness: Harness;
-	registry: RegistryReader;
-	home: string;
-	delayMs: number;
-	now(): number;
-	track(work: Promise<void>): void;
-};
-
-export const harvestHost: { current?: HarvestHost } = {};
-
 type Input = { botId: string; chatKey: string; entryId: number };
 type Checkpoint =
-	| { phase: "wait" }
+	| { phase: "wait"; seq?: number; until?: number }
 	| { phase: "snap" }
 	| {
 			phase: "fork";
@@ -65,12 +52,9 @@ type Checkpoint =
 type Runtime = TaskRuntime<Input, Checkpoint, null, object>;
 
 const busy = new Map<string, () => void>();
-const inflight = new Set<Promise<void>>();
 
-function host(): HarvestHost {
-	const current = harvestHost.current;
-	if (!current) throw new Error("Harvest task has no host.");
-	return current;
+function services(context: Context): AppServices {
+	return requireServices(context);
 }
 
 function taskKey(id: unknown): string {
@@ -88,15 +72,13 @@ function running(checkpoint: Checkpoint) {
 	return { status: "running" as const, checkpoint };
 }
 
-function hold(id: string): void {
+function hold(id: string, context: Context): void {
 	if (!id || busy.has(id)) return;
 	let settle = () => {};
 	const tracked = new Promise<void>((resolve) => {
 		settle = resolve;
 	});
-	inflight.add(tracked);
-	void tracked.finally(() => inflight.delete(tracked));
-	host().track(tracked);
+	services(context).track(tracked);
 	busy.set(id, settle);
 }
 
@@ -113,17 +95,15 @@ async function finish(runtime: Runtime, context: Context, id: string) {
 }
 
 async function sleepUntil(runtime: Runtime, until: number, context: Context) {
-	const ops = host();
-	for (;;) {
-		const at = ops.now();
-		if (at >= until) return;
-		const step = testClockActive() ? testClockPollMs : Math.max(1, until - at);
-		await runtime.sleep(at + step, context);
-	}
+	const at = runtime.now();
+	if (at < until) await runtime.sleep(until, context);
 }
 
 async function readArm(chatKey: string, context: Context) {
-	const notes = await host().harness.snapshot(HarvestNotesDoc, context);
+	const notes = await services(context).harness.snapshot(
+		HarvestNotesDoc,
+		context,
+	);
 	return notes?.armed?.[chatKey];
 }
 
@@ -137,6 +117,7 @@ export const HarvestTask = defineTask<Input, Checkpoint, null>({
 	phases: {
 		async wait(task, runtime, context) {
 			const id = task.input.chatKey;
+			const waiting = task.state.checkpoint;
 			for (;;) {
 				const arm = await readArm(id, context);
 				if (
@@ -147,12 +128,24 @@ export const HarvestTask = defineTask<Input, Checkpoint, null>({
 					await finish(runtime, context, id);
 					return;
 				}
-				if (host().now() >= arm.until) {
-					hold(id);
+				if (waiting.seq !== arm.seq || waiting.until === undefined) {
+					await runtime.commit(
+						async () =>
+							running({
+								phase: "wait",
+								seq: arm.seq,
+								until: runtime.now() + services(context).harvestDelayMs,
+							}),
+						context,
+					);
+					return;
+				}
+				if (runtime.now() >= waiting.until) {
+					hold(id, context);
 					await runtime.commit(async () => running({ phase: "snap" }), context);
 					return;
 				}
-				await sleepUntil(runtime, arm.until, context);
+				await sleepUntil(runtime, waiting.until, context);
 			}
 		},
 		async snap(task, runtime, context) {
@@ -178,59 +171,53 @@ export function harvestExtension() {
 }
 
 /** Drop the wake for a chat that just received new user text. */
-export async function cancelHarvest(chatKey: string): Promise<void> {
-	const ops = harvestHost.current;
-	if (!ops) return;
-	const notes = await ops.harness.snapshot(HarvestNotesDoc, BACKGROUND_CONTEXT);
+export async function cancelHarvest(
+	app: AppServices,
+	chatKey: string,
+): Promise<void> {
+	const notes = await app.harness.snapshot(HarvestNotesDoc, BACKGROUND_CONTEXT);
 	const arm = notes?.armed?.[chatKey];
 	if (!arm) return;
 	getLogger().debug("dropping harvest wake on new input", { chat: chatKey });
-	await ops.harness.commit(async (tx) => {
+	await app.harness.commit(async (tx) => {
 		const doc = await tx.doc(HarvestNotesDoc);
 		if (doc.armed) delete doc.armed[chatKey];
 	}, BACKGROUND_CONTEXT);
-	await ops.harness.abortTask(Number(arm.taskId) as TaskId, BACKGROUND_CONTEXT);
+	await app.harness.abortTask(Number(arm.taskId) as TaskId, BACKGROUND_CONTEXT);
 }
 
 /** Arm a harvest of `entryId` after the idle delay. The same entry only moves the wake. */
-export async function armHarvest(input: {
-	botId: string;
-	chatKey: string;
-	entryId: number;
-}): Promise<void> {
-	const ops = harvestHost.current;
-	if (!ops) return;
-	const notes = await ops.harness.snapshot(HarvestNotesDoc, BACKGROUND_CONTEXT);
+export async function armHarvest(
+	app: AppServices,
+	input: {
+		botId: string;
+		chatKey: string;
+		entryId: number;
+	},
+): Promise<void> {
+	const notes = await app.harness.snapshot(HarvestNotesDoc, BACKGROUND_CONTEXT);
 	if (notes?.completed?.[input.chatKey] === input.entryId) return;
-	const until = ops.now() + ops.delayMs;
 	const existing = notes?.armed?.[input.chatKey];
 	if (existing && existing.at === input.entryId) {
-		const live = await ops.harness.getTask(
+		const live = await app.harness.getTask(
 			Number(existing.taskId) as TaskId,
 			BACKGROUND_CONTEXT,
 		);
-		if (live && live.state.status !== "terminal") {
-			await ops.harness.commit(async (tx) => {
-				const doc = await tx.doc(HarvestNotesDoc);
-				const arm = doc.armed?.[input.chatKey];
-				if (arm && arm.at === input.entryId) arm.until = until;
-			}, BACKGROUND_CONTEXT);
-			getLogger().debug("harvest wake moved", {
-				chat: input.chatKey,
-				delayMs: ops.delayMs,
-			});
-			return;
-		}
+		const phase =
+			live && "checkpoint" in live.state
+				? (live.state.checkpoint as { phase?: string }).phase
+				: undefined;
+		if (live && live.state.status !== "terminal" && phase !== "wait") return;
 	}
 	if (existing) {
-		await ops.harness.abortTask(
+		await app.harness.abortTask(
 			Number(existing.taskId) as TaskId,
 			BACKGROUND_CONTEXT,
 		);
 	}
-	const root = await ensureBotRoot(ops.harness, input.botId);
+	const root = await ensureBotRoot(app.harness, input.botId);
 	if (!root) return;
-	const taskId = await ops.harness.commit(
+	const taskId = await app.harness.commit(
 		(tx) =>
 			tx.createTask(HarvestTask, input, {
 				ownership: { kind: "conversation" },
@@ -239,38 +226,39 @@ export async function armHarvest(input: {
 			}),
 		BACKGROUND_CONTEXT,
 	);
-	await ops.harness.commit(async (tx) => {
+	await app.harness.commit(async (tx) => {
 		const doc = await tx.doc(HarvestNotesDoc);
 		doc.armed = {
 			...doc.armed,
 			[input.chatKey]: {
 				taskId: String(taskId),
 				at: input.entryId,
-				until,
+				seq: 1,
 			},
 		};
 	}, BACKGROUND_CONTEXT);
 	getLogger().debug("harvest armed", {
 		chat: input.chatKey,
 		bot: input.botId,
-		delayMs: ops.delayMs,
+		delayMs: app.harvestDelayMs,
 	});
 }
 
 /** After restart, arm the rested entry unless this chat already harvested it. */
-export async function armIdleHarvest(input: {
-	botId: string;
-	chatKey: string;
-	conversationId: ConversationId;
-}): Promise<void> {
-	const ops = harvestHost.current;
-	if (!ops) return;
-	const conversation = await ops.harness.conversation(
+export async function armIdleHarvest(
+	app: AppServices,
+	input: {
+		botId: string;
+		chatKey: string;
+		conversationId: ConversationId;
+	},
+): Promise<void> {
+	const conversation = await app.harness.conversation(
 		input.conversationId,
 		BACKGROUND_CONTEXT,
 	);
 	if (!conversation) return;
-	const live = await ops.harness.snapshot(
+	const live = await app.harness.snapshot(
 		LiveDoc,
 		input.conversationId,
 		BACKGROUND_CONTEXT,
@@ -284,34 +272,30 @@ export async function armIdleHarvest(input: {
 	);
 	const entryId = page.items[0]?.id;
 	if (entryId === undefined) return;
-	const state = await ops.harness.snapshot(HarvestNotesDoc, BACKGROUND_CONTEXT);
+	const state = await app.harness.snapshot(HarvestNotesDoc, BACKGROUND_CONTEXT);
 	if (state?.completed?.[input.chatKey] === entryId) return;
 	if (state?.armed?.[input.chatKey]?.at === entryId) return;
-	await armHarvest({
+	await armHarvest(app, {
 		botId: input.botId,
 		chatKey: input.chatKey,
 		entryId: entryId as unknown as number,
 	});
 }
 
-export async function harvestIdle(): Promise<void> {
-	while (inflight.size > 0) await Promise.all([...inflight]);
-}
-
 async function snap(input: Input, runtime: Runtime, context: Context) {
-	const ops = host();
-	hold(input.chatKey);
+	const app = services(context);
+	hold(input.chatKey, context);
 	try {
 		const arm = await readArm(input.chatKey, context);
 		if (!arm || arm.taskId !== taskKey(runtime.taskId)) {
 			await finish(runtime, context, input.chatKey);
 			return;
 		}
-		const chat = (await listChats(ops.harness)).find(
+		const chat = (await listChats(app.harness)).find(
 			(item) => item.key === input.chatKey && item.botId === input.botId,
 		);
 		const parent = chat
-			? await ops.harness.conversation(chat.conversationId, context)
+			? await app.harness.conversation(chat.conversationId, context)
 			: undefined;
 		if (!chat || !parent) {
 			await clearArm(input.chatKey, context);
@@ -319,7 +303,7 @@ async function snap(input: Input, runtime: Runtime, context: Context) {
 			return;
 		}
 		const at = input.entryId;
-		const notes = await ops.harness.snapshot(HarvestNotesDoc, context);
+		const notes = await app.harness.snapshot(HarvestNotesDoc, context);
 		const watermark = notes?.completed?.[input.chatKey];
 		const unchanged = watermark === at;
 		const noDelta =
@@ -337,7 +321,7 @@ async function snap(input: Input, runtime: Runtime, context: Context) {
 			return;
 		}
 		const before = Object.fromEntries(
-			await snapshotBot(botDir(ops.home, input.botId)),
+			await snapshotBot(botDir(app.home, input.botId)),
 		);
 		await runtime.commit(
 			async () =>
@@ -360,10 +344,10 @@ async function fork(
 	runtime: Runtime,
 	context: Context,
 ) {
-	const ops = host();
-	hold(input.chatKey);
+	const app = services(context);
+	hold(input.chatKey, context);
 	try {
-		const chat = (await listChats(ops.harness)).find(
+		const chat = (await listChats(app.harness)).find(
 			(item) => item.key === input.chatKey,
 		);
 		if (!chat) {
@@ -391,14 +375,14 @@ async function fork(
 			}, context);
 			childId = await runtime.memo("child", created, context);
 		}
-		const child = await ops.harness.conversation(
+		const child = await app.harness.conversation(
 			childId as ConversationId,
 			context,
 		);
 		if (!child) throw new Error("Harvest child is missing.");
-		const bots = await ops.harness.snapshot(BotsDoc, context);
+		const bots = await app.harness.snapshot(BotsDoc, context);
 		const bot = bots?.items.find((item) => item.id === input.botId);
-		await child.configure({ tools: harvestTools(bot, ops.registry) }, context);
+		await child.configure({ tools: harvestTools(bot, app.registry) }, context);
 		await runtime.commit(
 			async () =>
 				running({
@@ -423,10 +407,10 @@ async function awaitChild(
 	runtime: Runtime,
 	context: Context,
 ) {
-	const ops = host();
-	hold(input.chatKey);
+	const app = services(context);
+	hold(input.chatKey, context);
 	try {
-		const child = await ops.harness.conversation(
+		const child = await app.harness.conversation(
 			checkpoint.childId as ConversationId,
 			context,
 		);
@@ -466,12 +450,12 @@ async function note(
 	runtime: Runtime,
 	context: Context,
 ) {
-	const ops = host();
-	hold(input.chatKey);
+	const app = services(context);
+	hold(input.chatKey, context);
 	try {
 		const files = changedFiles(
 			new Map(Object.entries(checkpoint.before)),
-			await snapshotBot(botDir(ops.home, input.botId)),
+			await snapshotBot(botDir(app.home, input.botId)),
 		);
 		await runtime.commit(async (tx) => {
 			const notes = await tx.doc(HarvestNotesDoc);
@@ -483,7 +467,7 @@ async function note(
 					chatKey: input.chatKey,
 					at: checkpoint.at,
 					files,
-					when: ops.now(),
+					when: runtime.now(),
 				});
 			}
 			return done();
@@ -512,18 +496,21 @@ async function retry(
 ) {
 	if (runtime.signal.aborted) throw error;
 	getLogger().error("harvest failed; will retry", { error, harvest: chatKey });
-	await host().harness.commit(async (tx) => {
-		const doc = await tx.doc(HarvestNotesDoc);
-		const arm = doc.armed?.[chatKey];
-		if (arm && arm.taskId === taskKey(runtime.taskId))
-			arm.until = host().now() + HARVEST_RETRY_MS;
-	}, context);
+	const arm = await readArm(chatKey, context);
 	release(chatKey);
-	await runtime.commit(async () => running({ phase: "wait" }), context);
+	await runtime.commit(
+		async () =>
+			running({
+				phase: "wait",
+				...(arm ? { seq: arm.seq } : {}),
+				until: runtime.now() + HARVEST_RETRY_MS,
+			}),
+		context,
+	);
 }
 
 async function clearArm(chatKey: string, context: Context) {
-	await host().harness.commit(async (tx) => {
+	await services(context).harness.commit(async (tx) => {
 		const doc = await tx.doc(HarvestNotesDoc);
 		if (doc.armed) delete doc.armed[chatKey];
 	}, context);

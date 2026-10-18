@@ -19,7 +19,6 @@ import {
 	type TelegramTransport,
 } from "./channels/telegram/transport.ts";
 import { startWeb, type WebListener } from "./channels/web/server.ts";
-import { now as clockNow } from "./clock.ts";
 import type { Config } from "./config.ts";
 import type { SelfHost } from "./extensions/self-tools/index.ts";
 import { botEnv } from "./harness/bot-env.ts";
@@ -28,10 +27,15 @@ import { buildRegistry } from "./harness/registry.ts";
 import { runStartup } from "./harness/startup.ts";
 import { DEV_LOCK_WAIT_MS, openOwnedStorage } from "./harness/storage.ts";
 import { HarvestNotesDoc } from "./harvest/notes.ts";
-import { armIdleHarvest, harvestIdle } from "./harvest/run.ts";
+import { armIdleHarvest } from "./harvest/run.ts";
 import { getLogger } from "./log.ts";
 import { type BotRuntime, createBotRuntime } from "./runtime.ts";
 import { createScheduleService } from "./schedules/service.ts";
+import {
+	type AppServices,
+	appContext,
+	type ScheduleCatalog,
+} from "./services.ts";
 
 export type AppOptions = {
 	config: Config;
@@ -75,19 +79,31 @@ export async function startApp({
 		config.dev ? { waitMs: DEV_LOCK_WAIT_MS, stealAfterWait: true } : undefined,
 	);
 	let harness: Harness;
+	const now = () => Date.now();
 	const self: SelfHost = { home: config.home };
 	const { registry } = buildRegistry({
 		home: config.home,
 		timeZone: config.timeZone,
 		self,
 	});
+	const services: AppServices = {
+		home: config.home,
+		timeZone: config.timeZone,
+		registry,
+		harvestDelayMs: config.harvestDelayMs,
+		harness: undefined as unknown as Harness,
+		runtime: () => undefined,
+		catalog: undefined as unknown as ScheduleCatalog,
+		track: () => {},
+		idle: async () => {},
+	};
 	try {
 		harness = await Harness.open(
 			storage,
 			{
 				models,
 				registry,
-				now: clockNow,
+				now,
 				env: botEnv(),
 				settings: {
 					// Messages that arrive mid-run all join it at the next boundary.
@@ -98,8 +114,9 @@ export async function startApp({
 				onReport: (error) =>
 					getLogger().warn("pi-durable extension report", { error }),
 			},
-			BACKGROUND_CONTEXT,
+			appContext(services),
 		);
+		services.harness = harness;
 	} catch (error) {
 		await storage.close(BACKGROUND_CONTEXT).catch(() => {});
 		await lock.release();
@@ -124,7 +141,7 @@ export async function startApp({
 			deliverer,
 			bot,
 			home: config.home,
-			harvestDelayMs: config.harvestDelayMs,
+			services,
 		});
 		runtimes.set(bot.id, created);
 		return created;
@@ -146,12 +163,15 @@ export async function startApp({
 	await harness.commit(async (tx) => {
 		await tx.doc(HarvestNotesDoc);
 	}, BACKGROUND_CONTEXT);
+	services.runtime = (id) => runtimes.get(id);
 	const schedules = createScheduleService({
 		home: config.home,
 		timeZone: config.timeZone,
+		services,
 		harness,
 		registry,
 		runtime: (id) => runtimes.get(id),
+		now,
 	});
 	self.schedules = schedules;
 	harness.resume();
@@ -267,7 +287,7 @@ export async function startApp({
 				);
 				await conversation?.waitForIdle(BACKGROUND_CONTEXT);
 				await deliverer.kick(chat);
-				await armIdleHarvest({
+				await armIdleHarvest(services, {
 					botId: chat.botId ?? DEFAULT_BOT_ID,
 					chatKey: chat.key,
 					conversationId: chat.conversationId,
@@ -304,7 +324,6 @@ export async function startApp({
 			for (const door of doors.values()) await door.poller.settled();
 			for (const bot of runtimes.values()) await bot.settled();
 			await schedules.idle();
-			await harvestIdle();
 			for (const bot of runtimes.values()) await bot.settled();
 			await deliverer.sweepAll();
 			await deliverer.idle();

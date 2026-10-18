@@ -6,7 +6,6 @@ import { join } from "node:path";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { App } from "../../src/app.ts";
 import { listChats } from "../../src/channels/telegram/chats.ts";
-import { resetTestClock, setTestClock } from "../../src/clock.ts";
 import { CHAT, FakeEgress } from "../egress/fake-egress.ts";
 import { routeEgress } from "../egress/route.ts";
 import {
@@ -16,10 +15,15 @@ import {
 	startBot,
 	tempHome,
 	until,
-	waitTestClockTicks,
 } from "../support.ts";
 
 const TOKEN = "test-web-token";
+
+/** Five-field cron for the next UTC minute. At most a minute away. */
+function nextUtcMinute(): string {
+	const at = new Date(Date.now() + 60_000);
+	return `${at.getUTCMinutes()} ${at.getUTCHours()} * * *`;
+}
 
 let egress: FakeEgress;
 let unroute: () => void;
@@ -30,7 +34,6 @@ beforeEach(() => {
 	unroute = routeEgress(egress.url);
 });
 afterEach(async () => {
-	resetTestClock();
 	egress.xai.release();
 	for (const app of apps) await app.stop();
 	apps = [];
@@ -868,8 +871,6 @@ describe("web channel", () => {
 	});
 
 	it("leaves a paused schedule off the clock and lets put rename or re-enable it", async () => {
-		let clock = Date.parse("2026-06-01T09:00:00.000Z");
-		setTestClock(() => clock);
 		const { app, url } = await boot(undefined, {
 			PI_BOT_HARVEST_DELAY_MS: "86400000",
 		});
@@ -878,8 +879,8 @@ describe("web channel", () => {
 		await settle(app, egress);
 		const key = `default:tg:general:${CHAT}`;
 		const target = { mode: "chat", chatId: key };
-		const pausedWhen = clock + 1_000;
-		const liveWhen = clock + 5_000;
+		const pausedWhen = Date.now() + 400;
+		const liveWhen = Date.now() + 1_200;
 		const paused = await json<{
 			schedule: { id: string; name?: string; enabled?: boolean; text: string };
 		}>(url, "/api/bots/default/schedules", {
@@ -918,8 +919,7 @@ describe("web channel", () => {
 				target,
 			}),
 		});
-		clock = pausedWhen + 1;
-		await waitTestClockTicks();
+		await new Promise((resolve) => setTimeout(resolve, 200));
 		await app.quiesce();
 		expect(
 			egress.telegram.texts().some((text) => text.includes("paused ping")),
@@ -927,7 +927,6 @@ describe("web channel", () => {
 		expect(
 			egress.telegram.texts().some((text) => text.includes("live ping")),
 		).toBe(false);
-		clock = liveWhen;
 		await until(
 			() => egress.telegram.texts().some((text) => text.includes("live ping")),
 			"the enabled schedule",
@@ -1218,8 +1217,6 @@ describe("web channel", () => {
 	}, 15_000);
 
 	it("fires a cron reminder after a restart", async () => {
-		let clock = Date.parse("2026-06-01T09:00:00.000Z");
-		setTestClock(() => clock);
 		const home = await tempHome();
 		const first = await boot(home, {
 			PI_BOT_HARVEST_DELAY_MS: "86400000",
@@ -1234,7 +1231,7 @@ describe("web channel", () => {
 			body: JSON.stringify({
 				text: "cron after restart",
 				kind: "cron",
-				cron: "1 9 * * *",
+				cron: nextUtcMinute(),
 				target: { mode: "chat", chatId: key },
 			}),
 		});
@@ -1245,13 +1242,13 @@ describe("web channel", () => {
 			PI_BOT_HARVEST_DELAY_MS: "86400000",
 			PI_BOT_TZ: "UTC",
 		});
-		clock = Date.parse("2026-06-01T09:01:00.000Z");
 		await until(
 			() =>
 				egress.telegram
 					.texts()
 					.some((text) => text.includes("cron after restart")),
 			"the cron after restart",
+			75_000,
 		);
 		await settle(second.app, egress);
 		expect(
@@ -1259,10 +1256,9 @@ describe("web channel", () => {
 				.texts()
 				.filter((text) => text.includes("cron after restart")),
 		).toHaveLength(1);
-	});
+	}, 90_000);
 
 	it("fires a pending harvest after a restart", async () => {
-		resetTestClock();
 		const home = await tempHome();
 		const first = await boot(home, { PI_BOT_HARVEST_DELAY_MS: "400" });
 		const key = await createWebChat(first.url);

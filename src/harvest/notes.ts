@@ -45,8 +45,8 @@ export type HarvestNotesState = {
 	notes: HarvestNote[];
 	/** Last idle entry that finished harvest for this chat, including no-op harvests. */
 	completed?: Record<string, number>;
-	/** Live wake for this chat. The harvest task reads `until` while it sleeps. */
-	armed?: Record<string, { taskId: string; at: number; until: number }>;
+	/** Live wake. `seq` changes when the runtime moves it; the task stamps `until` from its own clock. */
+	armed?: Record<string, { taskId: string; at: number; seq: number }>;
 };
 
 /** Notes on the parent chat. Not a conversation entry, so later model requests do not see them. */

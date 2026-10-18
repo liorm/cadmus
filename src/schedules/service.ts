@@ -5,12 +5,12 @@ import type {
 	TaskId,
 } from "@earendil-works/pi-durable";
 import { ensureBotRoot } from "../channels/bots.ts";
-import { now as clockNow } from "../clock.ts";
 import { getLogger } from "../log.ts";
 import type { BotRuntime } from "../runtime.ts";
+import type { AppServices } from "../services.ts";
 import { nextCron, parseCron } from "./cron.ts";
 import { createSqliteScheduleStore, type StoredSchedule } from "./store.ts";
-import { ScheduleTask, scheduleOps } from "./task.ts";
+import { ScheduleTask } from "./task.ts";
 
 export type ScheduleTarget =
 	| { mode: "chat"; chatId: string; at?: number }
@@ -61,13 +61,15 @@ export type ScheduleService = {
 export function createScheduleService(options: {
 	home: string;
 	timeZone: string;
+	services: AppServices;
 	harness: Harness;
 	registry: RegistryReader;
 	runtime(botId: string): BotRuntime | undefined;
-	now?: () => number;
+	/** Same clock passed to the harness. */
+	now(): number;
 }): ScheduleService {
 	const store = createSqliteScheduleStore(options.home);
-	const now = () => options.now?.() ?? clockNow();
+	const now = () => options.now();
 	let tail: Promise<void> = Promise.resolve();
 
 	const track = (work: Promise<void>) => {
@@ -94,13 +96,7 @@ export function createScheduleService(options: {
 		return next;
 	};
 
-	scheduleOps.current = {
-		now,
-		timeZone: options.timeZone,
-		home: options.home,
-		harness: options.harness,
-		registry: options.registry,
-		runtime: options.runtime,
+	options.services.catalog = {
 		get: (id) => store.get(id),
 		setNextRun: (id, nextRun) => {
 			store.setNextRun(id, nextRun);
@@ -113,8 +109,17 @@ export function createScheduleService(options: {
 		},
 		claim: (row, requestId, cronNext) =>
 			store.claimOccurrence(row, requestId, cronNext),
-		track,
 	};
+	options.services.track = track;
+	options.services.idle = () => thisIdle();
+
+	async function thisIdle(): Promise<void> {
+		let current: Promise<void>;
+		do {
+			current = tail;
+			await current;
+		} while (current !== tail);
+	}
 
 	async function abortTask(taskId: string | null): Promise<void> {
 		if (!taskId) return;
@@ -192,6 +197,22 @@ export function createScheduleService(options: {
 			}
 			const moved = store.setNextRun(id, nextRun);
 			if (!moved) return "missing";
+			const row = store.get(id);
+			if (row?.taskId) {
+				const live = await options.harness.getTask(
+					Number(row.taskId) as TaskId,
+					BACKGROUND_CONTEXT,
+				);
+				const phase =
+					live && "checkpoint" in live.state
+						? (live.state.checkpoint as { phase?: string }).phase
+						: undefined;
+				if (phase === "wait") {
+					await abortTask(row.taskId);
+					const fresh = store.get(id);
+					if (fresh) await ensureTask(fresh);
+				}
+			}
 			return "rescheduled";
 		},
 		async remove(id) {

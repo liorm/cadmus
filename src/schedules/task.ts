@@ -2,38 +2,13 @@ import type { Context } from "@earendil-works/chord/context";
 import {
 	defineExtension,
 	defineTask,
-	type Harness,
-	type RegistryReader,
 	type TaskRuntime,
 } from "@earendil-works/pi-durable";
-import { testClockActive, testClockPollMs } from "../clock.ts";
-import type { BotRuntime } from "../runtime.ts";
+import { type AppServices, requireServices } from "../services.ts";
 import { nextCron, parseCron } from "./cron.ts";
 import { dispatchFire } from "./dispatch.ts";
 import type { Schedule, ScheduleTarget } from "./service.ts";
 import type { StoredSchedule } from "./store.ts";
-
-/** Host services a schedule task reads. Bound before the harness resumes. */
-export type ScheduleOps = {
-	now(): number;
-	timeZone: string;
-	home: string;
-	harness: Harness;
-	registry: RegistryReader;
-	runtime(botId: string): BotRuntime | undefined;
-	get(id: string): StoredSchedule | undefined;
-	setNextRun(id: string, nextRun: number): void;
-	setTaskId(id: string, taskId: string): void;
-	remove(id: string): void;
-	claim(
-		row: StoredSchedule,
-		requestId: string,
-		cronNext: number | undefined,
-	): boolean;
-	track(work: Promise<void>): void;
-};
-
-export const scheduleOps: { current?: ScheduleOps } = {};
 
 type Checkpoint = { phase: "wait" } | { phase: "run"; nextRun: number };
 
@@ -44,22 +19,20 @@ function taskKey(id: unknown): string {
 	return String(id);
 }
 
-function host(): ScheduleOps {
-	const current = scheduleOps.current;
-	if (!current) throw new Error("Schedule task has no host.");
-	return current;
+function services(context: Context): AppServices {
+	return requireServices(context);
 }
 
 const busy = new Map<string, () => void>();
 
 /** Keep `ScheduleService.idle` open while an occurrence is past the wait. */
-function hold(id: string): void {
+function hold(id: string, context: Context): void {
 	if (!id || busy.has(id)) return;
 	let settle = () => {};
 	const tracked = new Promise<void>((resolve) => {
 		settle = resolve;
 	});
-	host().track(tracked);
+	services(context).track(tracked);
 	busy.set(id, settle);
 }
 
@@ -81,19 +54,14 @@ function running(checkpoint: Checkpoint) {
 	return { status: "running" as const, checkpoint };
 }
 
-/** Sleep until `until` on the harness clock. A pinned test clock is polled. */
+/** Sleep until `until` on the harness clock. */
 async function sleepUntil(
 	runtime: Runtime,
 	until: number,
 	context: Context,
 ): Promise<void> {
-	const ops = host();
-	for (;;) {
-		const at = ops.now();
-		if (at >= until) return;
-		const step = testClockActive() ? testClockPollMs : Math.max(1, until - at);
-		await runtime.sleep(at + step, context);
-	}
+	const at = runtime.now();
+	if (at < until) await runtime.sleep(until, context);
 }
 
 function scheduleOf(row: StoredSchedule): Schedule {
@@ -139,10 +107,10 @@ export const ScheduleTask = defineTask<Input, Checkpoint, null>({
 	},
 	phases: {
 		async wait(task, runtime, context) {
-			const ops = host();
+			const ops = services(context);
 			const id = task.input.scheduleId;
 			for (;;) {
-				const row = ops.get(id);
+				const row = ops.catalog.get(id);
 				if (
 					!row?.enabled ||
 					(row.taskId !== null && row.taskId !== taskKey(runtime.taskId))
@@ -150,8 +118,8 @@ export const ScheduleTask = defineTask<Input, Checkpoint, null>({
 					await finish(runtime, context, id);
 					return;
 				}
-				if (!row.taskId) ops.setTaskId(id, taskKey(runtime.taskId));
-				if (ops.now() >= row.nextRun) {
+				if (!row.taskId) ops.catalog.setTaskId(id, taskKey(runtime.taskId));
+				if (runtime.now() >= row.nextRun) {
 					await runtime.commit(
 						async () => running({ phase: "run", nextRun: row.nextRun }),
 						context,
@@ -162,11 +130,11 @@ export const ScheduleTask = defineTask<Input, Checkpoint, null>({
 			}
 		},
 		async run(task, runtime, context) {
-			const ops = host();
+			const ops = services(context);
 			const id = task.input.scheduleId;
-			hold(id);
+			hold(id, context);
 			const nextRun = task.state.checkpoint.nextRun;
-			const row = ops.get(id);
+			const row = ops.catalog.get(id);
 			if (!row || row.taskId !== taskKey(runtime.taskId)) {
 				await finish(runtime, context, id);
 				return;
@@ -174,9 +142,13 @@ export const ScheduleTask = defineTask<Input, Checkpoint, null>({
 			const requestId = `sched:${row.id}:${nextRun}`;
 			const fields = row.cron ? parseCron(row.cron) : undefined;
 			const cronNext = fields
-				? nextCron(fields, Math.max(ops.now(), nextRun), ops.timeZone)
+				? nextCron(fields, Math.max(runtime.now(), nextRun), ops.timeZone)
 				: undefined;
-			const admitted = ops.claim({ ...row, nextRun }, requestId, cronNext);
+			const admitted = ops.catalog.claim(
+				{ ...row, nextRun },
+				requestId,
+				cronNext,
+			);
 			if (admitted) {
 				const work = dispatchFire({
 					schedule: scheduleOf({ ...row, nextRun }),
@@ -195,7 +167,7 @@ export const ScheduleTask = defineTask<Input, Checkpoint, null>({
 					settle();
 				}
 			}
-			const fresh = ops.get(id);
+			const fresh = ops.catalog.get(id);
 			if (!fresh || fresh.taskId !== taskKey(runtime.taskId)) {
 				await finish(runtime, context, id);
 				return;

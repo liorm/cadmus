@@ -17,11 +17,11 @@ import {
 	webChatId,
 } from "./channels/telegram/chats.ts";
 import type { Deliverer } from "./channels/telegram/deliver.ts";
-import { now as clockNow } from "./clock.ts";
 import { parseModelRef, parseThinkingLevel } from "./harness/models.ts";
 import { agentToolChange, syncChatTools } from "./harness/tool-policy.ts";
-import { armHarvest, cancelHarvest, harvestHost } from "./harvest/run.ts";
+import { armHarvest, cancelHarvest } from "./harvest/run.ts";
 import { chatFields, getLogger } from "./log.ts";
+import type { AppServices } from "./services.ts";
 
 /** Warn if a turn produces no visible answer (text or tool) within this time. */
 export const STUCK_CHAT_MS = 10_000;
@@ -52,23 +52,11 @@ export function createBotRuntime(options: {
 	deliverer: Deliverer;
 	bot: BotRecord;
 	home: string;
-	/** Idle time before this bot harvests a chat. */
-	harvestDelayMs: number;
+	services: AppServices;
 }): BotRuntime {
-	const { harness, registry, deliverer, home } = options;
+	const { harness, registry, deliverer, home, services } = options;
 	let bot = options.bot;
 	const pending = new Set<Promise<void>>();
-	harvestHost.current = {
-		harness,
-		registry,
-		home,
-		delayMs: options.harvestDelayMs,
-		now: clockNow,
-		track: (work) => {
-			pending.add(work);
-			void work.finally(() => pending.delete(work));
-		},
-	};
 
 	const track = (work: Promise<void>) => {
 		const tracked = work.catch((error) =>
@@ -151,7 +139,7 @@ export function createBotRuntime(options: {
 			const log = getLogger().child(
 				chatFields(chat, { requestId, bot: bot.id }),
 			);
-			if (!duplicate) await cancelHarvest(chat.key);
+			if (!duplicate) await cancelHarvest(services, chat.key);
 			await syncChatTools(harness, chat.conversationId, bot, registry);
 			const submission = await conversation.submit(
 				{ type: "input", content: text, requestId, whenBusy: "steer" },
@@ -175,7 +163,7 @@ export function createBotRuntime(options: {
 							);
 							const entryId = page.items[0]?.id;
 							if (entryId !== undefined)
-								await armHarvest({
+								await armHarvest(services, {
 									botId: bot.id,
 									chatKey: chat.key,
 									entryId: entryId as unknown as number,
