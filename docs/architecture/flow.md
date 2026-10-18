@@ -51,7 +51,7 @@ A per-bot door has its own transport. Sends for `:tg:bot:` keys use that transpo
 
 ## A schedule fire
 
-The clock, or `POST /api/schedules/:id/fire` on the HTTP channel, asks the service to fire one id. The service claims `sched:<id>:<nextRun>` in `fires` before it dispatches. A second claim of that occurrence does nothing. A `put` or `reschedule` that lands while the occurrence is in progress leaves the claimed occurrence running and changes only what happens next.
+Saving an enabled row creates a background `pi-bot.schedule` task on the bot's root conversation. The task sleeps until `nextRun`. `POST /api/schedules/:id/run` only pulls that wake to now. The task claims `sched:<id>:<nextRun>` in `fires` before it dispatches. A second claim of that occurrence does nothing. A `put` or `reschedule` that lands while the occurrence is in progress leaves the claimed occurrence running and changes only what happens next.
 
 The row shape is in [schedules](./model.md#schedules).
 
@@ -61,13 +61,13 @@ The row shape is in [schedules](./model.md#schedules).
 | `new-chat` | create a web chat on the bot, with no user id, then `submit`. |
 | `fork` | fork at the resolved entry, `submit` into the child. The child is not added to the chat directory and is not delivered. |
 
-If the row's wake is still the one that was claimed, a `when` row is deleted and a `cron` row's next wake moves forward. A row that was already due at startup fires once. A cron row then skips ahead rather than replaying every missed slot. Those user rows survive a process restart; the clock re-arms from `next_run`.
+If the row's wake is still the one that was claimed, a `when` row is deleted and a `cron` row's next wake moves forward. The same task then sleeps until that next wake. A `when` task completes. A wake that is already past when the task runs goes immediately. A cron row then skips ahead rather than replaying every missed slot. A restart resumes the same task. Nothing scans the catalog at boot to create tasks.
 
-Harvest ids take the fork path and then, when `SOUL.md` or a file under `knowledge/` changed, append a note. The harvest `when` row stays until the child is idle (or the chat is gone). A crash mid-harvest keeps the row and a `pending` record on `pi-bot.harvest-notes` so the next process attaches to the same child. Completion writes `completed[chatKey] = entryId` even when no files changed, so the same idle point is not forked again.
+Harvest runs inside that task. The prompt says turns through `completed[chatKey]` are already stored, and the fork is skipped when no new user entry arrived after that watermark. When `SOUL.md`, `MEMORY.md`, or a file under `knowledge/` changed, it appends a note. The harvest child conversation is owned by the task, so a crash attaches to that child. Completion writes `completed[chatKey] = entryId` even when no files changed, so the same idle point is not forked again.
 
 ## Idle harvest
 
-Harvest is a caller of the schedule service and uses the same clock. After a user turn settles, the host puts a `when` row:
+Harvest is a caller of the schedule service and uses the same task. After a user turn settles, the host puts a `when` row:
 
 - id `harvest:<chatKey>`
 - target `fork` of that chat at the entry the chat rested on
@@ -75,7 +75,7 @@ Harvest is a caller of the schedule service and uses the same clock. After a use
 - wake at now plus the harvest delay ([current policy](../architecture.md#current-policy))
 - replace when the rested entry changed; `reschedule` when only the wake should move
 
-A new user message removes that id. After the fork, the child is configured with only the knowledge tools the bot still has on (`knowledge_*` and `memory_*`). It patches `knowledge/` and `MEMORY.md` through compare-and-swap versions. The parent transcript is unchanged. After restart, each chat is waited until idle; if that rested entry is not yet in `completed`, a missing wake is armed (immediately when a child was already pending).
+A new user message removes that id. After the fork, the child is configured with only the knowledge tools the bot still has on (`knowledge_*` and `memory_*`). It patches `knowledge/` and `MEMORY.md` through compare-and-swap versions. The parent transcript is unchanged. After restart, each chat is waited until idle; if that rested entry is not yet in `completed` and no row is armed, a wake is armed. A live harvest task is left alone.
 
 Before the fork, the host snapshots `SOUL.md`, `MEMORY.md`, and `knowledge/`. After the child goes idle, it diffs. No change means no note. A change appends `{ chatKey, at, files: [{ path, diff }], when }` on `pi-bot.harvest-notes`. The note is shown on that chat's timeline, collapsed until opened. It is not a conversation entry, so later model requests do not see it, and it is not sent to Telegram.
 

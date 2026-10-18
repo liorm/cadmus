@@ -375,7 +375,7 @@ export async function deleteSchedule(id: string): Promise<void> {
 }
 
 export async function runSchedule(id: string): Promise<void> {
-	await api(`/api/schedules/${encodeURIComponent(id)}/fire`, {
+	await api(`/api/schedules/${encodeURIComponent(id)}/run`, {
 		method: "POST",
 		body: "{}",
 	});

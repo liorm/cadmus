@@ -19,6 +19,7 @@ import {
 	type TelegramTransport,
 } from "./channels/telegram/transport.ts";
 import { startWeb, type WebListener } from "./channels/web/server.ts";
+import { now as clockNow } from "./clock.ts";
 import type { Config } from "./config.ts";
 import type { SelfHost } from "./extensions/self-tools/index.ts";
 import { botEnv } from "./harness/bot-env.ts";
@@ -94,6 +95,7 @@ export async function startApp({
 			{
 				models,
 				registry,
+				now: clockNow,
 				env: botEnv(),
 				settings: {
 					// Messages that arrive mid-run all join it at the next boundary.
@@ -176,8 +178,6 @@ export async function startApp({
 			delayMs: config.harvestDelayMs,
 		});
 	};
-	schedules.start();
-
 	const doors = new Map<string, BotDoor>();
 	const openDoor = (bot: BotRecord) => {
 		const token = bot.telegramToken;

@@ -1,25 +1,18 @@
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import type {
-	EntryId,
-	Harness,
-	RegistryReader,
-} from "@earendil-works/pi-durable";
+import type { EntryId, Harness } from "@earendil-works/pi-durable";
 import { listChats, webChatKey } from "../channels/telegram/chats.ts";
 import { getLogger } from "../log.ts";
 import type { BotRuntime } from "../runtime.ts";
-import { isHarvestId, runHarvest } from "./harvest.ts";
 import type { Schedule } from "./service.ts";
 
 /**
- * What a fire does. Chat and new-chat go through a bot runtime. Fork and harvest
- * stay with the storage owner. A later remote clock still lands here.
+ * What a due schedule does. Chat and new-chat go through a bot runtime.
+ * A user fork stays with the storage owner. Harvest is a task phase, not this path.
  */
 export async function dispatchFire(options: {
 	schedule: Schedule;
 	requestId: string;
 	harness: Harness;
-	home: string;
-	registry: RegistryReader;
 	runtime(botId: string): BotRuntime | undefined;
 }): Promise<void> {
 	const { schedule, requestId } = options;
@@ -29,17 +22,6 @@ export async function dispatchFire(options: {
 		requestId,
 		mode: schedule.target.mode,
 	});
-	if (isHarvestId(schedule.id)) {
-		log.debug("harvest fire");
-		await runHarvest({
-			harness: options.harness,
-			registry: options.registry,
-			home: options.home,
-			schedule,
-			requestId,
-		});
-		return;
-	}
 	const runtime = options.runtime(schedule.botId);
 	if (!runtime) {
 		log.warn("schedule fire skipped: bot runtime missing");

@@ -1060,6 +1060,80 @@ describe("web channel", () => {
 		expect(body).not.toContain("version: 1");
 	});
 
+	it("tells a later harvest that earlier turns are already stored", async () => {
+		const { app, url, home } = await boot(undefined, {
+			PI_BOT_HARVEST_DELAY_MS: "200",
+		});
+		const key = await createWebChat(url);
+		egress.xai.script.push({ text: "ok" });
+		egress.xai.script.push(
+			{ tool: { name: "knowledge_read", arguments: { slug: "notes" } } },
+			{
+				tool: {
+					name: "knowledge_update",
+					arguments: {
+						slug: "notes",
+						description: "Kept.",
+						body: "HARVEST_BODY_LINE\n",
+						version: 0,
+					},
+				},
+			},
+			{ text: "filed" },
+		);
+		await say(url, key, "remember the red mug");
+		await until(async () => {
+			try {
+				const text = await readFile(
+					join(home, "bots", "default", "knowledge", "notes.md"),
+					"utf8",
+				);
+				return text.includes("HARVEST_BODY_LINE");
+			} catch {
+				return false;
+			}
+		}, "the first harvest");
+		await app.quiesce();
+		egress.xai.script.push({ text: "ok" });
+		egress.xai.script.push({ text: "nothing new" });
+		const before = egress.xai.requests.length;
+		await say(url, key, "what time is it");
+		await until(
+			() =>
+				egress.xai.requests.slice(before).some((request) => {
+					const body = JSON.stringify(request.body);
+					return (
+						body.includes("Improve knowledge from this chat.") &&
+						body.includes("already stored")
+					);
+				}),
+			"the delta harvest",
+		);
+		await app.quiesce();
+		expect(
+			await readFile(
+				join(home, "bots", "default", "knowledge", "notes.md"),
+				"utf8",
+			),
+		).toContain("HARVEST_BODY_LINE");
+		const harvests = egress.xai.requests.map((request) =>
+			JSON.stringify(request.body),
+		);
+		expect(
+			harvests.some(
+				(body) =>
+					body.includes("Improve knowledge from this chat.") &&
+					body.includes("Nothing in this chat has been harvested yet"),
+			),
+		).toBe(true);
+		const delta = harvests.find(
+			(body) =>
+				body.includes("Improve knowledge from this chat.") &&
+				body.includes("already stored"),
+		);
+		expect(delta).toBeDefined();
+	});
+
 	it("does not fork the same idle point again after a restart", async () => {
 		const home = await tempHome();
 		const first = await boot(home, { PI_BOT_HARVEST_DELAY_MS: "200" });

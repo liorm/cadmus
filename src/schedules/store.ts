@@ -19,6 +19,8 @@ export type StoredSchedule = {
 	targetJson: string;
 	name: string | null;
 	enabled: boolean;
+	/** Live `pi-bot.schedule` task. Empty when the row is disabled. */
+	taskId: string | null;
 };
 
 export type ScheduleStore = {
@@ -29,6 +31,7 @@ export type ScheduleStore = {
 	get(id: string): StoredSchedule | undefined;
 	list(botId?: string): StoredSchedule[];
 	remove(id: string): void;
+	setTaskId(id: string, taskId: string | null): void;
 	/** Set `next_run`. When `onlyIfCurrent` is set, the write is a no-op if the wake moved. */
 	setNextRun(id: string, nextRun: number, onlyIfCurrent?: number): boolean;
 	due(now: number): StoredSchedule[];
@@ -56,6 +59,7 @@ type Row = {
 	target_json: string;
 	name: string | null;
 	enabled: number;
+	task_id: string | null;
 };
 
 export function createSqliteScheduleStore(home: string): ScheduleStore {
@@ -89,6 +93,8 @@ export function createSqliteScheduleStore(home: string): ScheduleStore {
 		db.exec(
 			"ALTER TABLE schedules ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1",
 		);
+	if (!columns.has("task_id"))
+		db.exec("ALTER TABLE schedules ADD COLUMN task_id TEXT");
 	const selectOne = db.query<Row, [string]>(
 		"SELECT * FROM schedules WHERE id = ?",
 	);
@@ -114,8 +120,8 @@ export function createSqliteScheduleStore(home: string): ScheduleStore {
 	);
 	const moveNext = db.query("UPDATE schedules SET next_run = ? WHERE id = ?");
 	const upsert = db.query(
-		`INSERT INTO schedules (id, bot_id, kind, cron, when_ms, next_run, text, target_json, name, enabled)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`INSERT INTO schedules (id, bot_id, kind, cron, when_ms, next_run, text, target_json, name, enabled, task_id)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(id) DO UPDATE SET
 		   bot_id = excluded.bot_id,
 		   kind = excluded.kind,
@@ -127,6 +133,7 @@ export function createSqliteScheduleStore(home: string): ScheduleStore {
 		   name = excluded.name,
 		   enabled = excluded.enabled`,
 	);
+	const setTask = db.query("UPDATE schedules SET task_id = ? WHERE id = ?");
 
 	const fromRow = (row: Row): StoredSchedule => ({
 		id: row.id,
@@ -139,6 +146,7 @@ export function createSqliteScheduleStore(home: string): ScheduleStore {
 		targetJson: row.target_json,
 		name: row.name,
 		enabled: row.enabled !== 0,
+		taskId: row.task_id,
 	});
 
 	return {
@@ -158,6 +166,7 @@ export function createSqliteScheduleStore(home: string): ScheduleStore {
 					row.targetJson,
 					row.name,
 					row.enabled ? 1 : 0,
+					row.taskId,
 				);
 				return existing ? ("replaced" as const) : ("created" as const);
 			})();
@@ -172,6 +181,9 @@ export function createSqliteScheduleStore(home: string): ScheduleStore {
 		},
 		remove(id) {
 			removeRow.run(id);
+		},
+		setTaskId(id, taskId) {
+			setTask.run(taskId, id);
 		},
 		setNextRun(id, nextRun, onlyIfCurrent) {
 			if (onlyIfCurrent !== undefined)

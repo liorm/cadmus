@@ -1,7 +1,11 @@
 import { mkdir, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
-import { defineDoc, type Harness } from "@earendil-works/pi-durable";
+import {
+	type ConversationId,
+	defineDoc,
+	type Harness,
+} from "@earendil-works/pi-durable";
 import { DEFAULT_SOUL } from "../extensions/default-soul.ts";
 import { normalizeEnabled } from "./bot-catalog.ts";
 import { slugifyBotName } from "./bot-slug.ts";
@@ -22,6 +26,11 @@ export type BotRecord = {
 	tools?: string[];
 	/** Optional second Telegram door. Never returned by `GET /api/bots` and never placed in a prompt. */
 	telegramToken?: string;
+	/**
+	 * Ownerless conversation that owns this bot's schedule tasks.
+	 * Not a chat-directory row, and nothing is delivered from it.
+	 */
+	rootConversationId?: number;
 	createdAt: number;
 };
 
@@ -153,6 +162,10 @@ export async function createBot(
 			const bots = await tx.doc(BotsDoc);
 			if (bots.items.some((bot) => bot.id === id))
 				throw new Error(`Bot ${id} already exists`);
+			const root = await tx.createConversation({
+				ownership: { kind: "ownerless" },
+			});
+			record.rootConversationId = root.id as unknown as number;
 			bots.items.push(record);
 		}, BACKGROUND_CONTEXT);
 	} catch (error) {
@@ -160,6 +173,32 @@ export async function createBot(
 		throw error;
 	}
 	return { ok: true, bot: record };
+}
+
+/**
+ * The bot's root conversation. A row written before roots existed gets one
+ * on the call that first needs it, in the same commit that stores the id.
+ */
+export async function ensureBotRoot(
+	harness: Harness,
+	botId: string,
+): Promise<ConversationId | undefined> {
+	const existing = (await listBots(harness)).find((bot) => bot.id === botId);
+	if (!existing) return undefined;
+	if (existing.rootConversationId !== undefined)
+		return existing.rootConversationId as ConversationId;
+	return harness.commit(async (tx) => {
+		const bots = await tx.doc(BotsDoc);
+		const bot = bots.items.find((item) => item.id === botId);
+		if (!bot) return undefined;
+		if (bot.rootConversationId !== undefined)
+			return bot.rootConversationId as ConversationId;
+		const root = await tx.createConversation({
+			ownership: { kind: "ownerless" },
+		});
+		bot.rootConversationId = root.id as unknown as number;
+		return root.id;
+	}, BACKGROUND_CONTEXT);
 }
 
 /** Store or clear the per-bot Telegram token. Returns the full row, token included. */

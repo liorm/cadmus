@@ -15,7 +15,7 @@ async function unavailable(
 ) {
 	const agent = await api.agent(context);
 	return {
-		content: [
+		output: [
 			{
 				type: "text" as const,
 				text: unavailableToolMessage(name, agent.model?.provider ?? "unknown"),
