@@ -1,12 +1,13 @@
 # Architecture
 
-Several bots share one process and one durable session. Channels talk to a bot runtime, and so do schedule fires that land in a chat. A fire that forks a conversation talks to the harness directly. The runtime is the seam a later per-bot process would replace for doors and for chat fires. A user interface is a client of the same model: bots, chats, files, schedules, and a live transcript. The bundled web page is one such client.
+Several bots share one process and one durable session on `@earendil-works/pi-durable`. Channels talk to a bot runtime, and so do schedule fires that land in a chat. A schedule fire that forks a conversation, or an idle harvest task, talks to the harness directly. The runtime is the seam a later per-bot process would replace for doors and for chat fires. A user interface is a client of the same model: bots, chats, files, schedules, and a live transcript. The bundled web page is one such client.
 
-The feature-level decisions live in [plans/](./plans/). This note keeps the shape. Screen layouts, the build order, and one-off product knobs stay there. Open work is tracked as GitHub issues.
+This document is the index for the architecture documentation:
 
-- [Data model](./architecture/model.md) — bots, chats, files, session documents, schedules
-- [Data flow](./architecture/flow.md) — inbound, a turn, outbound, fires, idle harvest
-- [Client surface](./architecture/client.md) — the HTTP API another UI plugs into
+- [Bots, Chats & Storage](./architecture/bots-and-storage.md) — home directory layout, bot records, chat keys, session documents, and shared vs. per-chat state
+- [Channels, Turn Lifecycle & Client API](./architecture/channels-and-turns.md) — inbound admission, turns, slash commands, Telegram doors and delivery receipts, and the HTTP/SSE client surface
+- [Prompt, Knowledge, Memory & Idle Harvest](./architecture/knowledge-and-harvest.md) — prompt sections, `SOUL.md`, `MEMORY.md`, `knowledge/*.md`, compare-and-swap tools, and background harvest forks
+- [Schedules, Extensions & Tool Policy](./architecture/schedules-and-tools.md) — sidecar schedule catalog, schedule tasks and targets, self tools, cross-bot tools, provider server tools, and per-bot tool gating
 
 ## Components
 
@@ -27,6 +28,7 @@ flowchart TB
     RT[Bot runtime per bot]
     Del[Deliverer]
     Sch[Schedule service]
+    Hrv[Idle harvest]
     Har[Harness]
   end
 
@@ -37,58 +39,46 @@ flowchart TB
   PollG --> RT
   PollB --> RT
   Sch -->|chat and new-chat| RT
-  Sch -->|fork and harvest| Har
+  Sch -->|fork| Har
+  RT -->|arm and cancel| Hrv
+  Hrv -->|fork| Har
   RT --> Har
   RT --> Del
   Del --> TGUser
   HTTP --> Har
+  HTTP --> Sch
 
   Har --> DB[(durable.sqlite)]
   Sch --> Side[(schedules.sqlite)]
   Har --> Files[bot folders]
 ```
 
-The host (`startApp`) owns the process:
+The host owns the process:
 
-- **Storage lock and harness.** One opener of `durable.sqlite`. Session documents, conversations, and the model loop live here. The records are in the [data model](./architecture/model.md).
-- **Bot runtimes.** One in-process handle per bot, all on that harness.
-- **Deliverer.** Telegram sends, with receipts. The receipt rule is in [data flow](./architecture/flow.md).
-- **Pollers.** One long-poll loop per Telegram door.
-- **Schedule manager.** Sidecar catalog (`schedules.sqlite`). Each enabled row has one background `pi-bot.schedule` task on that bot's root conversation. The task sleeps until `nextRun` on the harness clock. Chat and new-chat runs go through a runtime. There is no separate clock and no fire endpoint. Idle harvest is a separate task the bot runtime arms and cancels.
-- **HTTP channel.** The API a client uses, plus the bundled page when a web credential is set. Resources are in the [client surface](./architecture/client.md).
+- **Storage lock and harness.** Single opener of `durable.sqlite`, guarded by `owner.lock`. Session documents, conversations, tasks, and the model loop live here, with shared host services attached to the harness Chord context.
+- **Bot runtimes.** One in-process `BotRuntime` handle per bot, all backed by the shared harness.
+- **Deliverer.** Outbound Telegram sends with durable receipts (`sending` → `sent` | `unknown`) and a periodic safety-net sweep.
+- **Pollers.** One long-poll loop for the general Telegram door (when `TELEGRAM_BOT_TOKEN` is set and a `default` bot exists) plus one per bot with a stored `telegramToken`.
+- **Schedule service.** Sidecar catalog (`schedules.sqlite`). Each enabled row runs a background `pi-bot.schedule` task on that bot's root conversation. Chat and new-chat runs go through a bot runtime; `fork` runs on the harness.
+- **Idle harvest.** Background `pi-bot.harvest` tasks armed and cancelled by the bot runtime (and re-armed after restart) via `pi-bot.harvest-notes` on the bot's root conversation.
+- **HTTP channel.** The REST and SSE API a client uses, plus the bundled Preact page when `WEB_TOKEN` is set.
 
 Session services stay on the host. A bot runtime is not the lock, the deliverer, the poller, the schedule catalog, or the HTTP server.
 
-### Bot runtime
+## Bot runtime boundary
 
-Doors admit user text through `BotRuntime`. So do `chat` and `new-chat` schedule runs. Idle harvest loads the parent conversation and submits into a child owned by the schedule task. That child is not a chat-directory row and is not delivered. The paths are in [data flow](./architecture/flow.md).
+Doors admit user text through `BotRuntime`. So do `chat` and `new-chat` schedule runs. Idle harvest loads the parent conversation and submits into a child conversation owned by the `pi-bot.harvest` task; that child is not a chat-directory row and is not delivered.
 
-- `submit` admits text on an existing chat and returns when that admission is durable. The reply is delivered in the background.
-- `listChats` and `createChat` are the chat directory for that bot. `createChat` finds an existing chat or opens an ownerless conversation, configures it, and records the row in one commit.
-- An edit through the API is picked up by chats created after it. Conversations that already exist keep the model, thinking level, and working directory they were given.
+- `submit` admits text on an existing chat, syncs the chat's enabled tools from the bot record, cancels any pending harvest wake, and returns when admission is durable. The reply is watched and delivered in the background, and a new harvest wake is armed when the turn settles.
+- `listChats` and `createChat` manage the chat directory for that bot. `createChat` finds an existing chat or opens an ownerless conversation, configures its model, thinking level, working directory, and tools, and records the row in one commit.
+- Model, thinking level, and working directory edits on a bot apply to chats created after the edit; existing conversations keep the model, thinking level, and working directory they were given. Tool-list edits (`tools`) sync to idle existing chats immediately and before the next `submit`.
 
-Inside the process every runtime is a handle on the shared harness. A later split replaces the handle with a client of another process. Doors, and chat and new-chat fires, stay on that handle. A fork stays with the storage owner, because the child is not a chat.
+Inside the process every runtime is a handle on the shared harness. A later split can replace the handle with a client of another process while keeping doors and chat fires on the same interface.
 
-### Prompt, knowledge tools, and self tools
+## Durability guarantees
 
-These extensions sit on the harness:
-
-- Identity renders the bot folder into prompt sections when a request is built. The sections are in the [data model](./architecture/model.md).
-- Knowledge tools (`knowledge_read`, `knowledge_update`, `knowledge_delete`, `memory_read`, `memory_update`) write the bot folder. Knowledge files take a slug, a description, a body, and a version. `MEMORY.md` takes a body and a version. Tools compose canonical frontmatter; the model edits the body only.
-- `web.search`, `web.fetch`, `x.search`, and `code.execute` are catalog tools. On xAI, `web.search`, `x.search`, and `code.execute` are removed from the function list and sent as the server tools `web_search`, `x_search`, and `code_interpreter` on the Responses request. The OAuth bearer or API key already on that request is what authorizes them. A provider without that server tool leaves the function in place, and running it returns an error. There is no local web or code implementation yet. A repeat of a local run would be another effect, so their replay class is unsafe.
-- Self tools (`pi-bot.self`) call host services for the bot that owns the conversation. The registry is built before those services exist, so the host object is filled in before a turn runs. Schedule create, list, update, and delete are the tools installed today. They read and write the sidecar for that bot only, and they never show or change a `harvest:` row. Creating, updating, or deleting a schedule is replay `safe` and memoized on the tool task, so recovery returns the same outcome instead of inserting, editing, or removing another row.
-- Internal tools (`pi-bot.internal`) work across bots. `create_bot` writes a bot from an explicit slug, a soul, and optional memory and knowledge, copying the caller model and thinking level when those are omitted, then registers a runtime. `search_bot` waits on a `pi-bot.search-bot` task. That task owns a conversation with no tools and asks the caller model which catalog slug matches; an exact slug is returned, an empty or `null` reply is none, and any other reply is asked again for up to 3 rounds. `message_bot` is registered and throws until it is implemented. Create and search are replay `safe`.
-
-Knowledge update and delete are replay `safe` and memoized on the tool task. A stale `version` does not write. Recovery that already wrote the intended document returns that outcome instead of retrying compare-and-swap against the old version.
-
-## Current policy
-
-These are the knobs the running process uses. They are not separate subsystems.
-
-- Bot ids match `[a-z0-9][a-z0-9-]{0,31}`. A slug derived from a display name that matches a bot id or an existing `bots/<id>/` directory gains a numeric suffix. `create_bot` takes the slug as given and refuses it when that id is already a bot. Knowledge slugs match `[a-z0-9][a-z0-9-]{0,63}`.
-- A knowledge `description` is one frontmatter line, 1–240 characters. Allowed extra keys are `version` (a non-negative integer; missing means 0) and optional `category` (one line, 1–64 characters). The body must not start with a `---` fence. `MEMORY.md` frontmatter is `version` only. Its body is at most 8192 bytes.
-- The knowledge section lists at most 80 valid files, in path order, then a count of the rest.
-- Idle harvest waits 60 seconds unless `PI_BOT_HARVEST_DELAY_MS` overrides it. The delay is process-wide. Harvest is at-least-once per idle entry until it completes; a restart re-arms an unfinished wake and does not fork the same completed entry again.
-- Cron is five fields. A bad expression is rejected and writes nothing.
-- Every tool the registry has installed is on unless the bot row lists an enabled set. The dialog catalog is that list, grouped by extension. An omitted `tools` field means all of them. An empty list means none. A disabled tool is left out of the model request and is not run. `GET` and `PUT /api/bots/<id>/tools` read and replace that set. The bot dialog shows the same switches.
-- The host does not delete bots. It does not run a shell.
+- **Single storage owner.** `owner.lock` in `PI_BOT_HOME` ensures only one process opens `durable.sqlite`. Schedules live in a sidecar `schedules.sqlite` so foreign tables never touch `durable.sqlite`.
+- **Inbound exactly once.** Every admission carries a deterministic `requestId` (`tg:<chatId>:<messageId>`, `<chatKey>:<clientMsgId>`, `sched:<id>:<nextRun>`, or `harvest:<chatKey>:<entryId>`). Repeating a `requestId` is a no-op. Slash commands claim their request key in `pi-bot.telegram.commands` before taking effect.
+- **Outbound at most once.** Every Telegram send transitions a receipt in `pi-bot.telegram.deliveries`: commit `sending` → send → commit `sent` or `unknown`. Any `sending` receipt found at startup is reconciled to `unknown` and is **never resent**.
+- **Crash recovery.** On restart, `harness.resume()` resumes interrupted turns, tool calls, schedule tasks, and harvest tasks from their last committed checkpoint.
+- **Tool replay classes.** Pure reads and memoized internal writes (knowledge, memory, schedules, bot creation, bot search) use replay `safe` so recovery returns the committed outcome without duplicating effects. External side effects use replay `unsafe`.

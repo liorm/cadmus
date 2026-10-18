@@ -2,21 +2,25 @@
 
 A Hermes-style personal agent on [`@earendil-works/pi-durable`](https://www.npmjs.com/package/@earendil-works/pi-durable), talking over Telegram, a local web page, or both. Runs on **Bun**.
 
-**Status: L1 workspace.** Several bots share one harness. Each bot has a folder, a streaming chat page, a knowledge editor, and user schedules. Idle chats can harvest notes into `knowledge/`. Memory, skills, the learning loop, and delegation are still later.
+Several bots share one harness. Each bot has a folder, a streaming chat page, a persona and knowledge editor (`SOUL.md`, `MEMORY.md`, `knowledge/*.md`), configurable tools, and user schedules. Idle chats harvest standing notes into `MEMORY.md` and `knowledge/`.
 
-The running shape — components, data model, data flow, and the HTTP client — is [docs/architecture.md](docs/architecture.md).
+The architecture is documented in [docs/architecture.md](docs/architecture.md) (index):
+- [Bots, Chats & Storage](docs/architecture/bots-and-storage.md) — home directory layout, bot records, chat keys, session documents, and shared vs. per-chat state
+- [Channels, Turn Lifecycle & Client API](docs/architecture/channels-and-turns.md) — inbound admission, turns, slash commands, Telegram doors and delivery receipts, and the HTTP/SSE client surface
+- [Prompt, Knowledge, Memory & Idle Harvest](docs/architecture/knowledge-and-harvest.md) — prompt sections, `SOUL.md`, `MEMORY.md`, `knowledge/*.md`, compare-and-swap tools, and background harvest forks
+- [Schedules, Extensions & Tool Policy](docs/architecture/schedules-and-tools.md) — sidecar schedule catalog, schedule tasks and targets, self tools, cross-bot tools, provider server tools, and per-bot tool gating
 
 ## Setup
 
 ```bash
-curl -fsSL https://bun.sh/install | bash   # user-level, installs to ~/.bun (Bun >= 1.4.2)
+curl -fsSL https://bun.sh/install | bash   # user-level, installs to ~/.bun (Bun >= 1.4.3)
 bun install
 cp .env.example .env                       # then fill it in
 bun run check:all                          # format, Biome, typecheck, tests
 bun start                                  # Bun loads .env automatically
 ```
 
-A fresh home has no bots. Create the first one on the web page and choose its model there. Each bot keeps `SOUL.md` (persona; the create dialog starts from a built-in one) in `PI_BOT_HOME/bots/<id>/`. It is read at render time; edits apply to the next request.
+A fresh home has no bots. Create the first one on the web page and choose its model there. Each bot keeps `SOUL.md` (persona; the create dialog starts from a built-in one), `MEMORY.md`, and `knowledge/*.md` in `PI_BOT_HOME/bots/<id>/`. They are read at render time; edits apply to the next request.
 
 ## Environment
 
@@ -26,7 +30,7 @@ A fresh home has no bots. Create the first one on the web page and choose its mo
 | `TELEGRAM_ALLOWED_USERS` | with Telegram | Comma-separated numeric Telegram user IDs. Empty = every message on a configured door is ignored (logged) |
 | provider auth | when a bot uses that provider | Either an OAuth login (`bun run login <provider>`, stored in `PI_BOT_HOME/auth.json`, preferred when present) or the provider's API key env var (below). Each bot stores its own `<provider>/<modelId>`. `faux/echo` is an offline echo model and needs no key |
 | provider key | alt. | The provider's standard env var, read by pi-ai: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `XAI_API_KEY`, `OPENROUTER_API_KEY`, `GEMINI_API_KEY`, … Creating a bot, or starting with a stored bot, fails when that model is unknown or the provider has no credentials |
-| `PI_BOT_HOME` | no | Data dir (default `./data`): `durable.sqlite`, `owner.lock`, `schedules.sqlite`, `bots/<id>/` |
+| `PI_BOT_HOME` | no | Data dir (default `./data`): `durable.sqlite`, `owner.lock`, `schedules.sqlite`, `auth.json`, `bots/<id>/` |
 | `PI_BOT_TZ` | no | IANA zone for the daily date line and cron (default: system zone) |
 | `PI_BOT_HARVEST_DELAY_MS` | no | Idle time before a chat is forked to update knowledge (default 60000) |
 | `TELEGRAM_POLL_TIMEOUT_SEC` | no | Long-poll timeout (default 30) |
@@ -54,9 +58,9 @@ Tokens live in `data/auth.json` (0600, gitignored) and are refreshed automatical
 
 Set `WEB_TOKEN`, then open `http://127.0.0.1:8787/?token=<WEB_TOKEN>` once. The browser keeps an HttpOnly cookie. The page lists each bot's chats, streams replies, and edits that bot's `SOUL.md`, `MEMORY.md`, and `knowledge/*.md`. Knowledge is edited as description, optional category, version (read-only), and body — the same fields as `knowledge_update`. `MEMORY.md` is body and version. Frontmatter stays on disk. A bad save is HTTP 422 and does not change the file.
 
-Schedules are cron (five fields, in `PI_BOT_TZ`) or a single `when`. A target is an existing chat, a new web chat, or a silent fork. Rows live in `schedules.sqlite`, not in `durable.sqlite`. A fire is admitted once per occurrence (`sched:<id>:<nextRun>`). Rows and their next wake survive a process restart. Harvest is at-least-once per idle entry until it completes. Listings omit internal `harvest:` rows. The model can create, list, update, and delete schedules for the bot it is talking to (`schedule_create`, `schedule_list`, `schedule_update`, `schedule_delete`). An update can change the message, name, enabled flag, cron or single time, and target. It cannot see or change another bot's rows or the harvest job.
+Schedules are cron (five fields, in `PI_BOT_TZ`) or a single `when`. A target is an existing chat, a new web chat, or a silent fork. Rows live in `schedules.sqlite`, not in `durable.sqlite`, and each enabled schedule runs a `pi-bot.schedule` task on the bot's root conversation. A fire is admitted once per occurrence (`sched:<id>:<nextRun>`). Rows and their next wake survive a process restart. Harvest is at-least-once per idle entry (`pi-bot.harvest` task) until it completes. Listings omit reserved `harvest:` ids. The model can create, list, update, and delete schedules for the bot it is talking to (`schedule_create`, `schedule_list`, `schedule_update`, `schedule_delete`). An update can change the message, name, enabled flag, cron or single time, and target. It cannot see or change another bot's rows or harvest tasks.
 
-The bot dialog switches tools on and off. The choice is stored on the bot. A missing list means every tool is on. A tool that is off is not offered to the model and does not run. `GET /api/tools` lists them. `GET` and `PUT /api/bots/<id>/tools` read and replace one bot's set.
+The bot dialog switches tools on and off. The choice is stored on the bot. A missing list means every tool is on. A tool that is off is not offered to the model and is blocked by `pi-bot.tool-gate`. `GET /api/tools` lists them. `GET` and `PUT /api/bots/<id>/tools` read and replace one bot's set.
 
 The gear tab stores a Telegram token on that bot. It is not returned by `GET /api/bots` and is not put in the prompt. That token polls separately. When the general env token is also polling for a bot whose id is `default`, the same person on both doors gets `default:tg:general:<id>` and `default:tg:bot:<id>`.
 
@@ -66,70 +70,28 @@ A web message uses request id `<chatKey>:<clientMsgId>`. Posting into a Telegram
 
 `/new` (alias `/reset`) start a fresh context (old entries stay stored) · `/stop` abort the current answer · `/status` model, conversation, receipts · `/help`. The page composer offers `/status` and `/help`. Stop is the button that replaces Send while an answer is running. `/status` is also the header button next to the context readout.
 
-## Layout
-
-Source tree. The architecture notes start at [docs/architecture.md](docs/architecture.md).
-
-```
-src/
-  main.ts                       entry: env config, optional grammY transport, model check, signals
-  app.ts                        wires storage, Harness, startup, deliverer, pollers, schedules, web
-  config.ts, log.ts, runtime.ts
-  schedules/                    sidecar store, in-process clock, dispatch, idle harvest
-  harness/
-    storage.ts                  owner.lock (O_EXCL, pid+host; only a dead same-host pid is taken over) + openNodeSqliteStorage
-    registry.ts                 extensions installed in prompt order
-    models.ts                   env-driven model config; pi-ai builtin providers + offline faux/echo
-    credentials.ts              FileCredentialStore: auth.json for OAuth tokens (pi-ai CredentialStore)
-    login.ts                    OAuth login helper (device code) used by scripts/auth.ts
-    startup.ts                  restart policy: 'sending' → 'unknown', sync chat models, harness.resume()
-  channels/telegram/
-    transport.ts                TelegramTransport interface + GrammyTransport (raw getUpdates long polling)
-    poller.ts                   TelegramCursorDoc offset; admits plain text through BotRuntime
-    chats.ts                    ChatsDoc: default:tg:general:<chat>[:topic] → ownerless conversation
-    deliver.ts                  DeliveriesDoc receipts: sending → sent | unknown; never resent
-    commands.ts                 /new /stop /status /help, deduped via CommandsDoc
-  channels/web/                 Bun.serve API, SSE, Preact page (built in memory at listen)
-  extensions/identity.ts        sections: bots/<id>/SOUL.md, knowledge index, MEMORY.md, daily date
-  extensions/knowledge-tools.ts knowledge_* and memory_read / memory_update
-  extensions/memory.ts          MEMORY.md load, CAS write, prompt body
-  extensions/self-tools/        model tools for this bot's own services (schedules)
-  extensions/web.ts             web.search and web.fetch
-  extensions/tool-gate.ts       refuses a tool the bot has switched off
-test/
-  flows/chat.test.ts            Telegram in → Grok → Telegram out: dedupe, /new /stop /status, steer, topics, errors, receipts, restart, guards
-  flows/web.test.ts             token-gated page, streams, bots, knowledge, schedules, harvest, second Telegram door
-  flows/crash.test.ts           real `bun src/main.ts` processes, kill -9 mid-turn and mid-send
-  flows/auth.test.ts            `bun run login grok` CLI, OAuth token use + refresh in the bot
-  egress/                       fake Telegram Bot API + xAI (Responses SSE, OAuth) HTTP server; fetch routing / preload
-  units.test.ts                 pure helpers only
-  storage-bun.test.ts           pi-durable's storage conformance suite under Bun
-```
-
 ## Guarantees and how they are tested
 
-- **Input exactly once.** Each Telegram message is submitted with `requestId = tg:<chatId>:<messageId>`; the update offset advances only after admission. A web message uses `<chatKey>:<clientMsgId>`. A schedule fire uses `sched:<id>:<nextRun>` and a repeat of that occurrence does nothing. *Tests:* `flows/chat.test.ts`, `flows/web.test.ts`, `flows/crash.test.ts`.
-- **Replies at most once** (pi-imessage ADR 0003). A final answer is claimed `sending` in a commit, sent, then recorded `sent` (with Telegram message ids) or `unknown` on error. On startup every `sending` becomes `unknown`, is logged, shown in `/status`, and is **never resent**. *Tests:* kill -9 while `sendMessage` is in flight → restart → receipt `unknown`, no second send, and the next message is answered normally.
-- **Crash mid-turn resumes.** kill -9 while the model is answering → restart → `harness.resume()` continues the run → exactly one reply.
-- **One owner.** `owner.lock` refuses a second process while the owner is alive (`flows/chat.test.ts`, `flows/crash.test.ts`). `bun run dev` (`bun --watch --no-clear-screen`) takes over a lock that still names this process after an in-process watch restart; it waits, then signals a leftover other same-host owner.
+- **Input exactly once.** Each Telegram message is submitted with `requestId = tg:<chatId>:<messageId>`; the update offset advances only after admission. A web message uses `<chatKey>:<clientMsgId>`. A schedule fire uses `sched:<id>:<nextRun>` and a repeat of that occurrence does nothing.
+- **Replies at most once** (pi-imessage ADR 0003). A final answer is claimed `sending` in a commit, sent, then recorded `sent` (with Telegram message ids) or `unknown` on error. On startup every `sending` becomes `unknown`, is logged, shown in `/status`, and is **never resent**.
+- **Crash mid-turn resumes.** `kill -9` while the model is answering → restart → `harness.resume()` continues the run → exactly one reply.
+- **One owner.** `owner.lock` refuses a second process while the owner is alive. `bun run dev` (`bun --watch --no-clear-screen`) takes over a lock that still names this process after an in-process watch restart; it waits, then signals a leftover other same-host owner.
 - `/new` = `conversation.reset()`: the model's visible context restarts; a redelivered `/new` does not reset again.
 
 ## Tests
 
 ```bash
-bun test              # all suites (~11 s)
+bun test              # all suites
 bun run coverage      # with coverage (in-process code only)
 bun check             # typecheck
 ```
 
-Policy (see AGENTS.md): flow tests through the public interface; only egress is faked, at the HTTP level (`test/egress/`): Telegram Bot API, xAI Responses API, xAI OAuth. Real pi-durable SQLite in temp dirs, real `bun` processes for crash and login tests.
+Policy (see [AGENTS.md](AGENTS.md)): flow tests through the public interface; only egress is faked, at the HTTP level (`test/egress/`): Telegram Bot API, xAI Responses API, xAI OAuth. Real pi-durable SQLite in temp dirs, real `bun` processes for crash and login tests.
 
 ## Runtime notes
 
-- Bun ≥ 1.4.2 provides `node:sqlite`, which pi-durable's `openNodeSqliteStorage` uses. pi-durable's own storage conformance suite passes under Bun (`test/storage-bun.test.ts`).
+- Bun ≥ 1.4.3 provides `node:sqlite`, which pi-durable's `openNodeSqliteStorage` uses. pi-durable's own storage conformance suite passes under Bun.
 - One process owns the storage. Don't run two bots on the same `PI_BOT_HOME`, or the same bot token anywhere else (Telegram returns 409).
 - `owner.lock` is removed on clean shutdown; after a crash, a lock whose pid is dead on the same host is taken over automatically. `bun run dev` takes over a lock that still names this process (in-process `--watch` restart), otherwise waits for a leftover same-host owner, then signals it.
+- Harvest notes stay on `pi-bot.harvest-notes`, are not sent to the model, and send no Telegram message. Telegram sends are never retried automatically.
 
-## Not yet (later phases)
-
-Per-user memory (`USER.md`), FTS session search, skills, learning loop, delegation; media and captions (non-text messages are ignored); shell. Harvest notes stay on `pi-bot.harvest-notes` and are not sent to the model. A harvest sends no Telegram message. Telegram sends are never retried automatically.
