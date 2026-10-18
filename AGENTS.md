@@ -29,7 +29,8 @@ Dependency ranges in `package.json` use `^` (compatible updates). Do not pin an 
 src/main.ts                 main(env): config → credentials/models → optional GrammyTransport → startApp
 src/app.ts                  storage + Harness + startup + deliverer + pollers + schedules + web; stop()/quiesce()
 src/runtime.ts              BotRuntime: submit, listChats, createChat; arms idle harvest
-src/schedules/              store (schedules.sqlite) · task (pi-bot.schedule) · dispatch · harvest.ts (pi-bot.harvest-notes)
+src/schedules/              store (schedules.sqlite) · task (pi-bot.schedule) · dispatch
+src/harvest/                idle harvest task (pi-bot.harvest) and pi-bot.harvest-notes
 src/harness/                storage.ts (SQLite + owner.lock) · models.ts · credentials.ts (auth.json) · login.ts · registry.ts · startup.ts · bot-env.ts
 src/channels/telegram/      transport.ts · poller.ts · chats.ts · deliver.ts · commands.ts
 src/channels/web/           Bun.serve API + SSE; ui/ is Preact, built at listen (no node:fs in the bundle)

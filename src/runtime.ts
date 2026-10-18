@@ -17,8 +17,10 @@ import {
 	webChatId,
 } from "./channels/telegram/chats.ts";
 import type { Deliverer } from "./channels/telegram/deliver.ts";
+import { now as clockNow } from "./clock.ts";
 import { parseModelRef, parseThinkingLevel } from "./harness/models.ts";
 import { agentToolChange, syncChatTools } from "./harness/tool-policy.ts";
+import { armHarvest, cancelHarvest, harvestHost } from "./harvest/run.ts";
 import { chatFields, getLogger } from "./log.ts";
 
 /** Warn if a turn produces no visible answer (text or tool) within this time. */
@@ -44,25 +46,29 @@ export interface BotRuntime {
 	refresh(bot: BotRecord): void;
 }
 
-/** Filled in by `startApp` once the schedule service exists. Read at call time. */
-export type TurnHooks = {
-	/** A newly admitted user message. A duplicate request id does not call this. */
-	onInput?(chatKey: string): Promise<void>;
-	/** The turn finished and the chat is idle at `entryId`. */
-	onSettled?(chatKey: string, entryId: number): Promise<void>;
-};
-
 export function createBotRuntime(options: {
 	harness: Harness;
 	registry: RegistryReader;
 	deliverer: Deliverer;
 	bot: BotRecord;
 	home: string;
-	hooks?: TurnHooks;
+	/** Idle time before this bot harvests a chat. */
+	harvestDelayMs: number;
 }): BotRuntime {
 	const { harness, registry, deliverer, home } = options;
 	let bot = options.bot;
 	const pending = new Set<Promise<void>>();
+	harvestHost.current = {
+		harness,
+		registry,
+		home,
+		delayMs: options.harvestDelayMs,
+		now: clockNow,
+		track: (work) => {
+			pending.add(work);
+			void work.finally(() => pending.delete(work));
+		},
+	};
 
 	const track = (work: Promise<void>) => {
 		const tracked = work.catch((error) =>
@@ -145,7 +151,7 @@ export function createBotRuntime(options: {
 			const log = getLogger().child(
 				chatFields(chat, { requestId, bot: bot.id }),
 			);
-			if (!duplicate) await options.hooks?.onInput?.(chat.key);
+			if (!duplicate) await cancelHarvest(chat.key);
 			await syncChatTools(harness, chat.conversationId, bot, registry);
 			const submission = await conversation.submit(
 				{ type: "input", content: text, requestId, whenBusy: "steer" },
@@ -169,7 +175,11 @@ export function createBotRuntime(options: {
 							);
 							const entryId = page.items[0]?.id;
 							if (entryId !== undefined)
-								await options.hooks?.onSettled?.(chat.key, entryId);
+								await armHarvest({
+									botId: bot.id,
+									chatKey: chat.key,
+									entryId: entryId as unknown as number,
+								});
 						}
 						if (
 							settled.status === "unanswered" &&

@@ -15,7 +15,7 @@ import {
 import { createModels } from "../../src/harness/models.ts";
 import { buildRegistry } from "../../src/harness/registry.ts";
 import { openOwnedStorage } from "../../src/harness/storage.ts";
-import { HarvestNotesDoc } from "../../src/schedules/harvest.ts";
+import { HarvestNotesDoc } from "../../src/harvest/notes.ts";
 import { FakeEgress } from "../egress/fake-egress.ts";
 import {
 	botEnv,

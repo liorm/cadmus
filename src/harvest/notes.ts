@@ -1,21 +1,11 @@
 import { readdir, readFile, realpath } from "node:fs/promises";
 import { isAbsolute, join, relative } from "node:path";
-import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import {
-	type ConversationId,
 	defineDoc,
-	type Harness,
-	LiveDoc,
 	type RegistryReader,
 	type ToolRegistration,
 } from "@earendil-works/pi-durable";
 import { knowledgeToolNames } from "../channels/bot-catalog.ts";
-import { now as clockNow } from "../clock.ts";
-import { getLogger } from "../log.ts";
-import { harvestId } from "./ids.ts";
-import type { ScheduleService } from "./service.ts";
-
-export { harvestId, isHarvestId } from "./ids.ts";
 
 export const HARVEST_DELAY_MS = 60_000;
 /** How long to wait before retrying a harvest that threw. */
@@ -55,6 +45,8 @@ export type HarvestNotesState = {
 	notes: HarvestNote[];
 	/** Last idle entry that finished harvest for this chat, including no-op harvests. */
 	completed?: Record<string, number>;
+	/** Live wake for this chat. The harvest task reads `until` while it sleeps. */
+	armed?: Record<string, { taskId: string; at: number; until: number }>;
 };
 
 /** Notes on the parent chat. Not a conversation entry, so later model requests do not see them. */
@@ -78,106 +70,8 @@ export function harvestTools(
 		.map((name) => ({ name }) as ToolRegistration);
 }
 
-/** Arm the idle fork. The same rested entry only moves the wake. */
-export async function armHarvest(
-	schedules: ScheduleService,
-	input: {
-		botId: string;
-		chatKey: string;
-		entryId: number;
-		delayMs: number;
-		now?: number;
-	},
-): Promise<void> {
-	const now = input.now ?? clockNow();
-	const id = harvestId(input.chatKey);
-	const existing = await schedules.get(id);
-	const same =
-		existing?.target.mode === "fork" &&
-		existing.target.chatId === input.chatKey &&
-		existing.target.at === input.entryId;
-	const log = getLogger().child({
-		chat: input.chatKey,
-		bot: input.botId,
-		harvest: id,
-		entryId: input.entryId,
-	});
-	if (same) {
-		await schedules.reschedule(id, { when: now + input.delayMs });
-		log.debug("harvest wake moved", { delayMs: input.delayMs });
-		return;
-	}
-	await schedules.put(
-		{
-			id,
-			botId: input.botId,
-			kind: "when",
-			when: now + input.delayMs,
-			text: HARVEST_TEXT,
-			target: { mode: "fork", chatId: input.chatKey, at: input.entryId },
-		},
-		{ ifExists: "replace" },
-	);
-	log.debug("harvest armed", { delayMs: input.delayMs });
-}
-
-/**
- * After a chat is idle, keep a harvest wake for its rested entry unless that
- * entry already finished. An existing row for that entry is left to its task.
- */
-export async function armIdleHarvest(options: {
-	harness: Harness;
-	schedules: ScheduleService;
-	botId: string;
-	chatKey: string;
-	conversationId: ConversationId;
-	delayMs: number;
-	now?: number;
-}): Promise<void> {
-	const now = options.now ?? clockNow();
-	const conversation = await options.harness.conversation(
-		options.conversationId,
-		BACKGROUND_CONTEXT,
-	);
-	if (!conversation) return;
-	const live = await options.harness.snapshot(
-		LiveDoc,
-		options.conversationId,
-		BACKGROUND_CONTEXT,
-	);
-	if (live?.run) return;
-	const page = await conversation.entries(
-		{ order: "descending" },
-		1,
-		undefined,
-		BACKGROUND_CONTEXT,
-	);
-	const entryId = page.items[0]?.id;
-	if (entryId === undefined) return;
-	const state = await options.harness.snapshot(
-		HarvestNotesDoc,
-		BACKGROUND_CONTEXT,
-	);
-	if (state?.completed?.[options.chatKey] === entryId) return;
-	if (
-		state?.notes.some(
-			(note) => note.chatKey === options.chatKey && note.at === entryId,
-		)
-	)
-		return;
-	const existing = await options.schedules.get(harvestId(options.chatKey));
-	const sameEntry =
-		existing?.target.mode === "fork" &&
-		existing.target.chatId === options.chatKey &&
-		existing.target.at === entryId;
-	if (sameEntry) return;
-	await armHarvest(options.schedules, {
-		botId: options.botId,
-		chatKey: options.chatKey,
-		entryId,
-		delayMs: options.delayMs,
-		now,
-	});
+export function harvestRequestId(chatKey: string, entryId: number): string {
+	return `harvest:${chatKey}:${entryId}`;
 }
 
 export async function snapshotBot(root: string): Promise<Map<string, string>> {

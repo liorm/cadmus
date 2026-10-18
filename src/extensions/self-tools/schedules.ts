@@ -3,7 +3,11 @@ import type { ToolExecutionApi } from "@earendil-works/pi-durable";
 import { Type } from "typebox";
 import { ChatsDoc } from "../../channels/telegram/chats.ts";
 import { parseCron } from "../../schedules/cron.ts";
-import { isHarvestId } from "../../schedules/ids.ts";
+
+function isHarvestId(id: string): boolean {
+	return id.startsWith("harvest:");
+}
+
 import {
 	type Schedule,
 	ScheduleRejected,

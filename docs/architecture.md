@@ -54,7 +54,7 @@ The host (`startApp`) owns the process:
 - **Bot runtimes.** One in-process handle per bot, all on that harness.
 - **Deliverer.** Telegram sends, with receipts. The receipt rule is in [data flow](./architecture/flow.md).
 - **Pollers.** One long-poll loop per Telegram door.
-- **Schedule manager.** Sidecar catalog (`schedules.sqlite`). Each enabled row has one background `pi-bot.schedule` task on that bot's root conversation. The task sleeps until `nextRun` on the harness clock. Chat and new-chat runs go through a runtime. Harvest forks a child the task owns. There is no separate clock and no fire endpoint.
+- **Schedule manager.** Sidecar catalog (`schedules.sqlite`). Each enabled row has one background `pi-bot.schedule` task on that bot's root conversation. The task sleeps until `nextRun` on the harness clock. Chat and new-chat runs go through a runtime. There is no separate clock and no fire endpoint. Idle harvest is a separate task the bot runtime arms and cancels.
 - **HTTP channel.** The API a client uses, plus the bundled page when a web credential is set. Resources are in the [client surface](./architecture/client.md).
 
 Session services stay on the host. A bot runtime is not the lock, the deliverer, the poller, the schedule catalog, or the HTTP server.

@@ -14,7 +14,7 @@ import {
 	type HarvestFile,
 	type HarvestNote,
 	HarvestNotesDoc,
-} from "../../schedules/harvest.ts";
+} from "../../harvest/notes.ts";
 import {
 	latestAssistantError,
 	liveTools,

@@ -15,19 +15,20 @@ import {
 	THINKING_LEVELS,
 } from "../../harness/models.ts";
 import { resolvedEnabled, syncChatTools } from "../../harness/tool-policy.ts";
+import { type HarvestNote, HarvestNotesDoc } from "../../harvest/notes.ts";
 import type { BotRuntime } from "../../runtime.ts";
 import { parseCron } from "../../schedules/cron.ts";
-import {
-	type HarvestNote,
-	HarvestNotesDoc,
-	isHarvestId,
-} from "../../schedules/harvest.ts";
 import {
 	type Schedule,
 	ScheduleRejected,
 	type ScheduleService,
 	type ScheduleTarget,
 } from "../../schedules/service.ts";
+
+function isHarvestId(id: string): boolean {
+	return id.startsWith("harvest:");
+}
+
 import {
 	isToolName,
 	OFFERED_PROVIDERS,

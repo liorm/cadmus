@@ -27,18 +27,10 @@ import { checkModel, parseModelRef } from "./harness/models.ts";
 import { buildRegistry } from "./harness/registry.ts";
 import { runStartup } from "./harness/startup.ts";
 import { DEV_LOCK_WAIT_MS, openOwnedStorage } from "./harness/storage.ts";
+import { HarvestNotesDoc } from "./harvest/notes.ts";
+import { armIdleHarvest, harvestIdle } from "./harvest/run.ts";
 import { getLogger } from "./log.ts";
-import {
-	type BotRuntime,
-	createBotRuntime,
-	type TurnHooks,
-} from "./runtime.ts";
-import {
-	armHarvest,
-	armIdleHarvest,
-	HarvestNotesDoc,
-	harvestId,
-} from "./schedules/harvest.ts";
+import { type BotRuntime, createBotRuntime } from "./runtime.ts";
 import { createScheduleService } from "./schedules/service.ts";
 
 export type AppOptions = {
@@ -119,7 +111,6 @@ export async function startApp({
 		registry,
 	});
 	const deliverer = new Deliverer(harness, transport);
-	const hooks: TurnHooks = {};
 	const runtimes = new Map<string, BotRuntime>();
 	const addRuntime = (bot: BotRecord) => {
 		const existing = runtimes.get(bot.id);
@@ -133,7 +124,7 @@ export async function startApp({
 			deliverer,
 			bot,
 			home: config.home,
-			hooks,
+			harvestDelayMs: config.harvestDelayMs,
 		});
 		runtimes.set(bot.id, created);
 		return created;
@@ -164,20 +155,6 @@ export async function startApp({
 	});
 	self.schedules = schedules;
 	harness.resume();
-	hooks.onInput = (chatKey) => {
-		getLogger().debug("dropping harvest wake on new input", { chat: chatKey });
-		return schedules.remove(harvestId(chatKey));
-	};
-	hooks.onSettled = (chatKey, entryId) => {
-		const botId = chatKey.split(":")[0];
-		if (!botId) return Promise.resolve();
-		return armHarvest(schedules, {
-			botId,
-			chatKey,
-			entryId,
-			delayMs: config.harvestDelayMs,
-		});
-	};
 	const doors = new Map<string, BotDoor>();
 	const openDoor = (bot: BotRecord) => {
 		const token = bot.telegramToken;
@@ -291,12 +268,9 @@ export async function startApp({
 				await conversation?.waitForIdle(BACKGROUND_CONTEXT);
 				await deliverer.kick(chat);
 				await armIdleHarvest({
-					harness,
-					schedules,
 					botId: chat.botId ?? DEFAULT_BOT_ID,
 					chatKey: chat.key,
 					conversationId: chat.conversationId,
-					delayMs: config.harvestDelayMs,
 				});
 			})(),
 		);
@@ -330,6 +304,7 @@ export async function startApp({
 			for (const door of doors.values()) await door.poller.settled();
 			for (const bot of runtimes.values()) await bot.settled();
 			await schedules.idle();
+			await harvestIdle();
 			for (const bot of runtimes.values()) await bot.settled();
 			await deliverer.sweepAll();
 			await deliverer.idle();
