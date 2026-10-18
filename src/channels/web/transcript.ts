@@ -10,7 +10,7 @@ import {
 	ToolResultEntry,
 	UserEntry,
 } from "@earendil-works/pi-durable";
-import { NoticeEntry } from "../telegram/commands.ts";
+import { NoticeEntry } from "../commands.ts";
 
 /** Cap what a chip ships over the event stream. The UI shows this text as-is. */
 const DETAIL_LIMIT = 4_000;

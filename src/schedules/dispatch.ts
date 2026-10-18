@@ -1,6 +1,6 @@
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { EntryId, Harness } from "@earendil-works/pi-durable";
-import { listChats, webChatKey } from "../channels/telegram/chats.ts";
+import { listChats, webChatKey } from "../channels/chats.ts";
 import { getLogger } from "../log.ts";
 import type { BotRuntime } from "../runtime.ts";
 import type { Schedule } from "./service.ts";

@@ -1,23 +1,8 @@
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { MutableModels } from "@earendil-works/pi-ai/models";
 import { Harness } from "@earendil-works/pi-durable";
-import {
-	type BotRecord,
-	DEFAULT_BOT_ID,
-	listBots,
-	setTelegramToken,
-} from "./channels/bots.ts";
-import { listChats } from "./channels/telegram/chats.ts";
-import { Deliverer } from "./channels/telegram/deliver.ts";
-import {
-	botCursor,
-	generalCursor,
-	TelegramPoller,
-} from "./channels/telegram/poller.ts";
-import {
-	GrammyTransport,
-	type TelegramTransport,
-} from "./channels/telegram/transport.ts";
+import { type BotRecord, DEFAULT_BOT_ID, listBots } from "./channels/bots.ts";
+import { listChats } from "./channels/chats.ts";
 import { startWeb, type WebListener } from "./channels/web/server.ts";
 import type { Config } from "./config.ts";
 import type { SelfHost } from "./extensions/self-tools/index.ts";
@@ -40,39 +25,18 @@ import {
 export type AppOptions = {
 	config: Config;
 	models: MutableModels;
-	/** General door. Absent when `TELEGRAM_BOT_TOKEN` is unset; per-bot doors still open from stored tokens. */
-	transport?: TelegramTransport;
-	/** Start the long-poll loop (default true). Tests drive `poller.handleUpdate` directly when false. */
-	poll?: boolean;
-};
-
-type BotDoor = {
-	token: string;
-	abort: AbortController;
-	done: Promise<unknown>;
-	poller: TelegramPoller;
 };
 
 export type App = {
 	readonly harness: Harness;
-	/** General-door poller. Absent when that door is off. */
-	readonly poller?: TelegramPoller;
-	readonly deliverer: Deliverer;
-	/** Receipts reconciled to `unknown` at this startup. */
-	readonly unknownAtStartup: readonly { chat: string; key: string }[];
 	/** Bound page, when `WEB_TOKEN` is set. */
 	readonly web?: { url: string };
-	/** Wait until every chat is idle and every final answer has a receipt. */
+	/** Wait until every chat is idle. */
 	quiesce(): Promise<void>;
 	stop(): Promise<void>;
 };
 
-export async function startApp({
-	config,
-	models,
-	transport,
-	poll = true,
-}: AppOptions): Promise<App> {
+export async function startApp({ config, models }: AppOptions): Promise<App> {
 	const log = getLogger();
 	const { storage, lock } = await openOwnedStorage(
 		config.home,
@@ -123,11 +87,10 @@ export async function startApp({
 		throw error;
 	}
 
-	const { unknown } = await runStartup(harness, {
+	await runStartup(harness, {
 		home: config.home,
 		registry,
 	});
-	const deliverer = new Deliverer(harness, transport);
 	const runtimes = new Map<string, BotRuntime>();
 	const addRuntime = (bot: BotRecord) => {
 		const existing = runtimes.get(bot.id);
@@ -138,7 +101,6 @@ export async function startApp({
 		const created = createBotRuntime({
 			harness,
 			registry,
-			deliverer,
 			bot,
 			home: config.home,
 			services,
@@ -158,7 +120,6 @@ export async function startApp({
 		throw error;
 	}
 	for (const bot of bots) addRuntime(bot);
-	const defaultRuntime = runtimes.get(DEFAULT_BOT_ID);
 
 	await harness.commit(async (tx) => {
 		await tx.doc(HarvestNotesDoc);
@@ -177,50 +138,6 @@ export async function startApp({
 	self.harness = harness;
 	self.onBot = addRuntime;
 	harness.resume();
-	const doors = new Map<string, BotDoor>();
-	const openDoor = (bot: BotRecord) => {
-		const token = bot.telegramToken;
-		if (!token) return;
-		const botRuntime = runtimes.get(bot.id);
-		if (!botRuntime) return;
-		const existing = doors.get(bot.id);
-		if (existing?.token === token) return;
-		if (existing) {
-			existing.abort.abort();
-			doors.delete(bot.id);
-			deliverer.setBotTransport(bot.id, undefined);
-			void existing.done.catch(() => {});
-		}
-		const botTransport = new GrammyTransport(
-			token,
-			config.telegram.apiRoot ? { apiRoot: config.telegram.apiRoot } : {},
-		);
-		deliverer.setBotTransport(bot.id, botTransport);
-		const doorPoller = new TelegramPoller({
-			harness,
-			runtime: botRuntime,
-			transport: botTransport,
-			deliverer,
-			allowedUsers: config.telegram.allowedUsers,
-			pollTimeoutSec: config.telegram.pollTimeoutSec,
-			ingress: "bot",
-			cursor: botCursor(harness, bot.id),
-		});
-		const abort = new AbortController();
-		const done = doorPoller
-			.run(abort.signal)
-			.catch((error) => getLogger().error("bot poll loop crashed", { error }));
-		doors.set(bot.id, { token, abort, done, poller: doorPoller });
-	};
-	const closeDoor = async (botId: string) => {
-		const existing = doors.get(botId);
-		if (!existing) return;
-		existing.abort.abort();
-		doors.delete(botId);
-		deliverer.setBotTransport(botId, undefined);
-		await existing.done;
-	};
-	for (const bot of await listBots(harness)) openDoor(bot);
 
 	let web: WebListener | undefined;
 	if (config.web) {
@@ -230,18 +147,9 @@ export async function startApp({
 				models,
 				harness,
 				registry,
-				deliverer,
 				ensureRuntime: (id) => runtimes.get(id),
 				addRuntime,
 				schedules,
-				setTelegramDoor: async (botId, token) => {
-					const bot = await setTelegramToken(harness, botId, token);
-					if (!bot) return undefined;
-					runtimes.get(botId)?.refresh(bot);
-					if (bot.telegramToken) openDoor(bot);
-					else await closeDoor(botId);
-					return { telegramConfigured: Boolean(bot.telegramToken) };
-				},
 			});
 		} catch (error) {
 			await schedules.stop().catch(() => {});
@@ -251,23 +159,6 @@ export async function startApp({
 		}
 		log.info(`web ${web.url}`);
 	}
-	if (transport && !defaultRuntime)
-		log.info(
-			"TELEGRAM_BOT_TOKEN is set and there is no default bot; the general door is off",
-		);
-	const poller =
-		transport && defaultRuntime
-			? new TelegramPoller({
-					harness,
-					runtime: defaultRuntime,
-					transport,
-					deliverer,
-					allowedUsers: config.telegram.allowedUsers,
-					pollTimeoutSec: config.telegram.pollTimeoutSec,
-					ingress: "general",
-					cursor: generalCursor(harness),
-				})
-			: undefined;
 
 	const background = new Set<Promise<unknown>>();
 	const track = (work: Promise<unknown>) => {
@@ -278,7 +169,7 @@ export async function startApp({
 		void tracked.finally(() => background.delete(tracked));
 	};
 
-	// Runs resumed from the last process: deliver their answers once they finish.
+	// Runs resumed from the last process.
 	// Harvest is armed after idle so a crash mid-turn still gets a wake.
 	for (const chat of await listChats(harness)) {
 		track(
@@ -288,7 +179,6 @@ export async function startApp({
 					BACKGROUND_CONTEXT,
 				);
 				await conversation?.waitForIdle(BACKGROUND_CONTEXT);
-				await deliverer.kick(chat);
 				await armIdleHarvest(services, {
 					botId: chat.botId ?? DEFAULT_BOT_ID,
 					chatKey: chat.key,
@@ -297,49 +187,23 @@ export async function startApp({
 			})(),
 		);
 	}
-	// Safety net: answers whose watcher was lost still get delivered.
-	const sweep =
-		config.deliverySweepMs > 0
-			? setInterval(() => void deliverer.sweepAll(), config.deliverySweepMs)
-			: undefined;
-	sweep?.unref();
 
-	const abort = new AbortController();
-	const polling =
-		poller && poll
-			? poller
-					.run(abort.signal)
-					.catch((error) => getLogger().error("poll loop crashed", { error }))
-			: Promise.resolve();
 	log.info(`pi-bot started (${bots.length} bots, home ${config.home})`);
 
 	let stopping: Promise<void> | undefined;
 	return {
 		harness,
-		poller,
-		deliverer,
-		unknownAtStartup: unknown,
 		...(web ? { web: { url: web.url } } : {}),
 		async quiesce() {
 			await harness.waitForIdle(BACKGROUND_CONTEXT);
-			if (poller) await poller.settled();
-			for (const door of doors.values()) await door.poller.settled();
 			for (const bot of runtimes.values()) await bot.settled();
 			await schedules.idle();
 			for (const bot of runtimes.values()) await bot.settled();
-			await deliverer.sweepAll();
-			await deliverer.idle();
 		},
 		stop() {
 			stopping ??= (async () => {
-				abort.abort();
-				for (const door of doors.values()) door.abort.abort();
-				if (sweep) clearInterval(sweep);
-				await polling;
-				await Promise.all([...doors.values()].map((door) => door.done));
 				await schedules.stop();
 				if (web) await web.stop();
-				await deliverer.idle();
 				await harness.close(BACKGROUND_CONTEXT);
 				// Answer watchers of unfinished runs settle (or fail) once the harness is closed.
 				await Promise.race([

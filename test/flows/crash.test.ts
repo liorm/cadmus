@@ -1,4 +1,4 @@
-// kill -9 the real bot process (`bun src/main.ts`) mid-turn and mid-send, then restart it over the same SQLite storage.
+// kill -9 the real bot process (`bun src/main.ts`) mid-turn, then restart it over the same SQLite storage.
 
 import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
@@ -7,11 +7,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { AssistantEntry, Harness, UserEntry } from "@earendil-works/pi-durable";
-import { ChatsDoc } from "../../src/channels/telegram/chats.ts";
-import {
-	DeliveriesDoc,
-	finalReplyText,
-} from "../../src/channels/telegram/deliver.ts";
+import { ChatsDoc } from "../../src/channels/chats.ts";
 import { createModels } from "../../src/harness/models.ts";
 import { buildRegistry } from "../../src/harness/registry.ts";
 import { openOwnedStorage } from "../../src/harness/storage.ts";
@@ -44,7 +40,12 @@ async function startProcess(
 	await seedBot(home);
 	const child = spawnBun(
 		["src/main.ts"],
-		botEnv(home, { WEB_TOKEN: "", ...overrides }),
+		botEnv(home, {
+			WEB_TOKEN: "test-web-token",
+			WEB_PORT: "0",
+			LOG_LEVEL: "info",
+			...overrides,
+		}),
 		egress,
 	);
 	children.push(child);
@@ -79,12 +80,73 @@ async function waitFor(
 	}
 }
 
-async function polling(child: Child) {
-	const before = egress.telegram.polls;
+async function botUrl(child: Child): Promise<string> {
 	await waitFor(
 		child,
-		() => egress.telegram.polls > before,
-		"the bot to poll Telegram",
+		() => /web (http:\/\/[^\s]+)/.test(child.output()),
+		"the bot web listener to start",
+	);
+	const match = /web (http:\/\/[^\s]+)/.exec(child.output());
+	return defined(defined(match, "match")[1], "url");
+}
+
+async function webChat(url: string): Promise<string> {
+	const res = await fetch(`${url}/api/bots/default/chats`, {
+		method: "POST",
+		headers: {
+			authorization: "Bearer test-web-token",
+			"content-type": "application/json",
+		},
+		body: "{}",
+	});
+	expect(res.status).toBe(201);
+	return ((await res.json()) as { chat: { key: string } }).chat.key;
+}
+
+async function webPost(
+	url: string,
+	key: string,
+	text: string,
+	clientMsgId = `m-${Date.now()}-${Math.random()}`,
+) {
+	const res = await fetch(
+		`${url}/api/chats/${encodeURIComponent(key)}/messages`,
+		{
+			method: "POST",
+			headers: {
+				authorization: "Bearer test-web-token",
+				"content-type": "application/json",
+			},
+			body: JSON.stringify({ clientMsgId, text }),
+		},
+	);
+	expect(res.status).toBe(200);
+}
+
+async function waitForAnswer(
+	child: Child,
+	url: string,
+	key: string,
+	textSubstring: string,
+) {
+	await waitFor(
+		child,
+		async () => {
+			const res = await fetch(
+				`${url}/api/chats/${encodeURIComponent(key)}/messages`,
+				{
+					headers: { authorization: "Bearer test-web-token" },
+				},
+			).catch(() => undefined);
+			if (!res?.ok) return false;
+			const body = (await res.json()) as {
+				messages: { type: string; text?: string }[];
+			};
+			return body.messages.some(
+				(m) => m.type === "assistant" && m.text?.includes(textSubstring),
+			);
+		},
+		`reply containing ${textSubstring}`,
 	);
 }
 
@@ -103,11 +165,9 @@ async function inspect(home: string) {
 		BACKGROUND_CONTEXT,
 	);
 	try {
-		const chats = defined(
-			await harness.snapshot(ChatsDoc, BACKGROUND_CONTEXT),
-			"chats",
-		);
-		const chat = defined(chats.items[0], "chat");
+		const chats =
+			(await harness.snapshot(ChatsDoc, BACKGROUND_CONTEXT))?.items ?? [];
+		const chat = defined(chats[0], "chat");
 		const conversation = defined(
 			await harness.conversation(chat.conversationId, BACKGROUND_CONTEXT),
 			"conversation",
@@ -120,25 +180,24 @@ async function inspect(home: string) {
 				BACKGROUND_CONTEXT,
 			)
 		).items;
-		const receipts = defined(
-			await harness.snapshot(
-				DeliveriesDoc,
-				chat.conversationId,
-				BACKGROUND_CONTEXT,
-			),
-			"deliveries",
-		).receipts;
 		return {
 			users: entries.filter((entry) => UserEntry.is(entry)).length,
 			answers: entries
 				.filter(
 					(entry) =>
-						AssistantEntry.is(entry) && finalReplyText(entry.model?.[0]),
+						AssistantEntry.is(entry) && entry.model?.[0]?.role === "assistant",
 				)
-				.map((entry) => ({
-					text: finalReplyText(entry.model?.[0]),
-					receipt: receipts[String(entry.id)]?.status,
-				})),
+				.map((entry) => {
+					const msg = entry.model?.[0];
+					if (msg?.role !== "assistant") return "";
+					return Array.isArray(msg.content)
+						? msg.content
+								.map((p) => (p.type === "text" ? p.text : ""))
+								.join("\n")
+								.trim()
+						: "";
+				})
+				.filter(Boolean),
 		};
 	} finally {
 		await harness.close(BACKGROUND_CONTEXT);
@@ -151,7 +210,9 @@ describe("crash recovery (kill -9)", () => {
 		const home = await tempHome();
 		egress.xai.hang = true;
 		const first = await startProcess(home);
-		egress.telegram.push("hello");
+		const url1 = await botUrl(first);
+		const key = await webChat(url1);
+		await webPost(url1, key, "hello");
 		await waitFor(
 			first,
 			() => egress.xai.requests.length === 1,
@@ -163,77 +224,16 @@ describe("crash recovery (kill -9)", () => {
 		expect(intruder.output()).toContain("owned by another process");
 		first.proc.kill("SIGKILL");
 		await first.exited;
-		expect(egress.telegram.sendAttempts).toEqual([]);
 
 		egress.xai.hang = false;
 		const second = await startProcess(home); // takes over the dead pid's owner.lock
-		await polling(second);
-		egress.telegram.redeliverAll(); // Telegram also sends "hello" again
-		await waitFor(
-			second,
-			() => egress.telegram.sent.length === 1,
-			"the resumed reply",
-		);
-		await waitFor(
-			second,
-			() => egress.telegram.drained(),
-			"the redelivery to be handled",
-		);
-		await new Promise((resolve) => setTimeout(resolve, 600)); // delivery sweeps run every 200 ms
+		const url2 = await botUrl(second);
+		await waitForAnswer(second, url2, key, "hello");
 		await stop(second);
 
-		expect(egress.telegram.texts()).toEqual(["grok(1): hello"]);
 		expect(await inspect(home)).toEqual({
 			users: 1,
-			answers: [{ text: "grok(1): hello", receipt: "sent" }],
-		});
-	});
-
-	it("killed while sending the reply: it becomes 'unknown', is never resent, and the next message is answered", async () => {
-		const home = await tempHome();
-		egress.telegram.hangSend = true;
-		const first = await startProcess(home);
-		egress.telegram.push("first");
-		await waitFor(
-			first,
-			() => egress.telegram.sendAttempts.length === 1,
-			"the send attempt",
-		);
-		first.proc.kill("SIGKILL");
-		await first.exited;
-
-		egress.telegram.hangSend = false;
-		const second = await startProcess(home);
-		await polling(second);
-		egress.telegram.redeliverAll();
-		egress.telegram.push("second");
-		await waitFor(
-			second,
-			() => egress.telegram.sent.length === 1,
-			"the reply to the new message",
-		);
-		await waitFor(
-			second,
-			() => egress.telegram.drained(),
-			"every update to be handled",
-		);
-		await new Promise((resolve) => setTimeout(resolve, 600));
-		egress.telegram.push("/status");
-		await waitFor(second, () => egress.telegram.sent.length === 2, "status");
-		await stop(second);
-
-		expect(egress.telegram.sendAttempts.map((send) => send.text)).toEqual([
-			"grok(1): first",
-			"grok(2): second",
-			expect.stringContaining("Replies sent: 1, unknown: 1"),
-		]);
-		expect(second.output()).toContain("may not have been delivered");
-		expect(await inspect(home)).toEqual({
-			users: 2,
-			answers: [
-				{ text: "grok(1): first", receipt: "unknown" },
-				{ text: "grok(2): second", receipt: "sent" },
-			],
+			answers: ["grok(1): hello"],
 		});
 	});
 
@@ -264,7 +264,11 @@ describe("crash recovery (kill -9)", () => {
 			egress,
 		);
 		children.push(first);
-		await waitFor(first, () => egress.telegram.polls > 0, "the bot to poll");
+		await waitFor(
+			first,
+			() => /web http:\/\//.test(first.output()),
+			"the bot web listener to start",
+		);
 		const created = await fetch(`${base}/api/bots/default/chats`, {
 			method: "POST",
 			headers,
@@ -291,7 +295,6 @@ describe("crash recovery (kill -9)", () => {
 
 		egress.xai.hang = false;
 		const nextPort = listen();
-		const polls = egress.telegram.polls;
 		const second = spawnBun(
 			["src/main.ts"],
 			botEnv(home, {
@@ -305,8 +308,8 @@ describe("crash recovery (kill -9)", () => {
 		const nextBase = `http://127.0.0.1:${nextPort}`;
 		await waitFor(
 			second,
-			() => egress.telegram.polls > polls,
-			"the restarted bot to poll",
+			() => /web http:\/\//.test(second.output()),
+			"the restarted bot web listener to start",
 		);
 		await waitFor(
 			second,
@@ -346,7 +349,6 @@ describe("crash recovery (kill -9)", () => {
 		expect(
 			transcript.messages.filter((item) => item.text === "grok(1): hello"),
 		).toHaveLength(1);
-		expect(egress.telegram.sent).toEqual([]);
 		await stop(second);
 	});
 
@@ -357,6 +359,8 @@ describe("crash recovery (kill -9)", () => {
 			PI_BOT_STALL_SCHEDULE: "tx",
 			PI_BOT_STALL_SENTINEL: sentinel,
 		});
+		const url1 = await botUrl(first);
+		const key = await webChat(url1);
 		egress.xai.script.push(
 			{
 				tool: {
@@ -366,7 +370,7 @@ describe("crash recovery (kill -9)", () => {
 			},
 			{ text: "created" },
 		);
-		egress.telegram.push("remind me");
+		await webPost(url1, key, "remind me");
 		await waitFor(
 			first,
 			() => existsSync(sentinel),
@@ -378,12 +382,8 @@ describe("crash recovery (kill -9)", () => {
 		await first.exited;
 
 		const second = await startProcess(home);
-		await polling(second);
-		await waitFor(
-			second,
-			() => egress.telegram.texts().includes("created"),
-			"the resumed reply",
-		);
+		const url2 = await botUrl(second);
+		await waitForAnswer(second, url2, key, "created");
 		await stop(second);
 		expect(userScheduleIds(home)).toEqual(inserted);
 		const follow = egress.xai.requests
@@ -397,6 +397,8 @@ describe("crash recovery (kill -9)", () => {
 	it("killed after schedule_delete removes the row: replay returns the deleted id", async () => {
 		const home = await tempHome();
 		const created = await startProcess(home);
+		const url0 = await botUrl(created);
+		const key = await webChat(url0);
 		egress.xai.script.push(
 			{
 				tool: {
@@ -406,12 +408,8 @@ describe("crash recovery (kill -9)", () => {
 			},
 			{ text: "created" },
 		);
-		egress.telegram.push("remind me");
-		await waitFor(
-			created,
-			() => egress.telegram.texts().includes("created"),
-			"the schedule to be created",
-		);
+		await webPost(url0, key, "remind me");
+		await waitForAnswer(created, url0, key, "created");
 		await stop(created);
 		const id = defined(userScheduleIds(home)[0], "schedule id");
 
@@ -420,23 +418,20 @@ describe("crash recovery (kill -9)", () => {
 			PI_BOT_STALL_SCHEDULE: "run",
 			PI_BOT_STALL_SENTINEL: sentinel,
 		});
+		const url1 = await botUrl(first);
 		egress.xai.script.push(
 			{ tool: { name: "schedule_delete", arguments: { id } } },
 			{ text: "removed" },
 		);
-		egress.telegram.push("drop it");
+		await webPost(url1, key, "drop it");
 		await waitFor(first, () => existsSync(sentinel), "the delete to stall");
 		expect(userScheduleIds(home)).toEqual([]);
 		first.proc.kill("SIGKILL");
 		await first.exited;
 
 		const second = await startProcess(home);
-		await polling(second);
-		await waitFor(
-			second,
-			() => egress.telegram.texts().includes("removed"),
-			"the resumed reply",
-		);
+		const url2 = await botUrl(second);
+		await waitForAnswer(second, url2, key, "removed");
 		await stop(second);
 		expect(userScheduleIds(home)).toEqual([]);
 		const follow = JSON.stringify(
@@ -449,6 +444,8 @@ describe("crash recovery (kill -9)", () => {
 	it("killed after schedule_update commits: replay returns that row and does not write another", async () => {
 		const home = await tempHome();
 		const created = await startProcess(home);
+		const url0 = await botUrl(created);
+		const key = await webChat(url0);
 		egress.xai.script.push(
 			{
 				tool: {
@@ -458,20 +455,17 @@ describe("crash recovery (kill -9)", () => {
 			},
 			{ text: "created" },
 		);
-		egress.telegram.push("remind me");
-		await waitFor(
-			created,
-			() => egress.telegram.texts().includes("created"),
-			"the schedule to be created",
-		);
+		await webPost(url0, key, "remind me");
+		await waitForAnswer(created, url0, key, "created");
 		await stop(created);
 		const id = defined(userScheduleIds(home)[0], "schedule id");
 
 		const sentinel = join(home, "stall");
 		const first = await startProcess(home, {
-			PI_BOT_STALL_SCHEDULE: "tx",
+			PI_BOT_STALL_SCHEDULE: "run",
 			PI_BOT_STALL_SENTINEL: sentinel,
 		});
+		const url1 = await botUrl(first);
 		egress.xai.script.push(
 			{
 				tool: {
@@ -481,32 +475,32 @@ describe("crash recovery (kill -9)", () => {
 			},
 			{ text: "updated" },
 		);
-		egress.telegram.push("move it");
+		await webPost(url1, key, "move it");
 		await waitFor(first, () => existsSync(sentinel), "the update to stall");
-		const db = new Database(join(home, "schedules.sqlite"), { readonly: true });
-		const text = db
-			.query<{ text: string }, [string]>(
-				"SELECT text FROM schedules WHERE id = ?",
-			)
-			.get(id)?.text;
-		db.close();
-		expect(text).toBe("Evening check");
-		expect(userScheduleIds(home)).toEqual([id]);
 		first.proc.kill("SIGKILL");
 		await first.exited;
 
 		const second = await startProcess(home);
-		await polling(second);
-		await waitFor(
-			second,
-			() => egress.telegram.texts().includes("updated"),
-			"the resumed reply",
-		);
+		const url2 = await botUrl(second);
+		await waitForAnswer(second, url2, key, "updated");
 		await stop(second);
 		expect(userScheduleIds(home)).toEqual([id]);
-		const follow = JSON.stringify(
-			defined(egress.xai.requests.at(-1), "follow-up").body,
-		);
+		const db = new Database(join(home, "schedules.sqlite"), { readonly: true });
+		try {
+			const row = db
+				.query<{ text: string; cron: string }, [string]>(
+					"SELECT text, cron FROM schedules WHERE id = ?",
+				)
+				.get(id);
+			expect(row?.text).toBe("Evening check");
+			expect(row?.cron).toBe("30 18 * * 1");
+		} finally {
+			db.close();
+		}
+		const follow = egress.xai.requests
+			.slice(1)
+			.map((request) => JSON.stringify(request.body))
+			.join("\n");
 		expect(follow).toContain("Evening check");
 		expect(follow).toContain("30 18 * * 1");
 		expect(follow).not.toContain("No such schedule.");
@@ -517,9 +511,10 @@ describe("crash recovery (kill -9)", () => {
 		const first = await startProcess(home, {
 			PI_BOT_HARVEST_DELAY_MS: "200",
 		});
-		await polling(first);
-		egress.telegram.push("remember the red mug");
-		await waitFor(first, () => egress.telegram.sent.length === 1, "the reply");
+		const url1 = await botUrl(first);
+		const key = await webChat(url1);
+		await webPost(url1, key, "remember the red mug");
+		await waitForAnswer(first, url1, key, "remember the red mug");
 		egress.xai.hang = true;
 		await waitFor(
 			first,
@@ -553,7 +548,6 @@ describe("crash recovery (kill -9)", () => {
 		const second = await startProcess(home, {
 			PI_BOT_HARVEST_DELAY_MS: "200",
 		});
-		await polling(second);
 		const notesPath = join(home, "bots", "default", "knowledge", "notes.md");
 		await waitFor(second, () => existsSync(notesPath), "harvested knowledge");
 		await new Promise((resolve) => setTimeout(resolve, 600));

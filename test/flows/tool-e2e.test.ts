@@ -6,12 +6,14 @@ import { join } from "node:path";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { ToolResultEntry } from "@earendil-works/pi-durable";
 import type { App } from "../../src/app.ts";
-import { listChats } from "../../src/channels/telegram/chats.ts";
+import { listChats } from "../../src/channels/chats.ts";
 import { FakeEgress } from "../egress/fake-egress.ts";
 import { routeEgress } from "../egress/route.ts";
 import {
+	createWebChat,
 	defined,
 	seedBot,
+	sendWebMessage,
 	settle,
 	startBot,
 	tempHome,
@@ -117,10 +119,31 @@ function scheduleRow(home: string, id: string) {
 	}
 }
 
+async function waitForReply(
+	url: string,
+	key: string,
+	match: string,
+): Promise<void> {
+	await until(async () => {
+		const res = await call(
+			url,
+			`/api/chats/${encodeURIComponent(key)}/messages`,
+		);
+		if (!res.ok) return false;
+		const body = (await res.json()) as {
+			messages: { type: string; text?: string }[];
+		};
+		return body.messages.some(
+			(m) => m.type !== "user" && m.text?.includes(match),
+		);
+	}, `reply containing "${match}"`);
+}
+
 describe("tool results", () => {
 	it("schedule_create stores a row and returns it to the model", async () => {
 		const home = await tempHome();
 		const { app, url } = await boot(home);
+		const chatKey = await createWebChat(url);
 		egress.xai.script.push(
 			{
 				tool: {
@@ -133,8 +156,8 @@ describe("tool results", () => {
 			},
 			{ text: "created" },
 		);
-		egress.telegram.push("remind me each morning");
-		await until(() => egress.telegram.texts().includes("created"), "the reply");
+		await sendWebMessage(url, chatKey, "remind me each morning");
+		await waitForReply(url, chatKey, "created");
 		await settle(app, egress);
 		const listed = await json<{ schedules: { id: string; text: string }[] }>(
 			url,
@@ -152,6 +175,7 @@ describe("tool results", () => {
 	it("schedule_list returns this bot's rows to the model and omits harvest", async () => {
 		const home = await tempHome();
 		const { app, url } = await boot(home);
+		const chatKey = await createWebChat(url);
 		egress.xai.script.push(
 			{
 				tool: {
@@ -161,8 +185,8 @@ describe("tool results", () => {
 			},
 			{ text: "created" },
 		);
-		egress.telegram.push("add one");
-		await until(() => egress.telegram.texts().includes("created"), "created");
+		await sendWebMessage(url, chatKey, "add one");
+		await waitForReply(url, chatKey, "created");
 		await settle(app, egress);
 		const id = defined(
 			(
@@ -184,8 +208,8 @@ describe("tool results", () => {
 			{ tool: { name: "schedule_list", arguments: {} } },
 			{ text: "listed" },
 		);
-		egress.telegram.push("what is scheduled?");
-		await until(() => egress.telegram.texts().includes("listed"), "listed");
+		await sendWebMessage(url, chatKey, "what is scheduled?");
+		await waitForReply(url, chatKey, "listed");
 		await settle(app, egress);
 		const fed = followUp();
 		expect(fed).toContain(id);
@@ -198,6 +222,7 @@ describe("tool results", () => {
 	it("schedule_update writes the new row and returns it to the model", async () => {
 		const home = await tempHome();
 		const { app, url } = await boot(home);
+		const chatKey = await createWebChat(url);
 		egress.xai.script.push(
 			{
 				tool: {
@@ -207,8 +232,8 @@ describe("tool results", () => {
 			},
 			{ text: "created" },
 		);
-		egress.telegram.push("add one");
-		await until(() => egress.telegram.texts().includes("created"), "created");
+		await sendWebMessage(url, chatKey, "add one");
+		await waitForReply(url, chatKey, "created");
 		await settle(app, egress);
 		const id = defined(
 			(
@@ -233,8 +258,8 @@ describe("tool results", () => {
 			},
 			{ text: "updated" },
 		);
-		egress.telegram.push("move it");
-		await until(() => egress.telegram.texts().includes("updated"), "updated");
+		await sendWebMessage(url, chatKey, "move it");
+		await waitForReply(url, chatKey, "updated");
 		await settle(app, egress);
 		const stored = scheduleRow(home, id);
 		expect(stored?.text).toBe("Evening check");
@@ -248,6 +273,7 @@ describe("tool results", () => {
 	it("schedule_delete removes the row and returns the id to the model", async () => {
 		const home = await tempHome();
 		const { app, url } = await boot(home);
+		const chatKey = await createWebChat(url);
 		egress.xai.script.push(
 			{
 				tool: {
@@ -257,8 +283,8 @@ describe("tool results", () => {
 			},
 			{ text: "created" },
 		);
-		egress.telegram.push("add one");
-		await until(() => egress.telegram.texts().includes("created"), "created");
+		await sendWebMessage(url, chatKey, "add one");
+		await waitForReply(url, chatKey, "created");
 		await settle(app, egress);
 		const id = defined(
 			(
@@ -273,8 +299,8 @@ describe("tool results", () => {
 			{ tool: { name: "schedule_delete", arguments: { id } } },
 			{ text: "removed" },
 		);
-		egress.telegram.push("drop it");
-		await until(() => egress.telegram.texts().includes("removed"), "removed");
+		await sendWebMessage(url, chatKey, "drop it");
+		await waitForReply(url, chatKey, "removed");
 		await settle(app, egress);
 		expect(scheduleRow(home, id)).toBeNull();
 		expect(followUp()).toContain(id);
@@ -288,6 +314,7 @@ describe("tool results", () => {
 	it("a created schedule fires when due, a paused one does not, and re-enabling fires it", async () => {
 		const home = await tempHome();
 		const { app, url } = await boot(home);
+		const chatKey = await createWebChat(url);
 		const when = Date.now() + 800;
 		egress.xai.script.push(
 			{
@@ -298,8 +325,8 @@ describe("tool results", () => {
 			},
 			{ text: "armed" },
 		);
-		egress.telegram.push("ping me shortly");
-		await until(() => egress.telegram.texts().includes("armed"), "armed");
+		await sendWebMessage(url, chatKey, "ping me shortly");
+		await waitForReply(url, chatKey, "armed");
 		await settle(app, egress);
 		const id = defined(
 			(
@@ -319,16 +346,20 @@ describe("tool results", () => {
 			},
 			{ text: "paused" },
 		);
-		egress.telegram.push("pause it");
-		await until(() => egress.telegram.texts().includes("paused"), "paused");
+		await sendWebMessage(url, chatKey, "pause it");
+		await waitForReply(url, chatKey, "paused");
 		await settle(app, egress);
 		expect(scheduleRow(home, id)?.enabled).toBe(0);
 		await new Promise((resolve) => setTimeout(resolve, 1_100));
 		await app.quiesce();
 		expect(scheduleRow(home, id)?.enabled).toBe(0);
-		expect(
-			egress.telegram.texts().some((text) => text.includes("clock ping")),
-		).toBe(false);
+		const msgs = await json<{ messages: { text?: string }[] }>(
+			url,
+			`/api/chats/${encodeURIComponent(chatKey)}/messages`,
+		);
+		expect(msgs.messages.some((m) => m.text?.includes("clock ping"))).toBe(
+			false,
+		);
 		egress.xai.script.push(
 			{
 				tool: {
@@ -339,11 +370,8 @@ describe("tool results", () => {
 			{ text: "resumed clock ping" },
 			{ text: "fired" },
 		);
-		egress.telegram.push("turn it back on");
-		await until(
-			() => egress.telegram.texts().includes("resumed clock ping"),
-			"the resume reply",
-		);
+		await sendWebMessage(url, chatKey, "turn it back on");
+		await waitForReply(url, chatKey, "resumed clock ping");
 		await until(() => scheduleRow(home, id) === null, "the one-shot to fire");
 		await settle(app, egress);
 		const db = new Database(join(home, "schedules.sqlite"), { readonly: true });
@@ -362,7 +390,8 @@ describe("tool results", () => {
 	});
 
 	it("offers xAI web, X, and code tools as server tools, and fails a local call", async () => {
-		const { app } = await boot();
+		const { app, url } = await boot();
+		const chatKey = await createWebChat(url);
 		egress.xai.script.push(
 			{
 				tool: { name: "web.fetch", arguments: { url: "https://example.com" } },
@@ -370,8 +399,8 @@ describe("tool results", () => {
 			{ tool: { name: "x.search", arguments: { query: "pi-bot" } } },
 			{ text: "noted" },
 		);
-		egress.telegram.push("search the web");
-		await until(() => egress.telegram.texts().includes("noted"), "noted");
+		await sendWebMessage(url, chatKey, "search the web");
+		await waitForReply(url, chatKey, "noted");
 		await settle(app, egress);
 		const offered = JSON.stringify(egress.xai.requests[0]?.body).replaceAll(
 			" ",

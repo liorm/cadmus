@@ -1,6 +1,6 @@
 /**
- * Id the general Telegram door (`TELEGRAM_BOT_TOKEN`) admits on.
- * Nothing creates this row. It exists when a bot was named so its slug is `default`, or when an older home already had one.
+ * Default bot id used as fallback or root namespace.
+ * It exists when a bot was named so its slug is `default`, or when an older home already had one.
  */
 export const DEFAULT_BOT_ID = "default";
 

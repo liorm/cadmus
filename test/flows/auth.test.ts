@@ -9,8 +9,10 @@ import { FakeEgress } from "../egress/fake-egress.ts";
 import { routeEgress } from "../egress/route.ts";
 import {
 	botEnv,
+	createWebChat,
 	defined,
 	seedBot,
+	sendWebMessage,
 	settle,
 	spawnBun,
 	startBot,
@@ -92,10 +94,11 @@ describe("Grok subscription login (OAuth device code)", () => {
 		await seedBot(home);
 		const app = await startBot(home, { XAI_API_KEY: undefined });
 		apps.push(app);
-		egress.telegram.push("hi grok");
-		await until(() => egress.telegram.sent.length === 1, "reply");
+		const url = defined(app.web, "web").url;
+		const chat = await createWebChat(url);
+		await sendWebMessage(url, chat, "hi grok");
+		await until(() => egress.xai.requests.length === 1, "reply");
 		await settle(app, egress);
-		expect(egress.telegram.texts()).toEqual(["grok(1): hi grok"]);
 		expect(defined(egress.xai.requests[0], "request").authorization).toBe(
 			"Bearer xai-access-1",
 		);
@@ -116,8 +119,10 @@ describe("Grok subscription login (OAuth device code)", () => {
 		);
 		const app = await startBot(home, { XAI_API_KEY: undefined });
 		apps.push(app);
-		egress.telegram.push("after refresh");
-		await until(() => egress.telegram.sent.length === 1, "reply");
+		const url = defined(app.web, "web").url;
+		const chat = await createWebChat(url);
+		await sendWebMessage(url, chat, "after refresh");
+		await until(() => egress.xai.requests.length === 1, "reply");
 		await settle(app, egress);
 		const refresh = egress.xai.oauthRequests.find(
 			(request) => request.form.get("grant_type") === "refresh_token",

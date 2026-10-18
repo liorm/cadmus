@@ -13,10 +13,9 @@ import {
 	type ChatRecord,
 	ChatsDoc,
 	listChats,
-	telegramTarget,
 	webChatId,
-} from "./channels/telegram/chats.ts";
-import type { Deliverer } from "./channels/telegram/deliver.ts";
+} from "./channels/chats.ts";
+import { NoticeEntry } from "./channels/commands.ts";
 import { parseModelRef, parseThinkingLevel } from "./harness/models.ts";
 import { agentToolChange, syncChatTools } from "./harness/tool-policy.ts";
 import { armHarvest, cancelHarvest } from "./harvest/run.ts";
@@ -27,19 +26,15 @@ import type { AppServices } from "./services.ts";
 export const STUCK_CHAT_MS = 10_000;
 
 /**
- * What the poller (and, later, the web channel and the scheduler) call. In-process this is a handle on the
- * single harness. Session services — the lock, the deliverer, the poller — stay outside it.
+ * What the web channel and scheduler call. In-process this is a handle on the single harness.
  */
 export interface BotRuntime {
 	readonly id: string;
-	/** Admit `text` on an existing chat. Resolves once the submission is durable; the answer is delivered in the background. */
+	/** Admit `text` on an existing chat. Resolves once the submission is durable. */
 	submit(chatId: string, requestId: string, text: string): Promise<void>;
 	listChats(): Promise<ChatRecord[]>;
-	/** Find or create the chat. `userId` is stored when the row does not have one yet. */
-	createChat(
-		chatId: string,
-		options?: { userId?: number },
-	): Promise<ChatRecord>;
+	/** Find or create the chat. */
+	createChat(chatId: string): Promise<ChatRecord>;
 	/** Answer watchers started by `submit`. */
 	settled(): Promise<void>;
 	/** Later edits of the bot row. New chats use them; existing conversations stay as they were. */
@@ -49,12 +44,11 @@ export interface BotRuntime {
 export function createBotRuntime(options: {
 	harness: Harness;
 	registry: RegistryReader;
-	deliverer: Deliverer;
 	bot: BotRecord;
 	home: string;
 	services: AppServices;
 }): BotRuntime {
-	const { harness, registry, deliverer, home, services } = options;
+	const { harness, registry, home, services } = options;
 	let bot = options.bot;
 	const pending = new Set<Promise<void>>();
 
@@ -74,11 +68,12 @@ export function createBotRuntime(options: {
 		async listChats() {
 			return (await listChats(harness)).filter((chat) => chat.botId === bot.id);
 		},
-		async createChat(chatId, createOptions) {
+		async createChat(chatId) {
 			if (!chatId.startsWith(`${bot.id}:`))
 				throw new Error(`Chat ${chatId} is not on bot ${bot.id}`);
 			const web = webChatId(bot.id, chatId);
-			const address = web === undefined ? telegramTarget(chatId) : undefined;
+			if (web === undefined)
+				throw new Error(`Chat ${chatId} is not a valid chat key`);
 			const thinking = parseThinkingLevel(bot.thinking);
 			const tools = agentToolChange(bot, registry);
 			return harness.commit(async (tx) => {
@@ -86,11 +81,6 @@ export function createBotRuntime(options: {
 				if ((chats.closed ?? []).includes(chatId)) throw new ChatClosed(chatId);
 				const existing = chats.items.find((chat) => chat.key === chatId);
 				if (existing) {
-					if (
-						existing.userId === undefined &&
-						createOptions?.userId !== undefined
-					)
-						existing.userId = createOptions.userId;
 					return { ...existing };
 				}
 				const conversation = await tx.createConversation({
@@ -105,13 +95,6 @@ export function createBotRuntime(options: {
 				const record: ChatRecord = {
 					key: chatId,
 					botId: bot.id,
-					...(createOptions?.userId === undefined
-						? {}
-						: { userId: createOptions.userId }),
-					...(address === undefined ? {} : { chatId: address.chatId }),
-					...(address?.threadId === undefined
-						? {}
-						: { threadId: address.threadId }),
 					conversationId: conversation.id,
 				};
 				chats.items.push(record);
@@ -183,14 +166,21 @@ export function createBotRuntime(options: {
 								reason: settled.reason,
 								detail,
 							});
-							await deliverer.notice(
-								chat,
-								`unanswered:${submission.id}`,
-								`⚠️ I couldn't answer that (${settled.reason}${detail ? `: ${detail.slice(0, 500)}` : ""}).`,
+							await conversation.submit(
+								{
+									type: "write",
+									requestId: `unanswered:${submission.id}`,
+									entry: {
+										kind: NoticeEntry.kind,
+										data: {
+											text: `⚠️ I couldn't answer that (${settled.reason}${detail ? `: ${detail.slice(0, 500)}` : ""}).`,
+										},
+									},
+								},
+								BACKGROUND_CONTEXT,
 							);
 						} else if (!duplicate)
 							log.debug("chat turn settled", { status: settled.status });
-						await deliverer.kick(chat);
 					} finally {
 						stopWatch?.();
 					}

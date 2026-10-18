@@ -36,12 +36,10 @@ export function botEnv(
 		PATH: process.env.PATH,
 		HOME: process.env.HOME,
 		PI_BOT_HOME: home,
-		TELEGRAM_BOT_TOKEN: "123:test-token",
-		TELEGRAM_ALLOWED_USERS: "1",
-		TELEGRAM_POLL_TIMEOUT_SEC: "1",
+		WEB_TOKEN: "test-web-token",
+		WEB_PORT: "0",
 		XAI_API_KEY: "test-api-key",
 		PI_BOT_TZ: "Asia/Jerusalem",
-		PI_BOT_DELIVERY_SWEEP_MS: "200",
 		LOG_LEVEL: "warn",
 	};
 	for (const [key, value] of Object.entries(overrides)) {
@@ -147,10 +145,44 @@ export async function until(
 	}
 }
 
-/** Every pushed update handled, every run finished, every final answer delivered. */
-export async function settle(app: App, egress: FakeEgress) {
-	await until(() => egress.queuesDrained(), "the bot to confirm every update");
+/** Every run finished, every chat idle. */
+export async function settle(app: App, _egress?: FakeEgress) {
 	await app.quiesce();
+}
+
+export async function createWebChat(
+	url: string,
+	botId = "default",
+): Promise<string> {
+	const res = await fetch(
+		`${url}/api/bots/${encodeURIComponent(botId)}/chats`,
+		{
+			method: "POST",
+			headers: {
+				authorization: "Bearer test-web-token",
+				"content-type": "application/json",
+			},
+			body: JSON.stringify({}),
+		},
+	);
+	const data = (await res.json()) as { chat: { key: string } };
+	return data.chat.key;
+}
+
+export async function sendWebMessage(
+	url: string,
+	chatKey: string,
+	text: string,
+	clientMsgId = `m-${Date.now()}-${Math.random()}`,
+): Promise<void> {
+	await fetch(`${url}/api/chats/${encodeURIComponent(chatKey)}/messages`, {
+		method: "POST",
+		headers: {
+			authorization: "Bearer test-web-token",
+			"content-type": "application/json",
+		},
+		body: JSON.stringify({ clientMsgId, text }),
+	});
 }
 
 /** Narrow a value the test has already arranged to exist. */

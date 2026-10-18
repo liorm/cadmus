@@ -303,7 +303,7 @@ if (import.meta.main) {
 		.query(
 			`SELECT id FROM documents WHERE kind = ? AND retired_at IS NULL LIMIT 1`,
 		)
-		.get(JSON.stringify("pi-bot.telegram.chats")) as { id: number } | null;
+		.get(JSON.stringify("pi-bot.chats")) as { id: number } | null;
 	const chatsDoc = chatsRow
 		? (materialize(db, chatsRow.id) as { items?: Chat[] })
 		: undefined;

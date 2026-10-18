@@ -45,13 +45,11 @@ import {
 import {
 	ChatClosed,
 	closeChat,
-	hasTelegramAddress,
 	listChats,
 	renameChat,
 	webChatKey,
-} from "../telegram/chats.ts";
-import { handleCommand, parseCommand } from "../telegram/commands.ts";
-import type { Deliverer } from "../telegram/deliver.ts";
+} from "../chats.ts";
+import { handleCommand, parseCommand } from "../commands.ts";
 import { chatEventResponse } from "./events.ts";
 import {
 	knowledgeSlugFromRel,
@@ -77,7 +75,6 @@ export type WebDeps = {
 	models: MutableModels;
 	harness: Harness;
 	registry: RegistryReader;
-	deliverer: Deliverer;
 	ensureRuntime(botId: string): BotRuntime | undefined;
 	addRuntime(bot: {
 		id: string;
@@ -85,15 +82,9 @@ export type WebDeps = {
 		model: string;
 		thinking: string;
 		tools?: string[];
-		telegramToken?: string;
 		createdAt: number;
 	}): BotRuntime;
 	schedules: ScheduleService;
-	/** Store the token and start or stop that bot's getUpdates loop. */
-	setTelegramDoor(
-		botId: string,
-		token: string | null,
-	): Promise<{ telegramConfigured: boolean } | undefined>;
 };
 
 export async function handleApi(
@@ -103,9 +94,7 @@ export async function handleApi(
 	const url = new URL(request.url);
 	const path = url.pathname;
 	if (path === "/api/status" && request.method === "GET") {
-		return Response.json({
-			telegram: Boolean(deps.config.telegram.token),
-		});
+		return Response.json({ status: "ok" });
 	}
 	if (path === "/api/bots" && request.method === "GET")
 		return Response.json({
@@ -146,10 +135,6 @@ export async function handleApi(
 		if (request.method === "GET") return getBotTools(deps, id);
 		if (request.method === "PUT") return putBotTools(request, deps, id);
 	}
-	const door = /^\/api\/bots\/([^/]+)\/telegram$/.exec(path);
-	if (door?.[1] && request.method === "PUT")
-		return putTelegram(request, deps, decodeURIComponent(door[1]));
-
 	const one = /^\/api\/bots\/([^/]+)$/.exec(path);
 	if (one?.[1] && request.method === "PATCH")
 		return patchBot(request, deps, decodeURIComponent(one[1]));
@@ -321,7 +306,6 @@ async function listBotChats(deps: WebDeps, id: string): Promise<Response> {
 		listed.push({
 			key: chat.key,
 			botId: chat.botId,
-			telegram: hasTelegramAddress(chat),
 			...(chat.title ? { title: chat.title } : {}),
 			...(snippets.opening ? { opening: snippets.opening } : {}),
 			...(snippets.preview ? { preview: snippets.preview } : {}),
@@ -397,7 +381,6 @@ async function createChat(
 				chat: {
 					key: chat.key,
 					botId: chat.botId,
-					telegram: false,
 					...(chat.title ? { title: chat.title } : {}),
 				},
 			},
@@ -488,7 +471,6 @@ async function postMessage(
 	if (command) {
 		await handleCommand(command, {
 			harness: deps.harness,
-			deliverer: deps.deliverer,
 			chat,
 			requestKey: requestId,
 		});
@@ -695,30 +677,6 @@ async function deleteSchedule(deps: WebDeps, id: string): Promise<Response> {
 		return Response.json({ error: "No such schedule." }, { status: 404 });
 	await deps.schedules.remove(id);
 	return Response.json({ ok: true });
-}
-
-async function putTelegram(
-	request: Request,
-	deps: WebDeps,
-	id: string,
-): Promise<Response> {
-	const body = await readJson(request);
-	if (
-		!body ||
-		typeof body !== "object" ||
-		Array.isArray(body) ||
-		!("token" in body)
-	)
-		return Response.json({ error: "Expected JSON." }, { status: 400 });
-	const token = (body as { token: unknown }).token;
-	if (token !== null && typeof token !== "string")
-		return Response.json({ error: "Expected JSON." }, { status: 400 });
-	const door = await deps.setTelegramDoor(
-		id,
-		token === null || token.trim() === "" ? null : token.trim(),
-	);
-	if (!door) return Response.json({ error: "No such bot." }, { status: 404 });
-	return Response.json(door);
 }
 
 async function patchChat(

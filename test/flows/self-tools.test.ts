@@ -4,11 +4,13 @@ import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { join } from "node:path";
 import type { App } from "../../src/app.ts";
-import { CHAT, FakeEgress } from "../egress/fake-egress.ts";
+import { FakeEgress } from "../egress/fake-egress.ts";
 import { routeEgress } from "../egress/route.ts";
 import {
+	createWebChat,
 	defined,
 	seedBot,
+	sendWebMessage,
 	settle,
 	startBot,
 	tempHome,
@@ -92,10 +94,31 @@ function rows(home: string): { id: string; bot_id: string }[] {
 
 const xai = () => egress.xai;
 
+async function waitForReply(
+	url: string,
+	key: string,
+	match: string,
+): Promise<void> {
+	await until(async () => {
+		const res = await call(
+			url,
+			`/api/chats/${encodeURIComponent(key)}/messages`,
+		);
+		if (!res.ok) return false;
+		const body = (await res.json()) as {
+			messages: { type: string; text?: string }[];
+		};
+		return body.messages.some(
+			(m) => m.type !== "user" && m.text?.includes(match),
+		);
+	}, `reply containing "${match}"`);
+}
+
 describe("self tools", () => {
 	it("creates a schedule the page lists, and the row survives a restart", async () => {
 		const home = await tempHome();
 		const first = await boot(home);
+		const chatKey = await createWebChat(first.url);
 		xai().script.push(
 			{
 				tool: {
@@ -108,8 +131,8 @@ describe("self tools", () => {
 			},
 			{ text: "created" },
 		);
-		egress.telegram.push("remind me each morning");
-		await until(() => egress.telegram.texts().includes("created"), "the reply");
+		await sendWebMessage(first.url, chatKey, "remind me each morning");
+		await waitForReply(first.url, chatKey, "created");
 		await settle(first.app, egress);
 		const offered = JSON.stringify(defined(xai().requests[0], "request").body);
 		expect(offered).toContain("schedule_create");
@@ -121,7 +144,7 @@ describe("self tools", () => {
 			expect.objectContaining({
 				text: "Morning check",
 				cron: "0 9 * * *",
-				target: { mode: "chat", chatId: `default:tg:general:${CHAT}` },
+				target: { mode: "chat", chatId: chatKey },
 			}),
 		]);
 		expect(before.some((row) => row.id.startsWith("harvest:"))).toBe(false);
@@ -139,8 +162,8 @@ describe("self tools", () => {
 			},
 			{ text: "removed" },
 		);
-		egress.telegram.push("drop that reminder");
-		await until(() => egress.telegram.texts().includes("removed"), "deleted");
+		await sendWebMessage(second.url, chatKey, "drop that reminder");
+		await waitForReply(second.url, chatKey, "removed");
 		await settle(second.app, egress);
 		expect(await listed(second.url)).toEqual([]);
 	});
@@ -148,6 +171,7 @@ describe("self tools", () => {
 	it("hides other bots' schedules and refuses their chats", async () => {
 		const home = await tempHome();
 		const { app, url } = await boot(home);
+		const chatKey = await createWebChat(url);
 		const created = await json<{ bot: { id: string } }>(url, "/api/bots", {
 			method: "POST",
 			body: JSON.stringify({
@@ -176,8 +200,8 @@ describe("self tools", () => {
 			{ tool: { name: "schedule_list", arguments: {} } },
 			{ text: "listed" },
 		);
-		egress.telegram.push("what is scheduled?");
-		await until(() => egress.telegram.texts().includes("listed"), "list reply");
+		await sendWebMessage(url, chatKey, "what is scheduled?");
+		await waitForReply(url, chatKey, "listed");
 		await settle(app, egress);
 		const listedBody = JSON.stringify(
 			defined(xai().requests.at(-1), "request").body,
@@ -204,8 +228,8 @@ describe("self tools", () => {
 			},
 			{ text: "blocked" },
 		);
-		egress.telegram.push("take the other bot's schedule");
-		await until(() => egress.telegram.texts().includes("blocked"), "blocked");
+		await sendWebMessage(url, chatKey, "take the other bot's schedule");
+		await waitForReply(url, chatKey, "blocked");
 		await settle(app, egress);
 		const follow = xai()
 			.requests.slice(-2)
@@ -222,6 +246,7 @@ describe("self tools", () => {
 	it("updates this bot's schedule and refuses a harvest id or another bot", async () => {
 		const home = await tempHome();
 		const { app, url } = await boot(home);
+		const chatKey = await createWebChat(url);
 		xai().script.push(
 			{
 				tool: {
@@ -231,8 +256,8 @@ describe("self tools", () => {
 			},
 			{ text: "created" },
 		);
-		egress.telegram.push("remind me each morning");
-		await until(() => egress.telegram.texts().includes("created"), "created");
+		await sendWebMessage(url, chatKey, "remind me each morning");
+		await waitForReply(url, chatKey, "created");
 		await settle(app, egress);
 		const id = defined((await listed(url))[0], "schedule").id;
 		const created = await json<{ bot: { id: string } }>(url, "/api/bots", {
@@ -276,7 +301,7 @@ describe("self tools", () => {
 			{
 				tool: {
 					name: "schedule_update",
-					arguments: { id: "harvest:default:tg:general:1", text: "nope" },
+					arguments: { id: `harvest:${chatKey}`, text: "nope" },
 				},
 			},
 			{
@@ -287,8 +312,8 @@ describe("self tools", () => {
 			},
 			{ text: "updated" },
 		);
-		egress.telegram.push("move it to the evening and pause it");
-		await until(() => egress.telegram.texts().includes("updated"), "updated");
+		await sendWebMessage(url, chatKey, "move it to the evening and pause it");
+		await waitForReply(url, chatKey, "updated");
 		await settle(app, egress);
 		const follow = xai()
 			.requests.slice(2)
@@ -313,9 +338,10 @@ describe("self tools", () => {
 	it("rejects a bad cron and leaves the harvest job untouched", async () => {
 		const home = await tempHome();
 		const { app, url } = await boot(home);
-		egress.telegram.push("hello");
+		const chatKey = await createWebChat(url);
+		await sendWebMessage(url, chatKey, "hello");
 		await until(
-			() => egress.telegram.sent.length === 1,
+			() => egress.xai.requests.length === 1,
 			"a turn to arm harvest",
 		);
 		await settle(app, egress);
@@ -347,11 +373,8 @@ describe("self tools", () => {
 			},
 			{ text: "still hidden" },
 		);
-		egress.telegram.push("schedule something illegal");
-		await until(
-			() => egress.telegram.texts().includes("still hidden"),
-			"the reply",
-		);
+		await sendWebMessage(url, chatKey, "schedule something illegal");
+		await waitForReply(url, chatKey, "still hidden");
 		await settle(app, egress);
 		const follow = xai()
 			.requests.slice(1)
@@ -370,6 +393,7 @@ describe("self tools", () => {
 	it("creates a one-shot, a new chat, and a silent fork", async () => {
 		const home = await tempHome();
 		const { app, url } = await boot(home);
+		const chatKey = await createWebChat(url);
 		const when = Date.parse("2026-11-02T15:04:00.000Z");
 		xai().script.push(
 			{
@@ -396,11 +420,8 @@ describe("self tools", () => {
 			},
 			{ text: "three schedules" },
 		);
-		egress.telegram.push("schedule the three");
-		await until(
-			() => egress.telegram.texts().includes("three schedules"),
-			"the reply",
-		);
+		await sendWebMessage(url, chatKey, "schedule the three");
+		await waitForReply(url, chatKey, "three schedules");
 		await settle(app, egress);
 		const follow = xai()
 			.requests.slice(1)
@@ -415,7 +436,7 @@ describe("self tools", () => {
 			expect.objectContaining({
 				kind: "when",
 				when,
-				target: { mode: "chat", chatId: `default:tg:general:${CHAT}` },
+				target: { mode: "chat", chatId: chatKey },
 			}),
 		);
 		expect(byText.get("Open a chat")).toEqual(
@@ -429,7 +450,7 @@ describe("self tools", () => {
 			expect.objectContaining({
 				kind: "cron",
 				cron: "30 7 * * *",
-				target: { mode: "fork", chatId: `default:tg:general:${CHAT}` },
+				target: { mode: "fork", chatId: chatKey },
 			}),
 		);
 		expect(body).toHaveLength(3);
@@ -438,6 +459,7 @@ describe("self tools", () => {
 	it("offers only the tools this bot has switched on", async () => {
 		const home = await tempHome();
 		const { app, url } = await boot(home);
+		const chatKey = await createWebChat(url);
 		const current = await json<{
 			catalog: { name: string }[];
 			enabled: string[];
@@ -466,8 +488,8 @@ describe("self tools", () => {
 			{ tool: { name: "web.search", arguments: { query: "pi-bot" } } },
 			{ text: "done" },
 		);
-		egress.telegram.push("search and schedule");
-		await until(() => egress.telegram.texts().includes("done"), "the reply");
+		await sendWebMessage(url, chatKey, "search and schedule");
+		await waitForReply(url, chatKey, "done");
 		await settle(app, egress);
 		const bodies = xai().requests.map((request) =>
 			JSON.stringify(request.body).replaceAll(" ", ""),
@@ -491,6 +513,7 @@ describe("self tools", () => {
 	it("blocks a tool that was switched off after the turn admitted it", async () => {
 		const home = await tempHome();
 		const { app, url } = await boot(home);
+		const chatKey = await createWebChat(url);
 		const current = await json<{ enabled: string[] }>(
 			url,
 			"/api/bots/default/tools",
@@ -505,7 +528,7 @@ describe("self tools", () => {
 			},
 			{ text: "blocked" },
 		);
-		egress.telegram.push("schedule something");
+		await sendWebMessage(url, chatKey, "schedule something");
 		await until(() => xai().requests.length >= 1, "the admitted model request");
 		const offered = JSON.stringify(defined(xai().requests[0], "request").body);
 		expect(offered).toContain("schedule_create");
@@ -516,7 +539,7 @@ describe("self tools", () => {
 			}),
 		});
 		xai().release();
-		await until(() => egress.telegram.texts().includes("blocked"), "the reply");
+		await waitForReply(url, chatKey, "blocked");
 		await settle(app, egress);
 		const follow = xai()
 			.requests.slice(1)
@@ -529,6 +552,7 @@ describe("self tools", () => {
 	it("clears a stored schedule name when schedule_update is given an empty name", async () => {
 		const home = await tempHome();
 		const { app, url } = await boot(home);
+		const chatKey = await createWebChat(url);
 		xai().script.push(
 			{
 				tool: {
@@ -538,8 +562,8 @@ describe("self tools", () => {
 			},
 			{ text: "created" },
 		);
-		egress.telegram.push("remind me each morning");
-		await until(() => egress.telegram.texts().includes("created"), "created");
+		await sendWebMessage(url, chatKey, "remind me each morning");
+		await waitForReply(url, chatKey, "created");
 		await settle(app, egress);
 		const id = defined((await listed(url))[0], "schedule").id;
 		xai().script.push(
@@ -557,8 +581,8 @@ describe("self tools", () => {
 			},
 			{ text: "cleared" },
 		);
-		egress.telegram.push("clear the name");
-		await until(() => egress.telegram.texts().includes("cleared"), "cleared");
+		await sendWebMessage(url, chatKey, "clear the name");
+		await waitForReply(url, chatKey, "cleared");
 		await settle(app, egress);
 		expect((await listed(url))[0]?.name).toBeUndefined();
 		const db = new Database(join(home, "schedules.sqlite"), { readonly: true });

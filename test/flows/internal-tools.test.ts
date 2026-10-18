@@ -8,7 +8,15 @@ import { parseKnowledge } from "../../src/extensions/knowledge.ts";
 import { parseMemory } from "../../src/extensions/memory.ts";
 import { FakeEgress } from "../egress/fake-egress.ts";
 import { routeEgress } from "../egress/route.ts";
-import { seedBot, settle, startBot, tempHome, until } from "../support.ts";
+import {
+	createWebChat,
+	seedBot,
+	sendWebMessage,
+	settle,
+	startBot,
+	tempHome,
+	until,
+} from "../support.ts";
 
 const TOKEN = "test-web-token";
 
@@ -64,11 +72,32 @@ function childRequests(): string[] {
 	);
 }
 
+async function waitForReply(
+	url: string,
+	key: string,
+	match: string,
+): Promise<void> {
+	await until(async () => {
+		const res = await call(
+			url,
+			`/api/chats/${encodeURIComponent(key)}/messages`,
+		);
+		if (!res.ok) return false;
+		const body = (await res.json()) as {
+			messages: { type: string; text?: string }[];
+		};
+		return body.messages.some(
+			(m) => m.type !== "user" && m.text?.includes(match),
+		);
+	}, `reply containing "${match}"`);
+}
+
 describe("internal tools", () => {
 	it("creates a bot from the caller model and effort, then refuses a taken or illegal slug", async () => {
 		const home = await tempHome();
 		await seedBot(home, { thinking: "high" });
 		const { url } = await boot(home);
+		const chatKey = await createWebChat(url);
 		egress.xai.script.push(
 			{
 				tool: {
@@ -112,8 +141,8 @@ describe("internal tools", () => {
 			},
 			{ text: "illegal" },
 		);
-		egress.telegram.push("make a librarian");
-		await until(() => egress.telegram.texts().includes("created"), "created");
+		await sendWebMessage(url, chatKey, "make a librarian");
+		await waitForReply(url, chatKey, "created");
 		await settle(apps[0] as App, egress);
 		const listed = await json<{
 			bots: { id: string; model: string; thinking: string; name: string }[];
@@ -149,10 +178,10 @@ describe("internal tools", () => {
 			body: "Nine to five.",
 		});
 
-		egress.telegram.push("make it again");
-		await until(() => egress.telegram.texts().includes("taken"), "taken");
-		egress.telegram.push("bad slug");
-		await until(() => egress.telegram.texts().includes("illegal"), "illegal");
+		await sendWebMessage(url, chatKey, "make it again");
+		await waitForReply(url, chatKey, "taken");
+		await sendWebMessage(url, chatKey, "bad slug");
+		await waitForReply(url, chatKey, "illegal");
 		await settle(apps[0] as App, egress);
 		const follow = bodies().join("\n");
 		expect(follow).toContain("Slug is taken.");
@@ -194,7 +223,8 @@ describe("internal tools", () => {
 			join(home, "bots", "researcher", "SOUL.md"),
 			"Finds papers.\n",
 		);
-		await boot(home);
+		const { url } = await boot(home);
+		const chatKey = await createWebChat(url);
 		egress.xai.script.push(
 			{
 				tool: {
@@ -206,8 +236,8 @@ describe("internal tools", () => {
 			{ text: "researcher" },
 			{ text: "found" },
 		);
-		egress.telegram.push("who finds papers?");
-		await until(() => egress.telegram.texts().includes("found"), "found");
+		await sendWebMessage(url, chatKey, "who finds papers?");
+		await waitForReply(url, chatKey, "found");
 		await settle(apps[0] as App, egress);
 		const children = childRequests();
 		expect(children).toHaveLength(2);
@@ -222,7 +252,8 @@ describe("internal tools", () => {
 	it("returns null for an empty reply and after three invalid slugs", async () => {
 		const home = await tempHome();
 		await seedBot(home);
-		await boot(home);
+		const { url } = await boot(home);
+		const chatKey = await createWebChat(url);
 		egress.xai.script.push(
 			{
 				tool: {
@@ -243,13 +274,13 @@ describe("internal tools", () => {
 			{ text: "also-nope" },
 			{ text: "gave-up" },
 		);
-		egress.telegram.push("any billing bot?");
-		await until(() => egress.telegram.texts().includes("empty"), "empty");
+		await sendWebMessage(url, chatKey, "any billing bot?");
+		await waitForReply(url, chatKey, "empty");
 		expect(bodies().join("\n")).toContain('{\\"slug\\":null}');
 		expect(childRequests()).toHaveLength(1);
 
-		egress.telegram.push("try a missing one");
-		await until(() => egress.telegram.texts().includes("gave-up"), "gave up");
+		await sendWebMessage(url, chatKey, "try a missing one");
+		await waitForReply(url, chatKey, "gave-up");
 		await settle(apps[0] as App, egress);
 		const retries = childRequests().filter((body) =>
 			body.includes("is not a catalog slug"),
@@ -265,7 +296,8 @@ describe("internal tools", () => {
 	it("message_bot throws and does not start another model pass", async () => {
 		const home = await tempHome();
 		await seedBot(home);
-		await boot(home);
+		const { url } = await boot(home);
+		const chatKey = await createWebChat(url);
 		egress.xai.script.push(
 			{
 				tool: {
@@ -275,8 +307,8 @@ describe("internal tools", () => {
 			},
 			{ text: "cannot" },
 		);
-		egress.telegram.push("tell the researcher");
-		await until(() => egress.telegram.texts().includes("cannot"), "cannot");
+		await sendWebMessage(url, chatKey, "tell the researcher");
+		await waitForReply(url, chatKey, "cannot");
 		await settle(apps[0] as App, egress);
 		expect(bodies().join("\n")).toContain("message_bot is not implemented.");
 		expect(childRequests()).toHaveLength(0);

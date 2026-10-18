@@ -4,12 +4,9 @@ import type { ConversationView, EntryRecord } from "@earendil-works/pi-durable";
 import { catalogGroup, toolCatalog } from "../src/channels/bot-catalog.ts";
 import { slugifyBotName } from "../src/channels/bot-slug.ts";
 import { explicitSlugError } from "../src/channels/bots.ts";
-import { chatKey } from "../src/channels/telegram/chats.ts";
-import { parseCommand } from "../src/channels/telegram/commands.ts";
-import { chunkText } from "../src/channels/telegram/deliver.ts";
-import { requestIdOf } from "../src/channels/telegram/poller.ts";
+import { webChatId, webChatKey } from "../src/channels/chats.ts";
+import { parseCommand } from "../src/channels/commands.ts";
 import { liveTools, projectEntries } from "../src/channels/web/transcript.ts";
-import { parseUserIds } from "../src/config.ts";
 import { dayLine, soulWithName } from "../src/extensions/identity.ts";
 import {
 	excerptSoul,
@@ -119,20 +116,10 @@ describe("pure helpers", () => {
 		expect(() => parseModelRef("nope")).toThrow(/provider/);
 	});
 
-	it("parses the allowlist", () => {
-		expect([...parseUserIds("1, 2 3")]).toEqual([1, 2, 3]);
-		expect(parseUserIds("").size).toBe(0);
-		expect(() => parseUserIds("abc")).toThrow();
-	});
-
-	it("builds keys", () => {
-		expect(chatKey("default", { chatId: -100 })).toBe(
-			"default:tg:general:-100",
-		);
-		expect(chatKey("default", { chatId: -100, threadId: 7 })).toBe(
-			"default:tg:general:-100:7",
-		);
-		expect(requestIdOf(-100, 42)).toBe("tg:-100:42");
+	it("builds web chat keys", () => {
+		expect(webChatKey("default", "123")).toBe("default:web:123");
+		expect(webChatId("default", "default:web:123")).toBe("123");
+		expect(webChatId("default", "other:web:123")).toBeUndefined();
 	});
 
 	it("slugifies a bot name", () => {
@@ -465,18 +452,6 @@ describe("pure helpers", () => {
 			ok: false,
 			error: `body is at most ${MEMORY_BODY_MAX} bytes.`,
 		});
-	});
-
-	it("chunks long replies under Telegram's limit", () => {
-		const text = Array.from(
-			{ length: 300 },
-			(_, i) => `line ${i} ${"x".repeat(40)}`,
-		).join("\n");
-		const chunks = chunkText(text);
-		expect(chunks.length).toBeGreaterThan(1);
-		for (const chunk of chunks) expect(chunk.length).toBeLessThanOrEqual(4000);
-		expect(chunks.join("\n")).toBe(text);
-		expect(chunkText("short")).toEqual(["short"]);
 	});
 
 	it("pretty-prints structured logs to the configured stream", () => {

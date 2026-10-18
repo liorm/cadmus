@@ -6,7 +6,6 @@ import {
 	loadModels,
 	loadToolCatalog,
 	readBotText,
-	setTelegramToken,
 	updateBot,
 	writeBotText,
 } from "./client.ts";
@@ -98,7 +97,6 @@ type FormSnap = {
 	modelId: string;
 	thinking: string;
 	tools: string;
-	token: string;
 	soul: string;
 };
 
@@ -135,7 +133,6 @@ export function BotDialog() {
 	const [catalog, setCatalog] = useState<{ group: string; name: string }[]>([]);
 	const catalogNames = useRef<string[]>([]);
 	const [selected, setSelected] = useState<Set<string>>(new Set());
-	const [token, setToken] = useState("");
 	const [soul, setSoul] = useState(editing ? "" : `${DEFAULT_SOUL}\n`);
 	const [soulReady, setSoulReady] = useState(!editing);
 	const [error, setError] = useState("");
@@ -154,7 +151,6 @@ export function BotDialog() {
 			modelId !== baseline.modelId ||
 			thinking !== baseline.thinking ||
 			toolKey(selected) !== baseline.tools ||
-			token !== baseline.token ||
 			soul !== baseline.soul);
 
 	const requestClose = () => {
@@ -192,7 +188,6 @@ export function BotDialog() {
 						modelId: keep,
 						thinking: initialThinking(false, current),
 						tools: toolKey(catalogNames.current),
-						token: "",
 						soul: `${DEFAULT_SOUL}\n`,
 					});
 				}
@@ -205,7 +200,6 @@ export function BotDialog() {
 				modelId: initial.modelId,
 				thinking: initialThinking(true, current),
 				tools: toolKey(catalogNames.current),
-				token: "",
 				soul: "",
 			});
 			void readBotText("SOUL.md")
@@ -274,18 +268,15 @@ export function BotDialog() {
 			.filter((name) => selected.has(name));
 		const model = `${provider}/${modelId}`;
 		const done = editing
-			? updateBot({ name, model, thinking, tools })
-					.then(() => writeBotText("SOUL.md", soul))
-					.then(() =>
-						token.trim() ? setTelegramToken(token.trim()) : undefined,
-					)
+			? updateBot({ name, model, thinking, tools }).then(() =>
+					writeBotText("SOUL.md", soul),
+				)
 			: createBot({
 					name,
 					model,
 					thinking,
 					tools,
 					soul,
-					...(token.trim() ? { token: token.trim() } : {}),
 				});
 		void done
 			.then(() => (modal.value = null))
@@ -434,40 +425,6 @@ export function BotDialog() {
 								);
 							})}
 						</div>
-					</div>
-					<div class="f">
-						<label>
-							Telegram token
-							<input
-								class="inp"
-								type="password"
-								autocomplete="off"
-								placeholder={
-									editing && current?.telegramConfigured
-										? "Configured"
-										: "Not configured"
-								}
-								value={token}
-								onInput={(event) =>
-									setToken((event.currentTarget as HTMLInputElement).value)
-								}
-							/>
-						</label>
-						{editing ? (
-							<div class="actions">
-								<button
-									type="button"
-									class="btn ghost"
-									onClick={() =>
-										void setTelegramToken(null)
-											.then(() => setToken(""))
-											.catch((caught: Error) => setError(caught.message))
-									}
-								>
-									Clear
-								</button>
-							</div>
-						) : null}
 					</div>
 					<div class="f">
 						<label>

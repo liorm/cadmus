@@ -6,7 +6,6 @@ import {
 	join,
 	relative,
 	resolve,
-	sep,
 } from "node:path";
 import type { Context } from "@earendil-works/chord";
 import type { EnvTarget } from "@earendil-works/pi-durable";
@@ -18,7 +17,6 @@ import {
 	type Result,
 } from "@earendil-works/pi-durable/env";
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
-import { ChatsDoc } from "../channels/telegram/chats.ts";
 
 function outside(root: string, candidate: string): boolean {
 	const rel = relative(root, candidate);
@@ -62,47 +60,27 @@ function refused(path: string): Result<string, FileError> {
 
 /**
  * Map a path the inner env already made absolute from the bot root.
- * `disk/…` becomes `users/<userId>/disk/…`. Another user's `users/` tree is refused, and so is anything outside the folder.
+ * Refuses anything outside the folder.
  */
 async function resolveInside(
 	inner: NodeExecutionEnv,
 	root: string,
-	userId: number | undefined,
 	path: string,
 	context: Context,
 ): Promise<Result<string, FileError>> {
 	const lexical = await inner.absolutePath(path, context);
 	if (!lexical.ok) return lexical;
-	let rel = relative(root, lexical.value);
+	const rel = relative(root, lexical.value);
 	if (outside(root, lexical.value)) return refused(path);
-	const diskPrefix = `disk${sep}`;
-	if (rel === "disk" || rel.startsWith(diskPrefix)) {
-		if (userId === undefined) return refused(path);
-		const rest = rel === "disk" ? "" : rel.slice(diskPrefix.length);
-		rel = rest
-			? join("users", String(userId), "disk", rest)
-			: join("users", String(userId), "disk");
-	}
-	const usersPrefix = `users${sep}`;
-	if (rel === "users" || rel.startsWith(usersPrefix)) {
-		const own =
-			userId === undefined ? undefined : join("users", String(userId));
-		const self =
-			own !== undefined && (rel === own || rel.startsWith(own + sep));
-		if (!self) return refused(path);
-	}
 	const full = join(root, rel);
 	if (!(await staysInside(root, full))) return refused(path);
 	return { ok: true, value: full };
 }
 
-function botExecutionEnv(
-	root: string,
-	userId: number | undefined,
-): ExecutionEnv {
+function botExecutionEnv(root: string): ExecutionEnv {
 	const inner = new NodeExecutionEnv({ cwd: root });
 	const resolvePath = (path: string, context: Context) =>
-		resolveInside(inner, root, userId, path, context);
+		resolveInside(inner, root, path, context);
 	return new Proxy(inner, {
 		get(target, prop, receiver) {
 			if (prop === "absolutePath")
@@ -152,17 +130,13 @@ function botExecutionEnv(
 	}) as ExecutionEnv;
 }
 
-/** `HarnessOptions.env`: no agent cwd means no env. `userId` comes from the chat of this conversation. */
+/** `HarnessOptions.env`: no agent cwd means no env. */
 export function botEnv(): (
 	target: EnvTarget,
 	context: Context,
 ) => Promise<ExecutionEnv | undefined> {
-	return async (target, context) => {
+	return async (target) => {
 		if (!target.cwd) return undefined;
-		const chats = await target.read.snapshot(ChatsDoc, context);
-		const userId = chats?.items.find(
-			(chat) => chat.conversationId === target.conversationId,
-		)?.userId;
-		return botExecutionEnv(target.cwd, userId);
+		return botExecutionEnv(target.cwd);
 	};
 }

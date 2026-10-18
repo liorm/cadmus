@@ -6,13 +6,12 @@ import {
 	type Harness,
 	LiveDoc,
 } from "@earendil-works/pi-durable";
-import { chatFields, getLogger } from "../../log.ts";
+import { chatFields, getLogger } from "../log.ts";
 import type { ChatRecord } from "./chats.ts";
-import { type Deliverer, DeliveriesDoc } from "./deliver.ts";
 
 /** Commands already handled, by request key, so a redelivered `/new` never resets twice. Bounded. */
 export const CommandsDoc = defineDoc<{ done: string[] }>({
-	kind: "pi-bot.telegram.commands",
+	kind: "pi-bot.commands",
 	version: 1,
 	scope: "session",
 	initial: () => ({ done: [] }),
@@ -24,7 +23,7 @@ export type Command = { name: string; args: string };
 export const HELP = `Commands:
 /new — start a fresh conversation (older messages stay stored but the model no longer sees them)
 /stop — stop the current answer
-/status — model, conversation and delivery status
+/status — model, conversation and busy status
 /help — this message`;
 
 const KNOWN = new Set(["new", "reset", "stop", "status", "help", "start"]);
@@ -32,7 +31,7 @@ const KNOWN = new Set(["new", "reset", "stop", "status", "help", "start"]);
 /** A command reply on a web chat. No `model` messages, so later prompts do not see it. */
 export const NoticeEntry = defineEntry<{ text: string }>("pi-bot.notice");
 
-/** `/name args` or `/name@Bot args`; undefined for plain text, unknown commands, or commands for another bot. */
+/** `/name args`; undefined for plain text or unknown commands. */
 export function parseCommand(
 	text: string | undefined,
 	botUsername?: string,
@@ -55,7 +54,6 @@ export function parseCommand(
 
 export type CommandContext = {
 	harness: Harness;
-	deliverer: Deliverer;
 	chat: ChatRecord;
 	requestKey: string;
 };
@@ -66,7 +64,7 @@ export type CommandContext = {
  */
 export async function handleCommand(
 	command: Command,
-	{ harness, deliverer, chat, requestKey }: CommandContext,
+	{ harness, chat, requestKey }: CommandContext,
 ) {
 	const fresh = await harness.commit(async (tx) => {
 		const commands = await tx.doc(CommandsDoc);
@@ -87,16 +85,14 @@ export async function handleCommand(
 	if (!conversation)
 		throw new Error(`Conversation of chat ${chat.key} is missing`);
 	const reply = (text: string) =>
-		chat.chatId === undefined
-			? conversation.submit(
-					{
-						type: "write",
-						requestId: `notice:${requestKey}`,
-						entry: { kind: NoticeEntry.kind, data: { text } },
-					},
-					BACKGROUND_CONTEXT,
-				)
-			: deliverer.notice(chat, requestKey, text);
+		conversation.submit(
+			{
+				type: "write",
+				requestId: `notice:${requestKey}`,
+				entry: { kind: NoticeEntry.kind, data: { text } },
+			},
+			BACKGROUND_CONTEXT,
+		);
 
 	switch (command.name) {
 		case "new":
@@ -122,18 +118,6 @@ export async function handleCommand(
 				chat.conversationId,
 				BACKGROUND_CONTEXT,
 			);
-			const receipts = Object.values(
-				(
-					await harness.snapshot(
-						DeliveriesDoc,
-						chat.conversationId,
-						BACKGROUND_CONTEXT,
-					)
-				)?.receipts ?? {},
-			);
-			const unknown = receipts.filter(
-				(receipt) => receipt.status === "unknown",
-			).length;
 			const model = agent?.model
 				? `${agent.model.provider}/${agent.model.modelId}`
 				: "(default)";
@@ -142,7 +126,6 @@ export async function handleCommand(
 					`Model: ${model}`,
 					`Conversation: ${chat.conversationId} (chat ${chat.key})`,
 					`Busy: ${live?.run ? "yes" : "no"}`,
-					`Replies sent: ${receipts.filter((receipt) => receipt.status === "sent").length}, unknown: ${unknown}`,
 				].join("\n"),
 			);
 			return;

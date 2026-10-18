@@ -5,8 +5,8 @@ import { mkdir, readFile, stat, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import type { App } from "../../src/app.ts";
-import { listChats } from "../../src/channels/telegram/chats.ts";
-import { CHAT, FakeEgress } from "../egress/fake-egress.ts";
+import { listChats } from "../../src/channels/chats.ts";
+import { FakeEgress } from "../egress/fake-egress.ts";
 import { routeEgress } from "../egress/route.ts";
 import {
 	defined,
@@ -175,10 +175,9 @@ describe("web channel", () => {
 			headers: { cookie: `token=${TOKEN}` },
 		});
 		const body = await authed.json();
-		expect(body).toEqual({ telegram: true });
+		expect(body).toEqual({ status: "ok" });
 		const encoded = JSON.stringify(body);
 		expect(encoded).not.toContain(TOKEN);
-		expect(encoded).not.toContain("123:test-token");
 		expect(encoded).not.toContain("test-api-key");
 
 		const door = await fetch(`${url}/?token=${TOKEN}`, { redirect: "manual" });
@@ -215,36 +214,6 @@ describe("web channel", () => {
 		expect(await (await call(url, "/app.js")).text()).toBe(scriptBefore);
 	});
 
-	it("runs the page with no general Telegram token and does not poll Telegram", async () => {
-		const { app, url } = await boot(undefined, {
-			TELEGRAM_BOT_TOKEN: undefined,
-		});
-		expect(await json<{ telegram: boolean }>(url, "/api/status")).toEqual({
-			telegram: false,
-		});
-		const key = await createWebChat(url);
-		const stream = readStream(url, key, "grok(1): hello");
-		await say(url, key, "hello");
-		expect(await stream).toContain("grok(1): hello");
-		await app.quiesce();
-		expect(egress.telegram.polls).toBe(0);
-		expect(egress.telegram.sent).toEqual([]);
-		expect(await (await call(url, "/app.js")).text()).toContain("/api/status");
-
-		const door = egress.telegramFor("999:door-token");
-		const saved = await call(url, "/api/bots/default/telegram", {
-			method: "PUT",
-			body: JSON.stringify({ token: "999:door-token" }),
-		});
-		expect(saved.status).toBe(200);
-		door.push("from the door");
-		await until(() => door.sent.length === 1, "the per-bot door to answer");
-		await app.quiesce();
-		expect(door.texts()).toEqual(["grok(1): from the door"]);
-		expect(egress.telegram.polls).toBe(0);
-		expect(egress.telegram.sent).toEqual([]);
-	});
-
 	it("streams one reply, and the same clientMsgId does not run again", async () => {
 		const { app, url } = await boot();
 		const key = await createWebChat(url);
@@ -253,7 +222,6 @@ describe("web channel", () => {
 		expect(await stream).toContain("grok(1): hello");
 		await app.quiesce();
 		expect(egress.xai.requests).toHaveLength(1);
-		expect(egress.telegram.sent).toEqual([]);
 
 		await say(url, key, "hello", "same-id");
 		await app.quiesce();
@@ -325,7 +293,6 @@ describe("web channel", () => {
 			"reply after stop",
 		);
 		await app.quiesce();
-		expect(egress.telegram.sent).toEqual([]);
 	});
 
 	it("two bots with different SOUL.md files produce different prompts", async () => {
@@ -379,54 +346,6 @@ describe("web channel", () => {
 				(body) => body.includes("SOUL-READER") && !body.includes("SOUL-WRITER"),
 			),
 		).toBe(true);
-	});
-
-	it("a web message into a Telegram chat sends one reply and shows it on the web", async () => {
-		const { app, url } = await boot();
-		egress.telegram.push("from telegram");
-		await until(() => egress.telegram.sent.length === 1, "telegram reply");
-		const key = `default:tg:general:${CHAT}`;
-		await say(url, key, "from the web");
-		await until(
-			() => egress.telegram.sent.length === 2,
-			"web-originated reply",
-		);
-		await settle(app, egress);
-		expect(egress.telegram.texts()).toEqual([
-			"grok(1): from telegram",
-			"grok(2): from the web",
-		]);
-		const transcript = await messages(url, key);
-		expect(
-			transcript.some(
-				(item) => item.type === "user" && item.text === "from the web",
-			),
-		).toBe(true);
-		expect(
-			transcript.some((item) => item.text === "grok(2): from the web"),
-		).toBe(true);
-		expect(egress.telegram.sent).toHaveLength(2);
-	});
-
-	it("telegram and web chats do not cross", async () => {
-		const { app, url } = await boot();
-		const key = await createWebChat(url);
-		egress.telegram.push("from telegram");
-		await say(url, key, "from the web");
-		await until(
-			() =>
-				egress.telegram.sent.length === 1 && egress.xai.requests.length === 2,
-			"both replies",
-		);
-		await settle(app, egress);
-		expect(egress.telegram.texts()).toEqual(["grok(1): from telegram"]);
-		const transcript = await messages(url, key);
-		expect(
-			transcript.some((item) => item.text === "grok(1): from the web"),
-		).toBe(true);
-		expect(
-			transcript.some((item) => item.text?.includes("from telegram")),
-		).toBe(false);
 	});
 
 	it("lists xai and faux models and stores a custom SOUL.md", async () => {
@@ -509,28 +428,18 @@ describe("web channel", () => {
 			}),
 		});
 		expect(patched.status).toBe(200);
-		egress.telegramFor("123:persona");
-		const door = await call(url, `/api/bots/${created.bot.id}/telegram`, {
-			method: "PUT",
-			body: JSON.stringify({ token: "123:persona" }),
-		});
-		expect(door.status).toBe(200);
 		const bots = await json<{
 			bots: {
 				id: string;
 				name: string;
 				model: string;
 				tools?: string[];
-				telegramConfigured?: boolean;
-				telegramToken?: string;
 			}[];
 		}>(url, "/api/bots");
 		const bot = bots.bots.find((item) => item.id === created.bot.id);
 		expect(bot?.name).toBe("Persona renamed");
 		expect(bot?.model).toBe("xai/grok-4.7");
 		expect(bot?.tools).toEqual(["web.search"]);
-		expect(bot?.telegramConfigured).toBe(true);
-		expect(bot?.telegramToken).toBeUndefined();
 		const rejected = await call(url, "/api/bots", {
 			method: "POST",
 			body: JSON.stringify({
@@ -812,10 +721,7 @@ describe("web channel", () => {
 		const { app, url } = await boot(undefined, {
 			PI_BOT_HARVEST_DELAY_MS: "60000",
 		});
-		egress.telegram.push("hi");
-		await until(() => egress.telegram.sent.length === 1, "the greeting reply");
-		await settle(app, egress);
-		const key = `default:tg:general:${CHAT}`;
+		const key = await createWebChat(url);
 		const created = await call(url, "/api/bots/default/schedules", {
 			method: "POST",
 			body: JSON.stringify({
@@ -827,17 +733,19 @@ describe("web channel", () => {
 		});
 		expect(created.status).toBe(201);
 		await until(
-			() =>
-				egress.telegram
-					.texts()
-					.some((text) => text.includes("remind the plumber")),
+			async () =>
+				(await messages(url, key)).some((text) =>
+					text.text?.includes("remind the plumber"),
+				),
 			"the reminder",
 		);
 		await settle(app, egress);
 		expect(
-			egress.telegram
-				.texts()
-				.filter((text) => text.includes("remind the plumber")),
+			(await messages(url, key)).filter(
+				(text) =>
+					text.type === "assistant" &&
+					text.text?.includes("remind the plumber"),
+			),
 		).toHaveLength(1);
 		const listed = await json<{ schedules: { id: string }[] }>(
 			url,
@@ -865,9 +773,11 @@ describe("web channel", () => {
 		);
 		await new Promise((resolve) => setTimeout(resolve, 300));
 		expect(
-			egress.telegram
-				.texts()
-				.filter((text) => text.includes("remind the plumber")),
+			(await messages(url, key)).filter(
+				(text) =>
+					text.type === "assistant" &&
+					text.text?.includes("remind the plumber"),
+			),
 		).toHaveLength(1);
 	});
 
@@ -875,10 +785,7 @@ describe("web channel", () => {
 		const { app, url } = await boot(undefined, {
 			PI_BOT_HARVEST_DELAY_MS: "86400000",
 		});
-		egress.telegram.push("hi");
-		await until(() => egress.telegram.sent.length === 1, "the greeting reply");
-		await settle(app, egress);
-		const key = `default:tg:general:${CHAT}`;
+		const key = await createWebChat(url);
 		const target = { mode: "chat", chatId: key };
 		const pausedWhen = Date.now() + 400;
 		const liveWhen = Date.now() + 1_200;
@@ -922,14 +829,18 @@ describe("web channel", () => {
 		});
 		await new Promise((resolve) => setTimeout(resolve, 200));
 		await app.quiesce();
-		expect(
-			egress.telegram.texts().some((text) => text.includes("paused ping")),
-		).toBe(false);
-		expect(
-			egress.telegram.texts().some((text) => text.includes("live ping")),
-		).toBe(false);
+		const midMessages = await messages(url, key);
+		expect(midMessages.some((item) => item.text?.includes("paused ping"))).toBe(
+			false,
+		);
+		expect(midMessages.some((item) => item.text?.includes("live ping"))).toBe(
+			false,
+		);
 		await until(
-			() => egress.telegram.texts().some((text) => text.includes("live ping")),
+			async () =>
+				(await messages(url, key)).some((item) =>
+					item.text?.includes("live ping"),
+				),
 			"the enabled schedule",
 		);
 		const resumed = await json<{
@@ -948,8 +859,10 @@ describe("web channel", () => {
 		expect(resumed.schedule.name).toBeUndefined();
 		expect(resumed.schedule.enabled).toBeUndefined();
 		await until(
-			() =>
-				egress.telegram.texts().some((text) => text.includes("paused ping")),
+			async () =>
+				(await messages(url, key)).some((item) =>
+					item.text?.includes("paused ping"),
+				),
 			"the re-enabled schedule",
 		);
 		await settle(app, egress);
@@ -980,7 +893,6 @@ describe("web channel", () => {
 		await say(url, key, "hello harvest");
 		const seen = await stream;
 		expect(seen).toContain("HARVEST_BODY_LINE");
-		expect(egress.telegram.sent).toEqual([]);
 		await app.quiesce();
 		const before = egress.xai.requests.length;
 		await say(url, key, "what changed?");
@@ -1184,10 +1096,7 @@ describe("web channel", () => {
 	it("fires a when reminder after a restart", async () => {
 		const home = await tempHome();
 		const first = await boot(home, { PI_BOT_HARVEST_DELAY_MS: "86400000" });
-		egress.telegram.push("hi");
-		await until(() => egress.telegram.sent.length === 1, "the greeting reply");
-		await settle(first.app, egress);
-		const key = `default:tg:general:${CHAT}`;
+		const key = await createWebChat(first.url);
 		const when = Date.now() + 800;
 		const created = await call(first.url, "/api/bots/default/schedules", {
 			method: "POST",
@@ -1203,17 +1112,19 @@ describe("web channel", () => {
 
 		const second = await boot(home, { PI_BOT_HARVEST_DELAY_MS: "86400000" });
 		await until(
-			() =>
-				egress.telegram
-					.texts()
-					.some((text) => text.includes("remind after restart")),
+			async () =>
+				(await messages(second.url, key)).some((text) =>
+					text.text?.includes("remind after restart"),
+				),
 			"the reminder after restart",
 		);
 		await settle(second.app, egress);
 		expect(
-			egress.telegram
-				.texts()
-				.filter((text) => text.includes("remind after restart")),
+			(await messages(second.url, key)).filter(
+				(text) =>
+					text.type === "assistant" &&
+					text.text?.includes("remind after restart"),
+			),
 		).toHaveLength(1);
 	}, 15_000);
 
@@ -1223,10 +1134,7 @@ describe("web channel", () => {
 			PI_BOT_HARVEST_DELAY_MS: "86400000",
 			PI_BOT_TZ: "UTC",
 		});
-		egress.telegram.push("hi");
-		await until(() => egress.telegram.sent.length === 1, "the greeting reply");
-		await settle(first.app, egress);
-		const key = `default:tg:general:${CHAT}`;
+		const key = await createWebChat(first.url);
 		const created = await call(first.url, "/api/bots/default/schedules", {
 			method: "POST",
 			body: JSON.stringify({
@@ -1244,18 +1152,20 @@ describe("web channel", () => {
 			PI_BOT_TZ: "UTC",
 		});
 		await until(
-			() =>
-				egress.telegram
-					.texts()
-					.some((text) => text.includes("cron after restart")),
+			async () =>
+				(await messages(second.url, key)).some((text) =>
+					text.text?.includes("cron after restart"),
+				),
 			"the cron after restart",
 			75_000,
 		);
 		await settle(second.app, egress);
 		expect(
-			egress.telegram
-				.texts()
-				.filter((text) => text.includes("cron after restart")),
+			(await messages(second.url, key)).filter(
+				(text) =>
+					text.type === "assistant" &&
+					text.text?.includes("cron after restart"),
+			),
 		).toHaveLength(1);
 	}, 90_000);
 
@@ -1311,43 +1221,6 @@ describe("web channel", () => {
 		const transcript = await messages(second.url, key);
 		expect(transcript.some((item) => item.type === "harvest")).toBe(true);
 	}, 15_000);
-
-	it("admits the general token and a bot token as separate chats without leaking the token", async () => {
-		const { app, url } = await boot();
-		const saved = await call(url, "/api/bots/default/telegram", {
-			method: "PUT",
-			body: JSON.stringify({ token: "999:door-token" }),
-		});
-		expect(saved.status).toBe(200);
-		expect(await saved.json()).toEqual({ telegramConfigured: true });
-		const bots = await json<{
-			bots: { id: string; telegramConfigured?: boolean }[];
-		}>(url, "/api/bots");
-		const encoded = JSON.stringify(bots);
-		expect(encoded).not.toContain("999:door-token");
-		expect(encoded).not.toContain("telegramToken");
-		expect(
-			bots.bots.find((bot) => bot.id === "default")?.telegramConfigured,
-		).toBe(true);
-
-		const door = egress.telegramFor("999:door-token");
-		door.push("from the door");
-		egress.telegram.push("from general");
-		await until(
-			() => door.sent.length === 1 && egress.telegram.sent.length === 1,
-			"both doors to answer",
-		);
-		await settle(app, egress);
-		const chats = await json<{ chats: { key: string }[] }>(
-			url,
-			"/api/bots/default/chats",
-		);
-		const keys = chats.chats.map((chat) => chat.key);
-		expect(keys).toContain(`default:tg:general:${CHAT}`);
-		expect(keys).toContain(`default:tg:bot:${CHAT}`);
-		expect(door.texts()).toEqual(["grok(1): from the door"]);
-		expect(egress.telegram.texts()).toEqual(["grok(1): from general"]);
-	});
 
 	it("keeps a renamed chat across restart and refuses a deleted one", async () => {
 		const home = await tempHome();

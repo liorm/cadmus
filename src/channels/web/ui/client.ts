@@ -17,7 +17,6 @@ import {
 	filePath,
 	files,
 	fileText,
-	generalTelegram,
 	type HarvestNote,
 	type Item,
 	type KnowledgeRecord,
@@ -76,18 +75,13 @@ export function boot(): void {
 	media.addEventListener("change", () => {
 		narrow.value = media.matches;
 	});
-	void Promise.all([loadBots(), loadStatus()])
+	void loadBots()
 		.then(() => {
 			if (botId.value) return loadChats();
 		})
 		.catch((error: Error) => {
 			banner.value = error.message;
 		});
-}
-
-async function loadStatus(): Promise<void> {
-	const body = await api<{ telegram?: boolean }>("/api/status");
-	generalTelegram.value = Boolean(body.telegram);
 }
 
 export async function loadBots(): Promise<void> {
@@ -374,21 +368,6 @@ export async function deleteSchedule(id: string): Promise<void> {
 	await loadSchedules();
 }
 
-export async function setTelegramToken(token: string | null): Promise<void> {
-	const body = await api<{ telegramConfigured: boolean }>(
-		`/api/bots/${encodeURIComponent(botId.value)}/telegram`,
-		{
-			method: "PUT",
-			body: JSON.stringify({ token }),
-		},
-	);
-	bots.value = bots.value.map((bot) =>
-		bot.id === botId.value
-			? { ...bot, telegramConfigured: body.telegramConfigured }
-			: bot,
-	);
-}
-
 export async function renameChat(title: string): Promise<void> {
 	const key = chatKey.value;
 	if (!key) return;
@@ -470,14 +449,11 @@ export async function createBot(input: {
 	thinking: string;
 	tools: string[];
 	soul: string;
-	token?: string;
 }): Promise<void> {
-	const { token, ...row } = input;
 	const body = await api<{ bot: Bot }>("/api/bots", {
 		method: "POST",
-		body: JSON.stringify(row),
+		body: JSON.stringify(input),
 	});
 	await loadBots();
 	await openBot(body.bot.id);
-	if (token) await setTelegramToken(token);
 }

@@ -1,191 +1,10 @@
-// One local HTTP server standing in for every egress API pi-bot talks to:
-//   /telegram/bot<token>/<method>   Telegram Bot API (getUpdates long polling, sendMessage, sendChatAction, getMe)
+// One local HTTP server standing in for egress APIs pi-bot talks to:
 //   /xai-api/v1/responses           xAI Responses API (Grok), streamed as SSE
 //   /xai-auth/oauth2/...            xAI OAuth (device code + token/refresh)
 // `routeEgress()` (in-process) or `preload.ts` (child processes) rewrites the real hosts to this server, so production
 // code runs unchanged down to `fetch`.
 
-export type TgUser = {
-	id: number;
-	first_name: string;
-	username?: string;
-	is_bot?: boolean;
-};
-export type TgUpdate = {
-	update_id: number;
-	message: {
-		message_id: number;
-		date: number;
-		chat: { id: number; type: string };
-		from: TgUser;
-		text: string;
-		message_thread_id?: number;
-		is_topic_message?: boolean;
-	};
-};
-export type SentMessage = {
-	chatId: number;
-	text: string;
-	threadId?: number;
-	messageId: number;
-};
-
-const LIVE = "lior";
-export const OWNER: TgUser = { id: 1, first_name: "Lior", username: LIVE };
-export const STRANGER: TgUser = { id: 999, first_name: "Eve", username: "eve" };
-export const CHAT = 100;
-
 const never = () => new Promise<never>(() => {});
-const tg = (result: unknown) => Response.json({ ok: true, result });
-const tgError = (code: number, description: string) =>
-	Response.json({ ok: false, error_code: code, description }, { status: code });
-
-export class FakeTelegram {
-	readonly updates: TgUpdate[] = [];
-	readonly sent: SentMessage[] = [];
-	readonly sendAttempts: { chatId: number; text: string }[] = [];
-	readonly typing: number[] = [];
-	/** Highest offset the bot has confirmed (every update below it was handled). */
-	confirmedOffset = 0;
-	polls = 0;
-	/** sendMessage never answers (the bot is killed mid-send). */
-	hangSend = false;
-	/** The next sendMessage fails with HTTP 500 after "maybe" delivering. */
-	failNextSend = false;
-	#redeliverAll = false;
-	#nextUpdateId = 1;
-	#nextMessageId = 1;
-	#nextSentId = 90_000;
-	#wake = new Set<() => void>();
-
-	/** A user writes in a chat. Returns the update. */
-	push(
-		text: string,
-		options: {
-			from?: TgUser;
-			chatId?: number;
-			threadId?: number;
-			chatType?: string;
-		} = {},
-	): TgUpdate {
-		const update: TgUpdate = {
-			update_id: this.#nextUpdateId++,
-			message: {
-				message_id: this.#nextMessageId++,
-				date: Math.floor(Date.now() / 1000),
-				chat: {
-					id: options.chatId ?? CHAT,
-					type:
-						options.chatType ??
-						(options.threadId === undefined && (options.chatId ?? CHAT) > 0
-							? "private"
-							: "supergroup"),
-				},
-				from: options.from ?? OWNER,
-				text,
-				...(options.threadId === undefined
-					? {}
-					: { message_thread_id: options.threadId, is_topic_message: true }),
-			},
-		};
-		this.updates.push(update);
-		this.#notify();
-		return update;
-	}
-
-	/** Telegram serves every known update again once, regardless of the confirmed offset (lost offset / restart). */
-	redeliverAll() {
-		this.#redeliverAll = true;
-		this.#notify();
-	}
-
-	/** Every pushed update has been confirmed via a later getUpdates offset, i.e. fully handled by the bot. */
-	drained(): boolean {
-		const last = this.updates.at(-1)?.update_id ?? 0;
-		return this.confirmedOffset > last && !this.#redeliverAll;
-	}
-
-	texts() {
-		return this.sent.map((message) => message.text);
-	}
-
-	#notify() {
-		for (const wake of this.#wake) wake();
-	}
-
-	async handle(
-		method: string,
-		params: Record<string, unknown>,
-	): Promise<Response> {
-		switch (method) {
-			case "getMe":
-				return tg({
-					id: 4242,
-					is_bot: true,
-					first_name: "pi-bot",
-					username: "pi_test_bot",
-				});
-			case "getUpdates": {
-				this.polls++;
-				const offset = typeof params.offset === "number" ? params.offset : 0;
-				if (offset > this.confirmedOffset) this.confirmedOffset = offset;
-				const deadline =
-					Date.now() + Math.min(Number(params.timeout ?? 0), 2) * 1000;
-				for (;;) {
-					if (this.#redeliverAll) {
-						this.#redeliverAll = false;
-						return tg(this.updates);
-					}
-					const ready = this.updates.filter(
-						(update) => update.update_id >= offset,
-					);
-					if (ready.length || Date.now() >= deadline) return tg(ready);
-					await new Promise<void>((resolve) => {
-						const wake = () => {
-							this.#wake.delete(wake);
-							clearTimeout(timer);
-							resolve();
-						};
-						const timer = setTimeout(wake, Math.max(10, deadline - Date.now()));
-						this.#wake.add(wake);
-					});
-				}
-			}
-			case "sendMessage": {
-				const chatId = Number(params.chat_id);
-				const text = String(params.text);
-				this.sendAttempts.push({ chatId, text });
-				if (this.hangSend) return never();
-				if (this.failNextSend) {
-					this.failNextSend = false;
-					return tgError(500, "Internal Server Error");
-				}
-				const messageId = this.#nextSentId++;
-				const threadId =
-					typeof params.message_thread_id === "number"
-						? params.message_thread_id
-						: undefined;
-				this.sent.push({
-					chatId,
-					text,
-					messageId,
-					...(threadId === undefined ? {} : { threadId }),
-				});
-				return tg({
-					message_id: messageId,
-					date: Math.floor(Date.now() / 1000),
-					chat: { id: chatId, type: "private" },
-					text,
-				});
-			}
-			case "sendChatAction":
-				this.typing.push(Number(params.chat_id));
-				return tg(true);
-			default:
-				return tgError(404, `Not Found: method ${method}`);
-		}
-	}
-}
 
 export type XaiRequest = {
 	authorization: string | null;
@@ -330,7 +149,7 @@ export class FakeXai {
 				{ status: failure.status },
 			);
 		}
-		await this.#held;
+		if (this.#held) await this.#held;
 		const turn = this.script.shift();
 		const seq = this.requests.length;
 		if (turn && "tool" in turn)
@@ -426,15 +245,9 @@ function toolEvents(
 	];
 }
 
-const GENERAL_TOKEN = "123:test-token";
-
 export class FakeEgress {
-	readonly telegram = new FakeTelegram();
 	readonly xai = new FakeXai();
 	readonly server: ReturnType<typeof Bun.serve>;
-	/** Token bound to `telegram` by the first getUpdates that was not pre-registered. */
-	#primary: string | undefined;
-	readonly #extra = new Map<string, FakeTelegram>();
 
 	readonly webCalls: {
 		path: string;
@@ -452,23 +265,6 @@ export class FakeEgress {
 			idleTimeout: 0,
 			fetch: async (request) => {
 				const url = new URL(request.url);
-				const tgMatch = /^\/telegram\/bot(.+)\/([A-Za-z]+)$/.exec(url.pathname);
-				if (tgMatch) {
-					const text = await request.text();
-					const params = text
-						? request.headers.get("content-type")?.includes("json")
-							? JSON.parse(text)
-							: Object.fromEntries(new URLSearchParams(text))
-						: {};
-					const tokenPart = tgMatch[1];
-					const method = tgMatch[2];
-					if (tokenPart === undefined || method === undefined)
-						return new Response("bad telegram path", { status: 599 });
-					return this.#telegramFor(decodeURIComponent(tokenPart)).handle(
-						method,
-						params,
-					);
-				}
 				if (url.pathname === "/xai-api/v1/responses")
 					return this.xai.handleResponses(request);
 				if (url.pathname === "/xai-api/v1/web/search")
@@ -486,31 +282,6 @@ export class FakeEgress {
 				);
 			},
 		});
-	}
-
-	/**
-	 * A second bot token gets its own update queue. The general test token stays on `telegram`
-	 * so a pre-registration cannot steal the queue the rest of the suite pushes into.
-	 */
-	telegramFor(token: string): FakeTelegram {
-		if (token === GENERAL_TOKEN || token === this.#primary)
-			return this.telegram;
-		let queue = this.#extra.get(token);
-		if (!queue) {
-			queue = new FakeTelegram();
-			this.#extra.set(token, queue);
-		}
-		return queue;
-	}
-
-	/** General queue plus any extra that actually received updates. An unused extra counts as drained. */
-	queuesDrained(): boolean {
-		if (!this.telegram.drained()) return false;
-		for (const queue of this.#extra.values()) {
-			if (queue.updates.length === 0) continue;
-			if (!queue.drained()) return false;
-		}
-		return true;
 	}
 
 	async #web(request: Request, kind: "search" | "fetch"): Promise<Response> {
@@ -541,21 +312,6 @@ export class FakeEgress {
 			url: body.url ?? "",
 			text: "fetched-body",
 		});
-	}
-
-	#telegramFor(token: string): FakeTelegram {
-		const extra = this.#extra.get(token);
-		if (extra) return extra;
-		if (token === GENERAL_TOKEN) {
-			this.#primary = GENERAL_TOKEN;
-			return this.telegram;
-		}
-		if (this.#primary === undefined) {
-			this.#primary = token;
-			return this.telegram;
-		}
-		if (token === this.#primary) return this.telegram;
-		return this.telegramFor(token);
 	}
 
 	get url() {

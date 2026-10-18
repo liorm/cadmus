@@ -52,4 +52,4 @@ After a user turn settles in a chat, the bot runtime arms a background `pi-bot.h
 
 If any phase after `wait` throws (and the task was not aborted), the task logs an error and returns to `wait` to retry after 5 seconds.
 
-Harvest notes are out-of-band session state (`pi-bot.harvest-notes`): they are shown as collapsible timeline items in the web UI, are never included in model prompts, and are never sent to Telegram. On process restart, each chat is checked once idle and armed if its latest entry is not yet in `completed[chatKey]`.
+Harvest notes are out-of-band session state (`pi-bot.harvest-notes`): they are shown as collapsible timeline items in the web UI, and are never included in model prompts. On process restart, each chat is checked once idle and armed if its latest entry is not yet in `completed[chatKey]`.

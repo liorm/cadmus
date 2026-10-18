@@ -32,8 +32,6 @@ export type BotRecord = {
 	 * An empty list means every tool is off.
 	 */
 	tools?: string[];
-	/** Optional second Telegram door. Never returned by `GET /api/bots` and never placed in a prompt. */
-	telegramToken?: string;
 	/**
 	 * Ownerless conversation that owns this bot's schedule tasks.
 	 * Not a chat-directory row, and nothing is delivered from it.
@@ -42,17 +40,13 @@ export type BotRecord = {
 	createdAt: number;
 };
 
-/** What the page is allowed to see. The Telegram token stays on the stored row. */
-export type PublicBot = Omit<BotRecord, "telegramToken"> & {
-	telegramConfigured: boolean;
-};
+/** What the page is allowed to see. */
+export type PublicBot = BotRecord;
 
 export function publicBot(bot: BotRecord): PublicBot {
-	const { telegramToken: _token, ...rest } = bot;
 	return {
-		...rest,
-		...(rest.tools ? { tools: [...rest.tools] } : {}),
-		telegramConfigured: Boolean(bot.telegramToken),
+		...bot,
+		...(bot.tools ? { tools: [...bot.tools] } : {}),
 	};
 }
 
@@ -317,22 +311,6 @@ export async function ensureBotRoot(
 		});
 		bot.rootConversationId = root.id as unknown as number;
 		return root.id;
-	}, BACKGROUND_CONTEXT);
-}
-
-/** Store or clear the per-bot Telegram token. Returns the full row, token included. */
-export async function setTelegramToken(
-	harness: Harness,
-	id: string,
-	token: string | null,
-): Promise<BotRecord | undefined> {
-	return harness.commit(async (tx) => {
-		const bots = await tx.doc(BotsDoc);
-		const bot = bots.items.find((item) => item.id === id);
-		if (!bot) return undefined;
-		if (token) bot.telegramToken = token;
-		else delete bot.telegramToken;
-		return { ...bot, ...(bot.tools ? { tools: [...bot.tools] } : {}) };
 	}, BACKGROUND_CONTEXT);
 }
 

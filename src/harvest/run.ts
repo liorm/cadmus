@@ -11,7 +11,7 @@ import {
 	type TaskRuntime,
 } from "@earendil-works/pi-durable";
 import { BotsDoc, botDir, ensureBotRoot } from "../channels/bots.ts";
-import { listChats } from "../channels/telegram/chats.ts";
+import { listChats } from "../channels/chats.ts";
 import { getLogger } from "../log.ts";
 import { type AppServices, requireServices } from "../services.ts";
 import {

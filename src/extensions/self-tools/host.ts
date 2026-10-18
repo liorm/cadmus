@@ -9,7 +9,7 @@ import type {
 import { defineExtension, defineTool } from "@earendil-works/pi-durable";
 import type { Static, TSchema } from "typebox";
 import type { BotRecord } from "../../channels/bots.ts";
-import { ChatsDoc } from "../../channels/telegram/chats.ts";
+import { ChatsDoc } from "../../channels/chats.ts";
 import type { ScheduleService } from "../../schedules/service.ts";
 
 /**

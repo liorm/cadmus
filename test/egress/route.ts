@@ -1,6 +1,5 @@
 // Rewrites requests to real egress hosts onto a FakeEgress server. Anything else that leaves the process fails loudly.
 const ROUTES: [string, string][] = [
-	["https://api.telegram.org/", "/telegram/"],
 	["https://api.x.ai/", "/xai-api/"],
 	["https://auth.x.ai/", "/xai-auth/"],
 ];

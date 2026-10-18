@@ -1,16 +1,6 @@
 import { resolve } from "node:path";
 import { parseLogLevel } from "./log.ts";
 
-export type TelegramConfig = {
-	/** Absent when `TELEGRAM_BOT_TOKEN` is unset. The general door stays off; per-bot tokens still poll. */
-	readonly token?: string;
-	/** Bot API root, e.g. a local Bot API server; default https://api.telegram.org. */
-	readonly apiRoot?: string;
-	/** Numeric Telegram user IDs allowed to talk to the bot. Empty means nobody. */
-	readonly allowedUsers: ReadonlySet<number>;
-	readonly pollTimeoutSec: number;
-};
-
 export type WebConfig = {
 	readonly host: string;
 	readonly port: number;
@@ -23,30 +13,15 @@ export type WebConfig = {
 export type Config = {
 	/** Directory holding durable.sqlite, owner.lock, schedules.sqlite, and bots/. */
 	readonly home: string;
-	readonly telegram: TelegramConfig;
 	/** Absent when `WEB_TOKEN` is unset. The page does not listen. */
 	readonly web?: WebConfig;
 	readonly timeZone: string;
 	readonly logLevel: string;
-	/** How often every chat is swept for undelivered final answers (safety net; ms). */
-	readonly deliverySweepMs: number;
 	/** Idle time before a chat is forked to improve knowledge. Default 60 seconds. Not stored on the bot. */
 	readonly harvestDelayMs: number;
 	/** `PI_BOT_DEV=1` (`bun run dev`): wait for / signal a leftover owner.lock. */
 	readonly dev: boolean;
 };
-
-export function parseUserIds(raw: string | undefined): Set<number> {
-	const ids = new Set<number>();
-	for (const part of (raw ?? "").split(/[,\s]+/)) {
-		if (!part) continue;
-		const id = Number(part);
-		if (!Number.isSafeInteger(id))
-			throw new Error(`TELEGRAM_ALLOWED_USERS: not a numeric user id: ${part}`);
-		ids.add(id);
-	}
-	return ids;
-}
 
 /** `WEB_TOKEN` set means the page listens. An empty token leaves the web channel off. */
 export function webConfigFromEnv(
@@ -67,20 +42,12 @@ export function webConfigFromEnv(
 }
 
 export function configFromEnv(env: NodeJS.ProcessEnv = process.env): Config {
-	const timeout = Number(env.TELEGRAM_POLL_TIMEOUT_SEC ?? 30);
 	const web = webConfigFromEnv(env);
 	return {
 		home: resolve(env.PI_BOT_HOME ?? "./data"),
-		telegram: {
-			token: env.TELEGRAM_BOT_TOKEN?.trim() || undefined,
-			...(env.TELEGRAM_API_ROOT ? { apiRoot: env.TELEGRAM_API_ROOT } : {}),
-			allowedUsers: parseUserIds(env.TELEGRAM_ALLOWED_USERS),
-			pollTimeoutSec: Number.isFinite(timeout) && timeout >= 0 ? timeout : 30,
-		},
 		...(web ? { web } : {}),
 		timeZone: env.PI_BOT_TZ || Intl.DateTimeFormat().resolvedOptions().timeZone,
 		logLevel: parseLogLevel(env.LOG_LEVEL),
-		deliverySweepMs: Number(env.PI_BOT_DELIVERY_SWEEP_MS ?? 15_000),
 		harvestDelayMs: harvestDelayFromEnv(env),
 		dev: env.PI_BOT_DEV === "1",
 	};

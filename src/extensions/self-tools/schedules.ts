@@ -1,7 +1,7 @@
 import type { Context, JsonValue } from "@earendil-works/chord";
 import type { ToolExecutionApi } from "@earendil-works/pi-durable";
 import { Type } from "typebox";
-import { ChatsDoc } from "../../channels/telegram/chats.ts";
+import { ChatsDoc } from "../../channels/chats.ts";
 import { parseCron } from "../../schedules/cron.ts";
 
 function isHarvestId(id: string): boolean {

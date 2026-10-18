@@ -24,9 +24,9 @@ There is no separate polling timer loop. Saving an enabled schedule ensures a ba
 1. **`wait` phase.** Sleeps on the harness clock until `next_run`. If a schedule is disabled or removed, its task is aborted. If `reschedule` updates `next_run` while the task is in `wait`, the task is aborted and recreated at the new wake.
 2. **`run` phase.** Claims the occurrence in `schedules.sqlite` inside a single transaction (`claimOccurrence`): inserts `sched:<id>:<nextRun>` into `fires`, and if the row's `next_run` is still the claimed wake, deletes a `when` row or advances a `cron` row's `next_run` from `max(now, nextRun)`. A duplicate claim is a no-op.
 3. **Dispatch.**
-   - `chat`: calls `runtime.submit(chatId, requestId, text)`. Delivered to Telegram if the chat has a Telegram address.
+   - `chat`: calls `runtime.submit(chatId, requestId, text)`.
    - `new-chat`: calls `runtime.createChat` to open a new web chat on the bot, then `runtime.submit`.
-   - `fork`: forks the parent chat conversation at `at` (or its latest entry when omitted) into an ownerless child conversation and submits `text` into the child. The child is not added to the chat directory and is not delivered.
+   - `fork`: forks the parent chat conversation at `at` (or its latest entry when omitted) into an ownerless child conversation and submits `text` into the child. The child is not added to the chat directory.
 4. **Loop or finish.** After `run`, a `when` task completes; a `cron` task transitions back to `wait` and sleeps until the advanced `next_run`. On process restart, `harness.resume()` resumes existing `pi-bot.schedule` tasks.
 
 ## Self tools (`pi-bot.self`)

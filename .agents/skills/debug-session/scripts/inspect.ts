@@ -78,10 +78,9 @@ type Chat = {
 	botId: string;
 	conversationId: number;
 	title?: string;
-	userId?: string;
 };
 
-const chatsDoc = docs("pi-bot.telegram.chats")[0]?.value as
+const chatsDoc = docs("pi-bot.chats")[0]?.value as
 	| { items?: Chat[]; closed?: string[] }
 	| undefined;
 const chats = chatsDoc?.items ?? [];
@@ -168,10 +167,6 @@ for (const chat of picked) {
 	console.log(`open submissions ${subs.length}`);
 	for (const sub of subs)
 		console.log(`  sub ${sub.id} ${sub.status} ${sub.request_id ?? ""}`);
-	const deliveries = docs("pi-bot.telegram.deliveries").find(
-		(d) => d.owner === chat.conversationId,
-	);
-	console.log(`deliveries ${JSON.stringify(deliveries?.value ?? null)}`);
 	dumpHarvest(db, chat, join(home, "schedules.sqlite"));
 }
 

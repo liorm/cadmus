@@ -10,8 +10,10 @@ import type { App } from "../src/app.ts";
 import { FakeEgress } from "../test/egress/fake-egress.ts";
 import { routeEgress } from "../test/egress/route.ts";
 import {
+	createWebChat,
 	defined,
 	seedBot,
+	sendWebMessage,
 	settle,
 	startBot,
 	tempHome,
@@ -81,11 +83,9 @@ describe.skipIf(!browser)("bot dialog tool toggles", () => {
 		expect(tools.enabled).not.toContain("web.search");
 		expect(tools.enabled).toContain("web.fetch");
 		egress.xai.script.push({ text: "hello back" });
-		egress.telegram.push("hello");
-		await until(
-			() => egress.telegram.texts().includes("hello back"),
-			"the reply",
-		);
+		const chat = await createWebChat(url);
+		await sendWebMessage(url, chat, "hello");
+		await until(() => egress.xai.requests.length >= 1, "the reply");
 		await settle(app, egress);
 		const offered = JSON.stringify(
 			defined(egress.xai.requests[0], "request").body,
@@ -94,7 +94,6 @@ describe.skipIf(!browser)("bot dialog tool toggles", () => {
 		expect(offered).not.toContain('"type":"web_search"');
 		expect(offered).toContain('"name":"web.fetch"');
 		expect(offered).toContain('"type":"x_search"');
-		expect(egress.telegram.texts()).toContain("hello back");
 		await page.close();
 		await app.stop();
 		unroute();

@@ -24,7 +24,6 @@ import {
 	chats,
 	contextPercent,
 	draft,
-	generalTelegram,
 	type HarvestNote,
 	type Item,
 	liveTools,
@@ -107,13 +106,7 @@ function Side() {
 	return (
 		<aside class="side">
 			<div class="bh">
-				<div class="n">
-					{bot?.name ?? "Bot"}{" "}
-					{bot?.telegramConfigured ||
-					(bot?.id === "default" && generalTelegram.value) ? (
-						<span class="tg">TG</span>
-					) : null}
-				</div>
+				<div class="n">{bot?.name ?? "Bot"}</div>
 				<div class="m">
 					{bot
 						? `${bot.id} · ${bot.model}${bot.thinking ? ` · ${bot.thinking}` : ""}`

@@ -8,12 +8,10 @@ export type Bot = {
 	thinking: string;
 	tools?: string[];
 	createdAt: number;
-	telegramConfigured?: boolean;
 };
 export type Chat = {
 	key: string;
 	botId?: string;
-	telegram: boolean;
 	title?: string;
 	/** First user message, when the chat has no stored title. */
 	opening?: string;
@@ -88,8 +86,6 @@ export type ScheduleRow = {
 	target: { mode: "chat" | "new-chat" | "fork"; chatId?: string };
 } & ({ kind: "cron"; cron: string } | { kind: "when"; when: number });
 
-/** General env door (`TELEGRAM_BOT_TOKEN`). Separate from a token stored on a bot. */
-export const generalTelegram = signal(false);
 export const bots = signal<Bot[]>([]);
 export const botId = signal("");
 export const chats = signal<Chat[]>([]);
