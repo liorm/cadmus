@@ -687,7 +687,8 @@ describe("web channel", () => {
 		expect(script).toContain("Can't save");
 		expect(script).toContain("Description");
 		expect(script).toContain("Version");
-		expect(script).toContain("Run now");
+		expect(script).not.toContain("Run now");
+		expect(script).not.toContain("/run");
 		expect(script).toContain("New schedule");
 		expect(script).toContain("/status");
 		const css = await (await call(url, "/app.css")).text();

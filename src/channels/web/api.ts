@@ -160,9 +160,6 @@ export async function handleApi(
 		if (request.method === "PUT") return replaceSchedule(request, deps, id);
 		if (request.method === "DELETE") return deleteSchedule(deps, id);
 	}
-	const run = /^\/api\/schedules\/([^/]+)\/run$/.exec(path);
-	if (run?.[1] && request.method === "POST")
-		return runSchedule(deps, decodeURIComponent(run[1]));
 
 	const chat = /^\/api\/chats\/([^/]+)$/.exec(path);
 	if (chat?.[1]) {
@@ -697,18 +694,6 @@ async function deleteSchedule(deps: WebDeps, id: string): Promise<Response> {
 	if (!existing)
 		return Response.json({ error: "No such schedule." }, { status: 404 });
 	await deps.schedules.remove(id);
-	return Response.json({ ok: true });
-}
-
-/** Pull the wake to now. The sleeping task dispatches. Nothing runs inline. */
-async function runSchedule(deps: WebDeps, id: string): Promise<Response> {
-	if (isHarvestId(id))
-		return Response.json({ error: "No such schedule." }, { status: 404 });
-	const result = await deps.schedules.reschedule(id, { when: Date.now() });
-	if (result === "missing")
-		return Response.json({ error: "No such schedule." }, { status: 404 });
-	if (result === "invalid")
-		return Response.json({ error: "When is not a time." }, { status: 422 });
 	return Response.json({ ok: true });
 }
 

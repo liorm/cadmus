@@ -51,7 +51,7 @@ A per-bot door has its own transport. Sends for `:tg:bot:` keys use that transpo
 
 ## A schedule fire
 
-Saving an enabled row creates a background `pi-bot.schedule` task on the bot's root conversation. The task sleeps until `nextRun`. `POST /api/schedules/:id/run` only pulls that wake to now. The task claims `sched:<id>:<nextRun>` in `fires` before it dispatches. A second claim of that occurrence does nothing. A `put` or `reschedule` that lands while the occurrence is in progress leaves the claimed occurrence running and changes only what happens next.
+Saving an enabled row creates a background `pi-bot.schedule` task on the bot's root conversation. The task sleeps until `nextRun`. The task claims `sched:<id>:<nextRun>` in `fires` before it dispatches. A second claim of that occurrence does nothing. A `put` or `reschedule` that lands while the occurrence is in progress leaves the claimed occurrence running and changes only what happens next.
 
 The row shape is in [schedules](./model.md#schedules).
 
