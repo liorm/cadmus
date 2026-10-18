@@ -73,13 +73,13 @@ export async function resolveSelfScope(
 
 export function toolError(message: string): ToolExecutionResult {
 	return {
-		content: [{ type: "text", text: message }],
+		output: [{ type: "text", text: message }],
 		isError: true,
 	};
 }
 
 export function toolText(text: string): ToolExecutionResult {
-	return { content: [{ type: "text", text }] };
+	return { output: [{ type: "text", text }] };
 }
 
 /** One model-facing operation on the current bot. Writes must stay idempotent when replayed. */

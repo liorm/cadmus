@@ -54,14 +54,14 @@ The host (`startApp`) owns the process:
 - **Bot runtimes.** One in-process handle per bot, all on that harness.
 - **Deliverer.** Telegram sends, with receipts. The receipt rule is in [data flow](./architecture/flow.md).
 - **Pollers.** One long-poll loop per Telegram door.
-- **Schedule manager.** Sidecar store (`schedules.sqlite`), an in-process clock, and fire dispatch. `fire(id)` is the only dispatch entry (the clock, `POST /api/schedules/:id/fire`, tests). Chat and new-chat fires go through a runtime. Fork and harvest stay with the storage owner. A later central clock (Durable Object alarm, cron, another process) ticks and calls `fire`; it does not open `durable.sqlite`.
+- **Schedule manager.** Sidecar catalog (`schedules.sqlite`). Each enabled row has one background `pi-bot.schedule` task on that bot's root conversation. The task sleeps until `nextRun` on the harness clock. Chat and new-chat runs go through a runtime. There is no separate clock and no fire endpoint. Idle harvest is a separate task the bot runtime arms and cancels.
 - **HTTP channel.** The API a client uses, plus the bundled page when a web credential is set. Resources are in the [client surface](./architecture/client.md).
 
-Session services stay on the host. A bot runtime is not the lock, the deliverer, the poller, the clock, or the HTTP server.
+Session services stay on the host. A bot runtime is not the lock, the deliverer, the poller, the schedule catalog, or the HTTP server.
 
 ### Bot runtime
 
-Doors admit user text through `BotRuntime`. So do `chat` and `new-chat` schedule fires. A `fork` fire, including idle harvest, loads the parent conversation and submits into the child on its own. That child is not a chat-directory row and is not delivered. The paths are in [data flow](./architecture/flow.md).
+Doors admit user text through `BotRuntime`. So do `chat` and `new-chat` schedule runs. Idle harvest loads the parent conversation and submits into a child owned by the schedule task. That child is not a chat-directory row and is not delivered. The paths are in [data flow](./architecture/flow.md).
 
 - `submit` admits text on an existing chat and returns when that admission is durable. The reply is delivered in the background.
 - `listChats` and `createChat` are the chat directory for that bot. `createChat` finds an existing chat or opens an ownerless conversation, configures it, and records the row in one commit.

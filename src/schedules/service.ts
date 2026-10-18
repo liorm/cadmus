@@ -1,12 +1,16 @@
-import type { Harness, RegistryReader } from "@earendil-works/pi-durable";
-import { now as clockNow } from "../clock.ts";
+import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
+import type {
+	Harness,
+	RegistryReader,
+	TaskId,
+} from "@earendil-works/pi-durable";
+import { ensureBotRoot } from "../channels/bots.ts";
 import { getLogger } from "../log.ts";
 import type { BotRuntime } from "../runtime.ts";
+import type { AppServices } from "../services.ts";
 import { nextCron, parseCron } from "./cron.ts";
-import { dispatchFire } from "./dispatch.ts";
-import { isHarvestId } from "./ids.ts";
 import { createSqliteScheduleStore, type StoredSchedule } from "./store.ts";
-import { createScheduleTimer } from "./timer.ts";
+import { ScheduleTask } from "./task.ts";
 
 export type ScheduleTarget =
 	| { mode: "chat"; chatId: string; at?: number }
@@ -46,33 +50,26 @@ export type ScheduleService = {
 	remove(id: string): Promise<void>;
 	get(id: string): Promise<Schedule | undefined>;
 	list(botId?: string): Promise<Schedule[]>;
-	/** Run one due row now. A future row runs only when `force` is set. */
-	fire(
-		id: string,
-		options?: { force?: boolean },
-	): Promise<"fired" | "duplicate" | "missing" | "skipped">;
-	start(): void;
 	stop(): Promise<void>;
 	idle(): Promise<void>;
 };
 
-/** How long to wait before retrying a harvest fire that threw. */
-export const HARVEST_RETRY_MS = 5_000;
-
 /**
- * Host-facing manager: sidecar store, in-process clock, and fire dispatch.
- * `fire` is the only dispatch entry (clock, HTTP `/fire`, tests).
+ * Host-facing catalog. Each enabled row has one background `pi-bot.schedule`
+ * task. The harness sleeps until `nextRun`. There is no separate clock.
  */
 export function createScheduleService(options: {
 	home: string;
 	timeZone: string;
+	services: AppServices;
 	harness: Harness;
 	registry: RegistryReader;
 	runtime(botId: string): BotRuntime | undefined;
-	now?: () => number;
+	/** Same clock passed to the harness. */
+	now(): number;
 }): ScheduleService {
 	const store = createSqliteScheduleStore(options.home);
-	const now = () => options.now?.() ?? clockNow();
+	const now = () => options.now();
 	let tail: Promise<void> = Promise.resolve();
 
 	const track = (work: Promise<void>) => {
@@ -99,70 +96,69 @@ export function createScheduleService(options: {
 		return next;
 	};
 
-	const advanceUser = (row: StoredSchedule): boolean => {
-		const requestId = `sched:${row.id}:${row.nextRun}`;
-		const fields = row.cron ? parseCron(row.cron) : undefined;
-		const cronNext = fields
-			? nextCron(fields, Math.max(now(), row.nextRun), options.timeZone)
-			: undefined;
-		return store.claimOccurrence(row, requestId, cronNext);
+	options.services.catalog = {
+		get: (id) => store.get(id),
+		setNextRun: (id, nextRun) => {
+			store.setNextRun(id, nextRun);
+		},
+		setTaskId: (id, taskId) => {
+			store.setTaskId(id, taskId);
+		},
+		remove: (id) => {
+			store.remove(id);
+		},
+		claim: (row, requestId, cronNext) =>
+			store.claimOccurrence(row, requestId, cronNext),
 	};
+	options.services.track = track;
+	options.services.idle = () => thisIdle();
 
-	async function fireRow(
-		row: StoredSchedule,
-		force: boolean,
-	): Promise<"fired" | "duplicate" | "skipped"> {
-		if (!force && row.nextRun > now()) return "skipped";
-		const schedule = fromStored(row);
-		if (isHarvestId(row.id)) {
-			const at =
-				schedule.target.mode === "fork" ? schedule.target.at : undefined;
-			const requestId = `sched:${row.id}:${at ?? row.nextRun}`;
-			try {
-				await dispatchFire({
-					schedule,
-					requestId,
-					harness: options.harness,
-					home: options.home,
-					registry: options.registry,
-					runtime: options.runtime,
-				});
-			} catch (error) {
-				getLogger().error("harvest fire failed; will retry", {
-					error,
-					harvest: row.id,
-				});
-				store.setNextRun(row.id, now() + HARVEST_RETRY_MS);
-				return "skipped";
-			}
-			store.remove(row.id);
-			return "fired";
-		}
-		const admitted = advanceUser(row);
-		if (!admitted) return "duplicate";
-		const requestId = `sched:${row.id}:${row.nextRun}`;
-		await dispatchFire({
-			schedule,
-			requestId,
-			harness: options.harness,
-			home: options.home,
-			registry: options.registry,
-			runtime: options.runtime,
-		});
-		return "fired";
+	async function thisIdle(): Promise<void> {
+		let current: Promise<void>;
+		do {
+			current = tail;
+			await current;
+		} while (current !== tail);
 	}
 
-	const timer = createScheduleTimer({
-		now,
-		dueIds: (at) => store.due(at).map((row) => row.id),
-		nextRunAfter: (at) => store.nextAfter(at)?.nextRun,
-		async fire(id) {
-			const row = store.get(id);
-			if (!row) return;
-			await fireRow(row, false);
-		},
-		track,
-	});
+	async function abortTask(taskId: string | null): Promise<void> {
+		if (!taskId) return;
+		await options.harness.abortTask(
+			Number(taskId) as TaskId,
+			BACKGROUND_CONTEXT,
+		);
+	}
+
+	async function ensureTask(row: StoredSchedule): Promise<void> {
+		if (!row.enabled) {
+			await abortTask(row.taskId);
+			store.setTaskId(row.id, null);
+			return;
+		}
+		if (row.taskId) {
+			const live = await options.harness.getTask(
+				Number(row.taskId) as TaskId,
+				BACKGROUND_CONTEXT,
+			);
+			if (live && live.state.status !== "terminal") return;
+		}
+		const root = await ensureBotRoot(options.harness, row.botId);
+		if (!root) throw new ScheduleRejected("No such bot.");
+		const taskId = await options.harness.commit(
+			(tx) =>
+				tx.createTask(
+					ScheduleTask,
+					{ scheduleId: row.id },
+					{
+						ownership: { kind: "conversation" },
+						conversationId: root,
+						background: true,
+					},
+				),
+			BACKGROUND_CONTEXT,
+		);
+		store.setTaskId(row.id, String(taskId));
+	}
 
 	return {
 		nextRun(schedule) {
@@ -175,7 +171,14 @@ export function createScheduleService(options: {
 			const outcome = store.put(toStored(schedule, nextRun), {
 				ifExists: putOptions?.ifExists,
 			});
-			timer.wake();
+			if (outcome === "exists") return outcome;
+			try {
+				const row = store.get(schedule.id);
+				if (row) await ensureTask(row);
+			} catch (error) {
+				if (outcome === "created") store.remove(schedule.id);
+				throw error;
+			}
 			return outcome;
 		},
 		async reschedule(id, when) {
@@ -194,12 +197,28 @@ export function createScheduleService(options: {
 			}
 			const moved = store.setNextRun(id, nextRun);
 			if (!moved) return "missing";
-			timer.wake();
+			const row = store.get(id);
+			if (row?.taskId) {
+				const live = await options.harness.getTask(
+					Number(row.taskId) as TaskId,
+					BACKGROUND_CONTEXT,
+				);
+				const phase =
+					live && "checkpoint" in live.state
+						? (live.state.checkpoint as { phase?: string }).phase
+						: undefined;
+				if (phase === "wait") {
+					await abortTask(row.taskId);
+					const fresh = store.get(id);
+					if (fresh) await ensureTask(fresh);
+				}
+			}
 			return "rescheduled";
 		},
 		async remove(id) {
+			const existing = store.get(id);
 			store.remove(id);
-			timer.wake();
+			await abortTask(existing?.taskId ?? null);
 		},
 		async get(id) {
 			const row = store.get(id);
@@ -208,36 +227,7 @@ export function createScheduleService(options: {
 		async list(botId) {
 			return store.list(botId).map(fromStored);
 		},
-		async fire(id, fireOptions) {
-			const row = store.get(id);
-			if (!row) return "missing";
-			const outcome = fireRow(row, fireOptions?.force === true);
-			track(
-				outcome.then(
-					() => {},
-					() => {},
-				),
-			);
-			return outcome;
-		},
-		start() {
-			timer.start();
-			const at = now();
-			const due = store.due(at);
-			const next = store.nextAfter(at);
-			if (due.length === 0 && !next) return;
-			getLogger().debug("schedule clock resumed", {
-				due: due.length,
-				...(next
-					? {
-							next: next.id,
-							delayMs: Math.max(0, next.nextRun - at),
-						}
-					: {}),
-			});
-		},
 		async stop() {
-			timer.stop();
 			await this.idle();
 			store.close();
 		},
@@ -263,6 +253,7 @@ function toStored(schedule: Schedule, nextRun: number): StoredSchedule {
 		targetJson: JSON.stringify(schedule.target),
 		name: schedule.name?.trim() ? schedule.name.trim() : null,
 		enabled: schedule.enabled !== false,
+		taskId: null,
 	};
 }
 

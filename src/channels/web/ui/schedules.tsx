@@ -1,10 +1,5 @@
 import { useState } from "preact/hooks";
-import {
-	deleteSchedule,
-	loadSchedules,
-	runSchedule,
-	saveSchedule,
-} from "./client.ts";
+import { deleteSchedule, loadSchedules, saveSchedule } from "./client.ts";
 import { ConfirmDialog } from "./confirm.tsx";
 import {
 	banner,
@@ -264,19 +259,6 @@ function Editor({ draft }: { draft: Draft }) {
 				) : (
 					<span />
 				)}
-				{draft.id ? (
-					<button
-						type="button"
-						class="btn"
-						onClick={() => {
-							const id = draft.id;
-							if (!id) return;
-							void runSchedule(id).catch(show);
-						}}
-					>
-						Run now
-					</button>
-				) : null}
 				<button
 					type="button"
 					class="btn pri"

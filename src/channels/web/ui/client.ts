@@ -374,15 +374,6 @@ export async function deleteSchedule(id: string): Promise<void> {
 	await loadSchedules();
 }
 
-export async function runSchedule(id: string): Promise<void> {
-	await api(`/api/schedules/${encodeURIComponent(id)}/fire`, {
-		method: "POST",
-		body: "{}",
-	});
-	await loadChats();
-	await loadSchedules();
-}
-
 export async function setTelegramToken(token: string | null): Promise<void> {
 	const body = await api<{ telegramConfigured: boolean }>(
 		`/api/bots/${encodeURIComponent(botId.value)}/telegram`,

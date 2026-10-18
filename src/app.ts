@@ -26,19 +26,16 @@ import { checkModel, parseModelRef } from "./harness/models.ts";
 import { buildRegistry } from "./harness/registry.ts";
 import { runStartup } from "./harness/startup.ts";
 import { DEV_LOCK_WAIT_MS, openOwnedStorage } from "./harness/storage.ts";
+import { HarvestNotesDoc } from "./harvest/notes.ts";
+import { armIdleHarvest } from "./harvest/run.ts";
 import { getLogger } from "./log.ts";
-import {
-	type BotRuntime,
-	createBotRuntime,
-	type TurnHooks,
-} from "./runtime.ts";
-import {
-	armHarvest,
-	armIdleHarvest,
-	HarvestNotesDoc,
-	harvestId,
-} from "./schedules/harvest.ts";
+import { type BotRuntime, createBotRuntime } from "./runtime.ts";
 import { createScheduleService } from "./schedules/service.ts";
+import {
+	type AppServices,
+	appContext,
+	type ScheduleCatalog,
+} from "./services.ts";
 
 export type AppOptions = {
 	config: Config;
@@ -82,18 +79,31 @@ export async function startApp({
 		config.dev ? { waitMs: DEV_LOCK_WAIT_MS, stealAfterWait: true } : undefined,
 	);
 	let harness: Harness;
+	const now = () => Date.now();
 	const self: SelfHost = { home: config.home };
 	const { registry } = buildRegistry({
 		home: config.home,
 		timeZone: config.timeZone,
 		self,
 	});
+	const services: AppServices = {
+		home: config.home,
+		timeZone: config.timeZone,
+		registry,
+		harvestDelayMs: config.harvestDelayMs,
+		harness: undefined as unknown as Harness,
+		runtime: () => undefined,
+		catalog: undefined as unknown as ScheduleCatalog,
+		track: () => {},
+		idle: async () => {},
+	};
 	try {
 		harness = await Harness.open(
 			storage,
 			{
 				models,
 				registry,
+				now,
 				env: botEnv(),
 				settings: {
 					// Messages that arrive mid-run all join it at the next boundary.
@@ -104,8 +114,9 @@ export async function startApp({
 				onReport: (error) =>
 					getLogger().warn("pi-durable extension report", { error }),
 			},
-			BACKGROUND_CONTEXT,
+			appContext(services),
 		);
+		services.harness = harness;
 	} catch (error) {
 		await storage.close(BACKGROUND_CONTEXT).catch(() => {});
 		await lock.release();
@@ -117,7 +128,6 @@ export async function startApp({
 		registry,
 	});
 	const deliverer = new Deliverer(harness, transport);
-	const hooks: TurnHooks = {};
 	const runtimes = new Map<string, BotRuntime>();
 	const addRuntime = (bot: BotRecord) => {
 		const existing = runtimes.get(bot.id);
@@ -131,7 +141,7 @@ export async function startApp({
 			deliverer,
 			bot,
 			home: config.home,
-			hooks,
+			services,
 		});
 		runtimes.set(bot.id, created);
 		return created;
@@ -153,33 +163,20 @@ export async function startApp({
 	await harness.commit(async (tx) => {
 		await tx.doc(HarvestNotesDoc);
 	}, BACKGROUND_CONTEXT);
+	services.runtime = (id) => runtimes.get(id);
 	const schedules = createScheduleService({
 		home: config.home,
 		timeZone: config.timeZone,
+		services,
 		harness,
 		registry,
 		runtime: (id) => runtimes.get(id),
+		now,
 	});
 	self.schedules = schedules;
 	self.harness = harness;
 	self.onBot = addRuntime;
 	harness.resume();
-	hooks.onInput = (chatKey) => {
-		getLogger().debug("dropping harvest wake on new input", { chat: chatKey });
-		return schedules.remove(harvestId(chatKey));
-	};
-	hooks.onSettled = (chatKey, entryId) => {
-		const botId = chatKey.split(":")[0];
-		if (!botId) return Promise.resolve();
-		return armHarvest(schedules, {
-			botId,
-			chatKey,
-			entryId,
-			delayMs: config.harvestDelayMs,
-		});
-	};
-	schedules.start();
-
 	const doors = new Map<string, BotDoor>();
 	const openDoor = (bot: BotRecord) => {
 		const token = bot.telegramToken;
@@ -292,13 +289,10 @@ export async function startApp({
 				);
 				await conversation?.waitForIdle(BACKGROUND_CONTEXT);
 				await deliverer.kick(chat);
-				await armIdleHarvest({
-					harness,
-					schedules,
+				await armIdleHarvest(services, {
 					botId: chat.botId ?? DEFAULT_BOT_ID,
 					chatKey: chat.key,
 					conversationId: chat.conversationId,
-					delayMs: config.harvestDelayMs,
 				});
 			})(),
 		);

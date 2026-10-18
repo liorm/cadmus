@@ -15,19 +15,20 @@ import {
 	THINKING_LEVELS,
 } from "../../harness/models.ts";
 import { resolvedEnabled, syncChatTools } from "../../harness/tool-policy.ts";
+import { type HarvestNote, HarvestNotesDoc } from "../../harvest/notes.ts";
 import type { BotRuntime } from "../../runtime.ts";
 import { parseCron } from "../../schedules/cron.ts";
-import {
-	type HarvestNote,
-	HarvestNotesDoc,
-	isHarvestId,
-} from "../../schedules/harvest.ts";
 import {
 	type Schedule,
 	ScheduleRejected,
 	type ScheduleService,
 	type ScheduleTarget,
 } from "../../schedules/service.ts";
+
+function isHarvestId(id: string): boolean {
+	return id.startsWith("harvest:");
+}
+
 import {
 	isToolName,
 	OFFERED_PROVIDERS,
@@ -159,9 +160,6 @@ export async function handleApi(
 		if (request.method === "PUT") return replaceSchedule(request, deps, id);
 		if (request.method === "DELETE") return deleteSchedule(deps, id);
 	}
-	const fire = /^\/api\/schedules\/([^/]+)\/fire$/.exec(path);
-	if (fire?.[1] && request.method === "POST")
-		return fireSchedule(deps, decodeURIComponent(fire[1]));
 
 	const chat = /^\/api\/chats\/([^/]+)$/.exec(path);
 	if (chat?.[1]) {
@@ -697,15 +695,6 @@ async function deleteSchedule(deps: WebDeps, id: string): Promise<Response> {
 		return Response.json({ error: "No such schedule." }, { status: 404 });
 	await deps.schedules.remove(id);
 	return Response.json({ ok: true });
-}
-
-async function fireSchedule(deps: WebDeps, id: string): Promise<Response> {
-	if (isHarvestId(id))
-		return Response.json({ error: "No such schedule." }, { status: 404 });
-	const result = await deps.schedules.fire(id, { force: true });
-	if (result === "missing")
-		return Response.json({ error: "No such schedule." }, { status: 404 });
-	return Response.json({ ok: true, result });
 }
 
 async function putTelegram(

@@ -11,7 +11,6 @@ import {
 	DEFAULT_BOT_ID,
 	listBots,
 } from "../src/channels/bots.ts";
-import { testClockPollMs } from "../src/clock.ts";
 import { DEFAULT_SOUL } from "../src/extensions/identity.ts";
 import { botEnv as executionEnv } from "../src/harness/bot-env.ts";
 import { createModels } from "../src/harness/models.ts";
@@ -146,14 +145,6 @@ export async function until(
 		if (Date.now() > deadline) throw new Error(`Timed out waiting for ${what}`);
 		await new Promise((resolve) => setTimeout(resolve, 10));
 	}
-}
-
-/**
- * A pinned test clock rechecks every `testClockPollMs`. Wait several of those
- * ticks before asserting that a due row did not fire.
- */
-export async function waitTestClockTicks(ticks = 4): Promise<void> {
-	await new Promise((resolve) => setTimeout(resolve, testClockPollMs * ticks));
 }
 
 /** Every pushed update handled, every run finished, every final answer delivered. */

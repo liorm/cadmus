@@ -27,6 +27,7 @@ Persona and knowledge are files. The session stores identity, chat directories, 
 | `thinking` | thinking level |
 | `tools` | enabled tool names; omitted means every tool is on |
 | `telegramToken` | optional second Telegram door; omitted from client reads |
+| `rootConversationId` | ownerless conversation that owns this bot's schedule tasks; not a chat |
 | `createdAt` | unix milliseconds |
 
 A fresh home has no bots. Creating a bot from the HTTP API allocates a slug from the name, writes the folder (built-in persona, unless the request includes a soul, plus `knowledge/`), then commits the row. The model and thinking level on that row are the ones in the request. `create_bot` instead takes the slug as given, writes the supplied `SOUL.md`, and can also write `MEMORY.md` and knowledge files at version 0. An omitted model or thinking level copies the calling conversation. A failed commit removes the new folder when the row was not stored. A failed folder write does not commit the row. Slug rules are in [current policy](../architecture.md#current-policy). An existing row, including one whose id is `default`, keeps its stored model and thinking level across restarts. Its display name can change. The id does not.
@@ -93,7 +94,7 @@ There is no owner role. Doors are gates: a shared web credential, a Telegram all
 | `pi-bot.telegram.commands` | command request keys already claimed |
 | `pi-bot.telegram.cursor` | `getUpdates` offset for the general door |
 | `pi-bot.telegram.bot-cursors` | offsets for per-bot doors |
-| `pi-bot.harvest-notes` | out-of-band notes on parent chats; `completed` and `pending` for harvest restart |
+| `pi-bot.harvest-notes` | out-of-band notes on parent chats; `completed` is the harvest watermark |
 
 Receipts and command claims are applied in [data flow](./flow.md).
 

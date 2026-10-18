@@ -8,6 +8,8 @@ import {
 } from "../extensions/self-tools/index.ts";
 import { toolGateExtension } from "../extensions/tool-gate.ts";
 import { webExtension } from "../extensions/web.ts";
+import { harvestExtension } from "../harvest/run.ts";
+import { scheduleExtension } from "../schedules/task.ts";
 
 export type RegistryOptions = {
 	home: string;
@@ -30,6 +32,8 @@ export function buildRegistry(options: RegistryOptions) {
 		selfExtension(options.self ?? { home: options.home }),
 		internalExtension(options.self ?? { home: options.home }),
 		toolGateExtension(options.home),
+		scheduleExtension(),
+		harvestExtension(),
 	];
 	for (const extension of extensions) registry.install(extension);
 	return { registry, extensions };
