@@ -4,16 +4,15 @@ import {
 	hook,
 	ToolTask,
 } from "@earendil-works/pi-durable";
-import { BotsDoc } from "../channels/bots.ts";
-import { botIdFromCwd } from "./self-tools/host.ts";
+import { requireCadmusServices } from "../context.js";
+import { getLogger } from "../log.js";
 
 /**
- * Blocks a tool the bot has switched off. The agent tool list is the offer;
- * this still refuses a call that was admitted under an older list.
+ * Enforces per-bot `bot.tools` allowlist on every tool execution.
  */
-export function toolGateExtension(home: string) {
+export function toolGateExtension() {
 	return defineExtension({
-		name: "pi-bot.tool-gate",
+		name: "cadmus.tool-gate",
 		hooks: [
 			hook(ToolTask, {
 				async beforeTool(call, api, context) {
@@ -22,16 +21,28 @@ export function toolGateExtension(home: string) {
 						api.conversationId,
 						context,
 					);
-					const botId = botIdFromCwd(home, agent?.cwd);
-					if (!botId)
+					const botId = agent?.cwd?.trim();
+					if (!botId) {
+						getLogger().warn("tool call blocked: unbound conversation", {
+							tool: call.name,
+							session: api.conversationId,
+						});
 						return {
-							block: "This conversation is not inside a bot folder.",
+							block: "Conversation is not bound to a bot.",
 						};
-					const bots = await api.snapshot(BotsDoc, context);
-					const bot = bots?.items.find((item) => item.id === botId);
+					}
+					const services = requireCadmusServices(context);
+					const bot = services.familyStore.bots.getBot(botId);
 					if (!bot || bot.tools === undefined) return;
 					if (bot.tools.includes(call.name)) return;
-					return { block: "That tool is off for this bot." };
+					getLogger().warn("tool call blocked by tool-gate", {
+						bot: botId,
+						tool: call.name,
+						session: api.conversationId,
+					});
+					return {
+						block: `Tool '${call.name}' is disabled for bot '${botId}'.`,
+					};
 				},
 			}),
 		],

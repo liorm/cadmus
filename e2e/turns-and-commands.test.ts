@@ -1,0 +1,278 @@
+import { describe, expect, it } from "vitest";
+import type { ChatRecord, TurnBlock } from "../src/protocol.js";
+import {
+	createTuiState,
+	handleServerEvent,
+	handleTurnSubmitResult,
+	type TuiOutput,
+} from "../tui/src/handler.js";
+import { connectTestWs, sendRpc } from "./helpers.js";
+
+describe("Turns, Streaming Protocol Events & Out-of-Band /status", () => {
+	it("streams turn.delta, turn.tool_call, turn.tool_result, chat.state, and turn.completed over WebSocket", async () => {
+		const scope = { accountId: "acct-turns", familyId: "default" };
+		const wsClient = await connectTestWs(scope);
+
+		try {
+			const botRes = await wsClient.send("bot.create", {
+				slug: "echo-bot",
+				name: "Echo Bot",
+				model: "faux/echo",
+			});
+			expect(botRes.ok).toBe(true);
+
+			const chatRes = await wsClient.send<{ chat: ChatRecord }>("chat.create", {
+				botId: "echo-bot",
+				key: "ws-chat-1",
+			});
+			expect(chatRes.ok).toBe(true);
+
+			// Submit a turn with a tool call directive
+			const turnRes = await wsClient.send<{ reply: string }>("turn.submit", {
+				chatKey: "ws-chat-1",
+				text: "Read memory please [tool:memory_read {}]",
+			});
+			expect(turnRes.ok).toBe(true);
+			expect(turnRes.result?.reply).toContain("echo(1):");
+			expect(turnRes.result?.reply).toContain('"exists":false');
+
+			const eventTypes = wsClient.events.map((e) => e.type);
+			expect(eventTypes).toContain("chat.state");
+			expect(eventTypes).toContain("turn.delta");
+			expect(eventTypes).toContain("turn.tool_call");
+			expect(eventTypes).toContain("turn.tool_result");
+			expect(eventTypes).toContain("turn.completed");
+		} finally {
+			wsClient.close();
+		}
+	});
+
+	it("handles /status strictly out-of-band without polluting conversation history or calling the LLM", async () => {
+		const scope = { accountId: "acct-status", familyId: "default" };
+
+		await sendRpc(
+			"bot.create",
+			{
+				slug: "status-bot",
+				name: "Status Bot",
+				model: "faux/echo",
+				thinking: "low",
+			},
+			scope,
+		);
+
+		await sendRpc(
+			"chat.create",
+			{ botId: "status-bot", key: "status-chat" },
+			scope,
+		);
+
+		// 1. Submit normal user message -> visibleUserMessages = 1
+		const firstTurn = await sendRpc<{ reply: string }>(
+			"turn.submit",
+			{ chatKey: "status-chat", text: "First message" },
+			scope,
+		);
+		expect(firstTurn.frame.result?.reply).toBe("echo(1): First message");
+
+		// 2. Submit "/status" via turn.submit -> returns outOfBand: true
+		const statusViaSubmit = await sendRpc<{
+			outOfBand: boolean;
+			command: string;
+			status: {
+				botId: string;
+				model: string;
+				thinking: string;
+				entryCount: number;
+			};
+			text: string;
+		}>("turn.submit", { chatKey: "status-chat", text: "/status" }, scope);
+		expect(statusViaSubmit.status).toBe(200);
+		expect(statusViaSubmit.frame.result?.outOfBand).toBe(true);
+		expect(statusViaSubmit.frame.result?.command).toBe("/status");
+		expect(statusViaSubmit.frame.result?.status.botId).toBe("status-bot");
+		expect(statusViaSubmit.frame.result?.status.model).toBe("faux/echo");
+		expect(statusViaSubmit.frame.result?.status.thinking).toBe("low");
+		// Only the initial system entry + first user message + assistant reply exist (3 entries)
+		expect(statusViaSubmit.frame.result?.status.entryCount).toBe(3);
+
+		// 3. Submit "/status" via turn.command -> also out-of-band
+		const statusViaCommand = await sendRpc<{
+			outOfBand: boolean;
+			status: { entryCount: number };
+		}>("turn.command", { chatKey: "status-chat", command: "/status" }, scope);
+		expect(statusViaCommand.status).toBe(200);
+		expect(statusViaCommand.frame.result?.outOfBand).toBe(true);
+		expect(statusViaCommand.frame.result?.status.entryCount).toBe(3);
+
+		// 4. Verify unsupported slash commands (e.g. /clear) are rejected
+		const unsupported = await sendRpc(
+			"turn.submit",
+			{ chatKey: "status-chat", text: "/clear" },
+			scope,
+		);
+		expect(unsupported.status).toBe(400);
+		expect(unsupported.frame.error?.code).toBe("unsupported_command");
+
+		// 5. Submit second normal user message -> visibleUserMessages must be 2 (proving /status was NOT added to history!)
+		const secondTurn = await sendRpc<{ reply: string }>(
+			"turn.submit",
+			{ chatKey: "status-chat", text: "Second message" },
+			scope,
+		);
+		expect(secondTurn.frame.result?.reply).toBe("echo(2): Second message");
+	});
+
+	it("recreates 'what can you do?' conversation: complete streaming deltas and no duplicate output", async () => {
+		const scope = { accountId: "acct-what-can-you-do", familyId: "default" };
+		const wsClient = await connectTestWs(scope);
+
+		try {
+			const botRes = await wsClient.send("bot.create", {
+				slug: "xai",
+				name: "xAI Bot",
+				model: "faux/echo",
+			});
+			expect(botRes.ok).toBe(true);
+
+			const chatRes = await wsClient.send<{ chat: ChatRecord }>("chat.create", {
+				botId: "xai",
+				key: "xai:71aa0dae",
+			});
+			expect(chatRes.ok).toBe(true);
+
+			// Recreate user request "what can you do?"
+			const turnRes = await wsClient.send<{ reply: string }>("turn.submit", {
+				chatKey: "xai:71aa0dae",
+				text: "what can you do?",
+			});
+			expect(turnRes.ok).toBe(true);
+			expect(turnRes.result?.reply).toContain("What do you want to do?");
+
+			// Verify server events
+			const deltaEvents = wsClient.events.filter(
+				(e) => e.type === "turn.delta" && e.payload.chatKey === "xai:71aa0dae",
+			);
+			expect(deltaEvents.length).toBeGreaterThan(0);
+
+			const streamedText = deltaEvents
+				.map((e) => (e.payload as { delta: string }).delta)
+				.join("");
+			expect(streamedText).toBe(turnRes.result?.reply);
+
+			// Verify turn.completed event has complete text
+			const completedEvent = wsClient.events.find(
+				(e) =>
+					e.type === "turn.completed" && e.payload.chatKey === "xai:71aa0dae",
+			);
+			expect(completedEvent).toBeDefined();
+			if (completedEvent && completedEvent.type === "turn.completed") {
+				expect(completedEvent.payload.text).toBe(turnRes.result?.reply);
+			}
+
+			// Verify TUI consumer contract: deltas streamed + turn.submit result -> no duplicate output
+			const chunks: string[] = [];
+			const lines: string[] = [];
+			const tuiOut: TuiOutput = {
+				write: (t) => chunks.push(t),
+				writeLine: (t = "") => lines.push(t),
+			};
+			const tuiState = createTuiState("xai:71aa0dae");
+
+			for (const ev of wsClient.events) {
+				handleServerEvent(ev, tuiState, tuiOut);
+			}
+			handleTurnSubmitResult(turnRes, tuiState, tuiOut);
+
+			// Streamed output must contain the full assistant reply once
+			const fullTuiOutput = chunks.join("");
+			expect(fullTuiOutput).toContain("What do you want to do?");
+			const assistantPrefixes = (fullTuiOutput.match(/assistant>/g) || [])
+				.length;
+			expect(assistantPrefixes).toBe(1);
+			// No duplicate lines written by handleTurnSubmitResult
+			expect(lines).toHaveLength(0);
+		} finally {
+			wsClient.close();
+		}
+	});
+
+	it("broadcasts blocks in turn.completed, returns blocks in turn.submit, and renders TUI chips for thinking and tools", async () => {
+		const scope = { accountId: "acct-chips", familyId: "default" };
+		const wsClient = await connectTestWs(scope);
+
+		try {
+			await wsClient.send("bot.create", {
+				slug: "chip-bot",
+				name: "Chip Bot",
+				model: "faux/echo",
+			});
+
+			await wsClient.send<{ chat: ChatRecord }>("chat.create", {
+				botId: "chip-bot",
+				key: "chip-chat-1",
+			});
+
+			// Submit a turn with both thinking and tool call directives
+			const turnRes = await wsClient.send<{
+				reply: string;
+				blocks: TurnBlock[];
+			}>("turn.submit", {
+				chatKey: "chip-chat-1",
+				text: "Analyze my memory [think: reasoning deeply] [tool:memory_read {}]",
+			});
+
+			expect(turnRes.ok).toBe(true);
+			expect(turnRes.result?.blocks).toBeDefined();
+			const resultBlocks = turnRes.result?.blocks ?? [];
+			expect(resultBlocks.some((b) => b.type === "thinking")).toBe(true);
+			expect(
+				resultBlocks.some(
+					(b) => b.type === "tool_call" && b.toolName === "memory_read",
+				),
+			).toBe(true);
+
+			// Check WebSocket events
+			const completedEvent = wsClient.events.find(
+				(e) =>
+					e.type === "turn.completed" && e.payload.chatKey === "chip-chat-1",
+			);
+			expect(completedEvent).toBeDefined();
+			if (completedEvent && completedEvent.type === "turn.completed") {
+				expect(completedEvent.payload.blocks).toBeDefined();
+				expect(
+					completedEvent.payload.blocks?.some((b) => b.type === "thinking"),
+				).toBe(true);
+				expect(
+					completedEvent.payload.blocks?.some(
+						(b) => b.type === "tool_call" && b.toolName === "memory_read",
+					),
+				).toBe(true);
+			}
+
+			// Render in TUI handler
+			const chunks: string[] = [];
+			const lines: string[] = [];
+			const tuiOut: TuiOutput = {
+				write: (t) => chunks.push(t),
+				writeLine: (t = "") => lines.push(t),
+			};
+			const tuiState = createTuiState("chip-chat-1");
+
+			for (const ev of wsClient.events) {
+				handleServerEvent(ev, tuiState, tuiOut);
+			}
+			handleTurnSubmitResult(turnRes, tuiState, tuiOut);
+
+			const combinedTuiOutput = chunks.join("");
+			// Verify chips appear on assistant message line
+			expect(combinedTuiOutput).toContain("[thinking]");
+			expect(combinedTuiOutput).toContain("[tool: memory_read]");
+			expect(combinedTuiOutput).toContain("echo(1):");
+			// Verify raw thinking text was NOT leaked into output
+			expect(combinedTuiOutput).not.toContain("reasoning deeply");
+		} finally {
+			wsClient.close();
+		}
+	});
+});

@@ -1,90 +1,146 @@
-# pi-bot
+# Cadmus (`cadmus`) — Cloud-Native Multi-Bot Agent Runtime
 
-A Hermes-style personal agent on [`@earendil-works/pi-durable`](https://www.npmjs.com/package/@earendil-works/pi-durable), talking over a local web page and SSE stream. Runs on **Bun**.
+Cadmus is the cloud-native V2 architecture of `pi-bot`, built on **Cloudflare Workers**, **Cloudflare D1**, and **SQLite-backed Cloudflare Durable Objects (`CadmusBotFamilyDO`)** over [`@earendil-works/pi-durable`](https://www.npmjs.com/package/@earendil-works/pi-durable) and [`@earendil-works/pi-ai`](https://www.npmjs.com/package/@earendil-works/pi-ai).
 
-Several bots share one harness. Each bot has a folder, a streaming chat page, a persona and knowledge editor (`SOUL.md`, `MEMORY.md`, `knowledge/*.md`), configurable tools, and user schedules. Idle chats harvest standing notes into `MEMORY.md` and `knowledge/`.
+## Key Highlights
 
-The architecture is documented in [docs/architecture.md](docs/architecture.md) (index):
-- [Bots, Chats & Storage](docs/architecture/bots-and-storage.md) — home directory layout, bot records, chat keys, session documents, and shared vs. per-chat state
-- [Channels, Turn Lifecycle & Client API](docs/architecture/channels-and-turns.md) — inbound admission, turns, slash commands, and the HTTP/SSE client surface
-- [Prompt, Knowledge, Memory & Idle Harvest](docs/architecture/knowledge-and-harvest.md) — prompt sections, `SOUL.md`, `MEMORY.md`, `knowledge/*.md`, compare-and-swap tools, and background harvest forks
-- [Schedules, Extensions & Tool Policy](docs/architecture/schedules-and-tools.md) — sidecar schedule catalog, schedule tasks and targets, self tools, cross-bot tools, provider server tools, and per-bot tool gating
+- **Two-Tier Storage Architecture**:
+  - **Global Admin Database (`CADMUS_ADMIN_DB` on Cloudflare D1)**: Stores cross-family account data — users, auth tokens, accounts, user-to-account memberships, AES-GCM 256-bit encrypted BYOK credentials, and the Bot Families catalog (`account_id <-> family_id <-> do_name`).
+  - **Per-Family Durable Object (`CadmusBotFamilyDO` on DO SQLite)**: Co-locates all bots, chats, virtual files (`SOUL.md`, `MEMORY.md`, `knowledge/<slug>.md` with CAS optimistic concurrency), schedules, harvest watermarks/notes (`cadmus_*` tables), and `pi-durable` conversations/tasks (`cadmus_pi_*` tables) for one Bot Family inside a single SQLite-backed Durable Object (`cadmus:<accountId>:<familyId>`).
+- **Schema-Validated Protocol + `ProtocolShim`**:
+  - UI-agnostic JSON protocol (`POST /rpc`, `GET /ws` WebSocket, `GET /events` SSE) validated with TypeBox and exported as standard JSON Schema at `GET /protocol/schema`.
+- **Unified Schedule & Idle Harvest Engine (`ScheduleTask`)**:
+  - Single durable `cadmus.schedule` task (`wait` -> `run`) driving 5-field cron schedules, one-shot `when` timers, and idle knowledge/memory harvest forks (`harvest:<chatKey>`) via a single Durable Object alarm (`ctx.storage.setAlarm`).
+- **Out-of-Band `/status`**:
+  - Inspects live conversation, bot, usage, harvest watermark, and alarm state out-of-band without polluting conversation transcripts or invoking the LLM.
+- **Standalone TUI Client (`tui/`)**:
+  - Independent package with its own `package.json` and `tsconfig.json` that drives the Worker/DO purely over the wire protocol.
 
-## Setup
+---
+
+## Quickstart
+
+### 1. Install Dependencies
 
 ```bash
-curl -fsSL https://bun.sh/install | bash   # user-level, installs to ~/.bun (Bun >= 1.4.3)
 bun install
-cp .env.example .env                       # then fill it in
-bun run check:all                          # format, Biome, typecheck, tests
-bun start                                  # Bun loads .env automatically
+bun install --cwd tui
 ```
 
-A fresh home has no bots. Create the first one on the web page and choose its model there. Each bot keeps `SOUL.md` (persona; the create dialog starts from a built-in one), `MEMORY.md`, and `knowledge/*.md` in `PI_BOT_HOME/bots/<id>/`. They are read at render time; edits apply to the next request.
+### 2. Run the E2E Test Suite
 
-## Environment
-
-| Variable | Required | Meaning |
-|---|---|---|
-| `WEB_TOKEN` | yes | Shared secret for the local page. Set this to authenticate with the web interface |
-| provider auth | when a bot uses that provider | Either an OAuth login (`bun run login <provider>`, stored in `PI_BOT_HOME/auth.json`, preferred when present) or the provider's API key env var (below). Each bot stores its own `<provider>/<modelId>`. `faux/echo` is an offline echo model and needs no key |
-| provider key | alt. | The provider's standard env var, read by pi-ai: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `XAI_API_KEY`, `OPENROUTER_API_KEY`, `GEMINI_API_KEY`, … Creating a bot, or starting with a stored bot, fails when that model is unknown or the provider has no credentials |
-| `PI_BOT_HOME` | no | Data dir (default `./data`): `durable.sqlite`, `owner.lock`, `schedules.sqlite`, `auth.json`, `bots/<id>/` |
-| `PI_BOT_TZ` | no | IANA zone for the daily date line and cron (default: system zone) |
-| `PI_BOT_HARVEST_DELAY_MS` | no | Idle time before a chat is forked to update knowledge (default 60000) |
-| `WEB_HOST`, `WEB_PORT` | no | Page bind address (default `127.0.0.1:8787`) |
-| `LOG_LEVEL` | no | `debug`/`info`/`warn`/`error` |
-
-A bot's model and thinking level are chosen when it is created, and can be changed on that bot. Chats that already exist keep the model they were given.
-
-## Grok via SuperGrok / X Premium (OAuth, no API key)
-
-pi-ai ships xAI's device-code OAuth ("Sign in with SuperGrok or X Premium"). On the server:
+All E2E tests execute inside the real Cloudflare Workers `workerd` runtime via `@cloudflare/vitest-plugin`:
 
 ```bash
-bun run login grok        # alias of xai; prints a URL + code, open it in any browser (phone is fine), approve
-bun run auth:status       # shows stored credentials (types only) and whether they resolve
-# Create a bot on the page and choose xai/grok-4.7 (catalog: grok-4.3, grok-4.5, grok-4.6, grok-4.7); no XAI_API_KEY needed
-bun run logout grok       # remove the token
+bun run test
 ```
 
-Tokens live in `data/auth.json` (0600, gitignored) and are refreshed automatically by pi-ai, under a file lock shared by the bot and the login script. A stored OAuth credential takes precedence over `XAI_API_KEY`. xAI decides which subscription tiers get API access; if login succeeds but answers fail with HTTP 402/403, use `XAI_API_KEY` instead (`bun run logout grok`).
-
-## Web page
-
-Set `WEB_TOKEN`, then open `http://127.0.0.1:8787/?token=<WEB_TOKEN>` once. The browser keeps an HttpOnly cookie. The page lists each bot's chats, streams replies, and edits that bot's `SOUL.md`, `MEMORY.md`, and `knowledge/*.md`. Knowledge is edited as description, optional category, version (read-only), and body — the same fields as `knowledge_update`. `MEMORY.md` is body and version. Frontmatter stays on disk. A bad save is HTTP 422 and does not change the file.
-
-Schedules are cron (five fields, in `PI_BOT_TZ`) or a single `when`. A target is an existing chat, a new web chat, or a silent fork. Rows live in `schedules.sqlite`, not in `durable.sqlite`, and each enabled schedule runs a `pi-bot.schedule` task on the bot's root conversation. A fire is admitted once per occurrence (`sched:<id>:<nextRun>`). Rows and their next wake survive a process restart. Harvest is at-least-once per idle entry (`pi-bot.harvest` task) until it completes. Listings omit reserved `harvest:` ids. The model can create, list, update, and delete schedules for the bot it is talking to (`schedule_create`, `schedule_list`, `schedule_update`, `schedule_delete`). An update can change the message, name, enabled flag, cron or single time, and target. It cannot see or change another bot's rows or harvest tasks.
-
-The bot dialog switches tools on and off. The choice is stored on the bot. A missing list means every tool is on. A tool that is off is not offered to the model and is blocked by `pi-bot.tool-gate`. `GET /api/tools` lists them. `GET` and `PUT /api/bots/<id>/tools` read and replace one bot's set.
-
-A web message uses request id `<chatKey>:<clientMsgId>`.
-
-## Commands
-
-`/new` (alias `/reset`) start a fresh context (old entries stay stored) · `/stop` abort the current answer · `/status` model, conversation · `/help`. The page composer offers `/status` and `/help`. Stop is the button that replaces Send while an answer is running. `/status` is also the header button next to the context readout.
-
-## Guarantees and how they are tested
-
-- **Input exactly once.** A web message uses `<chatKey>:<clientMsgId>`. A schedule fire uses `sched:<id>:<nextRun>` and a repeat of that occurrence does nothing.
-- **Crash mid-turn resumes.** `kill -9` while the model is answering → restart → `harness.resume()` continues the run → exactly one reply.
-- **One owner.** `owner.lock` refuses a second process while the owner is alive. `bun run dev` (`bun --watch --no-clear-screen`) takes over a lock that still names this process after an in-process watch restart; it waits, then signals a leftover other same-host owner.
-- `/new` = `conversation.reset()`: the model's visible context restarts; a redelivered `/new` does not reset again.
-
-## Tests
+### 3. Typecheck Worker & Standalone TUI
 
 ```bash
-bun test              # all suites
-bun run coverage      # with coverage (in-process code only)
-bun check             # typecheck
+bun run typecheck
 ```
 
-Policy (see [AGENTS.md](AGENTS.md)): flow tests through the public interface; only egress is faked, at the HTTP level (`test/egress/`): xAI Responses API, xAI OAuth. Real pi-durable SQLite in temp dirs, real `bun` processes for crash and login tests.
+### 4. Local Development & Standalone TUI
 
-## Runtime notes
+Start the Cloudflare Worker locally:
 
-- Bun ≥ 1.4.3 provides `node:sqlite`, which pi-durable's `openNodeSqliteStorage` uses. pi-durable's own storage conformance suite passes under Bun.
-- One process owns the storage. Don't run two bots on the same `PI_BOT_HOME`.
-- `owner.lock` is removed on clean shutdown; after a crash, a lock whose pid is dead on the same host is taken over automatically. `bun run dev` takes over a lock that still names this process (in-process `--watch` restart), otherwise waits for a leftover same-host owner, then signals it.
-- Harvest notes stay on `pi-bot.harvest-notes`, are not sent to the model.
+```bash
+bun run dev
+```
+
+In a second terminal, launch the standalone TUI against your local Worker:
+
+```bash
+bun run tui
+# Or pass explicit flags:
+bun run tui -- --url http://localhost:8787 --token dev-cadmus-secret --account default-account --family default
+```
+
+Inside the TUI:
+- `:bot new <slug> <name> [model]` — Create a bot (defaults to offline `faux/echo` model)
+- `:chat new <botId> [title]` — Create a chat and switch to it
+- `:use <chatKey>` — Switch active chat
+- `:status` (or `/status`) — Inspect live chat/bot status out-of-band
+- `:files <botId>` / `:read <botId> <path>` — Inspect `SOUL.md`, `MEMORY.md`, and `knowledge/<slug>.md`
+- `:cred set <provider> <apiKey>` — Configure an encrypted BYOK credential (`xai`, `openai`, `anthropic`)
+- `:help` — List all TUI meta-commands
+
+---
+
+## All-In-One Self-Hosted Deployment (Docker + `celld`)
+
+Cadmus can run completely self-contained on your own hardware or VM using **[`celld`](https://celld.dev)**—an open-source daemon that runs Cloudflare Workers and Durable Objects locally using embedded SQLite "cells" without requiring any external Cloudflare account or cloud database.
+
+The included [`docker/Dockerfile`](docker/Dockerfile) bundles the entire stack into a single, self-sufficient container:
+- **Durable Objects (`CadmusBotFamilyDO`)**: Backed by isolated SQLite files managed by `celld`.
+- **Global Admin Database (`CADMUS_ADMIN_DB`)**: Cloudflare D1 compatibility layer mapped to local SQLite.
+- **Durable Object Alarms**: In-memory alarm scheduler driving cron jobs, `when` timers, and idle harvest forks.
+- **WebSocket Hibernation API**: Full real-time streaming and duplex messaging support.
+- **Zero External Dependencies**: Persistent storage defaults to a local volume (`/data`).
+
+### 1. Build the Docker Image
+
+```bash
+docker build -f docker/Dockerfile -t cadmus-aio .
+```
+
+### 2. Run the Container
+
+```bash
+docker run -d \
+  --name cadmus \
+  -p 8787:8787 \
+  -v cadmus-data:/data \
+  -e CADMUS_AUTH_SECRET="your-secure-auth-secret" \
+  -e CADMUS_ENCRYPTION_KEY="your-32-byte-encryption-key-here!" \
+  -e ANTHROPIC_API_KEY="sk-ant-..." \
+  -e OPENAI_API_KEY="sk-..." \
+  -e XAI_API_KEY="..." \
+  cadmus-aio
+```
+
+### 3. Verify Health
+
+```bash
+curl http://localhost:8787/health
+# {"ok":true,"service":"cadmus","version":2}
+```
+
+### 4. Connect with the Standalone TUI
+
+From your host machine:
+
+```bash
+bun run tui -- --url http://localhost:8787 --token your-secure-auth-secret
+```
+
+Or run the TUI directly inside the running container:
+
+```bash
+docker exec -it cadmus bun run tui -- --url http://localhost:8787 --token your-secure-auth-secret
+```
+
+### Configuration Environment Variables
+
+| Variable | Default | Description |
+| :--- | :--- | :--- |
+| `PORT` | `8787` | HTTP/WebSocket listener port |
+| `HOST` | `0.0.0.0` | Network interface to bind |
+| `CADMUS_AUTH_SECRET` | `dev-cadmus-secret` | Master admin bearer token for edge authentication |
+| `CADMUS_ENCRYPTION_KEY` | `dev-cadmus-encryption-key-32bytes!` | Master key for AES-GCM 256-bit BYOK credential encryption |
+| `CADMUS_DEFAULT_TIMEZONE` | `UTC` | Default timezone for scheduled cron expressions |
+| `CADMUS_HARVEST_DELAY_MS` | `60000` | Inactivity threshold before idle conversation harvest runs |
+| `CADMUS_LOG_LEVEL` | `debug` | Logging verbosity (`debug`, `info`, `warn`, `error`) |
+| `ANTHROPIC_API_KEY` | *(optional)* | Anthropic API key |
+| `OPENAI_API_KEY` | *(optional)* | OpenAI API key |
+| `OPENROUTER_API_KEY` | *(optional)* | OpenRouter API key |
+| `XAI_API_KEY` | *(optional)* | xAI API key |
+
+---
+
+## Documentation
+
+See [`docs/architecture.md`](docs/architecture.md) for the high-level architecture index and links to detailed subsystem docs.
+For coding agents working on this repository, read [`AGENTS.md`](AGENTS.md) first.
 

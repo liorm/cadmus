@@ -1,71 +1,60 @@
-# Architecture
+# Cadmus Architecture Overview
 
-Several bots share one process and one durable session on `@earendil-works/pi-durable`. Channels talk to a bot runtime, and so do schedule fires that land in a chat. A schedule fire that forks a conversation, or an idle harvest task, talks to the harness directly. The runtime is the seam a later per-bot process would replace for doors and for chat fires. A user interface is a client of the same model: bots, chats, files, schedules, and a live transcript. The bundled web page is one such client.
+Cadmus is the cloud-native V2 runtime for `pi-bot`, built on **Cloudflare Workers**, **Cloudflare D1**, **SQLite-backed Durable Objects**, and `@earendil-works/pi-durable`.
 
-This document is the index for the architecture documentation:
+This document serves as the **high-level architectural index**. Detailed design, schemas, and lifecycle flows live in focused sub-documents so this overview remains stable over time.
 
-- [Bots, Chats & Storage](./architecture/bots-and-storage.md) — home directory layout, bot records, chat keys, session documents, and shared vs. per-chat state
-- [Channels, Turn Lifecycle & Client API](./architecture/channels-and-turns.md) — inbound admission, turns, slash commands, and the HTTP/SSE client surface
-- [Prompt, Knowledge, Memory & Idle Harvest](./architecture/knowledge-and-harvest.md) — prompt sections, `SOUL.md`, `MEMORY.md`, `knowledge/*.md`, compare-and-swap tools, and background harvest forks
-- [Schedules, Extensions & Tool Policy](./architecture/schedules-and-tools.md) — sidecar schedule catalog, schedule tasks and targets, self tools, cross-bot tools, provider server tools, and per-bot tool gating
+---
 
-## Components
+## High-Level Topology
 
 ```mermaid
-flowchart TB
-  subgraph clients [Clients]
-    UI[Web client]
-  end
+flowchart TD
+    Client["Client (Standalone TUI / CLI / Future Native UI)"]
+    Worker["Cloudflare Worker Entrypoint (src/index.ts)"]
+    D1[("Cloudflare D1: CADMUS_ADMIN_DB\n(D1AdminStore)")]
+    DO["CadmusBotFamilyDO\n(One SQLite Durable Object per Bot Family)"]
+    SQLite[("DO SQLite: cadmus_pi_* + cadmus_*\n(pi-durable + SqliteFamilyStore)")]
 
-  subgraph doors [Doors]
-    HTTP[HTTP channel]
-  end
-
-  subgraph host [Host]
-    RT[Bot runtime per bot]
-    Sch[Schedule service]
-    Hrv[Idle harvest]
-    Har[Harness]
-  end
-
-  UI --> HTTP
-  HTTP --> RT
-  Sch -->|chat and new-chat| RT
-  Sch -->|fork| Har
-  RT -->|arm and cancel| Hrv
-  Hrv -->|fork| Har
-  RT --> Har
-  HTTP --> Har
-  HTTP --> Sch
-
-  Har --> DB[(durable.sqlite)]
-  Sch --> Side[(schedules.sqlite)]
-  Har --> Files[bot folders]
+    Client <-->|"ProtocolShim\n(/rpc, /ws, /events)"| Worker
+    Worker <-->|"Auth, Accounts, Members,\nFamily Registry, Encrypted Keys"| D1
+    Worker <-->|"Name: cadmus:<accountId>:<familyId>"| DO
+    DO <--> SQLite
+    DO -.->|"Provider Credential Lookup"| D1
 ```
 
-The host owns the process:
+---
 
-- **Storage lock and harness.** Single opener of `durable.sqlite`, guarded by `owner.lock`. Session documents, conversations, tasks, and the model loop live here, with shared host services attached to the harness Chord context.
-- **Bot runtimes.** One in-process `BotRuntime` handle per bot, all backed by the shared harness.
-- **Schedule service.** Sidecar catalog (`schedules.sqlite`). Each enabled row runs a background `pi-bot.schedule` task on that bot's root conversation. Chat and new-chat runs go through a bot runtime; `fork` runs on the harness.
-- **Idle harvest.** Background `pi-bot.harvest` tasks armed and cancelled by the bot runtime (and re-armed after restart) via `pi-bot.harvest-notes` on the bot's root conversation.
-- **HTTP channel.** The REST and SSE API a client uses, plus the bundled Preact page when `WEB_TOKEN` is set.
+## Core Architectural Pillars
 
-Session services stay on the host. A bot runtime is not the lock, the schedule catalog, or the HTTP server.
+1. **Global Admin vs. Family Conversation Storage Split**
+   - **Global Admin Store (`D1AdminStore` on Cloudflare D1)**: Manages accounts, users/members, bearer tokens, AES-GCM encrypted LLM provider credentials, and the registry mapping `(accountId, familyId)` to Durable Object names (`cadmus:<accountId>:<familyId>`).
+   - **Per-Family Store (`SqliteFamilyStore` + `pi-durable` inside `CadmusBotFamilyDO`)**: Everything required for low-latency bot turns, transcripts, virtual files (`SOUL.md`, `MEMORY.md`, `knowledge/<slug>.md`), schedules, and harvest watermarks lives inside the family's SQLite Durable Object behind the `FamilyStore` interface.
+   - See **[Accounts, Multi-Tenancy & Storage Split](./architecture/accounts-and-storage.md)**.
 
-## Bot runtime boundary
+2. **UI-Agnostic Protocol & Adapter Shims**
+   - All interactions flow through a strongly-typed Zod protocol (`ClientCommand`, `CommandResultFrame`, `ServerEvent`) mediated by a pluggable `ProtocolShim` (`src/shim.ts`).
+   - Supports HTTP RPC (`POST /rpc`), bidirectional WebSockets (`GET /ws`), and Server-Sent Events (`GET /events`).
+   - Slash commands that inspect runtime state—specifically `/status`—are intercepted **out-of-band** before `conv.submit()` so they never pollute LLM conversation history or incur token costs.
+   - See **[Protocol, Shims & Out-of-Band Commands](./architecture/protocol-and-turns.md)**.
 
-Doors admit user text through `BotRuntime`. So do `chat` and `new-chat` schedule runs. Idle harvest loads the parent conversation and submits into a child conversation owned by the `pi-bot.harvest` task; that child is not a chat-directory row.
+3. **Out-of-Band Bot Files & Forked Idle Harvest**
+   - Bot identity and knowledge (`SOUL.md`, `MEMORY.md`, and `knowledge/<slug>.md`) are stored in dedicated SQLite tables (`cadmus_bot_souls`, `cadmus_bot_memories`, `cadmus_bot_knowledge`) with Compare-And-Swap (`expectedVersion`) optimistic concurrency control—never inside `pi-durable` session docs.
+   - When a chat goes idle after a turn, a one-shot internal schedule (`harvest:<chatKey>`) forks the conversation at the latest entry, runs a background extraction turn restricted to memory/knowledge tools, records unified diffs as a `HarvestNote`, and advances the chat's harvest watermark.
+   - See **[Virtual Files, Knowledge Store & Idle Harvest](./architecture/knowledge-and-harvest.md)**.
 
-- `submit` admits text on an existing chat, syncs the chat's enabled tools from the bot record, cancels any pending harvest wake, and returns when admission is durable. The reply is streamed in the background, and a new harvest wake is armed when the turn settles.
-- `listChats` and `createChat` manage the chat directory for that bot. `createChat` finds an existing chat or opens an ownerless conversation, configures its model, thinking level, working directory, and tools, and records the row in one commit.
-- Model, thinking level, and working directory edits on a bot apply to chats created after the edit; existing conversations keep the model, thinking level, and working directory they were given. Tool-list edits (`tools`) sync to idle existing chats immediately and before the next `submit`.
+4. **Unified Durable Schedules, Alarms & Inter-Bot Collaboration**
+   - Cron (`5-field` timezone-aware), one-shot (`when`), and idle-harvest (`harvest:<chatKey>`) timers all share a single durable task primitive (`ScheduleTask` / `"cadmus.schedule"`) backed by `cadmus_schedules` and the Durable Object's hardware alarm (`ctx.storage.setAlarm`).
+   - Bots within the same family can discover (`search_bot`), inspect (`list_bots`), spawn (`create_bot`), and converse (`chat_with_bot`) with sibling bots via durable `pi-durable` sub-tasks.
+   - See **[Schedules, Alarms & Inter-Bot Collaboration](./architecture/schedules-alarms-and-bots.md)**.
 
-Inside the process every runtime is a handle on the shared harness. A later split can replace the handle with a client of another process while keeping doors and chat fires on the same interface.
+---
 
-## Durability guarantees
+## Sub-Documents Index
 
-- **Single storage owner.** `owner.lock` in `PI_BOT_HOME` ensures only one process opens `durable.sqlite`. Schedules live in a sidecar `schedules.sqlite` so foreign tables never touch `durable.sqlite`.
-- **Inbound exactly once.** Every admission carries a deterministic `requestId` (`<chatKey>:<clientMsgId>`, `sched:<id>:<nextRun>`, or `harvest:<chatKey>:<entryId>`). Repeating a `requestId` is a no-op. Slash commands claim their request key in `pi-bot.commands` before taking effect.
-- **Crash recovery.** On restart, `harness.resume()` resumes interrupted turns, tool calls, schedule tasks, and harvest tasks from their last committed checkpoint.
-- **Tool replay classes.** Pure reads and memoized internal writes (knowledge, memory, schedules, bot creation, bot search) use replay `safe` so recovery returns the committed outcome without duplicating effects. External side effects use replay `unsafe`.
+| Sub-Document | Scope |
+| :--- | :--- |
+| **[Accounts, Multi-Tenancy & Storage Split](./architecture/accounts-and-storage.md)** | `AdminStore` (D1) vs `FamilyStore` (DO SQLite), shared Cloudflare account `cadmus_` prefixing, auth modes (`cf-access`, `token`, `none`), and AES-GCM provider key encryption. |
+| **[Protocol, Shims & Out-of-Band Commands](./architecture/protocol-and-turns.md)** | Zod-validated `ClientCommand` / `ServerEvent` envelopes, `ProtocolShim` adapter layer, `/rpc` + `/ws` + `/events` transports, standalone TUI boundary, and out-of-band `/status`. |
+| **[Virtual Files, Knowledge Store & Idle Harvest](./architecture/knowledge-and-harvest.md)** | `BotFileStore` interface, `SOUL.md` / `MEMORY.md` / `knowledge/<slug>.md` limits & CAS versioning, `cadmus.identity` prompt assembly, and forked idle harvest with unified diffs. |
+| **[Schedules, Alarms & Inter-Bot Collaboration](./architecture/schedules-alarms-and-bots.md)** | Unified `ScheduleTask` (`cron`, `when`, `harvest:<chatKey>`), `syncDurableObjectAlarm`, `SearchBotTask` / `ChatWithBotTask`, and `cadmus.tool-gate`. |

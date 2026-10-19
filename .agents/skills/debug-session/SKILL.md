@@ -1,62 +1,105 @@
 ---
 name: debug-session
 description: >-
-  Debug a pi-bot conversation from the local session. Read-only inspection of
-  chats, transcript entries, stuck tasks, submissions,
-  schedules, and harvest forks. Use when the user says debug this chat, debug
-  this conversation, why did the bot do that, stuck turn, missing reply, harvest
-  did not write, or runs /debug-session. Optional data path; default is ./data.
-  A conversation id or chat key is enough; a bot id narrows the list and the
-  persona files.
+  Inspect, debug, and query local bot sessions, virtual files, and conversations.
+  Use when asked to inspect a bot, chat session, MEMORY.md, knowledge files,
+  SOUL.md, or transcript tool calls from the local Durable Object database.
 ---
 
-# Debug a pi-bot session
+# Debug Session Skill
 
-Inspect one home read-only. Do not start the bot, do not take `owner.lock`, and do not write `durable.sqlite` or `schedules.sqlite`. A running process may hold the lock; `sqlite3 -readonly` and `bun:sqlite` `{ readonly: true }` still work.
+This skill provides procedures and a dedicated executable helper to inspect and debug local bot sessions in Cadmus (`cadmus`).
 
-## Inputs
+## Architecture & Storage Context
 
-- **Home.** Optional. Default `./data` at the repo root (the `PI_BOT_HOME` default). If the user names another directory, pass `--home`.
-- **Selector.** A conversation id, a chat key, a key substring, or a bot id. One session holds every bot. The chat directory maps keys to `conversationId`. A conversation id is enough to read that transcript. A bot id is the first segment of a chat key (`<botId>:web:…`) and selects `bots/<botId>/` on disk.
+- **Two-Tier Storage**:
+  - **Durable Object SQLite** (`.wrangler/state/v3/do/cadmus-CadmusBotFamilyDO/*.sqlite`): Holds all bot domain entities—bots, souls (`SOUL.md`), memories (`MEMORY.md`), knowledge (`knowledge/*.md`), chats (`cadmus_chats`), and pi-durable conversation transcripts (`cadmus_pi_entries`).
+  - **D1** (`.wrangler/state/v3/d1/...`): Holds global admin accounts, auth tokens, and encrypted credentials only. Never look in D1 for bot files or conversation entries.
+- **Bot Scoping**: Memory (`MEMORY.md`) is scoped strictly per `bot_id`, not shared family-wide.
+- **WAL Mode**: DO SQLite uses Write-Ahead Logging (`.sqlite-wal`). Direct database queries must open the database file allowing SQLite to read the active WAL.
 
-Ask for a selector when the user does not give one. List chats first so they can pick.
+---
 
-## Dump
+## Executable Helper Script
 
-From the repo root:
+The skill includes a pre-built TypeScript helper running with Bun:
+[`scripts/debug-session.ts`](./scripts/debug-session.ts)
+
+### Common Commands
 
 ```bash
-bun .agents/skills/debug-session/scripts/inspect.ts
-bun .agents/skills/debug-session/scripts/inspect.ts <selector>
-bun .agents/skills/debug-session/scripts/inspect.ts --home <dir> <selector>
-bun .agents/skills/debug-session/scripts/harvest.ts [--home <dir>] <selector>
+# 1. List all bots and chats in the family
+bun .agents/skills/debug-session/scripts/debug-session.ts list
+
+# 2. General summary of a bot or chat (memory preview, knowledge files, chats)
+bun .agents/skills/debug-session/scripts/debug-session.ts <botId|chatKey>
+# Examples:
+bun .agents/skills/debug-session/scripts/debug-session.ts xai3
+bun .agents/skills/debug-session/scripts/debug-session.ts xai3:43e02030
+
+# 3. Query MEMORY.md
+bun .agents/skills/debug-session/scripts/debug-session.ts <botId|chatKey> memory
+# Output as JSON:
+bun .agents/skills/debug-session/scripts/debug-session.ts <botId|chatKey> memory --json
+
+# 4. Query Knowledge Files
+# List all knowledge files:
+bun .agents/skills/debug-session/scripts/debug-session.ts <botId|chatKey> knowledge
+# Read a specific knowledge file:
+bun .agents/skills/debug-session/scripts/debug-session.ts <botId|chatKey> knowledge <slug>
+
+# 5. Query SOUL.md
+bun .agents/skills/debug-session/scripts/debug-session.ts <botId|chatKey> soul
+
+# 6. Read Conversation Transcript
+# Dumps formatted conversation turns with user messages, assistant responses,
+# tool calls (arguments), tool results, and system prompt injections:
+bun .agents/skills/debug-session/scripts/debug-session.ts <chatKey|botId> conversation
+
+# 7. Search / Ask about Conversation turns
+# Filters conversation entries matching a keyword or phrase:
+bun .agents/skills/debug-session/scripts/debug-session.ts <chatKey|botId> --search "israel"
+bun .agents/skills/debug-session/scripts/debug-session.ts <chatKey|botId> --search "memory_update"
 ```
 
-No selector prints live chats as `conversationId`, key, title. A selector prints the last 40 parent entries, open tasks/submissions, schedule rows, and a harvest section (notes, pending/completed, fires, each fork's submission, tools, assistant text). `harvest.ts` prints only that harvest section.
+---
 
-## How to read a failure
+## Direct SQLite Inspection (Alternative / Low-Level)
 
-Work from the newest entry backward.
+If manual inspection using `bun:sqlite` is desired:
 
-- **No reply.** Find the submission by request id (`<chatKey>:<clientMsgId>` or `sched:<id>:<nextRun>`). `queued` or `placed` means the turn was admitted and did not finish. `unanswered` means it was not admitted. `done` points at the user `entry` and the assistant `answer` entry id.
-- **Stuck turn.** A task whose status is not `terminal` (`pending`, `running`, `waiting`, `completing`) is the live work. `abort_requested=1` means a stop was asked and has not finished. `pi.generation` `terminal` with `outcome.status` other than `completed` is a failed model turn; read `outcome` from `tasks.record`.
-- **Tool failure.** An entry whose role is `toolResult` holds the error the model saw. The assistant entry before it is the call.
-- **Duplicate or dropped command.** `pi-bot.commands` is the claim set. A repeated request id does not run again.
-- **Schedule did not fire.** `schedules.sqlite` columns `id`, `bot_id`, `kind`, `cron` or `when_ms`, `next_run`, `enabled`, `text`, `target_json`. `fires.request_id` is the occurrence already claimed. Ids starting with `harvest:` are internal. A consumed `when` harvest leaves no schedule row; look at fires and forks.
-- **Wrong persona or knowledge.** Read `bots/<botId>/SOUL.md`, `SYSTEM.md`, and `knowledge/*.md`. Those files are not in the transcript. Harvest notes (`pi-bot.harvest-notes`) are timeline-only and are not model context.
-- **Closed chat.** A key listed in the chats document `closed` array refuses new admission. The entries remain.
+```typescript
+import { Database } from "bun:sqlite";
 
-## Harvest
+// Automatically pick the primary family DO database:
+const db = new Database("./.wrangler/state/v3/do/cadmus-CadmusBotFamilyDO/0616a7cc0ebf600c3b3bffef1392bb206406c24fa73a83a7fed1051691d1a0fa.sqlite");
 
-Idle harvest forks the parent at the rested entry, submits `HARVEST_TEXT` on a knowledge-tool-only child (`requestId` `sched:harvest:<chatKey>:<entryId>`), then diffs `SOUL.md` and `knowledge/*.md`. A file change appends `{ chatKey, at, files, when }` on `pi-bot.harvest-notes`. No change still marks `completed[chatKey] = at`. A `when` row is dropped after the fire; `schedules 0` is not "harvest never ran".
+// Check MEMORY.md for a bot
+console.log(db.query("SELECT * FROM cadmus_bot_memories WHERE bot_id = ?").get("xai3"));
 
-Read the harvest section newest fork last:
+// Check knowledge files
+console.log(db.query("SELECT slug, description, category, version FROM cadmus_bot_knowledge WHERE bot_id = ?").all("xai3"));
 
-- **Never ran.** No fork, no `fires` row, no `completed` mark. Check whether idle arm ran (`harvest:<chatKey>` still in `schedules`) or the chat never went idle.
-- **Skipped as already done.** `completed at` equals the fork `at`. Host will not harvest that entry again.
-- **Pending / stuck.** `pending at=… child=…` with a child task not `terminal`, or a harvest submission `queued`/`placed`.
-- **Ran, wrote nothing.** Fork `done`, assistant text says no writes (or similar), `tools called (none)`, `knowledge notes 0`. Host did its job; the model declined. Quote the assistant entry and the parent lines that should have been knowledge (preferences, standing instructions).
-- **Tool failed.** `tools called` includes `knowledge_read` / `knowledge_update` and a `toolResult` error. That error is what the model saw.
-- **Wrote files.** A `note at=` line lists paths and a diff. Those files are on disk under `bots/<botId>/`. The note is not sent to the model on later turns.
+// Check chat metadata
+console.log(db.query("SELECT * FROM cadmus_chats WHERE key = ?").get("xai3:43e02030"));
 
-Quote entry ids, request ids, and task outcomes in the answer. Say what the next check is when the dump does not show the cause. Do not mutate the session to "fix" it unless the user asks for a code change.
+// Check pi-durable conversation entries
+console.log(db.query("SELECT id, record FROM cadmus_pi_entries WHERE conversation_id = ? ORDER BY id ASC").all(247));
+```
+
+---
+
+## Verifying Memory & Knowledge Tool Execution
+
+When debugging why a tool like `memory_update` or `knowledge_update` did or did not update a file:
+
+1. **Verify Tool Call & Result in Transcript**:
+   Check if the assistant actually invoked the tool and inspect the return value:
+   `bun .agents/skills/debug-session/scripts/debug-session.ts <chatKey> --search "memory_update"`
+   - A success result looks like: `{"version": 1, "bytes": 21}`.
+   - An error result contains an error message (e.g. CAS conflict or size violation).
+2. **Check CAS Versioning**:
+   If `expectedVersion` does not match the current version in `cadmus_bot_memories` or `cadmus_bot_knowledge`, the CAS update fails with `CasConflictError`.
+3. **Check Injected System Prompt**:
+   In the turn immediately following an update, pi-durable injects updated system prompt sections:
+   `bun .agents/skills/debug-session/scripts/debug-session.ts <chatKey> --search "SYSTEM INJECT"`

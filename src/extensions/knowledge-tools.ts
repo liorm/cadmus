@@ -3,198 +3,280 @@ import {
 	defineExtension,
 	defineTool,
 	type ToolExecutionApi,
+	type ToolExecutionResult,
 } from "@earendil-works/pi-durable";
-import { type TSchema, Type } from "typebox";
-import {
-	commitKnowledgeUpdate,
-	deleteKnowledge,
-	KNOWLEDGE_FIELDS,
-	KNOWLEDGE_VERSION_FIELD,
-	knowledgeReadPayload,
-	loadKnowledge,
-	parseSlug,
-	parseVersion,
-} from "./knowledge.ts";
-import {
-	commitMemoryUpdate,
-	loadMemory,
-	MEMORY_BODY_MAX,
-	memoryReadPayload,
-} from "./memory.ts";
-import { toolError, toolText } from "./self-tools/host.ts";
+import { Type } from "typebox";
+import { requireCadmusServices } from "../context.js";
+import { getLogger } from "../log.js";
+import { MAX_MEMORY_BYTES, SLUG_REGEX } from "../store/sqlite-family.js";
 
-const slugSchema = Type.String({
-	description:
-		"Knowledge slug. Lowercase letters, digits, and hyphens, 1–64 characters.",
-});
-
-function knowledgeUpdateParameters(): TSchema {
-	const properties: Record<string, TSchema> = { slug: slugSchema };
-	for (const field of KNOWLEDGE_FIELDS) {
-		if (field.kind === "line") {
-			const schema = Type.String({ description: field.description });
-			properties[field.name] = field.required ? schema : Type.Optional(schema);
-		} else if (field.kind === "version") {
-			properties.version = Type.Number({ description: field.description });
-		} else {
-			properties.body = Type.String({ description: field.description });
-		}
-	}
-	return Type.Object(properties);
+export function toolError(message: string): ToolExecutionResult {
+	return {
+		output: [{ type: "text", text: message }],
+		isError: true,
+	};
 }
 
-async function botFolder(
+export function toolText(text: string): ToolExecutionResult {
+	return {
+		output: [{ type: "text", text }],
+	};
+}
+
+export async function resolveBotScope(
 	api: ToolExecutionApi,
 	context: Context,
-): Promise<string | undefined> {
+): Promise<{ botId: string; chatKey?: string } | undefined> {
 	const agent = await api.agent(context);
-	return agent.cwd;
+	const botId = agent.cwd?.trim();
+	if (!botId) return undefined;
+	const services = requireCadmusServices(context);
+	const chat = services.familyStore.chats.getChatByConversationId(
+		api.conversationId as unknown as number,
+	);
+	return {
+		botId,
+		...(chat && !chat.closed ? { chatKey: chat.key } : {}),
+	};
 }
 
-async function remembered<T extends JsonValue>(
-	api: ToolExecutionApi,
-	name: string,
-	context: Context,
-): Promise<T | undefined> {
-	return api.memo<T>(name, context);
-}
-
-/**
- * `knowledge_read`, `knowledge_update`, and `knowledge_delete` for the conversation's bot.
- * Persistence lives in knowledge.ts. Replay is safe: update and delete memo the outcome.
- */
 export function knowledgeExtension() {
 	return defineExtension({
-		name: "pi-bot.knowledge",
+		name: "cadmus.knowledge",
 		tools: [
 			defineTool({
 				name: "knowledge_read",
 				description:
-					"Read one knowledge entry for this bot. Returns slug, version, and when it exists, description, optional category, and body. A missing entry returns exists false and version 0. Use that version on knowledge_update.",
-				parameters: Type.Object({ slug: slugSchema }),
+					"Read one knowledge entry for this bot. Returns slug, version, and when it exists, description, optional category, and body. A missing entry returns exists: false and version: 0.",
+				parameters: Type.Object({
+					slug: Type.String({
+						description:
+							"Knowledge slug (lowercase letters, digits, hyphens, 1-64 chars).",
+					}),
+				}),
 				replay: "safe",
 				async execute(args, api, context) {
-					const cwd = await botFolder(api, context);
-					if (!cwd)
-						return toolError("This conversation is not inside a bot folder.");
-					const slug = parseSlug(args.slug, "knowledge");
-					if (!slug) return toolError("The name is not a legal slug.");
-					const loaded = await loadKnowledge(cwd, slug);
-					const payload = knowledgeReadPayload(slug, loaded);
-					if (!payload.ok) return toolError(payload.error);
-					return toolText(JSON.stringify(payload.record));
+					const scope = await resolveBotScope(api, context);
+					if (!scope) {
+						return toolError("Conversation is not bound to a bot.");
+					}
+					if (!SLUG_REGEX.test(args.slug)) {
+						return toolError(
+							`Invalid knowledge slug '${args.slug}': must match /^[a-z0-9][a-z0-9-]{0,63}$/`,
+						);
+					}
+					const services = requireCadmusServices(context);
+					const doc = services.familyStore.files.getKnowledge(
+						scope.botId,
+						args.slug,
+					);
+					if (!doc) {
+						return toolText(
+							JSON.stringify({
+								slug: args.slug,
+								exists: false,
+								version: 0,
+							}),
+						);
+					}
+					return toolText(
+						JSON.stringify({
+							slug: doc.slug,
+							exists: true,
+							version: doc.version,
+							description: doc.description,
+							...(doc.category ? { category: doc.category } : {}),
+							body: doc.body,
+						}),
+					);
 				},
 			}),
+
 			defineTool({
 				name: "knowledge_update",
 				description:
-					"Create or replace one knowledge entry. Pass the version from knowledge_read (0 when it does not exist), a one-line description (at most 240 characters), and the full body without a --- frontmatter fence. Optional category is a one-line grouping label (at most 64 characters); omit it to keep the current value, pass an empty string to clear it. A stale version does not write.",
-				parameters: knowledgeUpdateParameters(),
+					"Create or replace one knowledge entry with optimistic concurrency (CAS). Pass expectedVersion (or version) from knowledge_read (0 when creating), a 1-line description (<= 240 chars), optional 1-line category (<= 64 chars), and markdown body.",
+				parameters: Type.Object({
+					slug: Type.String(),
+					description: Type.String(),
+					category: Type.Optional(Type.String()),
+					body: Type.String(),
+					expectedVersion: Type.Optional(Type.Number()),
+					version: Type.Optional(Type.Number()),
+				}),
 				replay: "safe",
 				async execute(args, api, context) {
-					const prior = await remembered<JsonValue>(api, "result", context);
-					if (prior) return toolText(JSON.stringify(prior));
-					const cwd = await botFolder(api, context);
-					if (!cwd)
-						return toolError("This conversation is not inside a bot folder.");
-					const result = await commitKnowledgeUpdate(
-						cwd,
-						args as Record<string, unknown>,
-					);
-					if (!result.ok) return toolError(result.error);
-					await api.memo("result", result.record, context);
-					return toolText(JSON.stringify(result.record));
+					const prior = await api.memo<JsonValue>("result", context);
+					if (prior !== undefined) {
+						return toolText(JSON.stringify(prior));
+					}
+					const scope = await resolveBotScope(api, context);
+					if (!scope) {
+						return toolError("Conversation is not bound to a bot.");
+					}
+					const expectedVersion = args.expectedVersion ?? args.version ?? 0;
+					if (!Number.isInteger(expectedVersion) || expectedVersion < 0) {
+						return toolError("expectedVersion must be a non-negative integer.");
+					}
+					try {
+						const services = requireCadmusServices(context);
+						const existing = services.familyStore.files.getKnowledge(
+							scope.botId,
+							args.slug,
+						);
+						const category =
+							args.category === undefined
+								? existing?.category
+								: args.category === ""
+									? undefined
+									: args.category;
+						const updated = services.familyStore.files.updateKnowledge(
+							scope.botId,
+							{
+								slug: args.slug,
+								description: args.description,
+								category,
+								body: args.body,
+								expectedVersion,
+							},
+						);
+						getLogger().debug("knowledge_update tool succeeded", {
+							bot: scope.botId,
+							slug: updated.slug,
+							version: updated.version,
+						});
+						const record = {
+							slug: updated.slug,
+							version: updated.version,
+							description: updated.description,
+							...(updated.category ? { category: updated.category } : {}),
+						};
+						await api.memo("result", record, context);
+						return toolText(JSON.stringify(record));
+					} catch (error) {
+						return toolError((error as Error).message);
+					}
 				},
 			}),
+
 			defineTool({
 				name: "knowledge_delete",
 				description:
-					"Delete one knowledge entry. Pass the version from knowledge_read. A stale version does not delete. An unreadable entry is removed without a version check.",
+					"Delete one knowledge entry by slug and expectedVersion (or version).",
 				parameters: Type.Object({
-					slug: slugSchema,
-					version: Type.Number({
-						description: KNOWLEDGE_VERSION_FIELD.description,
-					}),
+					slug: Type.String(),
+					expectedVersion: Type.Optional(Type.Number()),
+					version: Type.Optional(Type.Number()),
 				}),
 				replay: "safe",
 				async execute(args, api, context) {
-					const prior = await remembered<{ deleted: string }>(
-						api,
-						"deleted",
-						context,
-					);
-					if (prior) return toolText(JSON.stringify(prior));
-					const cwd = await botFolder(api, context);
-					if (!cwd)
-						return toolError("This conversation is not inside a bot folder.");
-					const slug = parseSlug(args.slug, "knowledge");
-					if (!slug) return toolError("The name is not a legal slug.");
-					const expected = parseVersion(args.version);
-					if (expected === undefined)
-						return toolError("Version is not a whole number.");
-					const loaded = await loadKnowledge(cwd, slug);
-					if (loaded.status === "outside")
-						return toolError("The name is not a legal slug.");
-					const claimed = await remembered<string>(api, "target", context);
-					if (loaded.status === "missing") {
-						if (claimed === slug) {
-							await api.memo("deleted", { deleted: slug }, context);
-							return toolText(JSON.stringify({ deleted: slug }));
-						}
-						return toolError("No such knowledge entry.");
+					const prior = await api.memo<JsonValue>("deleted", context);
+					if (prior !== undefined) {
+						return toolText(JSON.stringify(prior));
 					}
-					if (loaded.status === "ok" && loaded.doc.version !== expected)
-						return toolError("Version does not match.");
-					await api.memo("target", slug, context);
-					const deleted = await deleteKnowledge(cwd, slug);
-					if (!deleted.ok) return toolError(deleted.error);
-					await api.memo("deleted", { deleted: slug }, context);
-					return toolText(JSON.stringify({ deleted: slug }));
+					const scope = await resolveBotScope(api, context);
+					if (!scope) {
+						return toolError("Conversation is not bound to a bot.");
+					}
+					const expectedVersion = args.expectedVersion ?? args.version;
+					if (
+						expectedVersion === undefined ||
+						!Number.isInteger(expectedVersion) ||
+						expectedVersion < 1
+					) {
+						return toolError("expectedVersion must be a positive integer.");
+					}
+					try {
+						const services = requireCadmusServices(context);
+						services.familyStore.files.deleteKnowledge(
+							scope.botId,
+							args.slug,
+							expectedVersion,
+						);
+						getLogger().debug("knowledge_delete tool succeeded", {
+							bot: scope.botId,
+							slug: args.slug,
+						});
+						const record = { deleted: args.slug };
+						await api.memo("deleted", record, context);
+						return toolText(JSON.stringify(record));
+					} catch (error) {
+						return toolError((error as Error).message);
+					}
 				},
 			}),
+
 			defineTool({
 				name: "memory_read",
 				description:
-					"Read this bot's MEMORY.md. Returns exists, version, and body. A missing file returns exists false and version 0. Use that version on memory_update. The body is already in the prompt when it is non-empty.",
+					"Read this bot's MEMORY.md. Returns exists, version, and content/body.",
 				parameters: Type.Object({}),
 				replay: "safe",
 				async execute(_args, api, context) {
-					const cwd = await botFolder(api, context);
-					if (!cwd)
-						return toolError("This conversation is not inside a bot folder.");
-					const loaded = await loadMemory(cwd);
-					const payload = memoryReadPayload(loaded);
-					if (!payload.ok) return toolError(payload.error);
-					return toolText(JSON.stringify(payload.record));
+					const scope = await resolveBotScope(api, context);
+					if (!scope) {
+						return toolError("Conversation is not bound to a bot.");
+					}
+					const services = requireCadmusServices(context);
+					const mem = services.familyStore.files.getMemory(scope.botId);
+					return toolText(
+						JSON.stringify({
+							exists: mem.version > 0,
+							version: mem.version,
+							content: mem.content,
+							body: mem.content,
+						}),
+					);
 				},
 			}),
+
 			defineTool({
 				name: "memory_update",
-				description:
-					"Create or replace this bot's MEMORY.md. Pass the version from memory_read (0 when it does not exist) and the full body without a --- frontmatter fence. The body replaces the whole file. Empty body clears memory (the file stays; later prompts omit it). A stale version does not write. Body is at most 8192 bytes.",
+				description: `Create or replace this bot's MEMORY.md with optimistic concurrency (CAS). Pass expectedVersion (or version) from memory_read (0 when creating) and content (or body) up to ${MAX_MEMORY_BYTES} bytes without a leading --- frontmatter fence.`,
 				parameters: Type.Object({
-					version: Type.Number({
-						description:
-							"Version returned by memory_read. 0 when the file does not exist.",
-					}),
-					body: Type.String({
-						description: `Markdown body without frontmatter. Empty clears memory. Must not start with ---. At most ${MEMORY_BODY_MAX} bytes.`,
-					}),
+					content: Type.Optional(Type.String()),
+					body: Type.Optional(Type.String()),
+					expectedVersion: Type.Optional(Type.Number()),
+					version: Type.Optional(Type.Number()),
 				}),
 				replay: "safe",
 				async execute(args, api, context) {
-					const prior = await remembered<JsonValue>(api, "result", context);
-					if (prior) return toolText(JSON.stringify(prior));
-					const cwd = await botFolder(api, context);
-					if (!cwd)
-						return toolError("This conversation is not inside a bot folder.");
-					const result = await commitMemoryUpdate(
-						cwd,
-						args as Record<string, unknown>,
-					);
-					if (!result.ok) return toolError(result.error);
-					await api.memo("result", result.record, context);
-					return toolText(JSON.stringify(result.record));
+					const prior = await api.memo<JsonValue>("result", context);
+					if (prior !== undefined) {
+						return toolText(JSON.stringify(prior));
+					}
+					const scope = await resolveBotScope(api, context);
+					if (!scope) {
+						return toolError("Conversation is not bound to a bot.");
+					}
+					const content = args.content ?? args.body;
+					if (typeof content !== "string") {
+						return toolError("content (or body) string is required.");
+					}
+					const expectedVersion = args.expectedVersion ?? args.version ?? 0;
+					if (!Number.isInteger(expectedVersion) || expectedVersion < 0) {
+						return toolError("expectedVersion must be a non-negative integer.");
+					}
+					try {
+						const services = requireCadmusServices(context);
+						const updated = services.familyStore.files.updateMemory(
+							scope.botId,
+							content,
+							expectedVersion,
+						);
+						getLogger().debug("memory_update tool succeeded", {
+							bot: scope.botId,
+							version: updated.version,
+						});
+						const record = {
+							version: updated.version,
+							bytes: new TextEncoder().encode(updated.content).byteLength,
+						};
+						await api.memo("result", record, context);
+						return toolText(JSON.stringify(record));
+					} catch (error) {
+						return toolError((error as Error).message);
+					}
 				},
 			}),
 		],

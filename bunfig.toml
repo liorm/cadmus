@@ -1,7 +1,0 @@
-[test]
-# Crash and login tests spawn real bun processes; allow time for restarts.
-timeout = 60000
-root = "test"
-# Coverage counts this process only (child processes in crash/login tests are not instrumented).
-coverageSkipTestFiles = true
-coveragePathIgnorePatterns = ["test/**", "node_modules/**"]

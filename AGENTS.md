@@ -1,67 +1,107 @@
-# AGENTS.md — pi-bot
+# AGENTS.md — Coding Agent Handbook for Cadmus (`cadmus`)
 
-Personal Hermes-style agent on `@earendil-works/pi-durable` (`^1.3.0`), talking over a local web page and SSE stream. Default model: Grok via pi-ai (`xai/…`, API key or SuperGrok/X Premium OAuth). Several bots share one harness. Each has a folder (`SOUL.md`, `MEMORY.md`, `knowledge/*.md`), configurable tools, and independent chats. User schedules live in a sidecar SQLite file (`schedules.sqlite`). Idle harvest notes stay out of the model (`pi-bot.harvest-notes`).
+This document contains everything an autonomous coding agent needs to understand, modify, and verify the Cadmus codebase.
 
-Architecture documentation lives in `docs/`, with [docs/architecture.md](docs/architecture.md) as the index:
-- [docs/architecture.md](docs/architecture.md) — system overview, component diagram, bot runtime seam, and durability guarantees
-- [docs/architecture/bots-and-storage.md](docs/architecture/bots-and-storage.md) — home directory layout, bot records, chat keys, session documents, and shared vs. per-chat state
-- [docs/architecture/channels-and-turns.md](docs/architecture/channels-and-turns.md) — inbound admission, turns, slash commands, and the HTTP/SSE client surface
-- [docs/architecture/knowledge-and-harvest.md](docs/architecture/knowledge-and-harvest.md) — prompt sections, `SOUL.md`, `MEMORY.md`, `knowledge/*.md`, compare-and-swap tools, and background harvest forks
-- [docs/architecture/schedules-and-tools.md](docs/architecture/schedules-and-tools.md) — sidecar schedule catalog, schedule tasks and targets, self tools, cross-bot tools, provider server tools, and per-bot tool gating
+---
 
-## Toolchain: Bun only
+## 1. Core Architectural Invariants
 
-Never use node/npm/npx/vitest here.
+1. **Shared Cloudflare Account Prefixing**:
+   - The Cloudflare account is shared across projects. Keep all bindings, classes, DO names, and SQLite tables prefixed with `cadmus` / `CADMUS_`:
+     - Durable Object class: `CadmusBotFamilyDO` (`CADMUS_BOT_FAMILY` binding)
+     - Deterministic DO instance name: `cadmus:${accountId}:${familyId}`
+     - Global D1 binding: `CADMUS_ADMIN_DB` (`cadmus-admin`)
+     - All D1 tables and DO SQLite tables use the `cadmus_` prefix (`cadmus_pi_` for `pi-durable` internal tables).
 
-| Task | Command |
-|---|---|
-| install | `bun install` (commit `bun.lock`) |
-| run | `bun start` (loads `.env`; see `.env.example`) |
-| test | `bun test` · one file: `bun test test/flows/web.test.ts` |
-| coverage | `bun run coverage` |
-| typecheck | `bun check` (or `bun run typecheck`) |
-| lint / format | `bun run lint` (`biome check`) · `bun run format` (`biome check --write`) · `bun run format:check` (`biome format`) |
-| all checks | `bun run check:all` — format, Biome, typecheck, tests; must pass before every commit |
-| Grok OAuth | `bun run login grok` · `bun run auth:status` · `bun run logout grok` |
+2. **Two-Tier Storage Boundary (No `pi-durable` Session `Doc`s for Domain Entities)**:
+   - Do **not** use `pi-durable` `defineDoc` session documents to store bots, files, chats, schedules, or harvest notes.
+   - **Rule of Thumb**:
+     - Anything that belongs inside one Bot Family's conversations and chats lives in **`FamilyStore`** ([`src/store/family-interface.ts`](src/store/family-interface.ts) -> [`SqliteFamilyStore`](src/store/sqlite-family.ts) on DO SQLite).
+     - Anything global or administrative (users, auth tokens, accounts, user-to-account memberships, account-level encrypted BYOK credentials, and the `account <-> family <-> DO` catalog) lives in **`AdminStore`** ([`src/store/admin-interface.ts`](src/store/admin-interface.ts) -> [`D1AdminStore`](src/store/d1-admin.ts) on Cloudflare D1).
+     - `pi-durable` is used strictly for conversations, transcript entries, model turns, and durable tasks (`ScheduleTask`, `SearchBotTask`).
 
-TypeScript runs unbuilt: imports use `.ts` extensions; only erasable syntax (no enums, namespaces, parameter properties).
+3. **Out-of-Band `/status` Only**:
+   - Slash command `/status` is intercepted out-of-band in `CadmusBotFamilyDO` before `conversation.submit()`.
+   - It must **never** append entries to the conversation transcript or invoke the LLM.
+   - Other legacy slash commands (`/new`, `/reset`, `/clear`, `/compact`, `/stop`, `/help`) are intentionally omitted and return `unsupported_command`.
 
-Dependency ranges in `package.json` use `^` (compatible updates). Do not pin an exact version there. `bun.lock` still records the version that was installed.
+4. **Unified Schedule & Idle Harvest Mechanism (`ScheduleTask`)**:
+   - Do **not** introduce a separate `HarvestTask`.
+   - Cron schedules, one-shot `when` timers, and idle harvest timers (`id = "harvest:<chatKey>"`, `internal = true`, `kind = "when"`, `target = { mode: "fork", chatKey, at, harvest: true }`) all execute through the single [`ScheduleTask`](src/schedules.ts) (`cadmus.schedule`, phases: `wait` -> `run`).
+   - [`syncDurableObjectAlarm`](src/alarms.ts) inspects `harness.inspect(BACKGROUND_CONTEXT)` and enabled schedules in `FamilyStore` to program `ctx.storage.setAlarm(nextWake)`.
 
-## High-level layout
+5. **Standalone TUI (`tui/`)**:
+   - `tui/` is an independent project with its own [`tui/package.json`](tui/package.json) and [`tui/tsconfig.json`](tui/tsconfig.json) (`verbatimModuleSyntax: true`).
+   - Never import runtime code from `src/` into `tui/src/`. Only `import type { ... } from "../../src/protocol.js"` is allowed.
 
+6. **Idempotent Replay Safety (`replay: "safe"`)**:
+   - All mutating agent tools (`knowledge_update`, `knowledge_delete`, `memory_update`, `schedule_create`, `schedule_update`, `schedule_delete`, `create_bot`, `message_bot`, `web.fetch`) must memoize their side-effect results via `await api.memo(key, value, context)` so `pi-durable` task replay across DO restarts never duplicates mutations.
+
+7. **Structured Logging Only (`src/log.ts`, Zero `console.*`)**:
+   - Never use `console.log`, `console.warn`, `console.error`, or `console.debug` anywhere in the codebase.
+   - Always log through [`getLogger()`](src/log.ts) (configured via [`setupLogger()`](src/log.ts) / [`ensureLogger()`](src/log.ts), supporting `{ type: "console", level, stream, colors }`, `{ type: "custom", logger }`, and `{ type: "silent" }`) with structured `LogFields` and `.child(chatFields(...))` / `.child(familyFields(...))`.
+
+---
+
+## 2. Project Layout
+
+```text
+├── src/
+│   ├── index.ts                 # Worker Edge entrypoint (/health, /protocol/schema, auth, routing)
+│   ├── family-do.ts             # CadmusBotFamilyDO (RPC, WS, SSE, alarm(), pi-durable harness)
+│   ├── log.ts                   # Structured logger (setupLogger, getLogger, chatFields, familyFields)
+│   ├── protocol.ts              # TypeBox schemas & types for all commands and server frames
+│   ├── shim.ts                  # ProtocolShim interface & defaultJsonShim
+│   ├── auth.ts                  # Edge request authentication (Bearer, cookie, D1 member tokens)
+│   ├── context.ts               # CadmusServices Chord context binding
+│   ├── models.ts                # pi-ai Models, AccountCredentialStore, xAI native tools, faux/echo
+│   ├── cron.ts                  # 5-field cron parser and nextCron calculator
+│   ├── schedules.ts             # Unified ScheduleTask (cron, when, and harvest forks)
+│   ├── alarms.ts                # Unified DO Alarm Driver (scheduledWakeTime & setAlarm)
+│   ├── store/
+│   │   ├── admin-interface.ts   # Global AdminStore interface
+│   │   ├── d1-admin.ts          # Cloudflare D1 implementation + Web Crypto AES-GCM 256-bit
+│   │   ├── family-interface.ts  # Per-family FamilyStore interface
+│   │   └── sqlite-family.ts     # DO SQLite implementation + CAS & unified diffing
+│   └── extensions/
+│       ├── identity.ts          # 5 prompt sections (soul, system, knowledge, memory, date)
+│       ├── knowledge-tools.ts   # knowledge_read/update/delete, memory_read/update
+│       ├── schedules-tools.ts   # schedule_create/list/update/delete
+│       ├── internal-tools.ts    # create_bot, search_bot (SearchBotTask), message_bot
+│       ├── tool-gate.ts         # Per-bot tool policy enforcement (beforeTool hook)
+│       └── web-tools.ts         # web.fetch and provider-native tool stubs
+├── tui/                         # Standalone TUI client package
+├── e2e/                         # Protocol-first E2E tests running in workerd
+└── docs/                        # Architecture index and sub-docs
 ```
-src/harness/                storage + owner.lock, models, OAuth credentials, extension registry, startup, tool policy
-src/channels/               bot catalog/records, and Bun.serve web API + Preact UI
-src/extensions/             pi-durable extensions: identity sections, knowledge/memory, self tools, internal bot tools, web, tool gate
-src/schedules/              sidecar schedules.sqlite store, ScheduleService, pi-bot.schedule task, cron, and dispatch
-src/harvest/                idle harvest task (pi-bot.harvest) and HarvestNotesDoc (pi-bot.harvest-notes)
-scripts/                    CLI utilities (OAuth login/logout/status, binary build)
-test/                       flows/ (end-to-end feature tests), egress/ (fake xAI HTTP server), units.test.ts
-docs/                       architecture documentation (indexed at docs/architecture.md)
+
+---
+
+## 3. Running & Writing Tests
+
+### Commands
+
+```bash
+# Run full E2E test suite in workerd
+bun run test
+
+# Typecheck both root Worker and standalone TUI (fast native check via bun check)
+bun run typecheck
+bun check
+
+# Lint and format with Biome
+bun run lint
+bun run format
+bun run format:check
+bun run check:all
 ```
 
-## Logging
+### How to Write E2E Tests
 
-Default `LOG_LEVEL` is `info`. **Use `debug` for operational traces.** Turns, harvest arm/resume, schedule fires, duplicate input, and other per-event lifecycle belong at `debug`. Operators turn that on when they need it.
-
-Use `info` sparsely: process lifecycle (started, stopped, listening URL, shutdown), one-shot configuration at boot (model auth, a door that is off). Not once per chat, schedule, harvest, or request.
-
-`warn` is for degraded but continuing states (unanswered turn). `error` is for failures that drop work (harvest fire that will retry, shutdown failure).
-
-## Durability rules (do not break)
-
-- **One storage owner.** `owner.lock` in `PI_BOT_HOME`; never open `durable.sqlite` from a second process. Don't write foreign tables into it. Schedules live in `schedules.sqlite`.
-- **Inbound exactly once.** A web message uses `requestId = <chatKey>:<clientMsgId>`. A schedule occurrence uses `sched:<id>:<nextRun>`, claimed in the sidecar `fires` table before the fork or submit. An idle harvest child uses `harvest:<chatKey>:<entryId>`, armed in `pi-bot.harvest-notes`. Commands are deduped in `CommandsDoc` (claim before effect). Harvest notes are `pi-bot.harvest-notes` and are not conversation messages.
-- **Tool replay classes** (pi-durable `replay`): pure reads → `safe`; idempotent internal writes (memory, skills, schedules, knowledge, bot creation/search) → `safe`, keyed by task memo (`api.memo`) or content hash, doc writes in the same commit; external side effects (sends, HTTP POST, web/code) → `unsafe` + receipt; shell/exec → `unsafe`.
-- Hooks are read-only (HookApi); trigger work by committing tasks from host code. Keep prompt sections stable (they are cached); volatile data at most daily.
-- Every async pi-durable call takes a Chord context (`BACKGROUND_CONTEXT`). Verify APIs against `node_modules/@earendil-works/pi-durable` types, not memory.
-
-## Testing policy
-
-- **Every feature ships with flow-level tests through the public interface**: web message in → agent → SSE / transcript reply out; commands; restarts; login CLI. Assert on what the user sees (messages sent) and on durable outcomes; peeking at docs is fine for assertions, not for driving.
-- **Mock only egress, at the HTTP boundary.** `test/egress/fake-egress.ts` serves the xAI Responses API (SSE) and xAI OAuth; `routeEgress()` (in-process) or `--preload test/egress/preload.ts` (child processes) rewrites the real hosts to it. Unrouted egress throws. Don't fake internal interfaces (transport, harness) in tests; extend the fake server instead.
-- **Real everything else**: production `main()`, real pi-durable on SQLite in temp dirs, real `bun` processes and `kill -9` for crash/restart tests, real login CLI.
-- **Unit tests only for small pure helpers** (parsers, validators, splitters) in `test/units.test.ts`.
-- **Deterministic**: no sleeps as synchronization — wait on observable conditions (`until`, `settle()` = harness idle). Fixed waits only to prove something does *not* happen, sized from config. No real network, no real keys.
-- New egress (another provider or API) → add a route + fake endpoint first, then the flow test.
+1. Place E2E tests under `e2e/*.test.ts`.
+2. Use [`sendRpc`](e2e/helpers.ts) (for `POST /rpc`) and [`connectTestWs`](e2e/helpers.ts) (for `GET /ws` WebSocket) over `SELF.fetch` from `cloudflare:test`.
+3. Use unique `accountId` / `familyId` scopes per test to isolate D1 and Durable Object state cleanly.
+4. Use the deterministic offline model `faux/echo`:
+   - Standard user text `"Hello"` replies with `"echo(<visibleUserMessages>): Hello"`.
+   - Embed `[tool:<toolName> <jsonArgs>]` in a user prompt to trigger a real tool call through `pi-durable`'s tool execution pipeline during a turn.
+   - Embed `[remember: <fact>]` or `[learn:<slug> <body>]` in a user prompt and trigger `await runDurableObjectAlarm(stub)` from `cloudflare:test` to test the full idle harvest fork -> tool call -> file diff -> `HarvestNote` pipeline.

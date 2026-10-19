@@ -1,29 +1,14 @@
-import { readFile } from "node:fs/promises";
-import { join } from "node:path";
-import type { Context } from "@earendil-works/chord";
-import {
-	defineExtension,
-	type PromptInput,
-	section,
-} from "@earendil-works/pi-durable";
-import { BotsDoc } from "../channels/bots.ts";
-import { DEFAULT_SOUL, SYSTEM_PROMPT } from "./default-soul.ts";
-import { knowledgeIndex } from "./knowledge.ts";
-import { memorySection } from "./memory.ts";
-import { botIdFromCwd } from "./self-tools/host.ts";
+import { defineExtension, section } from "@earendil-works/pi-durable";
+import { requireCadmusServices } from "../context.js";
 
-export { DEFAULT_SOUL };
+export const DEFAULT_SOUL = `You are a personal assistant.
+Be direct, warm and concise. Plain text renders best; keep formatting light.
+You run on a durable runtime: your conversation survives restarts. If you were interrupted, say so plainly rather than guessing what happened.`;
 
-async function readOptional(path: string): Promise<string | undefined> {
-	try {
-		const text = (await readFile(path, "utf8")).trim();
-		return text || undefined;
-	} catch {
-		return undefined;
-	}
-}
+export const SYSTEM_PROMPT = `MEMORY.md is short standing memory for this bot: preferences, voice, and how to work. Its body is already in the prompt when non-empty. Use memory_read then memory_update with that version and the full new body (no --- fence). Empty body clears it.
 
-/** `YYYY-MM-DD (Weekday)` in `timeZone`: changes once a day, so it does not defeat the prompt cache. */
+Knowledge lives in knowledge/<slug>.md. Use knowledge_read, knowledge_update, and knowledge_delete. knowledge_read returns a version (0 when the file does not exist). knowledge_update takes that version, a one-line description (at most 240 characters), an optional category, and the full body without a --- frontmatter fence; it creates the file when version is 0. Do not put standing preferences in knowledge when they belong in MEMORY.md. Do not edit SOUL.md unless the user asks.`;
+
 export function dayLine(timeZone: string, now = new Date()): string {
 	const date = new Intl.DateTimeFormat("en-CA", {
 		timeZone,
@@ -38,56 +23,59 @@ export function dayLine(timeZone: string, now = new Date()): string {
 	return `Today is ${date} (${weekday}), time zone ${timeZone}.`;
 }
 
-/** Stored display name as a line above the persona. Empty or missing name leaves the soul as-is. */
 export function soulWithName(soul: string, name?: string): string {
 	const label = name?.trim();
 	if (!label) return soul;
 	return `Your name is ${label}.\n\n${soul}`;
 }
 
-async function botName(
-	home: string,
-	input: PromptInput,
-	context: Context,
-): Promise<string | undefined> {
-	const id = botIdFromCwd(home, input.agent.cwd);
-	if (!id) return undefined;
-	const bots = await input.read.snapshot(BotsDoc, context);
-	return bots?.items.find((bot) => bot.id === id)?.name;
-}
+export function identityExtension(options?: { now?: () => Date }) {
+	const nowFn = options?.now ?? (() => new Date());
 
-/**
- * Identity sections, stable → volatile: `SOUL.md` (with the bot's name), system, knowledge index, MEMORY.md body, then a daily date.
- * Files are read from the conversation's agent cwd (`bots/<botId>`) at render time.
- */
-export function identityExtension(options: {
-	home: string;
-	timeZone: string;
-	now?: () => Date;
-}) {
-	const now = options.now ?? (() => new Date());
 	return defineExtension({
-		name: "pi-bot.identity",
+		name: "cadmus.identity",
 		sections: [
 			section(
 				"soul",
-				async (input, context) =>
-					soulWithName(
-						(input.agent.cwd
-							? await readOptional(join(input.agent.cwd, "SOUL.md"))
-							: undefined) ?? DEFAULT_SOUL,
-						await botName(options.home, input, context),
-					),
+				(input, context) => {
+					const services = requireCadmusServices(context);
+					const botId = input.agent.cwd;
+					const bot = botId
+						? services.familyStore.bots.getBot(botId)
+						: undefined;
+					const storedSoul = botId
+						? services.familyStore.files.getSoul(botId).trim()
+						: "";
+					return soulWithName(storedSoul || DEFAULT_SOUL, bot?.name);
+				},
 				{ tag: false },
 			),
-			section("system", (_input) => SYSTEM_PROMPT),
-			section("knowledge", (input) =>
-				input.agent.cwd ? knowledgeIndex(input.agent.cwd) : undefined,
-			),
-			section("memory", (input) =>
-				input.agent.cwd ? memorySection(input.agent.cwd) : undefined,
-			),
-			section("date", () => dayLine(options.timeZone, now())),
+			section("system", () => SYSTEM_PROMPT),
+			section("knowledge", (input, context) => {
+				const botId = input.agent.cwd;
+				if (!botId) return undefined;
+				const services = requireCadmusServices(context);
+				const docs = services.familyStore.files.listKnowledge(botId);
+				if (docs.length === 0) return undefined;
+				const lines = docs.map((doc) => {
+					const cat = doc.category ? ` [${doc.category}]` : "";
+					return `- ${doc.slug}${cat} (v${doc.version}): ${doc.description}`;
+				});
+				return `Available knowledge entries (use knowledge_read to view body):\n${lines.join("\n")}`;
+			}),
+			section("memory", (input, context) => {
+				const botId = input.agent.cwd;
+				if (!botId) return undefined;
+				const services = requireCadmusServices(context);
+				const mem = services.familyStore.files.getMemory(botId);
+				const body = mem.content.trim();
+				if (!body) return undefined;
+				return `MEMORY.md (version ${mem.version}):\n${body}`;
+			}),
+			section("date", (_input, context) => {
+				const services = requireCadmusServices(context);
+				return dayLine(services.getTimezone(), nowFn());
+			}),
 		],
 	});
 }

@@ -1,0 +1,35 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "cadmus",
+	"main": "src/index.ts",
+	"compatibility_date": "2026-10-18",
+	"compatibility_flags": ["nodejs_compat"],
+	"durable_objects": {
+		"bindings": [
+			{
+				"name": "CADMUS_BOT_FAMILY",
+				"class_name": "CadmusBotFamilyDO"
+			}
+		]
+	},
+	"d1_databases": [
+		{
+			"binding": "CADMUS_ADMIN_DB",
+			"database_name": "cadmus-admin",
+			"database_id": "00000000-0000-0000-0000-000000000000"
+		}
+	],
+	"migrations": [
+		{
+			"tag": "v1",
+			"new_sqlite_classes": ["CadmusBotFamilyDO"]
+		}
+	],
+	"vars": {
+		"CADMUS_AUTH_SECRET": "dev-cadmus-secret",
+		"CADMUS_ENCRYPTION_KEY": "dev-cadmus-encryption-key-32bytes!",
+		"CADMUS_DEFAULT_TIMEZONE": "UTC",
+		"CADMUS_HARVEST_DELAY_MS": "60000",
+		"CADMUS_LOG_LEVEL": "debug"
+	}
+}

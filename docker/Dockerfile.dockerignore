@@ -1,0 +1,11 @@
+.git
+.github
+.wrangler
+.celld
+.dev.vars
+.env*
+node_modules
+tui/node_modules
+e2e
+dist
+*.log
