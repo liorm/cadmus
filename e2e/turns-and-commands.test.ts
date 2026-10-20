@@ -1,12 +1,13 @@
+import { SELF } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
-import type { ChatRecord, TurnBlock } from "../src/protocol.js";
+import type { ChatGetResult, ChatRecord, TurnBlock } from "../src/protocol.js";
 import {
 	createTuiState,
 	handleServerEvent,
 	handleTurnSubmitResult,
 	type TuiOutput,
 } from "../tui/src/handler.js";
-import { connectTestWs, sendRpc } from "./helpers.js";
+import { connectTestWs, sendRpc, TEST_TOKEN } from "./helpers.js";
 
 describe("Turns, Streaming Protocol Events & Out-of-Band /status", () => {
 	it("streams turn.delta, turn.tool_call, turn.tool_result, chat.state, and turn.completed over WebSocket", async () => {
@@ -274,5 +275,161 @@ describe("Turns, Streaming Protocol Events & Out-of-Band /status", () => {
 		} finally {
 			wsClient.close();
 		}
+	});
+
+	it("enriches transcript messages and entries with server-side binding over synchronous RPC", async () => {
+		const scope = {
+			accountId: "acct-transcript-enrich",
+			familyId: "default",
+		};
+
+		// 1. Calling POST /rpc via sendRpc acts as a synchronous request-response where the server binds the response
+		// Verify with a specific request id over direct POST /rpc fetch
+		const customReqId = "req-custom-sync-check-42";
+		const directRes = await SELF.fetch("http://example.com/rpc", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer ${TEST_TOKEN}`,
+				"x-account-id": scope.accountId,
+			},
+			body: JSON.stringify({
+				id: customReqId,
+				type: "bot.create",
+				payload: {
+					slug: "enrich-bot",
+					name: "Enrich Bot",
+					model: "faux/echo",
+				},
+			}),
+		});
+		const directFrame = (await directRes.json()) as {
+			id: string;
+			type: string;
+			command: string;
+			ok: boolean;
+		};
+		expect(directRes.status).toBe(200);
+		expect(directFrame.id).toBe(customReqId);
+		expect(directFrame.command).toBe("bot.create");
+		expect(directFrame.ok).toBe(true);
+
+		// Also verify sendRpc behaves identically
+		const chatCreate = await sendRpc<{ chat: ChatRecord }>(
+			"chat.create",
+			{
+				botId: "enrich-bot",
+				key: "enrich-chat",
+			},
+			scope,
+		);
+		expect(chatCreate.status).toBe(200);
+		expect(chatCreate.frame.command).toBe("chat.create");
+		expect(chatCreate.frame.ok).toBe(true);
+
+		// 2. Submit turn with thinking and tool call
+		const turnRes = await sendRpc<{ reply: string }>(
+			"turn.submit",
+			{
+				chatKey: "enrich-chat",
+				text: "Check memory [think: checking memory first] [tool:memory_read {}]",
+			},
+			scope,
+		);
+		expect(turnRes.status).toBe(200);
+		expect(turnRes.frame.command).toBe("turn.submit");
+		expect(turnRes.frame.ok).toBe(true);
+
+		// 3. Call chat.get via sendRpc
+		const chatGet = await sendRpc<ChatGetResult>(
+			"chat.get",
+			{ chatKey: "enrich-chat" },
+			scope,
+		);
+		expect(chatGet.status).toBe(200);
+		expect(chatGet.frame.command).toBe("chat.get");
+		expect(chatGet.frame.ok).toBe(true);
+
+		// 4. Call chat.entries via sendRpc
+		const chatEntries = await sendRpc<ChatGetResult>(
+			"chat.entries",
+			{ chatKey: "enrich-chat" },
+			scope,
+		);
+		expect(chatEntries.status).toBe(200);
+		expect(chatEntries.frame.command).toBe("chat.entries");
+		expect(chatEntries.frame.ok).toBe(true);
+
+		// 5. Verify messages in chat.get
+		const messages = chatGet.frame.result?.messages ?? [];
+		const userMsg = messages.find((m) => m.role === "user");
+		expect(userMsg).toBeDefined();
+		expect(userMsg?.text).toBe(
+			"Check memory [think: checking memory first] [tool:memory_read {}]",
+		);
+		expect(userMsg?.id).toBeDefined();
+
+		const assistantWithTool = messages.find(
+			(m) => m.role === "assistant" && m.toolCalls && m.toolCalls.length > 0,
+		);
+		expect(assistantWithTool).toBeDefined();
+		expect(assistantWithTool?.replyToEntryId).toBe(userMsg?.id);
+		expect(assistantWithTool?.thinking).toBe("checking memory first");
+		expect(assistantWithTool?.toolCalls?.[0].name).toBe("memory_read");
+		expect(assistantWithTool?.toolCalls?.[0].result).toBeDefined();
+		expect(assistantWithTool?.toolCalls?.[0].result?.isError).toBe(false);
+		expect(assistantWithTool?.toolCalls?.[0].result?.content).toContain(
+			'"exists":false',
+		);
+
+		const thinkingBlock = assistantWithTool?.blocks?.find(
+			(b) => b.type === "thinking",
+		);
+		expect(thinkingBlock).toBeDefined();
+		const toolCallBlock = assistantWithTool?.blocks?.find(
+			(b) => b.type === "toolCall",
+		);
+		expect(toolCallBlock).toBeDefined();
+		if (toolCallBlock && toolCallBlock.type === "toolCall") {
+			expect(toolCallBlock.name).toBe("memory_read");
+			expect(toolCallBlock.result?.isError).toBe(false);
+			expect(toolCallBlock.result?.content).toContain('"exists":false');
+		}
+
+		// 6. Verify entries in chat.entries
+		const entries = chatEntries.frame.result?.entries ?? [];
+		expect(entries.length).toBeGreaterThanOrEqual(4);
+
+		// system entry with sections in model[0]
+		const systemEntry = entries.find((e) => {
+			const m = e.model?.[0] as
+				| { role?: string; sections?: Record<string, unknown> }
+				| undefined;
+			return m?.role === "system" && m?.sections !== undefined;
+		});
+		expect(systemEntry).toBeDefined();
+
+		// user entry
+		const userEntry = entries.find((e) => {
+			const m = e.model?.[0] as { role?: string } | undefined;
+			return m?.role === "user";
+		});
+		expect(userEntry).toBeDefined();
+
+		// assistant entries with inner content blocks
+		const assistantEntries = entries.filter((e) => {
+			const m = e.model?.[0] as
+				| { role?: string; content?: unknown[] }
+				| undefined;
+			return m?.role === "assistant" && Array.isArray(m?.content);
+		});
+		expect(assistantEntries.length).toBeGreaterThanOrEqual(1);
+
+		// toolResult entry
+		const toolResultEntry = entries.find((e) => {
+			const m = e.model?.[0] as { role?: string } | undefined;
+			return m?.role === "toolResult";
+		});
+		expect(toolResultEntry).toBeDefined();
 	});
 });

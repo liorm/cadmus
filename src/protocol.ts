@@ -124,7 +124,7 @@ export type Rpc<
 	/** Command type discriminant string. */
 	type: TCommand["type"];
 	/** Parameter payload type extracted from the command. */
-	payload: TCommand extends { payload: infer P } ? P : undefined;
+	payload: TCommand extends { payload?: infer P } ? P : undefined;
 	/** Expected success result type. */
 	result: TResult;
 	/** Result envelope frame wrapping the success result. */

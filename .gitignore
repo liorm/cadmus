@@ -7,3 +7,5 @@ dist/
 auth.json
 auth.json.lock
 /.wrangler
+web/node_modules/
+web/dist/

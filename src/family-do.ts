@@ -1,6 +1,10 @@
 import { DurableObject } from "cloudflare:workers";
 import type { Context } from "@earendil-works/chord/context";
-import type { AssistantMessage, Message } from "@earendil-works/pi-ai";
+import type {
+	AssistantMessage,
+	Message,
+	ToolResultMessage,
+} from "@earendil-works/pi-ai";
 import type { MutableModels } from "@earendil-works/pi-ai/models";
 import {
 	type AgentEvent,
@@ -9,7 +13,6 @@ import {
 	type ConversationId,
 	type Cursor,
 	createRegistry,
-	type EntryRecord,
 	Harness,
 	LiveDoc,
 	type TaskId,
@@ -57,11 +60,16 @@ import {
 	type CommandResultFrame,
 	type ModelInfo,
 	ProtocolValidationError,
+	type RawTranscriptEntry,
 	type ScheduleRecord,
 	type ScheduleTarget,
 	type ServerEvent,
 	type ServerFrame,
 	type ThinkingLevel,
+	type ToolCallResultSummary,
+	type TranscriptContentBlock,
+	type TranscriptMessageView,
+	type TranscriptToolCallView,
 	type TurnBlock,
 } from "./protocol.js";
 import {
@@ -88,13 +96,6 @@ export interface FamilyMeta {
 	name: string;
 	timezone: string;
 	harvestDelayMs: number;
-}
-
-export interface TranscriptMessageView {
-	id: number;
-	role: "user" | "assistant" | "system" | "toolResult";
-	text: string;
-	toolCalls?: { id: string; name: string; arguments: unknown }[];
 }
 
 function toToolRegs(
@@ -1108,9 +1109,9 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 				if (conv) {
 					await this.attachConversationWatch(chat, conv, context);
 				}
-				const messages = conv
-					? await this.readTranscriptMessages(conv, context)
-					: [];
+				const { messages, entries } = conv
+					? await this.readTranscriptData(conv, context)
+					: { messages: [], entries: [] };
 				const live = await harness.snapshot(
 					LiveDoc,
 					chat.conversationId as ConversationId,
@@ -1121,7 +1122,7 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 					chat,
 					busy: Boolean(live?.run),
 					messages,
-					entries: messages,
+					entries,
 					notes,
 				};
 			}
@@ -2397,18 +2398,210 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 		);
 	}
 
-	private async readTranscriptMessages(
+	private async readTranscriptData(
 		conv: Conversation,
 		context: Context,
-	): Promise<TranscriptMessageView[]> {
+	): Promise<{
+		messages: TranscriptMessageView[];
+		entries: RawTranscriptEntry[];
+	}> {
 		const view = await conv.context(context);
-		const items: TranscriptMessageView[] = [];
+		const toolResults = new Map<string, ToolCallResultSummary>();
 		for (const entry of view.entries) {
-			const projected = projectEntryRecord(entry);
-			if (projected) items.push(projected);
+			const msg = entry.model?.[0];
+			if (msg && msg.role === "toolResult") {
+				const toolResultMsg = msg as ToolResultMessage;
+				toolResults.set(toolResultMsg.toolCallId, {
+					content: messageContentToText(toolResultMsg.content),
+					isError: Boolean(toolResultMsg.isError),
+					...(typeof toolResultMsg.durationMs === "number"
+						? { durationMs: toolResultMsg.durationMs }
+						: {}),
+				});
+			}
 		}
-		return items;
+
+		let lastUserEntryId: number | undefined;
+		const messages: TranscriptMessageView[] = [];
+
+		for (const entry of view.entries) {
+			const msg = entry.model?.[0];
+			if (!msg) continue;
+			const id = Number(entry.id);
+
+			if (msg.role === "user") {
+				lastUserEntryId = id;
+				const blocks = extractUserBlocks(msg.content);
+				messages.push({
+					id,
+					role: "user",
+					text: messageContentToText(msg.content),
+					...(blocks.length > 0 ? { blocks } : {}),
+					...(typeof msg.timestamp === "number"
+						? { timestamp: msg.timestamp }
+						: {}),
+				});
+			} else if (msg.role === "assistant") {
+				const assistant = msg as AssistantMessage;
+				const blocks: TranscriptContentBlock[] = [];
+				const toolCalls: TranscriptToolCallView[] = [];
+				const thinkingParts: string[] = [];
+
+				if (typeof assistant.content === "string") {
+					blocks.push({ type: "text", text: assistant.content });
+				} else if (Array.isArray(assistant.content)) {
+					for (const part of assistant.content) {
+						if (!part || typeof part !== "object" || !("type" in part))
+							continue;
+						const p = part as {
+							type: string;
+							text?: string;
+							thinking?: string;
+							redacted?: boolean;
+							id?: string;
+							name?: string;
+							arguments?: unknown;
+							mimeType?: string;
+							data?: string;
+						};
+						if (p.type === "thinking" && typeof p.thinking === "string") {
+							thinkingParts.push(p.thinking);
+							blocks.push({
+								type: "thinking",
+								thinking: p.thinking,
+								...(p.redacted ? { redacted: true } : {}),
+							});
+						} else if (p.type === "toolCall" && p.id && p.name) {
+							const boundResult = toolResults.get(p.id);
+							const callView: TranscriptToolCallView = {
+								id: p.id,
+								name: p.name,
+								arguments: p.arguments ?? {},
+								...(boundResult ? { result: boundResult } : {}),
+							};
+							toolCalls.push(callView);
+							blocks.push({
+								type: "toolCall",
+								id: p.id,
+								name: p.name,
+								arguments: p.arguments ?? {},
+								...(boundResult ? { result: boundResult } : {}),
+							});
+						} else if (p.type === "text" && typeof p.text === "string") {
+							blocks.push({
+								type: "text",
+								text: p.text,
+							});
+						} else if (
+							p.type === "image" &&
+							typeof p.mimeType === "string" &&
+							typeof p.data === "string"
+						) {
+							blocks.push({
+								type: "image",
+								mimeType: p.mimeType,
+								data: p.data,
+							});
+						}
+					}
+				}
+
+				const thinkingText =
+					thinkingParts.length > 0 ? thinkingParts.join("\n") : undefined;
+
+				messages.push({
+					id,
+					role: "assistant",
+					text: messageContentToText(assistant.content),
+					...(lastUserEntryId !== undefined
+						? { replyToEntryId: lastUserEntryId }
+						: {}),
+					...(thinkingText ? { thinking: thinkingText } : {}),
+					...(toolCalls.length > 0 ? { toolCalls } : {}),
+					...(blocks.length > 0 ? { blocks } : {}),
+					...(assistant.model ? { model: assistant.model } : {}),
+					...(assistant.provider ? { provider: assistant.provider } : {}),
+					...(assistant.stopReason ? { stopReason: assistant.stopReason } : {}),
+					...(assistant.usage
+						? { usage: assistant.usage as unknown as Record<string, unknown> }
+						: {}),
+					...(typeof assistant.timestamp === "number"
+						? { timestamp: assistant.timestamp }
+						: {}),
+					...(assistant.durationMs !== undefined
+						? { durationMs: assistant.durationMs }
+						: {}),
+				});
+			} else if (msg.role === "toolResult") {
+				const toolResultMsg = msg as ToolResultMessage;
+				messages.push({
+					id,
+					role: "toolResult",
+					text: messageContentToText(toolResultMsg.content),
+					...(lastUserEntryId !== undefined
+						? { replyToEntryId: lastUserEntryId }
+						: {}),
+					toolCallId: toolResultMsg.toolCallId,
+					toolName: toolResultMsg.toolName,
+					isError: Boolean(toolResultMsg.isError),
+					...(typeof toolResultMsg.timestamp === "number"
+						? { timestamp: toolResultMsg.timestamp }
+						: {}),
+					...(toolResultMsg.durationMs !== undefined
+						? { durationMs: toolResultMsg.durationMs }
+						: {}),
+				});
+			}
+		}
+
+		const entries: RawTranscriptEntry[] = view.entries.map((entry) => ({
+			id: Number(entry.id),
+			conversationId: Number(entry.conversationId),
+			kind: entry.kind,
+			...(entry.model !== undefined ? { model: entry.model as unknown[] } : {}),
+			...(entry.data !== undefined ? { data: entry.data } : {}),
+			...(entry.head !== undefined ? { head: Number(entry.head) } : {}),
+			...(entry.edits !== undefined ? { edits: entry.edits as unknown[] } : {}),
+			...(entry.byTaskId !== undefined
+				? { byTaskId: Number(entry.byTaskId) }
+				: {}),
+		}));
+
+		return { messages, entries };
 	}
+}
+
+function extractUserBlocks(content: unknown): TranscriptContentBlock[] {
+	if (typeof content === "string") {
+		return [{ type: "text", text: content }];
+	}
+	if (!Array.isArray(content)) return [];
+	const blocks: TranscriptContentBlock[] = [];
+	for (const part of content) {
+		if (!part || typeof part !== "object") continue;
+		if ("type" in part) {
+			const p = part as {
+				type: string;
+				text?: string;
+				mimeType?: string;
+				data?: string;
+			};
+			if (p.type === "text" && typeof p.text === "string") {
+				blocks.push({ type: "text", text: p.text });
+			} else if (
+				p.type === "image" &&
+				typeof p.mimeType === "string" &&
+				typeof p.data === "string"
+			) {
+				blocks.push({
+					type: "image",
+					mimeType: p.mimeType,
+					data: p.data,
+				});
+			}
+		}
+	}
+	return blocks;
 }
 
 function extractLatestAssistantReply(messages: readonly Message[]): string {
@@ -2455,60 +2648,4 @@ function messageContentToText(content: unknown): string {
 			return "";
 		})
 		.join("");
-}
-
-function projectEntryRecord(
-	entry: EntryRecord,
-): TranscriptMessageView | undefined {
-	const msg = entry.model?.[0];
-	if (!msg) return undefined;
-	const id = entry.id as unknown as number;
-
-	if (msg.role === "user") {
-		return {
-			id,
-			role: "user",
-			text: messageContentToText(msg.content),
-		};
-	}
-
-	if (msg.role === "assistant") {
-		const assistant = msg as AssistantMessage;
-		const toolCalls: { id: string; name: string; arguments: unknown }[] = [];
-		if (Array.isArray(assistant.content)) {
-			for (const block of assistant.content) {
-				if (block && typeof block === "object" && "type" in block) {
-					const b = block as {
-						type: string;
-						id?: string;
-						name?: string;
-						arguments?: unknown;
-					};
-					if (b.type === "toolCall" && b.id && b.name) {
-						toolCalls.push({
-							id: b.id,
-							name: b.name,
-							arguments: b.arguments ?? {},
-						});
-					}
-				}
-			}
-		}
-		return {
-			id,
-			role: "assistant",
-			text: messageContentToText(assistant.content),
-			...(toolCalls.length > 0 ? { toolCalls } : {}),
-		};
-	}
-
-	if (msg.role === "toolResult") {
-		return {
-			id,
-			role: "toolResult",
-			text: messageContentToText(msg.content),
-		};
-	}
-
-	return undefined;
 }

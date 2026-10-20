@@ -576,3 +576,182 @@ export const TurnBlockSchema = Type.Union(
 	},
 );
 export type TurnBlock = Static<typeof TurnBlockSchema>;
+
+/**
+ * Summary of a completed tool call result, recorded server-side for transcript inspection.
+ */
+export const ToolCallResultSummarySchema = Type.Object({
+	content: Type.String({
+		description: "Serialized output or return value produced by the tool.",
+	}),
+	isError: Type.Boolean({
+		description: "True if the tool execution failed with an error.",
+	}),
+	durationMs: Type.Optional(
+		Type.Number({
+			description: "Execution duration in milliseconds, if recorded.",
+		}),
+	),
+});
+export type ToolCallResultSummary = Static<typeof ToolCallResultSummarySchema>;
+
+/**
+ * Projected view of an agent tool call within an assistant message.
+ */
+export const TranscriptToolCallViewSchema = Type.Object({
+	id: Type.String({ description: "Unique tool call identifier." }),
+	name: Type.String({ description: "Name of the invoked tool." }),
+	arguments: Type.Unknown({
+		description: "Arguments object passed to the tool.",
+	}),
+	result: Type.Optional(ToolCallResultSummarySchema),
+});
+export type TranscriptToolCallView = Static<
+	typeof TranscriptToolCallViewSchema
+>;
+
+/**
+ * Structured content block within a transcript message.
+ */
+export const TranscriptContentBlockSchema = Type.Union(
+	[
+		Type.Object(
+			{
+				type: Type.Literal("text"),
+				text: Type.String({ description: "Text content." }),
+			},
+			{ description: "Plain text content block." },
+		),
+		Type.Object(
+			{
+				type: Type.Literal("thinking"),
+				thinking: Type.String({
+					description: "Model reasoning / thinking text.",
+				}),
+				redacted: Type.Optional(
+					Type.Boolean({
+						description:
+							"True if the thinking block was redacted by provider safety.",
+					}),
+				),
+			},
+			{ description: "Extended model reasoning / thinking block." },
+		),
+		Type.Object(
+			{
+				type: Type.Literal("toolCall"),
+				id: Type.String({ description: "Unique tool call identifier." }),
+				name: Type.String({ description: "Name of the invoked tool." }),
+				arguments: Type.Unknown({
+					description: "Arguments object passed to the tool.",
+				}),
+				result: Type.Optional(ToolCallResultSummarySchema),
+			},
+			{
+				description:
+					"Tool invocation block with optional server-bound result summary.",
+			},
+		),
+		Type.Object(
+			{
+				type: Type.Literal("image"),
+				mimeType: Type.String({ description: "MIME type of the image." }),
+				data: Type.String({ description: "Base64 data or URI of the image." }),
+			},
+			{ description: "Image content block." },
+		),
+	],
+	{
+		description: "Content block within a transcript message.",
+	},
+);
+export type TranscriptContentBlock = Static<
+	typeof TranscriptContentBlockSchema
+>;
+
+/**
+ * Projected view of a message entry in a conversation transcript.
+ */
+export const TranscriptMessageViewSchema = Type.Object({
+	id: Type.Number({ description: "Transcript entry sequence number." }),
+	role: Type.Union([
+		Type.Literal("user"),
+		Type.Literal("assistant"),
+		Type.Literal("system"),
+		Type.Literal("toolResult"),
+	]),
+	text: Type.String({
+		description: "Rendered plain text content of the message.",
+	}),
+	replyToEntryId: Type.Optional(
+		Type.Number({
+			description:
+				"Server-bound entry ID of the user request that this message responds to.",
+		}),
+	),
+	thinking: Type.Optional(
+		Type.String({
+			description: "Combined extended reasoning/thinking text, if any.",
+		}),
+	),
+	toolCalls: Type.Optional(Type.Array(TranscriptToolCallViewSchema)),
+	blocks: Type.Optional(Type.Array(TranscriptContentBlockSchema)),
+	toolCallId: Type.Optional(
+		Type.String({ description: "Tool call ID for toolResult messages." }),
+	),
+	toolName: Type.Optional(
+		Type.String({ description: "Tool name for toolResult messages." }),
+	),
+	isError: Type.Optional(
+		Type.Boolean({ description: "Error flag for toolResult messages." }),
+	),
+	model: Type.Optional(
+		Type.String({ description: "Model identifier for assistant messages." }),
+	),
+	provider: Type.Optional(
+		Type.String({
+			description: "Provider identifier for assistant messages.",
+		}),
+	),
+	stopReason: Type.Optional(
+		Type.String({ description: "Stop reason for assistant messages." }),
+	),
+	usage: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
+	timestamp: Type.Optional(Type.Number()),
+	durationMs: Type.Optional(Type.Number()),
+});
+export type TranscriptMessageView = Static<typeof TranscriptMessageViewSchema>;
+
+/**
+ * Raw durable transcript entry recorded in the underlying conversation storage.
+ */
+export const RawTranscriptEntrySchema = Type.Object({
+	id: Type.Number({
+		description: "Durable transcript entry sequence ID.",
+	}),
+	conversationId: Type.Number({
+		description: "Owning conversation sequence ID.",
+	}),
+	kind: Type.String({
+		description:
+			"Entry kind discriminator (e.g. 'user', 'assistant', 'system', 'toolResult', 'reset', 'compaction').",
+	}),
+	model: Type.Optional(
+		Type.Array(Type.Unknown(), {
+			description: "Underlying pi-ai model messages with inner content blocks.",
+		}),
+	),
+	data: Type.Optional(
+		Type.Unknown({
+			description: "Optional entry metadata/diagnostics payload.",
+		}),
+	),
+	head: Type.Optional(
+		Type.Number({ description: "Optional context head entry ID." }),
+	),
+	edits: Type.Optional(Type.Array(Type.Unknown())),
+	byTaskId: Type.Optional(
+		Type.Number({ description: "Task ID that appended this entry." }),
+	),
+});
+export type RawTranscriptEntry = Static<typeof RawTranscriptEntrySchema>;

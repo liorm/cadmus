@@ -88,6 +88,18 @@ describe("Authentication, Accounts, Encrypted BYOK Credentials & Multi-Family Ca
 		expect(
 			viaMemberToken.frame.result?.members.some((m) => m.userId === "alice"),
 		).toBe(true);
+
+		// 6. Master token with x-user-id: "dev" authenticates as user "dev"
+		const devRes = await sendRpc<{ members: AccountMember[] }>(
+			"account.get",
+			{},
+			{ accountId: "acct-auth-dev", userId: "dev" },
+		);
+		expect(devRes.status).toBe(200);
+		expect(devRes.frame.ok).toBe(true);
+		expect(devRes.frame.result?.members.some((m) => m.userId === "dev")).toBe(
+			true,
+		);
 	});
 
 	it("encrypts account BYOK credentials in D1 (never storing plaintext) and shares them across families in the account", async () => {

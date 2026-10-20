@@ -8,8 +8,10 @@ import {
 	FamilyRecordSchema,
 	HarvestNoteSchema,
 	ModelInfoSchema,
+	RawTranscriptEntrySchema,
 	ScheduleRecordSchema,
 	ThinkingLevelSchema,
+	TranscriptMessageViewSchema,
 	TurnBlockSchema,
 } from "./records.js";
 
@@ -393,10 +395,10 @@ export const ChatGetResultSchema = Type.Object(
 			description:
 				"True if the chat is actively executing a model turn or scheduled task.",
 		}),
-		messages: Type.Array(Type.Unknown(), {
+		messages: Type.Array(TranscriptMessageViewSchema, {
 			description: "Recent message exchange history for this chat session.",
 		}),
-		entries: Type.Array(Type.Unknown(), {
+		entries: Type.Array(RawTranscriptEntrySchema, {
 			description: "Raw transcript entries recorded for this conversation.",
 		}),
 		notes: Type.Array(HarvestNoteSchema, {
