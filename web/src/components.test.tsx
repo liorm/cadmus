@@ -530,6 +530,127 @@ describe("Web UI Components", () => {
 		expect(html).toContain("streaming-cursor");
 	});
 
+	it("6b. ChatRenderedView collapses tools by default into compact chips and visually merges textless responses into the previous message", () => {
+		const testMessages: TranscriptMessageView[] = [
+			{
+				id: 30,
+				role: "user",
+				text: "Remember that I live in Israel.",
+				timestamp: 1700000000000,
+			},
+			{
+				id: 33,
+				role: "assistant",
+				replyToEntryId: 30,
+				model: "grok-4.3",
+				durationMs: 1203,
+				usage: { totalTokens: 5072 },
+				timestamp: 1700000001000,
+				text: "Got it — I'll remember that you live in Israel.",
+				toolCalls: [
+					{
+						id: "call-read-1",
+						name: "memory_read",
+						arguments: {},
+						result: {
+							content: "Current memory empty",
+							isError: false,
+						},
+					},
+				],
+			},
+			{
+				id: 37,
+				role: "assistant",
+				replyToEntryId: 30,
+				model: "grok-4.3",
+				durationMs: 1281,
+				usage: { totalTokens: 5126 },
+				timestamp: 1700000002000,
+				// No text in this response — intermediate tool execution
+				text: "",
+				toolCalls: [
+					{
+						id: "call-update-2",
+						name: "memory_update",
+						arguments: { location: "Israel" },
+						result: {
+							content: "Memory saved",
+							isError: false,
+						},
+					},
+				],
+			},
+			{
+				id: 43,
+				role: "assistant",
+				replyToEntryId: 30,
+				model: "grok-4.3",
+				durationMs: 1290,
+				usage: { totalTokens: 5165 },
+				timestamp: 1700000004000,
+				text: "Done. I've updated the memory.",
+			},
+		];
+
+		const harvestNotes: HarvestNote[] = [
+			{
+				chatKey: "direct:user-1",
+				at: 37,
+				when: 1700000002500,
+				files: [
+					{
+						path: "MEMORY.md",
+						diff: "+ User lives in Israel",
+					},
+				],
+			},
+		];
+
+		const html = renderToString(
+			<ChatRenderedView
+				messages={testMessages}
+				notes={harvestNotes}
+				streamingState={{
+					active: false,
+					thinking: "",
+					text: "",
+					toolCalls: [],
+				}}
+			/>,
+		);
+
+		// 1. User message #30 is present
+		expect(html).toContain("#30");
+		expect(html).toContain("Remember that I live in Israel.");
+
+		// 2. Assistant message #33 is present with text and BOTH tool chips
+		expect(html).toContain("#33");
+		expect(html).toContain(
+			"Got it — I&#x27;ll remember that you live in Israel.",
+		);
+		expect(html).toContain("memory_read");
+		expect(html).toContain("memory_update");
+		expect(html).toContain("tool-chips-row");
+
+		// 3. Response without text (#37) was visually merged into #33 and does NOT render as its own message row
+		expect(html).not.toContain('<span class="badge badge-ghost">#37</span>');
+
+		// 4. Harvest note for merged entry #37 is preserved and rendered with #33
+		expect(html).toContain(
+			"Harvested memory/knowledge at entry <strong>#37</strong>",
+		);
+		expect(html).toContain("+ User lives in Israel");
+
+		// 5. Tools are collapsed by default: <details class="tool-call-card"> must not have the 'open' attribute
+		expect(html).toContain('<details class="tool-call-card">');
+		expect(html).not.toContain('<details class="tool-call-card" open');
+
+		// 6. Assistant message #43 is present with its final text
+		expect(html).toContain("#43");
+		expect(html).toContain("Done. I&#x27;ve updated the memory.");
+	});
+
 	it("7. ChatRawView renders low-level messages, system sections, inner blocks, token usage table, and live stream frames", () => {
 		const rawEntries: RawTranscriptEntry[] = [
 			{

@@ -215,6 +215,7 @@ function ThinkingAccordion({
 
 function ToolCallCard({
 	toolCall,
+	defaultOpen = false,
 }: {
 	toolCall:
 		| TranscriptToolCallView
@@ -227,6 +228,7 @@ function ToolCallCard({
 				args?: Record<string, unknown>;
 				result?: { content: string; isError: boolean; durationMs?: number };
 		  };
+	defaultOpen?: boolean;
 }) {
 	const name =
 		"name" in toolCall && toolCall.name
@@ -243,12 +245,12 @@ function ToolCallCard({
 	const result = toolCall.result;
 
 	return (
-		<details className="tool-call-card" open>
-			<summary className="tool-call-header" style={{ cursor: "pointer" }}>
+		<details className="tool-call-card" open={defaultOpen ? true : undefined}>
+			<summary className="tool-call-header">
 				<span className="tool-icon">⚙️</span>
 				<span className="tool-name">{name}</span>
 				{id && <span className="tool-id">{`#${id}`}</span>}
-				<div style={{ marginLeft: "auto", display: "flex", gap: "6px" }}>
+				<div className="tool-header-meta">
 					{result && (
 						<span
 							className={`badge ${result.isError ? "badge-rose" : "badge-emerald"}`}
@@ -256,10 +258,11 @@ function ToolCallCard({
 							{result.isError ? "Error" : "OK"}
 						</span>
 					)}
-					<span className="badge badge-ghost">▼</span>
+					<span className="badge badge-ghost tool-chevron">▼</span>
 				</div>
 			</summary>
 			<div className="tool-call-body">
+				{id && <div className="tool-id-expanded">{`Call ID: #${id}`}</div>}
 				<div className="tool-section-label">Arguments:</div>
 				<pre className="code-block">{JSON.stringify(args, null, 2)}</pre>
 				{result && (
@@ -308,75 +311,228 @@ function HarvestNoteCard({ note }: { note: HarvestNote }) {
 	);
 }
 
+interface MergedTranscriptMessageView extends TranscriptMessageView {
+	mergedEntryIds?: number[];
+}
+
+function isMessageWithoutText(msg: TranscriptMessageView): boolean {
+	if (msg.role !== "assistant") return false;
+	if (msg.text && msg.text.trim().length > 0) return false;
+	if (msg.blocks?.some((b) => b.type === "text" && b.text.trim().length > 0)) {
+		return false;
+	}
+	return true;
+}
+
+function mergeAssistantInto(
+	target: MergedTranscriptMessageView,
+	source: TranscriptMessageView,
+) {
+	// Track merged IDs for harvest notes / metadata
+	target.mergedEntryIds = [
+		...(target.mergedEntryIds ?? [target.id]),
+		source.id,
+	];
+
+	// Combine tool calls
+	if (source.toolCalls && source.toolCalls.length > 0) {
+		target.toolCalls = [...(target.toolCalls ?? []), ...source.toolCalls];
+	}
+
+	// Combine structured blocks if either has blocks
+	if (target.blocks || source.blocks) {
+		const targetBlocks: TranscriptContentBlock[] = target.blocks
+			? [...target.blocks]
+			: [];
+		if (!target.blocks) {
+			if (target.thinking) {
+				targetBlocks.push({ type: "thinking", thinking: target.thinking });
+			}
+			if (target.toolCalls) {
+				for (const tc of target.toolCalls) {
+					targetBlocks.push({
+						type: "toolCall",
+						id: tc.id,
+						name: tc.name,
+						arguments: tc.arguments,
+						result: tc.result,
+					});
+				}
+			}
+			if (target.text) {
+				targetBlocks.push({ type: "text", text: target.text });
+			}
+		}
+
+		if (source.blocks) {
+			targetBlocks.push(...source.blocks);
+		} else {
+			if (source.thinking) {
+				targetBlocks.push({ type: "thinking", thinking: source.thinking });
+			}
+			if (source.toolCalls) {
+				for (const tc of source.toolCalls) {
+					targetBlocks.push({
+						type: "toolCall",
+						id: tc.id,
+						name: tc.name,
+						arguments: tc.arguments,
+						result: tc.result,
+					});
+				}
+			}
+			if (source.text) {
+				targetBlocks.push({ type: "text", text: source.text });
+			}
+		}
+		target.blocks = targetBlocks;
+	} else {
+		if (source.thinking) {
+			target.thinking = target.thinking
+				? `${target.thinking}\n\n${source.thinking}`
+				: source.thinking;
+		}
+		if (source.text && source.text.trim().length > 0) {
+			target.text = target.text
+				? `${target.text}\n\n${source.text}`
+				: source.text;
+		}
+	}
+
+	// Aggregate duration and latest usage
+	if (source.durationMs !== undefined) {
+		target.durationMs = (target.durationMs ?? 0) + source.durationMs;
+	}
+	if (source.usage) {
+		target.usage = source.usage;
+	}
+}
+
+function processDisplayMessages(
+	messages: TranscriptMessageView[],
+	boundToolCallIds: Set<string>,
+): MergedTranscriptMessageView[] {
+	// Filter out standalone toolResult messages if already bound
+	const filtered = messages.filter((msg) => {
+		if (msg.role === "toolResult" && msg.toolCallId) {
+			if (boundToolCallIds.has(msg.toolCallId)) {
+				return false;
+			}
+		}
+		return true;
+	});
+
+	const result: MergedTranscriptMessageView[] = [];
+
+	for (const msg of filtered) {
+		if (msg.role === "assistant") {
+			const prev = result[result.length - 1];
+			if (prev && prev.role === "assistant") {
+				// If current message is without text, merge into previous assistant message
+				if (isMessageWithoutText(msg)) {
+					mergeAssistantInto(prev, msg);
+					continue;
+				}
+				// If previous assistant message was without text, merge into it as well
+				if (isMessageWithoutText(prev)) {
+					mergeAssistantInto(prev, msg);
+					continue;
+				}
+			}
+		}
+
+		// Clone msg into result
+		result.push({ ...msg });
+	}
+
+	return result;
+}
+
 function AssistantMessageContent({ msg }: { msg: TranscriptMessageView }) {
 	// If server provided structured content blocks
 	if (msg.blocks && msg.blocks.length > 0) {
-		let blockCounter = 0;
-		return (
-			<div className="assistant-blocks-container">
-				{msg.blocks.map((block: TranscriptContentBlock) => {
-					blockCounter += 1;
-					if (block.type === "thinking") {
-						return (
-							<ThinkingAccordion
-								key={`thinking-${blockCounter}`}
-								thinking={block.thinking}
-								title={
-									block.redacted
-										? "🧠 Thinking (Safety Redacted)"
-										: "🧠 Thinking / Reasoning"
-								}
-							/>
-						);
-					}
-					if (block.type === "toolCall") {
-						return (
-							<ToolCallCard
-								key={block.id}
-								toolCall={{
-									id: block.id,
-									name: block.name,
-									arguments: block.arguments,
-									result: block.result,
-								}}
-							/>
-						);
-					}
-					if (block.type === "text") {
-						return (
-							<RenderedMarkdown
-								key={`text-${blockCounter}`}
-								text={block.text}
-							/>
-						);
-					}
-					if (block.type === "image") {
-						const src =
-							block.data.startsWith("http") || block.data.startsWith("data:")
-								? block.data
-								: `data:${block.mimeType};base64,${block.data}`;
-						return (
-							<div
-								key={`image-${block.mimeType}-${blockCounter}`}
-								className="image-block"
-							>
-								<img src={src} alt="Message visual output" />
-							</div>
-						);
-					}
-					return null;
-				})}
-			</div>
-		);
+		const rendered: React.ReactNode[] = [];
+		let currentToolCalls: Extract<
+			TranscriptContentBlock,
+			{ type: "toolCall" }
+		>[] = [];
+		let keyCounter = 0;
+
+		const flushToolCalls = () => {
+			if (currentToolCalls.length === 0) return;
+			const calls = currentToolCalls;
+			currentToolCalls = [];
+			rendered.push(
+				<div key={`tool-chips-${keyCounter++}`} className="tool-chips-row">
+					{calls.map((block) => (
+						<ToolCallCard
+							key={block.id}
+							toolCall={{
+								id: block.id,
+								name: block.name,
+								arguments: block.arguments,
+								result: block.result,
+							}}
+						/>
+					))}
+				</div>,
+			);
+		};
+
+		for (const block of msg.blocks) {
+			if (block.type === "toolCall") {
+				currentToolCalls.push(block);
+			} else {
+				flushToolCalls();
+				keyCounter += 1;
+				if (block.type === "thinking") {
+					rendered.push(
+						<ThinkingAccordion
+							key={`thinking-${keyCounter}`}
+							thinking={block.thinking}
+							title={
+								block.redacted
+									? "🧠 Thinking (Safety Redacted)"
+									: "🧠 Thinking / Reasoning"
+							}
+						/>,
+					);
+				} else if (block.type === "text") {
+					rendered.push(
+						<RenderedMarkdown key={`text-${keyCounter}`} text={block.text} />,
+					);
+				} else if (block.type === "image") {
+					const src =
+						block.data.startsWith("http") || block.data.startsWith("data:")
+							? block.data
+							: `data:${block.mimeType};base64,${block.data}`;
+					rendered.push(
+						<div
+							key={`image-${block.mimeType}-${keyCounter}`}
+							className="image-block"
+						>
+							<img src={src} alt="Message visual output" />
+						</div>,
+					);
+				}
+			}
+		}
+		flushToolCalls();
+
+		return <div className="assistant-blocks-container">{rendered}</div>;
 	}
 
 	// Fallback to separate thinking, toolCalls, and text
 	return (
 		<div className="assistant-blocks-container">
 			{msg.thinking && <ThinkingAccordion thinking={msg.thinking} />}
-			{msg.toolCalls?.map((tc) => (
-				<ToolCallCard key={tc.id} toolCall={tc} />
-			))}
+			{msg.toolCalls && msg.toolCalls.length > 0 && (
+				<div className="tool-chips-row">
+					{msg.toolCalls.map((tc) => (
+						<ToolCallCard key={tc.id} toolCall={tc} />
+					))}
+				</div>
+			)}
 			{msg.text && <RenderedMarkdown text={msg.text} />}
 		</div>
 	);
@@ -417,15 +573,8 @@ export function ChatRenderedView({
 		notesByAt.set(note.at, list);
 	}
 
-	// Filter out standalone toolResult messages if already bound onto assistant message
-	const displayMessages = messages.filter((msg) => {
-		if (msg.role === "toolResult" && msg.toolCallId) {
-			if (boundToolCallIds.has(msg.toolCallId)) {
-				return false;
-			}
-		}
-		return true;
-	});
+	// Process messages: filter bound toolResult messages and merge assistant turns without text
+	const displayMessages = processDisplayMessages(messages, boundToolCallIds);
 
 	const isStreamingActive =
 		streamingState.active ||
@@ -445,7 +594,8 @@ export function ChatRenderedView({
 
 			{/* Render Messages & Inline Harvest Notes */}
 			{displayMessages.map((msg) => {
-				const entryNotes = notesByAt.get(msg.id) ?? [];
+				const entryIds = msg.mergedEntryIds ?? [msg.id];
+				const entryNotes = entryIds.flatMap((id) => notesByAt.get(id) ?? []);
 
 				if (msg.role === "user") {
 					return (
@@ -611,9 +761,13 @@ export function ChatRenderedView({
 									title="🧠 Thinking / Reasoning (Live)"
 								/>
 							)}
-							{streamingState.toolCalls.map((tc) => (
-								<ToolCallCard key={tc.toolCallId} toolCall={tc} />
-							))}
+							{streamingState.toolCalls.length > 0 && (
+								<div className="tool-chips-row">
+									{streamingState.toolCalls.map((tc) => (
+										<ToolCallCard key={tc.toolCallId} toolCall={tc} />
+									))}
+								</div>
+							)}
 							{streamingState.text && (
 								<div className="streaming-text">
 									<RenderedMarkdown text={streamingState.text} />

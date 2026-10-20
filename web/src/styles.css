@@ -797,38 +797,26 @@ body,
 	word-break: break-word;
 }
 
-/* Tool call card */
+/* Tool call chips & card */
+.tool-chips-row {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+	align-items: center;
+	width: 100%;
+}
+
 .tool-call-card {
+	display: inline-flex;
+	flex-direction: column;
+	max-width: 100%;
 	background-color: var(--bg-surface-0);
 	border: 1px solid var(--border-subtle);
 	border-radius: var(--radius-md);
 	overflow: hidden;
-}
-
-.tool-call-header {
-	display: flex;
-	align-items: center;
-	gap: 8px;
-	padding: 8px 12px;
-	background-color: var(--bg-surface-2);
-	border-bottom: 1px solid var(--border-subtle);
-	font-size: 12px;
-}
-
-.tool-icon {
-	font-size: 14px;
-}
-
-.tool-name {
-	font-weight: 600;
-	font-family: var(--font-mono);
-	color: var(--accent-cyan);
-}
-
-.tool-id {
-	font-family: var(--font-mono);
-	color: var(--text-muted);
-	font-size: 11px;
+	transition:
+		border-color 0.15s ease,
+		background-color 0.15s ease;
 }
 
 .tool-call-body {
@@ -836,6 +824,125 @@ body,
 	display: flex;
 	flex-direction: column;
 	gap: 6px;
+}
+
+.tool-call-card .tool-chevron {
+	transition: transform 0.15s ease;
+	font-size: 8px;
+	padding: 2px 4px;
+}
+
+/* Collapsed state: Compact chip */
+.tool-call-card:not([open]) {
+	display: inline-flex;
+	width: fit-content;
+	border-radius: 9999px;
+	border-color: var(--border-default);
+	background-color: var(--bg-surface-1);
+}
+
+.tool-call-card:not([open]):hover {
+	border-color: var(--accent-cyan);
+	background-color: var(--bg-surface-hover);
+}
+
+.tool-call-card:not([open]) .tool-call-header {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	padding: 3px 10px;
+	background-color: var(--bg-surface-2);
+	border-bottom: none;
+	border-radius: 9999px;
+	font-size: 12px;
+	cursor: pointer;
+	user-select: none;
+	list-style: none;
+}
+
+.tool-call-card:not([open]) .tool-call-header:hover {
+	background-color: var(--bg-surface-hover);
+}
+
+.tool-call-card:not([open]) .tool-call-header::-webkit-details-marker {
+	display: none;
+}
+
+.tool-call-card:not([open]) .tool-id {
+	display: none;
+}
+
+.tool-call-card:not([open]) .tool-header-meta {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	margin-left: 0;
+}
+
+.tool-call-card:not([open]) .tool-call-body {
+	display: none;
+}
+
+/* Expanded state: Full card */
+.tool-call-card[open] {
+	display: flex;
+	width: 100%;
+	border-radius: var(--radius-md);
+	border-color: var(--border-default);
+	background-color: var(--bg-surface-0);
+}
+
+.tool-call-card[open] .tool-call-header {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 8px 12px;
+	background-color: var(--bg-surface-2);
+	border-bottom: 1px solid var(--border-subtle);
+	border-radius: var(--radius-md) var(--radius-md) 0 0;
+	font-size: 12px;
+	cursor: pointer;
+	user-select: none;
+	list-style: none;
+}
+
+.tool-call-card[open] .tool-call-header::-webkit-details-marker {
+	display: none;
+}
+
+.tool-call-card[open] .tool-id {
+	font-family: var(--font-mono);
+	color: var(--text-muted);
+	font-size: 11px;
+}
+
+.tool-call-card[open] .tool-header-meta {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	margin-left: auto;
+}
+
+.tool-call-card[open] .tool-chevron {
+	transform: rotate(180deg);
+}
+
+.tool-id-expanded {
+	font-family: var(--font-mono);
+	font-size: 11px;
+	color: var(--text-muted);
+	margin-bottom: 4px;
+}
+
+.tool-icon {
+	font-size: 13px;
+	line-height: 1;
+}
+
+.tool-name {
+	font-weight: 600;
+	font-family: var(--font-mono);
+	color: var(--accent-cyan);
 }
 
 .tool-section-label {
