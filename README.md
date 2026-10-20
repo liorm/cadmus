@@ -13,8 +13,9 @@ Cadmus is the cloud-native V2 architecture of `pi-bot`, built on **Cloudflare Wo
   - Single durable `cadmus.schedule` task (`wait` -> `run`) driving 5-field cron schedules, one-shot `when` timers, and idle knowledge/memory harvest forks (`harvest:<chatKey>`) via a single Durable Object alarm (`ctx.storage.setAlarm`).
 - **Out-of-Band `/status`**:
   - Inspects live conversation, bot, usage, harvest watermark, and alarm state out-of-band without polluting conversation transcripts or invoking the LLM.
-- **Standalone TUI Client (`tui/`)**:
-  - Independent package with its own `package.json` and `tsconfig.json` that drives the Worker/DO purely over the wire protocol.
+- **Standalone TUI Client (`tui/`) & Web UI (`web/`)**:
+  - Independent TUI client package that drives the Worker/DO purely over the wire protocol.
+  - Modern React + Vite Web UI with real-time WebSocket communication, streaming chat, and multi-bot management.
 
 ---
 
@@ -25,6 +26,7 @@ Cadmus is the cloud-native V2 architecture of `pi-bot`, built on **Cloudflare Wo
 ```bash
 bun install
 bun install --cwd tui
+bun install --cwd web
 ```
 
 ### 2. Run the E2E Test Suite
@@ -35,19 +37,31 @@ All E2E tests execute inside the real Cloudflare Workers `workerd` runtime via `
 bun run test
 ```
 
-### 3. Typecheck Worker & Standalone TUI
+### 3. Typecheck Worker, Standalone TUI & Web UI
 
 ```bash
 bun run typecheck
 ```
 
-### 4. Local Development & Standalone TUI
+### 4. Local Development
 
 Start the Cloudflare Worker locally:
 
 ```bash
 bun run dev
 ```
+
+#### Option A: Web UI (Vite)
+
+In a second terminal, start the Web UI development server:
+
+```bash
+bun run web:dev
+```
+
+Open [http://localhost:5173](http://localhost:5173) in your browser. API and WebSocket calls are automatically proxied to the local Worker at `http://localhost:8787`.
+
+#### Option B: Standalone TUI
 
 In a second terminal, launch the standalone TUI against your local Worker:
 
