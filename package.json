@@ -4,8 +4,14 @@
 	"private": true,
 	"type": "module",
 	"scripts": {
+		"build": "bun install --cwd web && bun run web:build",
 		"dev": "wrangler dev",
-		"deploy": "wrangler deploy",
+		"deploy": "wrangler deploy --keep-vars",
+		"db:migrate:create": "wrangler d1 migrations create cadmus-admin",
+		"db:migrate:apply": "wrangler d1 migrations apply cadmus-admin --local",
+		"db:migrate:apply:remote": "wrangler d1 migrations apply cadmus-admin --remote",
+		"db:migrate:list": "wrangler d1 migrations list cadmus-admin --local",
+		"db:migrate:list:remote": "wrangler d1 migrations list cadmus-admin --remote",
 		"tui": "bun run --cwd tui start",
 		"web:dev": "bun run --cwd web dev",
 		"web:build": "bun run --cwd web build",
@@ -41,6 +47,7 @@
 		"@cloudflare/workers-types": "^5.20261018.1",
 		"@types/bun": "^1.4.3",
 		"@types/diff": "^8.0.0",
+		"cf": "^1.0.0-beta.21",
 		"typescript": "^7.0.2",
 		"vitest": "^5.0.5",
 		"wrangler": "^4.151.1"
