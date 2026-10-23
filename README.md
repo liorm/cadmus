@@ -4,9 +4,9 @@ Cadmus is the cloud-native V2 architecture of `pi-bot`, built on **Cloudflare Wo
 
 ## Key Highlights
 
-- **Two-Tier Storage Architecture**:
-  - **Global Admin Database (`CADMUS_ADMIN_DB` on Cloudflare D1)**: Stores cross-family account data — users, auth tokens, accounts, user-to-account memberships, AES-GCM 256-bit encrypted BYOK credentials, and the Bot Families catalog (`account_id <-> family_id <-> do_name`).
-  - **Per-Family Durable Object (`CadmusBotFamilyDO` on DO SQLite)**: Co-locates all bots, chats, virtual files (`SOUL.md`, `MEMORY.md`, `knowledge/<slug>.md` with CAS optimistic concurrency), schedules, harvest watermarks/notes (`cadmus_*` tables), and `pi-durable` conversations/tasks (`cadmus_pi_*` tables) for one Bot Family inside a single SQLite-backed Durable Object (`cadmus:<accountId>:<familyId>`).
+- **Two-Tier Storage Architecture (Self-Initializing in Code)**:
+  - **Global Admin Database (`CADMUS_ADMIN_DB` on Cloudflare D1)**: Stores cross-family account data — users, auth tokens, accounts, user-to-account memberships, AES-GCM 256-bit encrypted BYOK credentials, and the Bot Families catalog (`account_id <-> family_id <-> do_name`). Schema is self-initializing and self-migrating in application code ([`src/store/d1-admin.ts`](src/store/d1-admin.ts)); no external SQL migration files or `wrangler d1 migrations` steps exist.
+  - **Per-Family Durable Object (`CadmusBotFamilyDO` on DO SQLite)**: Co-locates all bots, chats, virtual files (`SOUL.md`, `MEMORY.md`, `knowledge/<slug>.md` with CAS optimistic concurrency), schedules, harvest watermarks/notes (`cadmus_*` tables), and `pi-durable` conversations/tasks (`cadmus_pi_*` tables) for one Bot Family inside a single SQLite-backed Durable Object (`cadmus:<accountId>:<familyId>`). Schema is self-initializing in code ([`src/store/sqlite-family.ts`](src/store/sqlite-family.ts)).
 - **Schema-Validated Protocol + `ProtocolShim`**:
   - UI-agnostic JSON protocol (`POST /rpc`, `GET /ws` WebSocket, `GET /events` SSE) validated with TypeBox and exported as standard JSON Schema at `GET /protocol/schema`.
 - **Unified Schedule & Idle Harvest Engine (`ScheduleTask`)**:
@@ -79,6 +79,16 @@ Inside the TUI:
 - `:files <botId>` / `:read <botId> <path>` — Inspect `SOUL.md`, `MEMORY.md`, and `knowledge/<slug>.md`
 - `:cred set <provider> <apiKey>` — Configure an encrypted BYOK credential (`xai`, `openai`, `anthropic`)
 - `:help` — List all TUI meta-commands
+
+### 5. Deployment (Cloudflare Workers)
+
+```bash
+bun run build
+bun run deploy
+```
+
+> [!IMPORTANT]
+> **No External SQL Migrations**: Database tables in both D1 (`CADMUS_ADMIN_DB`) and DO SQLite (`CadmusBotFamilyDO`) are self-initializing and self-migrating via code on first access. Never create `migrations/*.sql` files or run `wrangler d1 migrations` commands.
 
 ---
 

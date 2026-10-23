@@ -5,6 +5,7 @@ import {
 	type DevAuthConfig,
 	useCadmus,
 } from "../context/CadmusContext.js";
+import { ProviderAuthModal } from "./ProviderAuthModal.js";
 import { ToolsEnvSettings } from "./ToolsEnvSettings.js";
 
 interface SettingsModalProps {
@@ -13,7 +14,7 @@ interface SettingsModalProps {
 }
 
 function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
-	const { authConfig, updateAuthConfig } = useCadmus();
+	const { authConfig, updateAuthConfig, openCredentials } = useCadmus();
 	const [form, setForm] = useState<DevAuthConfig>(authConfig);
 	const [isSaving, setIsSaving] = useState(false);
 	const [error, setError] = useState<string | null>(null);
@@ -136,6 +137,36 @@ function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
 								}
 								required
 							/>
+						</div>
+
+						<div
+							style={{
+								marginTop: "16px",
+								paddingTop: "12px",
+								borderTop: "1px solid var(--border-subtle)",
+							}}
+						>
+							<div className="form-label">AI Provider Credentials & OAuth</div>
+							<p
+								style={{
+									fontSize: "12px",
+									color: "var(--text-secondary)",
+									marginBottom: "8px",
+								}}
+							>
+								Authenticate with xAI (SuperGrok / X Premium), Anthropic,
+								OpenAI, or configure API keys.
+							</p>
+							<button
+								type="button"
+								className="btn btn-secondary btn-sm"
+								onClick={() => {
+									onClose();
+									openCredentials();
+								}}
+							>
+								🔑 Manage AI Providers
+							</button>
 						</div>
 					</div>
 					<div className="modal-footer">
@@ -554,6 +585,10 @@ export function TopBar() {
 		selectFamily,
 		activeTab,
 		setActiveTab,
+		isCredentialsOpen,
+		credentialsInitialProvider,
+		openCredentials,
+		closeCredentials,
 	} = useCadmus();
 
 	const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -639,6 +674,15 @@ export function TopBar() {
 						>
 							Tools envs
 						</button>
+
+						<button
+							type="button"
+							className="btn btn-secondary btn-sm"
+							onClick={() => openCredentials()}
+							title="Configure AI provider credentials and OAuth sign-in (xAI, etc.)"
+						>
+							🔑 AI Providers
+						</button>
 					</div>
 				</div>
 
@@ -699,6 +743,11 @@ export function TopBar() {
 			<ToolsEnvSettings
 				isOpen={isToolsEnvOpen}
 				onClose={() => setIsToolsEnvOpen(false)}
+			/>
+			<ProviderAuthModal
+				isOpen={isCredentialsOpen}
+				onClose={closeCredentials}
+				initialProviderId={credentialsInitialProvider}
 			/>
 		</>
 	);

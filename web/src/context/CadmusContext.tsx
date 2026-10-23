@@ -45,6 +45,10 @@ export interface CadmusContextValue {
 	updateAuthConfig: (partial: Partial<DevAuthConfig>) => Promise<void>;
 	subscribeEvents: (listener: (event: ServerEvent) => void) => () => void;
 	setActiveTab: (tab: ActiveTab) => void;
+	isCredentialsOpen: boolean;
+	credentialsInitialProvider?: string;
+	openCredentials: (providerId?: string) => void;
+	closeCredentials: () => void;
 }
 
 const STORAGE_KEY = "cadmus.dev.config";
@@ -138,6 +142,20 @@ export function CadmusProvider({
 	);
 	const [isLoading, setIsLoading] = useState<boolean>(true);
 	const [lastError, setLastError] = useState<string | null>(null);
+	const [isCredentialsOpen, setIsCredentialsOpen] = useState(false);
+	const [credentialsInitialProvider, setCredentialsInitialProvider] = useState<
+		string | undefined
+	>(undefined);
+
+	const openCredentials = useCallback((providerId?: string) => {
+		setCredentialsInitialProvider(providerId);
+		setIsCredentialsOpen(true);
+	}, []);
+
+	const closeCredentials = useCallback(() => {
+		setIsCredentialsOpen(false);
+		setCredentialsInitialProvider(undefined);
+	}, []);
 
 	const selectedBot = useMemo(() => {
 		if (!selectedBotId) return null;
@@ -292,6 +310,10 @@ export function CadmusProvider({
 			updateAuthConfig,
 			subscribeEvents,
 			setActiveTab,
+			isCredentialsOpen,
+			credentialsInitialProvider,
+			openCredentials,
+			closeCredentials,
 		}),
 		[
 			client,
@@ -313,6 +335,10 @@ export function CadmusProvider({
 			selectBot,
 			updateAuthConfig,
 			subscribeEvents,
+			isCredentialsOpen,
+			credentialsInitialProvider,
+			openCredentials,
+			closeCredentials,
 		],
 	);
 

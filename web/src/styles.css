@@ -1827,3 +1827,135 @@ body,
 	color: #6ee7b7;
 	border: 1px solid rgba(16, 185, 129, 0.35);
 }
+
+/* ─── AI Provider & Credentials Modal Styles ─────────────────────────────── */
+
+.provider-list {
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+	margin-top: 12px;
+}
+
+.provider-card {
+	background-color: var(--bg-surface-1);
+	border: 1px solid var(--border-subtle);
+	border-radius: var(--radius-md);
+	padding: 14px;
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	transition: border-color 0.15s ease;
+}
+
+.provider-card:hover {
+	border-color: var(--border-default);
+}
+
+.provider-card-highlight {
+	border-color: var(--accent-indigo);
+	background-color: rgba(99, 102, 241, 0.04);
+}
+
+.provider-card-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+}
+
+.provider-info {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+}
+
+.provider-icon {
+	font-size: 20px;
+	line-height: 1;
+}
+
+.provider-name {
+	font-size: 14px;
+	font-weight: 600;
+	color: var(--text-primary);
+}
+
+.provider-desc {
+	font-size: 11px;
+	color: var(--text-muted);
+}
+
+.provider-actions {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	flex-wrap: wrap;
+}
+
+.oauth-flow-container {
+	display: flex;
+	flex-direction: column;
+	gap: 16px;
+	padding: 8px 0;
+}
+
+.oauth-step {
+	background-color: var(--bg-surface-1);
+	border: 1px solid var(--border-subtle);
+	border-radius: var(--radius-md);
+	padding: 12px 14px;
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+
+.oauth-step-title {
+	font-size: 12px;
+	font-weight: 600;
+	color: var(--text-secondary);
+	text-transform: uppercase;
+	letter-spacing: 0.5px;
+}
+
+.oauth-code-display {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	background-color: var(--bg-canvas);
+	border: 1px dashed var(--accent-indigo);
+	border-radius: var(--radius-md);
+	padding: 10px 14px;
+	margin-top: 4px;
+}
+
+.oauth-code-text {
+	font-family: var(--font-mono);
+	font-size: 20px;
+	font-weight: 700;
+	letter-spacing: 3px;
+	color: var(--accent-cyan);
+}
+
+.oauth-waiting-status {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	font-size: 12px;
+	color: var(--text-secondary);
+}
+
+.oauth-status-dot {
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	background-color: var(--accent-cyan);
+	animation: pulse 1.5s infinite;
+}
+
+.api-key-inline-form {
+	display: flex;
+	gap: 8px;
+	align-items: center;
+	margin-top: 6px;
+	width: 100%;
+}

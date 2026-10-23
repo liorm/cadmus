@@ -41,6 +41,13 @@ This document contains everything an autonomous coding agent needs to understand
    - Never use `console.log`, `console.warn`, `console.error`, or `console.debug` anywhere in the codebase.
    - Always log through [`getLogger()`](src/log.ts) (configured via [`setupLogger()`](src/log.ts) / [`ensureLogger()`](src/log.ts), supporting `{ type: "console", level, stream, colors }`, `{ type: "custom", logger }`, and `{ type: "silent" }`) with structured `LogFields` and `.child(chatFields(...))` / `.child(familyFields(...))`.
 
+8. **Self-Initializing DB Schemas (Zero SQL Migration Files / No D1 Migrations)**:
+   - Neither D1 nor Durable Object SQLite uses external SQL migration files (e.g. `migrations/*.sql`) or `wrangler d1 migrations` commands.
+   - **Do not add a `migrations/` directory, `migrations_dir` in `wrangler.jsonc`, or `db:migrate:*` scripts in `package.json`**.
+   - **Cloudflare D1 (`CADMUS_ADMIN_DB`)**: Schema is self-initializing and self-migrating in code inside [`src/store/d1-admin.ts`](src/store/d1-admin.ts) (`D1AdminStore.initialize()`), using `CREATE TABLE IF NOT EXISTS`, column inspection via `PRAGMA table_info`, and non-destructive `ALTER TABLE ADD COLUMN`.
+   - **DO SQLite (`CadmusBotFamilyDO`)**: Schema is self-initializing in code inside [`src/store/sqlite-family.ts`](src/store/sqlite-family.ts) (`SqliteFamilyStore.initialize()`), using `CREATE TABLE IF NOT EXISTS` and index creation. DO class declarations use Wrangler class migrations in `wrangler.jsonc` (`new_sqlite_classes`), not SQL files.
+   - Deployment is pure `bun run deploy` (`wrangler deploy --keep-vars`) without any pre-deployment database migration steps.
+
 ---
 
 ## 2. Project Layout

@@ -29,7 +29,8 @@ interface BotModalProps {
 }
 
 function BotModal({ isOpen, mode, bot, onClose }: BotModalProps) {
-	const { client, refreshBots, selectBot, models } = useCadmus();
+	const { client, refreshBots, selectBot, models, openCredentials } =
+		useCadmus();
 
 	const [name, setName] = useState(bot?.name ?? "");
 	const [slug, setSlug] = useState(bot?.id ?? "");
@@ -254,9 +255,34 @@ function BotModal({ isOpen, mode, bot, onClose }: BotModalProps) {
 						)}
 
 						<div className="form-group">
-							<label className="form-label" htmlFor="bot-model">
-								LLM Model
-							</label>
+							<div
+								style={{
+									display: "flex",
+									justifyContent: "space-between",
+									alignItems: "center",
+								}}
+							>
+								<label className="form-label" htmlFor="bot-model">
+									LLM Model
+								</label>
+								<button
+									type="button"
+									className="btn btn-ghost btn-sm"
+									style={{
+										fontSize: "11px",
+										padding: "2px 6px",
+										height: "auto",
+									}}
+									onClick={() =>
+										openCredentials(
+											model.includes("/") ? model.split("/")[0] : undefined,
+										)
+									}
+									title="Configure AI provider credentials"
+								>
+									🔑 AI Providers
+								</button>
+							</div>
 							<select
 								id="bot-model"
 								className="select input-mono"
@@ -274,6 +300,18 @@ function BotModal({ isOpen, mode, bot, onClose }: BotModalProps) {
 							<span className="form-hint">
 								Model used for conversation turns. "faux/echo" runs offline
 								without API keys.
+								{model.startsWith("xai") && (
+									<span
+										style={{
+											display: "block",
+											marginTop: "4px",
+											color: "var(--accent-cyan)",
+										}}
+									>
+										Requires xAI authorization. Click "AI Providers" to sign in
+										with SuperGrok / X Premium or enter an API key.
+									</span>
+								)}
 							</span>
 						</div>
 
