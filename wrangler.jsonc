@@ -28,11 +28,12 @@
 			}
 		]
 	},
+	"keep_vars": true,
 	"d1_databases": [
 		{
 			"binding": "CADMUS_ADMIN_DB",
 			"database_name": "cadmus-admin",
-			"database_id": "00000000-0000-0000-0000-000000000000"
+			"database_id": "1ae99680-9dab-4883-8449-4a7dd0f53212"
 		}
 	],
 	"migrations": [
