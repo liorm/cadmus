@@ -10,6 +10,7 @@ import type {
 	ChatRecord,
 	ServerEvent,
 	ThinkingLevel,
+	ToolsEnvSetting,
 } from "./protocol.js";
 import type { FamilyStore } from "./store/family-interface.js";
 
@@ -26,12 +27,27 @@ export interface CadmusServices {
 		tools?: string[];
 		soul?: string;
 		memory?: string;
+		toolsEnv?: ToolsEnvSetting | null;
 	}): Promise<BotRecord>;
+	prepareCodingTools(conversationId: number): Promise<void>;
+	codingToolAllowed(
+		conversationId: number,
+		botId: string,
+		toolName: string,
+	): Promise<boolean>;
+	describeToolsEnv(input: {
+		conversationId: number;
+		botId: string;
+		toolNames: readonly string[];
+	}): Promise<
+		{ name: "tools-env" | "tools-env-unavailable"; text: string } | undefined
+	>;
 	createChat(input: {
 		botId: string;
 		key?: string;
 		title?: string;
 		thinking?: ThinkingLevel;
+		toolsEnv?: ToolsEnvSetting | null;
 	}): Promise<ChatRecord>;
 	submitChatTurn(input: {
 		chatKey: string;

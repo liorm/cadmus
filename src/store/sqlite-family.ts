@@ -1,11 +1,16 @@
 import { createTwoFilesPatch } from "diff";
-import type { ScheduleTarget, ThinkingLevel } from "../protocol.js";
+import type {
+	ScheduleTarget,
+	ThinkingLevel,
+	ToolsEnvSetting,
+} from "../protocol.js";
 import type {
 	BotFileStore,
 	BotRecord,
 	BotStore,
 	ChatRecord,
 	ChatStore,
+	ConversationRoute,
 	FamilyStore,
 	HarvestFileDiff,
 	HarvestNote,
@@ -19,6 +24,19 @@ import type {
 
 export const MAX_MEMORY_BYTES = 8192;
 export const SLUG_REGEX = /^[a-z0-9][a-z0-9-]{0,63}$/;
+
+function parseToolsEnv(
+	raw: string | null | undefined,
+): ToolsEnvSetting | undefined {
+	if (!raw) return undefined;
+	try {
+		const parsed = JSON.parse(raw) as ToolsEnvSetting;
+		if (!parsed || typeof parsed !== "object") return undefined;
+		return parsed;
+	} catch {
+		return undefined;
+	}
+}
 
 export class CasConflictError extends Error {
 	readonly code = "cas_conflict";
@@ -144,10 +162,11 @@ class SqliteBotStore implements BotStore {
 				thinking: string;
 				tools_json: string | null;
 				timezone?: string | null;
+				tools_env_json?: string | null;
 				root_conversation_id: number;
 				created_at: number;
 			}>(
-				`SELECT id, name, model, thinking, tools_json, timezone, root_conversation_id, created_at
+				`SELECT id, name, model, thinking, tools_json, timezone, tools_env_json, root_conversation_id, created_at
          FROM cadmus_bots
          ORDER BY created_at ASC, id ASC`,
 			)
@@ -164,10 +183,11 @@ class SqliteBotStore implements BotStore {
 				thinking: string;
 				tools_json: string | null;
 				timezone?: string | null;
+				tools_env_json?: string | null;
 				root_conversation_id: number;
 				created_at: number;
 			}>(
-				`SELECT id, name, model, thinking, tools_json, timezone, root_conversation_id, created_at
+				`SELECT id, name, model, thinking, tools_json, timezone, tools_env_json, root_conversation_id, created_at
          FROM cadmus_bots
          WHERE id = ?`,
 				botId,
@@ -179,15 +199,20 @@ class SqliteBotStore implements BotStore {
 	upsertBot(bot: BotRecord): void {
 		const toolsJson =
 			bot.tools !== undefined ? JSON.stringify(bot.tools) : null;
+		const toolsEnvJson =
+			bot.toolsEnv !== undefined && bot.toolsEnv !== null
+				? JSON.stringify(bot.toolsEnv)
+				: null;
 		this.sql.exec(
-			`INSERT INTO cadmus_bots (id, name, model, thinking, tools_json, timezone, root_conversation_id, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+			`INSERT INTO cadmus_bots (id, name, model, thinking, tools_json, timezone, tools_env_json, root_conversation_id, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          name = excluded.name,
          model = excluded.model,
          thinking = excluded.thinking,
          tools_json = excluded.tools_json,
          timezone = excluded.timezone,
+         tools_env_json = excluded.tools_env_json,
          root_conversation_id = excluded.root_conversation_id`,
 			bot.id,
 			bot.name,
@@ -195,6 +220,7 @@ class SqliteBotStore implements BotStore {
 			bot.thinking,
 			toolsJson,
 			bot.timezone,
+			toolsEnvJson,
 			bot.rootConversationId,
 			bot.createdAt,
 		);
@@ -219,6 +245,7 @@ class SqliteBotStore implements BotStore {
 		thinking: string;
 		tools_json: string | null;
 		timezone?: string | null;
+		tools_env_json?: string | null;
 		root_conversation_id: number;
 		created_at: number;
 	}): BotRecord {
@@ -234,6 +261,8 @@ class SqliteBotStore implements BotStore {
 		if (row.tools_json !== null) {
 			record.tools = JSON.parse(row.tools_json) as string[];
 		}
+		const toolsEnv = parseToolsEnv(row.tools_env_json);
+		if (toolsEnv) record.toolsEnv = toolsEnv;
 		return record;
 	}
 }
@@ -587,7 +616,7 @@ class SqliteChatStore implements ChatStore {
 					closed: number;
 					created_at: number;
 				}>(
-					`SELECT key, bot_id, conversation_id, title, thinking, closed, created_at
+					`SELECT key, bot_id, conversation_id, title, thinking, closed, tools_env_json, created_at
            FROM cadmus_chats
            WHERE bot_id = ?
            ORDER BY created_at ASC, key ASC`,
@@ -607,7 +636,7 @@ class SqliteChatStore implements ChatStore {
 				closed: number;
 				created_at: number;
 			}>(
-				`SELECT key, bot_id, conversation_id, title, thinking, closed, created_at
+				`SELECT key, bot_id, conversation_id, title, thinking, closed, tools_env_json, created_at
          FROM cadmus_chats
          ORDER BY created_at ASC, key ASC`,
 			)
@@ -626,7 +655,7 @@ class SqliteChatStore implements ChatStore {
 				closed: number;
 				created_at: number;
 			}>(
-				`SELECT key, bot_id, conversation_id, title, thinking, closed, created_at
+				`SELECT key, bot_id, conversation_id, title, thinking, closed, tools_env_json, created_at
          FROM cadmus_chats
          WHERE key = ?`,
 				key,
@@ -646,7 +675,7 @@ class SqliteChatStore implements ChatStore {
 				closed: number;
 				created_at: number;
 			}>(
-				`SELECT key, bot_id, conversation_id, title, thinking, closed, created_at
+				`SELECT key, bot_id, conversation_id, title, thinking, closed, tools_env_json, created_at
          FROM cadmus_chats
          WHERE conversation_id = ?
          LIMIT 1`,
@@ -657,21 +686,27 @@ class SqliteChatStore implements ChatStore {
 	}
 
 	upsertChat(chat: ChatRecord): void {
+		const toolsEnvJson =
+			chat.toolsEnv !== undefined && chat.toolsEnv !== null
+				? JSON.stringify(chat.toolsEnv)
+				: null;
 		this.sql.exec(
-			`INSERT INTO cadmus_chats (key, bot_id, conversation_id, title, thinking, closed, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)
+			`INSERT INTO cadmus_chats (key, bot_id, conversation_id, title, thinking, closed, tools_env_json, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(key) DO UPDATE SET
          bot_id = excluded.bot_id,
          conversation_id = excluded.conversation_id,
          title = excluded.title,
          thinking = excluded.thinking,
-         closed = excluded.closed`,
+         closed = excluded.closed,
+         tools_env_json = excluded.tools_env_json`,
 			chat.key,
 			chat.botId,
 			chat.conversationId,
 			chat.title ?? null,
 			chat.thinking ?? null,
 			chat.closed ? 1 : 0,
+			toolsEnvJson,
 			chat.createdAt,
 		);
 	}
@@ -704,7 +739,113 @@ class SqliteChatStore implements ChatStore {
 		if (row.closed) {
 			rec.closed = true;
 		}
+		const toolsEnv = parseToolsEnv(
+			(row as { tools_env_json?: string | null }).tools_env_json,
+		);
+		if (toolsEnv) rec.toolsEnv = toolsEnv;
 		return rec;
+	}
+
+	listConversationRoutes(chatKey: string): ConversationRoute[] {
+		const rows = this.sql
+			.exec<{
+				conversation_id: number;
+				chat_key: string;
+				bot_id: string;
+				tools_env_enabled: number;
+			}>(
+				`SELECT conversation_id, chat_key, bot_id, tools_env_enabled
+         FROM cadmus_chat_conversations WHERE chat_key = ?`,
+				chatKey,
+			)
+			.toArray();
+		return rows.map((row) => ({
+			conversationId: Number(row.conversation_id),
+			chatKey: row.chat_key,
+			botId: row.bot_id,
+			toolsEnvEnabled: row.tools_env_enabled !== 0,
+		}));
+	}
+
+	getConversationRoute(conversationId: number): ConversationRoute | undefined {
+		const rows = this.sql
+			.exec<{
+				conversation_id: number;
+				chat_key: string;
+				bot_id: string;
+				tools_env_enabled: number;
+			}>(
+				`SELECT conversation_id, chat_key, bot_id, tools_env_enabled
+         FROM cadmus_chat_conversations WHERE conversation_id = ?`,
+				conversationId,
+			)
+			.toArray();
+		const row = rows[0];
+		if (!row) return undefined;
+		return {
+			conversationId: Number(row.conversation_id),
+			chatKey: row.chat_key,
+			botId: row.bot_id,
+			toolsEnvEnabled: row.tools_env_enabled !== 0,
+		};
+	}
+
+	recordConversationRoute(route: ConversationRoute): void {
+		this.sql.exec(
+			`INSERT INTO cadmus_chat_conversations (conversation_id, chat_key, bot_id, tools_env_enabled)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(conversation_id) DO UPDATE SET
+         chat_key = excluded.chat_key,
+         bot_id = excluded.bot_id,
+         tools_env_enabled = excluded.tools_env_enabled`,
+			route.conversationId,
+			route.chatKey,
+			route.botId,
+			route.toolsEnvEnabled ? 1 : 0,
+		);
+	}
+
+	setConversationToolsEnvEnabled(
+		conversationId: number,
+		enabled: boolean,
+	): void {
+		this.sql.exec(
+			`UPDATE cadmus_chat_conversations SET tools_env_enabled = ? WHERE conversation_id = ?`,
+			enabled ? 1 : 0,
+			conversationId,
+		);
+	}
+
+	deleteConversationRoute(conversationId: number): void {
+		this.sql.exec(
+			`DELETE FROM cadmus_chat_conversations WHERE conversation_id = ?`,
+			conversationId,
+		);
+	}
+
+	deleteConversationRoutesForChat(chatKey: string): void {
+		this.sql.exec(
+			`DELETE FROM cadmus_chat_conversations WHERE chat_key = ?`,
+			chatKey,
+		);
+	}
+
+	deleteConversationRoutesForBot(botId: string): void {
+		this.sql.exec(
+			`DELETE FROM cadmus_chat_conversations WHERE bot_id = ?`,
+			botId,
+		);
+	}
+
+	copyConversationRoute(parentId: number, childId: number): void {
+		this.sql.exec(
+			`INSERT OR IGNORE INTO cadmus_chat_conversations (conversation_id, chat_key, bot_id, tools_env_enabled)
+       SELECT ?, chat_key, bot_id, tools_env_enabled
+       FROM cadmus_chat_conversations
+       WHERE conversation_id = ?`,
+			childId,
+			parentId,
+		);
 	}
 }
 
@@ -1047,6 +1188,27 @@ export class SqliteFamilyStore implements FamilyStore {
 				"ALTER TABLE cadmus_schedules ADD COLUMN input TEXT DEFAULT ''",
 			);
 		} catch {}
+		try {
+			this.sql.exec("ALTER TABLE cadmus_bots ADD COLUMN tools_env_json TEXT");
+		} catch {}
+		try {
+			this.sql.exec("ALTER TABLE cadmus_chats ADD COLUMN tools_env_json TEXT");
+		} catch {}
+
+		this.sql.exec(`
+      CREATE TABLE IF NOT EXISTS cadmus_chat_conversations (
+        conversation_id INTEGER PRIMARY KEY,
+        chat_key TEXT NOT NULL,
+        bot_id TEXT NOT NULL,
+        tools_env_enabled INTEGER NOT NULL DEFAULT 1
+      );
+      CREATE INDEX IF NOT EXISTS idx_cadmus_chat_conversations_chat
+        ON cadmus_chat_conversations(chat_key);
+    `);
+		this.sql.exec(
+			`INSERT OR IGNORE INTO cadmus_chat_conversations (conversation_id, chat_key, bot_id, tools_env_enabled)
+       SELECT conversation_id, key, bot_id, 1 FROM cadmus_chats`,
+		);
 
 		this.initialized = true;
 	}

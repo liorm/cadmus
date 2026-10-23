@@ -1,6 +1,15 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { BotRecord, ThinkingLevel } from "../../../src/protocol.js";
 import { useCadmus } from "../context/CadmusContext.js";
+import {
+	buildToolsEnvSetting,
+	formatToolsEnvSummary,
+	type ToolsEnvCatalogChoice,
+	type ToolsEnvChoice,
+	toolsFormBaseline,
+	toolsPayload,
+} from "../tools-env-form.js";
+import { ToolsEnvPinFields } from "./ToolsEnvPinFields.js";
 
 const THINKING_LEVELS: ThinkingLevel[] = [
 	"off",
@@ -28,12 +37,55 @@ function BotModal({ isOpen, mode, bot, onClose }: BotModalProps) {
 	const [thinking, setThinking] = useState<ThinkingLevel>(
 		bot?.thinking ?? "off",
 	);
-	const [tools, setTools] = useState(
-		bot?.tools && bot.tools.length > 0 ? bot.tools.join(", ") : "",
-	);
+	const initialTools = toolsFormBaseline(bot?.tools);
+	const [tools, setTools] = useState(initialTools.toolsText);
 	const [soul, setSoul] = useState("");
+	const [codingTools, setCodingTools] = useState(initialTools.includeCoding);
+	const [toolsEnvChoice, setToolsEnvChoice] = useState<ToolsEnvChoice>(
+		bot?.toolsEnv == null ? "inherit" : bot.toolsEnv.enabled ? "on" : "off",
+	);
+	const [toolsEnvId, setToolsEnvId] = useState(
+		bot?.toolsEnv?.binding?.envId ?? "",
+	);
+	const [envChoices, setEnvChoices] = useState<ToolsEnvCatalogChoice[]>([]);
+	const [effectiveSummary, setEffectiveSummary] = useState<string | null>(null);
 	const [isSubmitting, setIsSubmitting] = useState(false);
 	const [error, setError] = useState<string | null>(null);
+
+	useEffect(() => {
+		if (!isOpen) return;
+		let cancelled = false;
+		void (async () => {
+			const listed = await client.callRpc("account.toolsEnvs.list");
+			if (!cancelled && listed.ok && listed.result) {
+				setEnvChoices(
+					listed.result.envs.map((env) => ({
+						envId: env.envId,
+						kind: env.kind,
+						...(env.label ? { label: env.label } : {}),
+					})),
+				);
+			}
+			if (!bot) return;
+			const view = await client.callRpc("bot.get", { botId: bot.id });
+			if (cancelled || !view.ok || !view.result) return;
+			setEffectiveSummary(
+				formatToolsEnvSummary({
+					stored: view.result.bot.toolsEnv ?? null,
+					enabled: view.result.toolsEnvEnabled,
+					enabledSource: view.result.toolsEnvEnabledSource,
+					bindingSource: view.result.toolsEnvBindingSource,
+					effective: view.result.effectiveToolsEnv,
+					status: view.result.toolsEnvStatus,
+					connectedAt: view.result.toolsEnvConnectedAt,
+					lastError: view.result.toolsEnvLastError,
+				}),
+			);
+		})();
+		return () => {
+			cancelled = true;
+		};
+	}, [isOpen, bot, client]);
 
 	const availableModels = useMemo(() => {
 		const list = ["faux/echo"];
@@ -58,12 +110,11 @@ function BotModal({ isOpen, mode, bot, onClose }: BotModalProps) {
 		setIsSubmitting(true);
 		setError(null);
 		try {
-			const parsedTools = tools.trim()
-				? tools
-						.split(",")
-						.map((t) => t.trim())
-						.filter(Boolean)
-				: undefined;
+			const toolsEnv = buildToolsEnvSetting({
+				choice: toolsEnvChoice,
+				envId: toolsEnvId,
+				retainEnvId: bot?.toolsEnv?.binding?.envId,
+			});
 
 			if (mode === "create") {
 				const res = await client.callRpc("bot.create", {
@@ -71,8 +122,9 @@ function BotModal({ isOpen, mode, bot, onClose }: BotModalProps) {
 					slug: slug.trim() || undefined,
 					model: model.trim() || undefined,
 					thinking,
-					tools: parsedTools,
+					tools: toolsPayload(tools, codingTools, "create"),
 					soul: soul.trim() || undefined,
+					toolsEnv,
 				});
 
 				if (!res.ok) {
@@ -91,8 +143,9 @@ function BotModal({ isOpen, mode, bot, onClose }: BotModalProps) {
 					name: name.trim() || undefined,
 					model: model.trim() || undefined,
 					thinking,
-					tools: parsedTools,
+					tools: toolsPayload(tools, codingTools, "edit", initialTools),
 					soul: soul.trim() || undefined,
+					toolsEnv,
 				});
 
 				if (!res.ok) {
@@ -259,9 +312,38 @@ function BotModal({ isOpen, mode, bot, onClose }: BotModalProps) {
 							/>
 							<span className="form-hint">
 								Optional list of tool names allowed for this bot. Leave blank to
-								allow all tools.
+								allow all tools. Coding tools stay opt-in.
 							</span>
 						</div>
+
+						<div className="form-group">
+							<label className="form-label" htmlFor="bot-coding-tools">
+								<input
+									id="bot-coding-tools"
+									type="checkbox"
+									checked={codingTools}
+									onChange={(event) => setCodingTools(event.target.checked)}
+								/>{" "}
+								Coding tools (bash, read, write, edit)
+							</label>
+							<span className="form-hint">
+								Off by default. Env Off still hides these tools on inheriting
+								chats.
+							</span>
+						</div>
+
+						<ToolsEnvPinFields
+							idPrefix="bot-tools-env"
+							choice={toolsEnvChoice}
+							envId={toolsEnvId}
+							envs={envChoices}
+							retainedEnvId={bot?.toolsEnv?.binding?.envId}
+							onChoice={setToolsEnvChoice}
+							onEnvId={setToolsEnvId}
+						/>
+						{effectiveSummary ? (
+							<p className="form-hint">{effectiveSummary}</p>
+						) : null}
 
 						<div className="form-group">
 							<label className="form-label" htmlFor="bot-soul">

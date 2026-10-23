@@ -22,6 +22,27 @@ export interface UserRecord {
 	createdAt: number;
 }
 
+export interface StoredToolsEnv {
+	envId: string;
+	kind: "just-bash" | "local-daemon";
+	label?: string;
+	persist: boolean;
+	confineToWorkspace: boolean;
+	sharedWorkspace: boolean;
+	workspacePath?: string;
+	secretId?: string;
+	/** Set when the pairing secret this row named was deleted. */
+	secretMissing?: boolean;
+	updatedAt: number;
+}
+
+export interface ToolsEnvSecretMeta {
+	secretId: string;
+	label?: string;
+	kind: "daemon_token";
+	updatedAt: number;
+}
+
 export interface FamilySettingsPatch {
 	name?: string;
 	timezone?: string;
@@ -50,7 +71,11 @@ export interface AdminStore {
 	getAccount(accountId: string): Promise<AccountRecord | undefined>;
 	updateAccount(
 		accountId: string,
-		patch: { name?: string; timezone?: string },
+		patch: {
+			name?: string;
+			timezone?: string;
+			defaultToolsEnv?: { envId: string } | null;
+		},
 	): Promise<AccountRecord>;
 	listMembers(accountId: string): Promise<AccountMember[]>;
 	addMember(input: {
@@ -75,6 +100,75 @@ export interface AdminStore {
 		input: CredentialInput | Credential,
 	): Promise<CredentialSummary>;
 	deleteCredential(accountId: string, providerId: string): Promise<boolean>;
+
+	// Account tools env catalog
+	listToolsEnvs(accountId: string): Promise<StoredToolsEnv[]>;
+	getToolsEnv(
+		accountId: string,
+		envId: string,
+	): Promise<StoredToolsEnv | undefined>;
+	createToolsEnv(
+		accountId: string,
+		input: {
+			envId: string;
+			kind: "just-bash" | "local-daemon";
+			label?: string;
+			persist: boolean;
+			confineToWorkspace: boolean;
+			sharedWorkspace: boolean;
+			workspacePath?: string;
+			secretId?: string;
+		},
+	): Promise<StoredToolsEnv>;
+	updateToolsEnv(
+		accountId: string,
+		envId: string,
+		patch: {
+			label?: string;
+			persist?: boolean;
+			confineToWorkspace?: boolean;
+			sharedWorkspace?: boolean;
+			workspacePath?: string;
+			secretId?: string;
+			secretMissing?: boolean;
+		},
+	): Promise<StoredToolsEnv | undefined>;
+	deleteToolsEnv(accountId: string, envId: string): Promise<boolean>;
+
+	/** Metadata only. Never plaintext, iv, or ciphertext. */
+	listToolsEnvSecrets(accountId: string): Promise<ToolsEnvSecretMeta[]>;
+	getToolsEnvSecretMeta(
+		accountId: string,
+		secretId: string,
+	): Promise<ToolsEnvSecretMeta | undefined>;
+	/**
+	 * Mint `cadmus_dt_` + 64 hex, store SHA-256 and AES-GCM `{ token }`.
+	 * The plaintext is returned once and is not accepted from the caller.
+	 */
+	setToolsEnvSecret(
+		accountId: string,
+		input?: { label?: string },
+	): Promise<{ secret: ToolsEnvSecretMeta; token: string }>;
+	/** Decrypt. Not a client RPC and not used on the daemon upgrade path. */
+	getToolsEnvSecret(
+		accountId: string,
+		secretId: string,
+	): Promise<{ token: string } | undefined>;
+	/**
+	 * Remove the secret, flag daemon env rows that named it (`secret_missing`),
+	 * and clear `defaultToolsEnv` only when it still names one of those envs.
+	 */
+	deleteToolsEnvSecret(
+		accountId: string,
+		secretId: string,
+	): Promise<{
+		deleted: boolean;
+		flaggedEnvIds: string[];
+		clearedDefaultEnvId: string | null;
+	}>;
+	resolveToolsEnvDaemonToken(
+		tokenHash: string,
+	): Promise<{ accountId: string; secretId: string } | undefined>;
 
 	// Bot Families Registry
 	listFamilies(accountId: string): Promise<FamilyRecord[]>;

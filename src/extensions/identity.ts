@@ -1,5 +1,6 @@
 import { defineExtension, section } from "@earendil-works/pi-durable";
 import { requireCadmusServices } from "../context.js";
+import { isCodingTool } from "../tools-env/pure.js";
 
 export const DEFAULT_SOUL = `You are a personal assistant.
 Be direct, warm and concise. Plain text renders best; keep formatting light.
@@ -71,6 +72,34 @@ export function identityExtension(options?: { now?: () => Date }) {
 				const body = mem.content.trim();
 				if (!body) return undefined;
 				return `MEMORY.md (version ${mem.version}):\n${body}`;
+			}),
+			section("tools-env", async (input, context) => {
+				const botId = input.agent.cwd;
+				if (!botId) return undefined;
+				const services = requireCadmusServices(context);
+				const described = await services.describeToolsEnv({
+					conversationId: input.conversationId as unknown as number,
+					botId,
+					toolNames: input.agent.tools
+						.map((tool) => tool.name)
+						.filter(isCodingTool),
+				});
+				return described?.name === "tools-env" ? described.text : undefined;
+			}),
+			section("tools-env-unavailable", async (input, context) => {
+				const botId = input.agent.cwd;
+				if (!botId) return undefined;
+				const services = requireCadmusServices(context);
+				const described = await services.describeToolsEnv({
+					conversationId: input.conversationId as unknown as number,
+					botId,
+					toolNames: input.agent.tools
+						.map((tool) => tool.name)
+						.filter(isCodingTool),
+				});
+				return described?.name === "tools-env-unavailable"
+					? described.text
+					: undefined;
 			}),
 			section("date", (_input, context) => {
 				const services = requireCadmusServices(context);

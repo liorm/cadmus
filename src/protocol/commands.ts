@@ -12,6 +12,8 @@ import {
 	CredentialInputSchema,
 	ScheduleTargetSchema,
 	ThinkingLevelSchema,
+	ToolsEnvBindingSchema,
+	ToolsEnvSettingSchema,
 } from "./records.js";
 
 /**
@@ -64,6 +66,12 @@ export const AccountUpdateCommandSchema = Type.Object(
 						minLength: 1,
 						description:
 							"Optional new default IANA timezone identifier for the account (e.g. 'UTC', 'America/New_York').",
+					}),
+				),
+				defaultToolsEnv: Type.Optional(
+					Type.Union([ToolsEnvBindingSchema, Type.Null()], {
+						description:
+							"Account default tools env binding, or null to clear it.",
 					}),
 				),
 			},
@@ -542,7 +550,7 @@ export const BotCreateCommandSchema = Type.Object(
 				tools: Type.Optional(
 					Type.Array(Type.String(), {
 						description:
-							"Optional list of tool names or globs permitted for this bot.",
+							"Allowlist of tool names. Omit it for the default set (Cadmus tools allowed, coding tools opt-in). An empty array allows no gated tools.",
 					}),
 				),
 				soul: Type.Optional(
@@ -557,6 +565,7 @@ export const BotCreateCommandSchema = Type.Object(
 							"Optional initial long-term memory markdown content (MEMORY.md content).",
 					}),
 				),
+				toolsEnv: Type.Optional(ToolsEnvSettingSchema),
 				knowledge: Type.Optional(
 					Type.Array(
 						Type.Object(
@@ -658,15 +667,26 @@ export const BotUpdateCommandSchema = Type.Object(
 				),
 				thinking: Type.Optional(ThinkingLevelSchema),
 				tools: Type.Optional(
-					Type.Array(Type.String(), {
-						description: "Optional updated list of permitted tool names.",
-					}),
+					Type.Union(
+						[
+							Type.Array(Type.String(), {
+								description:
+									"Replacement allowlist. An empty array allows no gated tools and does not offer coding tools.",
+							}),
+							Type.Null(),
+						],
+						{
+							description:
+								"Missing or null leaves the stored allowlist unchanged. An array replaces it.",
+						},
+					),
 				),
 				soul: Type.Optional(
 					Type.String({
 						description: "Optional updated SOUL.md system prompt content.",
 					}),
 				),
+				toolsEnv: Type.Optional(ToolsEnvSettingSchema),
 			},
 			{ description: "Parameters for updating bot configuration." },
 		),
@@ -744,6 +764,7 @@ export const ChatCreateCommandSchema = Type.Object(
 					}),
 				),
 				thinking: Type.Optional(ThinkingLevelSchema),
+				toolsEnv: Type.Optional(ToolsEnvSettingSchema),
 			},
 			{ description: "Parameters for creating a new chat session." },
 		),
@@ -817,6 +838,167 @@ export const ChatGetCommandSchema = Type.Object(
 	},
 );
 export type ChatGetCommand = Static<typeof ChatGetCommandSchema>;
+
+/**
+ * Command to set or clear a chat's tools env setting. Title changes stay on chat.rename.
+ */
+export const ChatUpdateCommandSchema = Type.Object(
+	{
+		id: Type.String({ minLength: 1 }),
+		type: Type.Literal("chat.update"),
+		payload: Type.Object(
+			{
+				chatKey: Type.String({ minLength: 1 }),
+				toolsEnv: ToolsEnvSettingSchema,
+			},
+			{ additionalProperties: false },
+		),
+	},
+	{ description: "Update a chat's tools env setting." },
+);
+export type ChatUpdateCommand = Static<typeof ChatUpdateCommandSchema>;
+
+const ToolsEnvKindSchema = Type.Union([
+	Type.Literal("just-bash"),
+	Type.Literal("local-daemon"),
+]);
+
+export const AccountToolsEnvsListCommandSchema = Type.Object(
+	{
+		id: Type.String({ minLength: 1 }),
+		type: Type.Literal("account.toolsEnvs.list"),
+		payload: Type.Optional(Type.Object({}, { additionalProperties: false })),
+	},
+	{
+		description: "List account tools env definitions and the default binding.",
+	},
+);
+export type AccountToolsEnvsListCommand = Static<
+	typeof AccountToolsEnvsListCommandSchema
+>;
+
+export const AccountToolsEnvsCreateCommandSchema = Type.Object(
+	{
+		id: Type.String({ minLength: 1 }),
+		type: Type.Literal("account.toolsEnvs.create"),
+		payload: Type.Object(
+			{
+				kind: ToolsEnvKindSchema,
+				label: Type.Optional(Type.String()),
+				persist: Type.Optional(Type.Boolean()),
+				confineToWorkspace: Type.Optional(Type.Boolean()),
+				sharedWorkspace: Type.Optional(Type.Boolean()),
+				secretId: Type.Optional(Type.String({ minLength: 1 })),
+				workspacePath: Type.Optional(Type.String({ minLength: 1 })),
+			},
+			{ additionalProperties: false },
+		),
+	},
+	{
+		description:
+			"Create a just-bash or local-daemon tools env definition. Daemon rows require secretId, workspacePath, and confineToWorkspace.",
+	},
+);
+export type AccountToolsEnvsCreateCommand = Static<
+	typeof AccountToolsEnvsCreateCommandSchema
+>;
+
+export const AccountToolsEnvsUpdateCommandSchema = Type.Object(
+	{
+		id: Type.String({ minLength: 1 }),
+		type: Type.Literal("account.toolsEnvs.update"),
+		payload: Type.Object(
+			{
+				envId: Type.String({ minLength: 1 }),
+				label: Type.Optional(Type.String()),
+				persist: Type.Optional(Type.Boolean()),
+				confineToWorkspace: Type.Optional(Type.Boolean()),
+				sharedWorkspace: Type.Optional(Type.Boolean()),
+				secretId: Type.Optional(Type.String({ minLength: 1 })),
+				workspacePath: Type.Optional(Type.String({ minLength: 1 })),
+			},
+			{ additionalProperties: false },
+		),
+	},
+	{ description: "Update a tools env definition. Kind is immutable." },
+);
+export type AccountToolsEnvsUpdateCommand = Static<
+	typeof AccountToolsEnvsUpdateCommandSchema
+>;
+
+export const AccountToolsEnvsDeleteCommandSchema = Type.Object(
+	{
+		id: Type.String({ minLength: 1 }),
+		type: Type.Literal("account.toolsEnvs.delete"),
+		payload: Type.Object(
+			{
+				envId: Type.String({ minLength: 1 }),
+			},
+			{ additionalProperties: false },
+		),
+	},
+	{ description: "Delete a tools env definition and its env DO data." },
+);
+export type AccountToolsEnvsDeleteCommand = Static<
+	typeof AccountToolsEnvsDeleteCommandSchema
+>;
+
+export const AccountToolsEnvSecretsListCommandSchema = Type.Object(
+	{
+		id: Type.String({ minLength: 1 }),
+		type: Type.Literal("account.toolsEnvSecrets.list"),
+		payload: Type.Optional(Type.Object({}, { additionalProperties: false })),
+	},
+	{
+		description:
+			"List daemon pairing secrets. Metadata only; the token is never returned.",
+	},
+);
+export type AccountToolsEnvSecretsListCommand = Static<
+	typeof AccountToolsEnvSecretsListCommandSchema
+>;
+
+export const AccountToolsEnvSecretsSetCommandSchema = Type.Object(
+	{
+		id: Type.String({ minLength: 1 }),
+		type: Type.Literal("account.toolsEnvSecrets.set"),
+		payload: Type.Optional(
+			Type.Object(
+				{
+					label: Type.Optional(Type.String()),
+				},
+				{ additionalProperties: false },
+			),
+		),
+	},
+	{
+		description:
+			"Mint a daemon pairing token (cadmus_dt_ + 64 hex). The token is returned once. A caller-supplied token is rejected.",
+	},
+);
+export type AccountToolsEnvSecretsSetCommand = Static<
+	typeof AccountToolsEnvSecretsSetCommandSchema
+>;
+
+export const AccountToolsEnvSecretsDeleteCommandSchema = Type.Object(
+	{
+		id: Type.String({ minLength: 1 }),
+		type: Type.Literal("account.toolsEnvSecrets.delete"),
+		payload: Type.Object(
+			{
+				secretId: Type.String({ minLength: 1 }),
+			},
+			{ additionalProperties: false },
+		),
+	},
+	{
+		description:
+			"Delete a daemon pairing secret, flag env rows that named it, and clear a default that points at one of them.",
+	},
+);
+export type AccountToolsEnvSecretsDeleteCommand = Static<
+	typeof AccountToolsEnvSecretsDeleteCommandSchema
+>;
 
 /**
  * Command to update the title or topic of a chat session.
@@ -1756,6 +1938,14 @@ export const ClientCommandSchema = Type.Union(
 		ScheduleListCommandSchema,
 		ScheduleUpdateCommandSchema,
 		ScheduleDeleteCommandSchema,
+		ChatUpdateCommandSchema,
+		AccountToolsEnvsListCommandSchema,
+		AccountToolsEnvsCreateCommandSchema,
+		AccountToolsEnvsUpdateCommandSchema,
+		AccountToolsEnvsDeleteCommandSchema,
+		AccountToolsEnvSecretsListCommandSchema,
+		AccountToolsEnvSecretsSetCommandSchema,
+		AccountToolsEnvSecretsDeleteCommandSchema,
 	],
 	{
 		description:

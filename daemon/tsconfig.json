@@ -1,0 +1,22 @@
+{
+	"compilerOptions": {
+		"target": "ESNext",
+		"module": "ESNext",
+		"moduleResolution": "Bundler",
+		"types": ["bun"],
+		"strict": true,
+		"skipLibCheck": true,
+		"noEmit": true,
+		"rootDir": "..",
+		"esModuleInterop": true,
+		"resolveJsonModule": true
+	},
+	"include": [
+		"src/**/*.ts",
+		"tests/**/*.ts",
+		"../src/tools-env/wire.ts",
+		"../src/tools-env/wire-call.ts",
+		"../src/tools-env/wire-env.ts",
+		"../tests/conformance/**/*.ts"
+	]
+}

@@ -10,9 +10,11 @@ import {
 } from "./protocol.js";
 import { defaultJsonShim } from "./shim.js";
 import { D1AdminStore } from "./store/d1-admin.js";
+import { handleToolsEnvWebsocket } from "./tools-env/edge-ws.js";
+import { CadmusEnvDO } from "./tools-env/env-do.js";
 import type { Env } from "./types.js";
 
-export { CadmusBotFamilyDO };
+export { CadmusBotFamilyDO, CadmusEnvDO };
 
 export default {
 	async fetch(
@@ -47,6 +49,10 @@ export default {
 		});
 		await adminStore.initialize();
 
+		if (url.pathname === "/tools-env/ws") {
+			return handleToolsEnvWebsocket(request, env, adminStore, url);
+		}
+
 		const scope = await authenticateRequest(request, env, adminStore);
 		if (!scope) {
 			log.warn("edge request unauthorized", {
@@ -71,10 +77,7 @@ export default {
 			family: requestedFamilyId,
 		});
 
-		if (
-			url.pathname === "/ws" ||
-			request.headers.get("Upgrade") === "websocket"
-		) {
+		if (url.pathname === "/ws") {
 			const family = await resolveOrEnsureFamily(
 				adminStore,
 				accountId,

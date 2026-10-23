@@ -15,7 +15,7 @@ import { Type } from "typebox";
 import { requireCadmusServices } from "../context.js";
 import { getLogger } from "../log.js";
 import { parseThinkingLevel } from "../models.js";
-import { ThinkingLevelSchema } from "../protocol.js";
+import { ThinkingLevelSchema, ToolsEnvSettingSchema } from "../protocol.js";
 import { resolveBotScope, toolError, toolText } from "./knowledge-tools.js";
 
 export type SearchBotInput = {
@@ -253,6 +253,26 @@ export const SearchBotTask = defineTask<
 	},
 });
 
+const TOOLS_ENV_BINDING_KEYS = new Set(["envId"]);
+
+/** Bindings store envId only. Pairing material stays on the account env row. */
+function rejectToolsEnvBindingExtras(toolsEnv: unknown): void {
+	if (toolsEnv == null || typeof toolsEnv !== "object") return;
+	const binding = (toolsEnv as { binding?: unknown }).binding;
+	if (
+		binding == null ||
+		typeof binding !== "object" ||
+		Array.isArray(binding)
+	) {
+		return;
+	}
+	for (const key of Object.keys(binding)) {
+		if (!TOOLS_ENV_BINDING_KEYS.has(key)) {
+			throw new Error(`toolsEnv binding rejects '${key}'`);
+		}
+	}
+}
+
 export function internalToolsExtension() {
 	return defineExtension({
 		name: "cadmus.internal-tools",
@@ -270,8 +290,10 @@ export function internalToolsExtension() {
 					tools: Type.Optional(Type.Array(Type.String())),
 					soul: Type.Optional(Type.String()),
 					memory: Type.Optional(Type.String()),
+					toolsEnv: Type.Optional(ToolsEnvSettingSchema),
 				}),
 				replay: "safe",
+				executionMode: "sequential",
 				async execute(args, api, context) {
 					const prior = await api.memo<JsonValue>("result", context);
 					if (prior !== undefined) {
@@ -282,6 +304,7 @@ export function internalToolsExtension() {
 						return toolError("Conversation is not bound to a bot.");
 					}
 					try {
+						rejectToolsEnvBindingExtras(args.toolsEnv);
 						const services = requireCadmusServices(context);
 						const callerBot = services.familyStore.bots.getBot(scope.botId);
 						const created = await services.createBot({
@@ -292,6 +315,7 @@ export function internalToolsExtension() {
 							tools: args.tools,
 							soul: args.soul,
 							memory: args.memory,
+							toolsEnv: args.toolsEnv,
 						});
 						getLogger().info("peer bot created via create_bot tool", {
 							callerBot: scope.botId,
@@ -413,6 +437,7 @@ export function internalToolsExtension() {
 					chatKey: Type.Optional(Type.String()),
 				}),
 				replay: "safe",
+				executionMode: "sequential",
 				async execute(args, api, context) {
 					const prior = await api.memo<JsonValue>("result", context);
 					if (prior !== undefined) {

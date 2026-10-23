@@ -1,7 +1,9 @@
 import { createInterface } from "node:readline";
 import type {
 	AccountModelsListResult,
+	ChatStatusRecord,
 	ServerEvent,
+	ToolsEnvSetting,
 	TurnBlock,
 } from "../../src/protocol.js";
 import { CadmusProtocolClient } from "./client.js";
@@ -21,6 +23,39 @@ const out: TuiOutput = {
 	write: (text: string) => process.stdout.write(text),
 	writeLine,
 };
+
+function toolsEnvFromParts(
+	choice: string | undefined,
+	envId: string | undefined,
+): ToolsEnvSetting | undefined {
+	if (choice === "inherit") return null;
+	if (choice === "off") {
+		return envId ? { enabled: false, binding: { envId } } : { enabled: false };
+	}
+	if (choice === "on") {
+		return envId ? { enabled: true, binding: { envId } } : { enabled: true };
+	}
+	return undefined;
+}
+
+function formatStatusToolsEnv(
+	toolsEnv: NonNullable<ChatStatusRecord["toolsEnv"]>,
+): string {
+	const bits = [
+		`toolsEnv enabled=${String(toolsEnv.enabled)}`,
+		`enabledSource=${toolsEnv.enabledSource}`,
+	];
+	if (toolsEnv.kind) bits.push(`kind=${toolsEnv.kind}`);
+	if (toolsEnv.envId) bits.push(`envId=${toolsEnv.envId}`);
+	if (toolsEnv.bindingSource)
+		bits.push(`bindingSource=${toolsEnv.bindingSource}`);
+	if (toolsEnv.status) bits.push(`status=${toolsEnv.status}`);
+	if (toolsEnv.connectedAt !== undefined) {
+		bits.push(`connectedAt=${String(toolsEnv.connectedAt)}`);
+	}
+	if (toolsEnv.lastError) bits.push(`lastError=${toolsEnv.lastError}`);
+	return bits.join(" ");
+}
 
 function parseCliArgs(argv: string[]) {
 	let url = process.env.CADMUS_URL ?? "http://localhost:8787";
@@ -131,9 +166,11 @@ async function main() {
 ${ANSI.bold}Meta Commands:${ANSI.reset}
   :bots                                 List bots in current family
   :bot new <slug> <name> [model]        Create a new bot (default model: faux/echo)
+  :bot tools-env <botId> <inherit|on|off> [envId]
   :models [provider]                    List supported models and auth status
   :chats [botId]                        List chats
   :chat new <botId> [title]             Create a new chat and set it active
+  :chat tools-env <inherit|on|off> [envId]
   :use <chatKey>                        Switch active chat
   :files <botId>                        List virtual files for a bot
   :read <botId> <path>                  Read SOUL.md, MEMORY.md, or knowledge/<slug>.md
@@ -221,8 +258,21 @@ ${ANSI.bold}Meta Commands:${ANSI.reset}
 						model,
 					});
 					writeLine(JSON.stringify(res.result ?? res.error, null, 2));
+				} else if (parts[1] === "tools-env" && parts[2] && parts[3]) {
+					const toolsEnv = toolsEnvFromParts(parts[3], parts[4]);
+					if (toolsEnv === undefined) {
+						writeLine("Usage: :bot tools-env <botId> <inherit|on|off> [envId]");
+						break;
+					}
+					const res = await client.sendCommand("bot.update", {
+						botId: parts[2],
+						toolsEnv,
+					});
+					writeLine(JSON.stringify(res.result ?? res.error, null, 2));
 				} else {
-					writeLine("Usage: :bot new <slug> <name> [model]");
+					writeLine(
+						"Usage:\n  :bot new <slug> <name> [model]\n  :bot tools-env <botId> <inherit|on|off> [envId]",
+					);
 				}
 				break;
 			}
@@ -251,8 +301,25 @@ ${ANSI.bold}Meta Commands:${ANSI.reset}
 					} else {
 						writeLine(JSON.stringify(res.error, null, 2));
 					}
+				} else if (parts[1] === "tools-env" && parts[2]) {
+					if (!tuiState.activeChatKey) {
+						writeLine("Select a chat first with :use <chatKey>");
+						break;
+					}
+					const toolsEnv = toolsEnvFromParts(parts[2], parts[3]);
+					if (toolsEnv === undefined) {
+						writeLine("Usage: :chat tools-env <inherit|on|off> [envId]");
+						break;
+					}
+					const res = await client.sendCommand("chat.update", {
+						chatKey: tuiState.activeChatKey,
+						toolsEnv,
+					});
+					writeLine(JSON.stringify(res.result ?? res.error, null, 2));
 				} else {
-					writeLine("Usage: :chat new <botId> [title]");
+					writeLine(
+						"Usage:\n  :chat new <botId> [title]\n  :chat tools-env <inherit|on|off> [envId]",
+					);
 				}
 				break;
 			}
@@ -385,12 +452,19 @@ ${ANSI.bold}Meta Commands:${ANSI.reset}
 					writeLine("Select a chat first with :use <chatKey>");
 					break;
 				}
-				const res = await client.sendCommand<{ text: string }>("turn.command", {
+				const res = await client.sendCommand<{
+					text?: string;
+					status?: ChatStatusRecord;
+				}>("turn.command", {
 					chatKey: tuiState.activeChatKey,
 					command: "/status",
 				});
 				if (res.ok && res.result?.text) {
 					writeLine(`\n${res.result.text}\n`);
+					const toolsEnv = res.result.status?.toolsEnv;
+					if (toolsEnv) {
+						writeLine(formatStatusToolsEnv(toolsEnv));
+					}
 				} else {
 					writeLine(JSON.stringify(res.result ?? res.error, null, 2));
 				}

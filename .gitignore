@@ -4,6 +4,7 @@ data/
 *.log
 coverage/
 dist/
+daemon/dist/
 auth.json
 auth.json.lock
 /.wrangler

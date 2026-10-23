@@ -11,6 +11,7 @@
 			"/health",
 			"/protocol/schema",
 			"/ws",
+			"/tools-env/ws",
 			"/events",
 			"/rpc"
 		]
@@ -20,6 +21,10 @@
 			{
 				"name": "CADMUS_BOT_FAMILY",
 				"class_name": "CadmusBotFamilyDO"
+			},
+			{
+				"name": "CADMUS_ENV",
+				"class_name": "CadmusEnvDO"
 			}
 		]
 	},
@@ -34,6 +39,10 @@
 		{
 			"tag": "v1",
 			"new_sqlite_classes": ["CadmusBotFamilyDO"]
+		},
+		{
+			"tag": "v2",
+			"new_sqlite_classes": ["CadmusEnvDO"]
 		}
 	],
 	"vars": {

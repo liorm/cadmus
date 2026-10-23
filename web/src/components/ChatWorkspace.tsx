@@ -9,8 +9,16 @@ import type {
 	TranscriptMessageView,
 } from "../../../src/protocol.js";
 import { useCadmus } from "../context/CadmusContext.js";
+import {
+	buildToolsEnvSetting,
+	formatToolsEnvSummary,
+	hasToolsEnvChanged,
+	type ToolsEnvCatalogChoice,
+	type ToolsEnvChoice,
+} from "../tools-env-form.js";
 import { ChatRawView } from "./ChatRawView.js";
 import { ChatRenderedView } from "./ChatRenderedView.js";
+import { ToolsEnvPinFields } from "./ToolsEnvPinFields.js";
 
 const THINKING_LEVELS: ThinkingLevel[] = [
 	"off",
@@ -36,8 +44,30 @@ function NewChatModal({ isOpen, onClose, onCreated }: NewChatModalProps) {
 	const [title, setTitle] = useState<string>("");
 	const [key, setKey] = useState<string>("");
 	const [thinking, setThinking] = useState<ThinkingLevel>("off");
+	const [toolsEnvChoice, setToolsEnvChoice] =
+		useState<ToolsEnvChoice>("inherit");
+	const [toolsEnvId, setToolsEnvId] = useState("");
+	const [envChoices, setEnvChoices] = useState<ToolsEnvCatalogChoice[]>([]);
 	const [isSubmitting, setIsSubmitting] = useState(false);
 	const [error, setError] = useState<string | null>(null);
+
+	useEffect(() => {
+		if (!isOpen) return;
+		let cancelled = false;
+		void client.callRpc("account.toolsEnvs.list").then((listed) => {
+			if (cancelled || !listed.ok || !listed.result) return;
+			setEnvChoices(
+				listed.result.envs.map((env) => ({
+					envId: env.envId,
+					kind: env.kind,
+					...(env.label ? { label: env.label } : {}),
+				})),
+			);
+		});
+		return () => {
+			cancelled = true;
+		};
+	}, [isOpen, client]);
 
 	// Update default botId when bots load or selectedBotId changes
 	useEffect(() => {
@@ -58,11 +88,16 @@ function NewChatModal({ isOpen, onClose, onCreated }: NewChatModalProps) {
 		setIsSubmitting(true);
 		setError(null);
 		try {
+			const toolsEnv = buildToolsEnvSetting({
+				choice: toolsEnvChoice,
+				envId: toolsEnvId,
+			});
 			const res = await client.callRpc("chat.create", {
 				botId,
 				title: title.trim() || undefined,
 				key: key.trim() || undefined,
 				thinking,
+				...(toolsEnv ? { toolsEnv } : {}),
 			});
 
 			if (!res.ok || !res.result?.chat) {
@@ -169,6 +204,15 @@ function NewChatModal({ isOpen, onClose, onCreated }: NewChatModalProps) {
 								))}
 							</select>
 						</div>
+
+						<ToolsEnvPinFields
+							idPrefix="chat-tools-env"
+							choice={toolsEnvChoice}
+							envId={toolsEnvId}
+							envs={envChoices}
+							onChoice={setToolsEnvChoice}
+							onEnvId={setToolsEnvId}
+						/>
 					</div>
 
 					<div className="modal-footer">
@@ -408,6 +452,13 @@ export interface ChatWorkspaceProps {
 		messages: TranscriptMessageView[];
 		entries: RawTranscriptEntry[];
 		notes: HarvestNote[];
+		toolsEnvEnabled?: boolean;
+		toolsEnvEnabledSource?: string;
+		toolsEnvBindingSource?: string;
+		effectiveToolsEnv?: { kind: string; envId: string } | null;
+		toolsEnvStatus?: string;
+		toolsEnvConnectedAt?: number | null;
+		toolsEnvLastError?: string | null;
 	};
 }
 
@@ -433,7 +484,28 @@ export function ChatWorkspace({
 		messages: TranscriptMessageView[];
 		entries: RawTranscriptEntry[];
 		notes: HarvestNote[];
+		toolsEnvEnabled?: boolean;
+		toolsEnvEnabledSource?: string;
+		toolsEnvBindingSource?: string;
+		effectiveToolsEnv?: { kind: string; envId: string } | null;
+		toolsEnvStatus?: string;
+		toolsEnvConnectedAt?: number | null;
+		toolsEnvLastError?: string | null;
 	} | null>(initialChatData ?? null);
+	const [chatEnvChoices, setChatEnvChoices] = useState<ToolsEnvCatalogChoice[]>(
+		[],
+	);
+	const [chatEnvChoice, setChatEnvChoice] = useState<ToolsEnvChoice>(
+		initialChatData?.chat.toolsEnv == null
+			? "inherit"
+			: initialChatData.chat.toolsEnv.enabled
+				? "on"
+				: "off",
+	);
+	const [chatEnvId, setChatEnvId] = useState(
+		initialChatData?.chat.toolsEnv?.binding?.envId ?? "",
+	);
+	const [isSavingToolsEnv, setIsSavingToolsEnv] = useState(false);
 	const [isLoadingChat, setIsLoadingChat] = useState(false);
 
 	// View Mode: "rendered" | "raw"
@@ -515,12 +587,24 @@ export function ChatWorkspace({
 			try {
 				const res = await client.callRpc("chat.get", { chatKey });
 				if (res.ok && res.result) {
+					const stored = res.result.chat.toolsEnv;
+					setChatEnvChoice(
+						stored == null ? "inherit" : stored.enabled ? "on" : "off",
+					);
+					setChatEnvId(stored?.binding?.envId ?? "");
 					setChatData({
 						chat: res.result.chat,
 						busy: res.result.busy,
 						messages: res.result.messages,
 						entries: res.result.entries,
 						notes: res.result.notes,
+						toolsEnvEnabled: res.result.toolsEnvEnabled,
+						toolsEnvEnabledSource: res.result.toolsEnvEnabledSource,
+						toolsEnvBindingSource: res.result.toolsEnvBindingSource,
+						effectiveToolsEnv: res.result.effectiveToolsEnv,
+						toolsEnvStatus: res.result.toolsEnvStatus,
+						toolsEnvConnectedAt: res.result.toolsEnvConnectedAt,
+						toolsEnvLastError: res.result.toolsEnvLastError,
 					});
 				} else {
 					setErrorBanner(res.error?.message ?? "Failed to load chat details");
@@ -535,6 +619,51 @@ export function ChatWorkspace({
 		},
 		[client],
 	);
+
+	useEffect(() => {
+		if (!selectedChatKey) return;
+		let cancelled = false;
+		void client.callRpc("account.toolsEnvs.list").then((listed) => {
+			if (cancelled || !listed.ok || !listed.result) return;
+			setChatEnvChoices(
+				listed.result.envs.map((env) => ({
+					envId: env.envId,
+					kind: env.kind,
+					...(env.label ? { label: env.label } : {}),
+				})),
+			);
+		});
+		return () => {
+			cancelled = true;
+		};
+	}, [selectedChatKey, client]);
+
+	const saveChatToolsEnv = async () => {
+		if (!selectedChatKey || isSavingToolsEnv) return;
+		setIsSavingToolsEnv(true);
+		try {
+			const toolsEnv = buildToolsEnvSetting({
+				choice: chatEnvChoice,
+				envId: chatEnvId,
+				retainEnvId: chatData?.chat.toolsEnv?.binding?.envId,
+			});
+			const res = await client.callRpc("chat.update", {
+				chatKey: selectedChatKey,
+				toolsEnv,
+			});
+			if (!res.ok) {
+				setErrorBanner(res.error?.message ?? "Failed to update chat tools env");
+				return;
+			}
+			await loadChat(selectedChatKey);
+		} catch (err) {
+			setErrorBanner(
+				err instanceof Error ? err.message : "Error saving tools env",
+			);
+		} finally {
+			setIsSavingToolsEnv(false);
+		}
+	};
 
 	// Initial load of chats
 	useEffect(() => {
@@ -825,6 +954,15 @@ export function ChatWorkspace({
 		return chats.filter((c) => c.botId === botFilter);
 	}, [chats, botFilter]);
 
+	const isToolsEnvChanged = Boolean(
+		chatData &&
+			hasToolsEnvChanged({
+				stored: chatData.chat.toolsEnv,
+				choice: chatEnvChoice,
+				envId: chatEnvId,
+			}),
+	);
+
 	return (
 		<div className="chat-view-container">
 			{/* Left Sidebar */}
@@ -948,6 +1086,35 @@ export function ChatWorkspace({
 										{chatData.busy ? "Busy..." : "Idle"}
 									</span>
 								</div>
+								<p className="form-hint" style={{ margin: "4px 0 0" }}>
+									{formatToolsEnvSummary({
+										stored: chatData.chat.toolsEnv ?? null,
+										enabled: chatData.toolsEnvEnabled,
+										enabledSource: chatData.toolsEnvEnabledSource,
+										bindingSource: chatData.toolsEnvBindingSource,
+										effective: chatData.effectiveToolsEnv,
+										status: chatData.toolsEnvStatus,
+										connectedAt: chatData.toolsEnvConnectedAt,
+										lastError: chatData.toolsEnvLastError,
+									})}
+								</p>
+								<ToolsEnvPinFields
+									idPrefix="open-chat-tools-env"
+									choice={chatEnvChoice}
+									envId={chatEnvId}
+									envs={chatEnvChoices}
+									retainedEnvId={chatData.chat.toolsEnv?.binding?.envId}
+									onChoice={setChatEnvChoice}
+									onEnvId={setChatEnvId}
+								/>
+								<button
+									type="button"
+									className="btn btn-secondary btn-sm"
+									disabled={!isToolsEnvChanged || isSavingToolsEnv}
+									onClick={() => void saveChatToolsEnv()}
+								>
+									{isSavingToolsEnv ? "Saving..." : "Save tools env"}
+								</button>
 							</div>
 
 							<div className="chat-header-right">
@@ -1036,6 +1203,7 @@ export function ChatWorkspace({
 							{/* Conditionally Rendered View */}
 							{viewMode === "rendered" ? (
 								<ChatRenderedView
+									chatKey={chatData.chat.key}
 									messages={chatData.messages}
 									notes={chatData.notes}
 									streamingState={streamingState}
@@ -1043,6 +1211,7 @@ export function ChatWorkspace({
 								/>
 							) : (
 								<ChatRawView
+									chatKey={chatData.chat.key}
 									entries={chatData.entries}
 									messages={chatData.messages}
 									liveEvents={liveEvents}

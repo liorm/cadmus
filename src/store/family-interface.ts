@@ -7,6 +7,13 @@ import type {
 	ScheduleRecord,
 } from "../protocol.js";
 
+export interface ConversationRoute {
+	conversationId: number;
+	chatKey: string;
+	botId: string;
+	toolsEnvEnabled: boolean;
+}
+
 export type {
 	BotRecord,
 	ChatRecord,
@@ -81,6 +88,17 @@ export interface ChatStore {
 	getChatByConversationId(conversationId: number): ChatRecord | undefined;
 	upsertChat(chat: ChatRecord): void;
 	deleteChat(key: string): void;
+	getConversationRoute(conversationId: number): ConversationRoute | undefined;
+	listConversationRoutes(chatKey: string): ConversationRoute[];
+	recordConversationRoute(route: ConversationRoute): void;
+	setConversationToolsEnvEnabled(
+		conversationId: number,
+		enabled: boolean,
+	): void;
+	deleteConversationRoute(conversationId: number): void;
+	deleteConversationRoutesForChat(chatKey: string): void;
+	deleteConversationRoutesForBot(botId: string): void;
+	copyConversationRoute(parentId: number, childId: number): void;
 }
 
 export interface ScheduleStore {

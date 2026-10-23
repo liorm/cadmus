@@ -1,7 +1,9 @@
 import type { CadmusBotFamilyDO } from "./family-do.js";
+import type { CadmusEnvDO } from "./tools-env/env-do.js";
 
 export interface Env {
 	CADMUS_BOT_FAMILY: DurableObjectNamespace<CadmusBotFamilyDO>;
+	CADMUS_ENV: DurableObjectNamespace<CadmusEnvDO>;
 	CADMUS_ADMIN_DB: D1Database;
 	CADMUS_AUTH_SECRET?: string;
 	CADMUS_ENCRYPTION_KEY?: string;

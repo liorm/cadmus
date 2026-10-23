@@ -316,6 +316,7 @@ async function executeStandardFork(
 			await child.configure({ thinkingLevel }, context);
 		}
 	}
+	await services.prepareCodingTools(child.id as unknown as number);
 	const submission = await child.submit(
 		{
 			type: "input",
@@ -394,6 +395,10 @@ async function executeHarvestFork(
 		{ ownership: { kind: "ownerless" } },
 		context,
 	);
+	services.familyStore.chats.setConversationToolsEnvEnabled(
+		child.id as unknown as number,
+		false,
+	);
 
 	const bot = services.familyStore.bots.getBot(schedule.botId);
 	const allowedToolNames = bot?.tools
@@ -411,18 +416,25 @@ async function executeHarvestFork(
 		},
 		context,
 	);
+	await services.prepareCodingTools(child.id as unknown as number);
 
-	const submission = await child.submit(
-		{
-			type: "input",
-			content: schedule.text || DEFAULT_HARVEST_PROMPT,
-			requestId: `harvest:${chatKey}:${at}:${fireTime}`,
-			whenBusy: "steer",
-		},
-		context,
-	);
-	await submission.wait(context);
-	await child.waitForIdle(context);
+	try {
+		const submission = await child.submit(
+			{
+				type: "input",
+				content: schedule.text || DEFAULT_HARVEST_PROMPT,
+				requestId: `harvest:${chatKey}:${at}:${fireTime}`,
+				whenBusy: "steer",
+			},
+			context,
+		);
+		await submission.wait(context);
+		await child.waitForIdle(context);
+	} finally {
+		services.familyStore.chats.deleteConversationRoute(
+			child.id as unknown as number,
+		);
+	}
 
 	const after = services.familyStore.files.snapshotFiles(schedule.botId);
 	const files = services.familyStore.files.diffSnapshots(before, after);

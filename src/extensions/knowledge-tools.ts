@@ -105,6 +105,7 @@ export function knowledgeExtension() {
 					version: Type.Optional(Type.Number()),
 				}),
 				replay: "safe",
+				executionMode: "sequential",
 				async execute(args, api, context) {
 					const prior = await api.memo<JsonValue>("result", context);
 					if (prior !== undefined) {
@@ -169,6 +170,7 @@ export function knowledgeExtension() {
 					version: Type.Optional(Type.Number()),
 				}),
 				replay: "safe",
+				executionMode: "sequential",
 				async execute(args, api, context) {
 					const prior = await api.memo<JsonValue>("deleted", context);
 					if (prior !== undefined) {
@@ -240,6 +242,7 @@ export function knowledgeExtension() {
 					version: Type.Optional(Type.Number()),
 				}),
 				replay: "safe",
+				executionMode: "sequential",
 				async execute(args, api, context) {
 					const prior = await api.memo<JsonValue>("result", context);
 					if (prior !== undefined) {

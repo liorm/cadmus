@@ -424,7 +424,55 @@ export function visibleUserMessages(context: TranscriptContext): number {
 	return context.messages.filter((message) => message.role === "user").length;
 }
 
-const TOOL_DIRECTIVE_REGEX = /\[tool:([a-zA-Z0-9_.-]+)\s+(\{[\s\S]*?\})\]/;
+function matchToolDirectives(text: string): { name: string; json: string }[] {
+	const regex = /\[tool:([a-zA-Z0-9_.-]+)\s+/g;
+	const matches: { name: string; json: string }[] = [];
+	while (true) {
+		const start = regex.exec(text);
+		if (start === null) break;
+		const name = start[1];
+		let index = start.index + start[0].length;
+		if (text[index] !== "{") continue;
+		const jsonStart = index;
+		let depth = 0;
+		let inString = false;
+		let escaped = false;
+		let found = false;
+		for (; index < text.length; index += 1) {
+			const char = text[index];
+			if (inString) {
+				if (escaped) {
+					escaped = false;
+					continue;
+				}
+				if (char === "\\") {
+					escaped = true;
+					continue;
+				}
+				if (char === '"') inString = false;
+				continue;
+			}
+			if (char === '"') {
+				inString = true;
+				continue;
+			}
+			if (char === "{") depth += 1;
+			else if (char === "}") {
+				depth -= 1;
+				if (depth === 0) {
+					if (text[index + 1] === "]") {
+						matches.push({ name, json: text.slice(jsonStart, index + 1) });
+						found = true;
+						regex.lastIndex = index + 2;
+					}
+					break;
+				}
+			}
+		}
+		if (!found) break;
+	}
+	return matches;
+}
 
 /**
  * Deterministic offline responder for `faux/echo`.
@@ -482,16 +530,18 @@ export function echoResponse(context: TranscriptContext): AssistantMessage {
 	if (thinkMatch?.[1]) {
 		const thought = thinkMatch[1].trim();
 		const stripped = userText.replace(thinkMatch[0], "").trim();
-		const match = TOOL_DIRECTIVE_REGEX.exec(stripped);
-		if (match?.[1] && match[2]) {
+		const matches = matchToolDirectives(stripped);
+		if (matches.length > 0) {
 			try {
-				const toolName = match[1];
-				const args = JSON.parse(match[2]) as JsonObject;
+				const calls = matches.map((m) => ({
+					name: m.name,
+					args: JSON.parse(m.json) as JsonObject,
+				}));
 				return fauxAssistantMessage(
 					[
 						fauxThinking(thought),
-						fauxText(`Calling ${toolName}...`),
-						fauxToolCall(toolName, args),
+						fauxText(`Calling ${calls.map((c) => c.name).join(", ")}...`),
+						...calls.map((c) => fauxToolCall(c.name, c.args)),
 					],
 					{ stopReason: "toolUse" },
 				);
@@ -505,13 +555,18 @@ export function echoResponse(context: TranscriptContext): AssistantMessage {
 		]);
 	}
 
-	const match = TOOL_DIRECTIVE_REGEX.exec(userText);
-	if (match?.[1] && match[2]) {
+	const matches = matchToolDirectives(userText);
+	if (matches.length > 0) {
 		try {
-			const toolName = match[1];
-			const args = JSON.parse(match[2]) as JsonObject;
+			const calls = matches.map((m) => ({
+				name: m.name,
+				args: JSON.parse(m.json) as JsonObject,
+			}));
 			return fauxAssistantMessage(
-				[fauxText(`Calling ${toolName}...`), fauxToolCall(toolName, args)],
+				[
+					fauxText(`Calling ${calls.map((c) => c.name).join(", ")}...`),
+					...calls.map((c) => fauxToolCall(c.name, c.args)),
+				],
 				{ stopReason: "toolUse" },
 			);
 		} catch {

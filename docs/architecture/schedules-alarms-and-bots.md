@@ -35,5 +35,7 @@ Bots within the same `CadmusBotFamilyDO` can discover and collaborate with sibli
 ## Per-Bot Tool Gate (`src/extensions/tool-gate.ts`)
 
 When a bot specifies a `tools: string[]` allowlist (on `bot.create` or `bot.update`):
-1. `CadmusBotFamilyDO` configures the bot's conversations (`AgentDoc.tools`) with only those allowed tool names so the LLM is only offered permitted tools.
-2. As defense-in-depth, `toolGateExtension` (`cadmus.tool-gate`) hooks `ToolTask.beforeTool` and blocks any tool call not present in `bot.tools`.
+1. `CadmusBotFamilyDO` configures the bot's conversations (`AgentDoc.tools`) with only those allowed tool names so the LLM is only offered permitted tools. `[]` offers none.
+2. As defense-in-depth, `toolGateExtension` (`cadmus.tool-gate`) hooks `ToolTask.beforeTool` and blocks any tool call not present in `bot.tools`. An empty allowlist blocks every gated tool. Coding tools (`bash`, `read`, `write`, `edit`) are not offered unless they are listed and the resolved tools env is on.
+
+On `bot.update`, a missing or `null` `tools` field leaves the stored allowlist unchanged. An array replaces it. On `bot.create`, omitting `tools` keeps the default set (Cadmus tools allowed, coding tools opt-in). `[]` on create is the same empty allowlist.

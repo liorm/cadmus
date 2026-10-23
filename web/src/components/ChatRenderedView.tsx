@@ -1,9 +1,11 @@
+import { useRef } from "react";
 import type {
 	HarvestNote,
 	TranscriptContentBlock,
 	TranscriptMessageView,
 	TranscriptToolCallView,
 } from "../../../src/protocol.js";
+import { useAutoScroll } from "../hooks/useAutoScroll.js";
 
 export interface ChatRenderedViewProps {
 	messages: TranscriptMessageView[];
@@ -26,6 +28,7 @@ export interface ChatRenderedViewProps {
 		reply?: string;
 		when: number;
 	}>;
+	chatKey?: string;
 }
 
 // ─── Lightweight Safe Markdown Renderer ───────────────────────────────────────
@@ -545,7 +548,20 @@ export function ChatRenderedView({
 	notes,
 	streamingState,
 	botMessages,
+	chatKey,
 }: ChatRenderedViewProps) {
+	const prevMessagesLengthRef = useRef(messages.length);
+	const hasNewUserMessage =
+		messages.length > prevMessagesLengthRef.current &&
+		messages[messages.length - 1]?.role === "user";
+	prevMessagesLengthRef.current = messages.length;
+
+	const { scrollRef, handleScroll } = useAutoScroll<HTMLDivElement>({
+		chatKey,
+		streamingActive: streamingState.active,
+		hasNewUserMessage,
+	});
+
 	// Gather all toolCallIds bound onto assistant messages
 	const boundToolCallIds = new Set<string>();
 	for (const msg of messages) {
@@ -583,7 +599,11 @@ export function ChatRenderedView({
 		streamingState.toolCalls.length > 0;
 
 	return (
-		<div className="chat-messages-scroll">
+		<div
+			className="chat-messages-scroll"
+			ref={scrollRef}
+			onScroll={handleScroll}
+		>
 			{displayMessages.length === 0 && !isStreamingActive && (
 				<div className="empty-state">
 					<span className="empty-icon">💬</span>

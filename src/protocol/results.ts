@@ -5,6 +5,7 @@ import {
 	BotRecordSchema,
 	ChatRecordSchema,
 	CredentialSummarySchema,
+	EffectiveToolsEnvSchema,
 	FamilyRecordSchema,
 	HarvestNoteSchema,
 	ModelInfoSchema,
@@ -317,6 +318,17 @@ export const BotGetResultSchema = Type.Object(
 					"List of all knowledge documents associated with this bot.",
 			},
 		),
+		toolsEnvEnabled: Type.Optional(Type.Boolean()),
+		toolsEnvEnabledSource: Type.Optional(Type.String()),
+		effectiveToolsEnv: Type.Optional(
+			Type.Union([EffectiveToolsEnvSchema, Type.Null()]),
+		),
+		toolsEnvBindingSource: Type.Optional(Type.String()),
+		toolsEnvStatus: Type.Optional(Type.String()),
+		toolsEnvConnectedAt: Type.Optional(
+			Type.Union([Type.Number(), Type.Null()]),
+		),
+		toolsEnvLastError: Type.Optional(Type.Union([Type.String(), Type.Null()])),
 	},
 	{
 		description:
@@ -405,6 +417,17 @@ export const ChatGetResultSchema = Type.Object(
 			description:
 				"Historical harvest notes recording memory and knowledge updates from this chat.",
 		}),
+		toolsEnvEnabled: Type.Optional(Type.Boolean()),
+		toolsEnvEnabledSource: Type.Optional(Type.String()),
+		effectiveToolsEnv: Type.Optional(
+			Type.Union([EffectiveToolsEnvSchema, Type.Null()]),
+		),
+		toolsEnvBindingSource: Type.Optional(Type.String()),
+		toolsEnvStatus: Type.Optional(Type.String()),
+		toolsEnvConnectedAt: Type.Optional(
+			Type.Union([Type.Number(), Type.Null()]),
+		),
+		toolsEnvLastError: Type.Optional(Type.Union([Type.String(), Type.Null()])),
 	},
 	{
 		description:
@@ -449,7 +472,7 @@ export const ChatStatusRecordSchema = Type.Object(
 			],
 			{
 				description:
-					"Permitted tools policy for this chat: explicit tool list or 'all'.",
+					"Permitted tools for this chat. An array is the bot allowlist, and an empty array allows no gated tools. 'all' is the default when bot.tools is omitted.",
 			},
 		),
 		busy: Type.Boolean({
@@ -472,6 +495,21 @@ export const ChatStatusRecordSchema = Type.Object(
 			description:
 				"Aggregated token and prompt usage statistics for this chat session.",
 		}),
+		toolsEnv: Type.Optional(
+			Type.Object(
+				{
+					enabled: Type.Boolean(),
+					enabledSource: Type.String(),
+					kind: Type.Optional(Type.String()),
+					envId: Type.Optional(Type.String()),
+					bindingSource: Type.Optional(Type.String()),
+					status: Type.Optional(Type.String()),
+					connectedAt: Type.Optional(Type.Number()),
+					lastError: Type.Optional(Type.String()),
+				},
+				{ additionalProperties: false },
+			),
+		),
 	},
 	{
 		description:
@@ -951,3 +989,101 @@ export const ScheduleDeleteResultSchema = Type.Object(
 	},
 );
 export type ScheduleDeleteResult = Static<typeof ScheduleDeleteResultSchema>;
+
+export const ChatUpdateResultSchema = Type.Object({
+	chat: ChatRecordSchema,
+});
+export type ChatUpdateResult = Static<typeof ChatUpdateResultSchema>;
+
+export const ToolsEnvRecordSchema = Type.Object({
+	envId: Type.String(),
+	kind: Type.Union([Type.Literal("just-bash"), Type.Literal("local-daemon")]),
+	label: Type.Optional(Type.String()),
+	persist: Type.Boolean(),
+	confineToWorkspace: Type.Boolean(),
+	sharedWorkspace: Type.Optional(Type.Boolean()),
+	workspacePath: Type.Optional(Type.String()),
+	secretId: Type.Optional(Type.String()),
+	secretMissing: Type.Optional(Type.Boolean()),
+	updatedAt: Type.Number(),
+	supportsConfinement: Type.Boolean(),
+	connection: Type.Optional(
+		Type.Object(
+			{
+				status: Type.Union([
+					Type.Literal("connected"),
+					Type.Literal("disconnected"),
+				]),
+				connectedAt: Type.Optional(Type.Number()),
+				lastError: Type.Optional(Type.String()),
+			},
+			{ additionalProperties: false },
+		),
+	),
+});
+export type ToolsEnvRecord = Static<typeof ToolsEnvRecordSchema>;
+
+export const AccountToolsEnvsListResultSchema = Type.Object({
+	default: Type.Union([
+		Type.Object({ envId: Type.String() }, { additionalProperties: false }),
+		Type.Null(),
+	]),
+	envs: Type.Array(ToolsEnvRecordSchema),
+});
+export type AccountToolsEnvsListResult = Static<
+	typeof AccountToolsEnvsListResultSchema
+>;
+
+export const AccountToolsEnvsCreateResultSchema = Type.Object({
+	env: ToolsEnvRecordSchema,
+});
+export type AccountToolsEnvsCreateResult = Static<
+	typeof AccountToolsEnvsCreateResultSchema
+>;
+
+export const AccountToolsEnvsUpdateResultSchema = Type.Object({
+	env: ToolsEnvRecordSchema,
+});
+export type AccountToolsEnvsUpdateResult = Static<
+	typeof AccountToolsEnvsUpdateResultSchema
+>;
+
+export const AccountToolsEnvsDeleteResultSchema = Type.Object({
+	deleted: Type.String(),
+});
+export type AccountToolsEnvsDeleteResult = Static<
+	typeof AccountToolsEnvsDeleteResultSchema
+>;
+
+export const ToolsEnvSecretMetaSchema = Type.Object(
+	{
+		secretId: Type.String(),
+		label: Type.Optional(Type.String()),
+		kind: Type.Literal("daemon_token"),
+		updatedAt: Type.Number(),
+	},
+	{ additionalProperties: false },
+);
+export type ToolsEnvSecretMetaRecord = Static<typeof ToolsEnvSecretMetaSchema>;
+
+export const AccountToolsEnvSecretsListResultSchema = Type.Object({
+	secrets: Type.Array(ToolsEnvSecretMetaSchema),
+});
+export type AccountToolsEnvSecretsListResult = Static<
+	typeof AccountToolsEnvSecretsListResultSchema
+>;
+
+export const AccountToolsEnvSecretsSetResultSchema = Type.Object({
+	secret: ToolsEnvSecretMetaSchema,
+	token: Type.String(),
+});
+export type AccountToolsEnvSecretsSetResult = Static<
+	typeof AccountToolsEnvSecretsSetResultSchema
+>;
+
+export const AccountToolsEnvSecretsDeleteResultSchema = Type.Object({
+	deleted: Type.String(),
+});
+export type AccountToolsEnvSecretsDeleteResult = Static<
+	typeof AccountToolsEnvSecretsDeleteResultSchema
+>;

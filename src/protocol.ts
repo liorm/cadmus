@@ -6,6 +6,13 @@ import type {
 	AccountMembersAddCommand,
 	AccountMembersListCommand,
 	AccountModelsListCommand,
+	AccountToolsEnvSecretsDeleteCommand,
+	AccountToolsEnvSecretsListCommand,
+	AccountToolsEnvSecretsSetCommand,
+	AccountToolsEnvsCreateCommand,
+	AccountToolsEnvsDeleteCommand,
+	AccountToolsEnvsListCommand,
+	AccountToolsEnvsUpdateCommand,
 	AccountUpdateCommand,
 	BotCreateCommand,
 	BotDeleteCommand,
@@ -22,6 +29,7 @@ import type {
 	ChatResetCommand,
 	ChatStatusCommand,
 	ChatSubscribeCommand,
+	ChatUpdateCommand,
 	FamilyCreateCommand,
 	FamilyDeleteCommand,
 	FamilyGetCommand,
@@ -63,6 +71,13 @@ import type {
 	AccountMembersAddResult,
 	AccountMembersListResult,
 	AccountModelsListResult,
+	AccountToolsEnvSecretsDeleteResult,
+	AccountToolsEnvSecretsListResult,
+	AccountToolsEnvSecretsSetResult,
+	AccountToolsEnvsCreateResult,
+	AccountToolsEnvsDeleteResult,
+	AccountToolsEnvsListResult,
+	AccountToolsEnvsUpdateResult,
 	AccountUpdateResult,
 	BotCreateResult,
 	BotDeleteResult,
@@ -79,6 +94,7 @@ import type {
 	ChatResetResult,
 	ChatStatusResult,
 	ChatSubscribeResult,
+	ChatUpdateResult,
 	FamilyCreateResult,
 	FamilyDeleteResult,
 	FamilyGetResult,
@@ -227,7 +243,7 @@ export type BotCreateRpc = Rpc<BotCreateCommand, BotCreateResult>;
 /** RPC contract for `bot.get`: retrieves bot metadata, SOUL.md prompt, memory, and knowledge base. */
 export type BotGetRpc = Rpc<BotGetCommand, BotGetResult>;
 
-/** RPC contract for `bot.update`: updates bot configuration, model, thinking budget, tools, or soul. */
+/** RPC contract for `bot.update`: updates bot configuration, model, thinking budget, tools, or soul. Missing or null `tools` is unchanged; an array, including `[]`, replaces the allowlist. */
 export type BotUpdateRpc = Rpc<BotUpdateCommand, BotUpdateResult>;
 
 /** RPC contract for `bot.delete`: deletes a bot persona. */
@@ -317,6 +333,36 @@ export type ScheduleDeleteRpc = Rpc<
 	ScheduleDeleteResult
 >;
 
+export type ChatUpdateRpc = Rpc<ChatUpdateCommand, ChatUpdateResult>;
+export type AccountToolsEnvsListRpc = Rpc<
+	AccountToolsEnvsListCommand,
+	AccountToolsEnvsListResult
+>;
+export type AccountToolsEnvsCreateRpc = Rpc<
+	AccountToolsEnvsCreateCommand,
+	AccountToolsEnvsCreateResult
+>;
+export type AccountToolsEnvsUpdateRpc = Rpc<
+	AccountToolsEnvsUpdateCommand,
+	AccountToolsEnvsUpdateResult
+>;
+export type AccountToolsEnvsDeleteRpc = Rpc<
+	AccountToolsEnvsDeleteCommand,
+	AccountToolsEnvsDeleteResult
+>;
+export type AccountToolsEnvSecretsListRpc = Rpc<
+	AccountToolsEnvSecretsListCommand,
+	AccountToolsEnvSecretsListResult
+>;
+export type AccountToolsEnvSecretsSetRpc = Rpc<
+	AccountToolsEnvSecretsSetCommand,
+	AccountToolsEnvSecretsSetResult
+>;
+export type AccountToolsEnvSecretsDeleteRpc = Rpc<
+	AccountToolsEnvSecretsDeleteCommand,
+	AccountToolsEnvSecretsDeleteResult
+>;
+
 /** Central registry mapping every protocol command type to its RPC contract. */
 export interface RpcMap {
 	"account.get": AccountGetRpc;
@@ -366,6 +412,14 @@ export interface RpcMap {
 	"schedule.list": ScheduleListRpc;
 	"schedule.update": ScheduleUpdateRpc;
 	"schedule.delete": ScheduleDeleteRpc;
+	"chat.update": ChatUpdateRpc;
+	"account.toolsEnvs.list": AccountToolsEnvsListRpc;
+	"account.toolsEnvs.create": AccountToolsEnvsCreateRpc;
+	"account.toolsEnvs.update": AccountToolsEnvsUpdateRpc;
+	"account.toolsEnvs.delete": AccountToolsEnvsDeleteRpc;
+	"account.toolsEnvSecrets.list": AccountToolsEnvSecretsListRpc;
+	"account.toolsEnvSecrets.set": AccountToolsEnvSecretsSetRpc;
+	"account.toolsEnvSecrets.delete": AccountToolsEnvSecretsDeleteRpc;
 }
 
 /** Union of all recognized command type strings in the RPC registry. */

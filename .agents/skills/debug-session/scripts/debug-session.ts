@@ -171,7 +171,7 @@ function parseCliArgs() {
 function main() {
 	const cli = parseCliArgs();
 	const dbPath = findDatabasePath(cli.dbPath);
-	const db = new Database(dbPath, { readonly: true });
+	const db = new Database(dbPath);
 
 	if (cli.action === "list" || (!cli.target && cli.action === "summary")) {
 		const bots = db

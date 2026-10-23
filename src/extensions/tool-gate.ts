@@ -6,6 +6,7 @@ import {
 } from "@earendil-works/pi-durable";
 import { requireCadmusServices } from "../context.js";
 import { getLogger } from "../log.js";
+import { isCodingTool } from "../tools-env/pure.js";
 
 /**
  * Enforces per-bot `bot.tools` allowlist on every tool execution.
@@ -33,6 +34,24 @@ export function toolGateExtension() {
 					}
 					const services = requireCadmusServices(context);
 					const bot = services.familyStore.bots.getBot(botId);
+					if (isCodingTool(call.name)) {
+						const allowed = bot
+							? await services.codingToolAllowed(
+									api.conversationId,
+									bot.id,
+									call.name,
+								)
+							: false;
+						if (allowed) return;
+						getLogger().warn("tool call blocked by tool-gate", {
+							bot: botId,
+							tool: call.name,
+							session: api.conversationId,
+						});
+						return {
+							block: `Tool '${call.name}' is disabled for bot '${botId}'.`,
+						};
+					}
 					if (!bot || bot.tools === undefined) return;
 					if (bot.tools.includes(call.name)) return;
 					getLogger().warn("tool call blocked by tool-gate", {

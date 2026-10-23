@@ -5,6 +5,7 @@ import {
 	type DevAuthConfig,
 	useCadmus,
 } from "../context/CadmusContext.js";
+import { ToolsEnvSettings } from "./ToolsEnvSettings.js";
 
 interface SettingsModalProps {
 	isOpen: boolean;
@@ -558,6 +559,7 @@ export function TopBar() {
 	const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 	const [isNewFamilyOpen, setIsNewFamilyOpen] = useState(false);
 	const [isFamilyInfoOpen, setIsFamilyInfoOpen] = useState(false);
+	const [isToolsEnvOpen, setIsToolsEnvOpen] = useState(false);
 
 	const tabs: Array<{ id: ActiveTab; label: string; icon: string }> = [
 		{ id: "chat", label: "Chat", icon: "💬" },
@@ -628,6 +630,15 @@ export function TopBar() {
 						>
 							Family Info
 						</button>
+
+						<button
+							type="button"
+							className="btn btn-secondary btn-sm"
+							onClick={() => setIsToolsEnvOpen(true)}
+							title="Account tools env catalog and default"
+						>
+							Tools envs
+						</button>
 					</div>
 				</div>
 
@@ -684,6 +695,10 @@ export function TopBar() {
 				fallbackFamilyId={authConfig.familyId}
 				accountId={authConfig.accountId}
 				onClose={() => setIsFamilyInfoOpen(false)}
+			/>
+			<ToolsEnvSettings
+				isOpen={isToolsEnvOpen}
+				onClose={() => setIsToolsEnvOpen(false)}
 			/>
 		</>
 	);

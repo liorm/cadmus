@@ -165,6 +165,77 @@ export const ModelInfoSchema = Type.Object(
 export type ModelInfo = Static<typeof ModelInfoSchema>;
 
 /**
+ * Account env binding. Only `envId` is stored on a bot, chat, or account default.
+ */
+export const ToolsEnvBindingSchema = Type.Object(
+	{
+		envId: Type.String({
+			minLength: 1,
+			description: "Account env definition id (for example 'jb_default').",
+		}),
+	},
+	{
+		additionalProperties: false,
+		description: "Binding that names an account tools env by id.",
+	},
+);
+export type ToolsEnvBinding = Static<typeof ToolsEnvBindingSchema>;
+
+/**
+ * Tri-state tools env setting. Null inherits. `enabled` and `binding` resolve independently.
+ */
+export const ToolsEnvSettingSchema = Type.Union(
+	[
+		Type.Object(
+			{
+				enabled: Type.Boolean({
+					description: "Whether this level turns the tools env on.",
+				}),
+				binding: Type.Optional(ToolsEnvBindingSchema),
+			},
+			{
+				additionalProperties: false,
+				description: "Explicit tools env setting at one level.",
+			},
+		),
+		Type.Null(),
+	],
+	{
+		description:
+			"Tools env setting: an explicit on/off value, or null to inherit.",
+	},
+);
+export type ToolsEnvSetting = Static<typeof ToolsEnvSettingSchema>;
+
+export const ToolsEnvSourceSchema = Type.Union(
+	[
+		Type.Literal("chat"),
+		Type.Literal("bot"),
+		Type.Literal("account"),
+		Type.Literal("unbound"),
+	],
+	{ description: "Which level supplied the resolved enabled flag or binding." },
+);
+export type ToolsEnvSource = Static<typeof ToolsEnvSourceSchema>;
+
+export const EffectiveToolsEnvSchema = Type.Object(
+	{
+		envId: Type.String(),
+		kind: Type.Union([Type.Literal("just-bash"), Type.Literal("local-daemon")]),
+		persist: Type.Boolean(),
+		confineToWorkspace: Type.Boolean(),
+		sharedWorkspace: Type.Boolean(),
+		workspacePath: Type.Optional(Type.String()),
+		root: Type.String(),
+	},
+	{
+		additionalProperties: false,
+		description: "Resolved tools env definition used for a bot or chat.",
+	},
+);
+export type EffectiveToolsEnv = Static<typeof EffectiveToolsEnvSchema>;
+
+/**
  * Top-level tenant account record stored globally in D1.
  */
 export const AccountRecordSchema = Type.Object(
@@ -183,6 +254,11 @@ export const AccountRecordSchema = Type.Object(
 			description:
 				"Epoch timestamp in milliseconds when the account was created.",
 		}),
+		defaultToolsEnv: Type.Optional(
+			Type.Union([ToolsEnvBindingSchema, Type.Null()], {
+				description: "Account default tools env binding, or null when cleared.",
+			}),
+		),
 	},
 	{
 		description:
@@ -277,7 +353,7 @@ export const BotRecordSchema = Type.Object(
 		tools: Type.Optional(
 			Type.Array(Type.String(), {
 				description:
-					"Optional list of allowed tool names or patterns. If omitted, all enabled tools are permitted.",
+					"Allowlist of tool names. Omitted means the default set (Cadmus tools allowed, coding tools opt-in). An empty array allows no gated tools.",
 			}),
 		),
 		timezone: Type.String({
@@ -291,6 +367,7 @@ export const BotRecordSchema = Type.Object(
 		createdAt: Type.Number({
 			description: "Epoch timestamp in milliseconds when the bot was created.",
 		}),
+		toolsEnv: Type.Optional(ToolsEnvSettingSchema),
 	},
 	{
 		description:
@@ -330,6 +407,7 @@ export const ChatRecordSchema = Type.Object(
 			description:
 				"Epoch timestamp in milliseconds when the chat session was created.",
 		}),
+		toolsEnv: Type.Optional(ToolsEnvSettingSchema),
 	},
 	{
 		description:

@@ -7,8 +7,10 @@ import type {
 } from "@earendil-works/pi-ai";
 import type { MutableModels } from "@earendil-works/pi-ai/models";
 import {
+	AgentDoc,
 	type AgentEvent,
 	type AgentEventStream,
+	type AgentState,
 	type Conversation,
 	type ConversationId,
 	type Cursor,
@@ -30,6 +32,7 @@ import {
 	parseAbsoluteTime,
 	parseRelativeDuration,
 } from "./cron.js";
+import { createCadmusCodingTools } from "./extensions/coding-tools.js";
 import { DEFAULT_SOUL, identityExtension } from "./extensions/identity.js";
 import { internalToolsExtension } from "./extensions/internal-tools.js";
 import { knowledgeExtension } from "./extensions/knowledge-tools.js";
@@ -67,6 +70,7 @@ import {
 	type ServerFrame,
 	type ThinkingLevel,
 	type ToolCallResultSummary,
+	type ToolsEnvSetting,
 	type TranscriptContentBlock,
 	type TranscriptMessageView,
 	type TranscriptToolCallView,
@@ -88,6 +92,15 @@ import {
 	SLUG_REGEX,
 	SqliteFamilyStore,
 } from "./store/sqlite-family.js";
+import {
+	chooseToolsEnvIdentity,
+	daemonCwd,
+	envDoName,
+	isCodingTool,
+	OFFLINE_TOOLS_ENV,
+	WORKSPACE_ROOT,
+} from "./tools-env/pure.js";
+import { ToolsEnvController } from "./tools-env/session.js";
 import type { Env } from "./types.js";
 
 export interface FamilyMeta {
@@ -98,11 +111,33 @@ export interface FamilyMeta {
 	harvestDelayMs: number;
 }
 
+const SEQUENTIAL_TOOLS = new Set([
+	"write",
+	"edit",
+	"bash",
+	"knowledge_update",
+	"knowledge_delete",
+	"memory_update",
+	"schedule_create",
+	"schedule_update",
+	"schedule_delete",
+	"create_bot",
+	"message_bot",
+]);
+
 function toToolRegs(
 	names: readonly string[] | undefined,
 ): readonly ToolRegistration[] | null {
 	if (names === undefined) return null;
-	return names.map((name) => ({ name }) as unknown as ToolRegistration);
+	return names.map(
+		(name) =>
+			({
+				name,
+				...(SEQUENTIAL_TOOLS.has(name)
+					? { executionMode: "sequential" as const }
+					: {}),
+			}) as unknown as ToolRegistration,
+	);
 }
 
 export class CadmusBotFamilyDO extends DurableObject<Env> {
@@ -111,6 +146,8 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 	readonly credentialStore: AccountCredentialStore;
 	readonly shim: ProtocolShim = defaultJsonShim;
 
+	private readonly codingTools = createCadmusCodingTools();
+	private readonly toolsEnvController: ToolsEnvController;
 	private harnessPromise?: Promise<Harness>;
 	private harnessInstance?: Harness;
 	private cadmusContext?: Context;
@@ -147,11 +184,58 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 			(accountId, providerId) =>
 				this.bustAccountCredentialCaches(accountId, providerId),
 		);
+		this.toolsEnvController = new ToolsEnvController({
+			accountId: () => this.getFamilyMeta().accountId,
+			familyId: () => this.getFamilyMeta().familyId,
+			admin: this.adminStore,
+			envs: env.CADMUS_ENV,
+			store: this.familyStore,
+		});
 	}
 
 	async invalidateCredentialCache(providerId?: string): Promise<void> {
 		this.credentialStore.invalidate(providerId);
 		this.log().debug("invalidated local credential cache", { providerId });
+	}
+
+	async listConversationRoutes(chatKey: string) {
+		return this.familyStore.chats.listConversationRoutes(chatKey);
+	}
+
+	/** Tool and message text for one conversation. Forks are not a protocol chat. */
+	async conversationToolText(conversationId: number): Promise<string> {
+		const { harness, context } = await this.ensureHarness();
+		const conv = await harness.conversation(
+			conversationId as ConversationId,
+			context,
+		);
+		if (!conv) return "";
+		const view = await conv.context(context);
+		const parts: string[] = [];
+		for (const entry of view.entries) {
+			const msg = entry.model?.[0] as
+				| { role?: string; content?: unknown }
+				| undefined;
+			if (!msg) continue;
+			if (
+				msg.role === "toolResult" ||
+				msg.role === "assistant" ||
+				msg.role === "user"
+			) {
+				parts.push(messageContentToText(msg.content));
+			}
+		}
+		return parts.join("\n");
+	}
+
+	async invalidateToolsEnvCatalog(input?: {
+		previousDefaultEnvId?: string | null;
+		nextDefaultEnvId?: string | null;
+	}): Promise<void> {
+		await this.toolsEnvController.onDefaultChanged(
+			input?.previousDefaultEnvId ?? null,
+			input?.nextDefaultEnvId ?? null,
+		);
 	}
 
 	async readCredential(providerId: string) {
@@ -225,6 +309,50 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 			);
 		} catch (err) {
 			this.log().warn("failed to list families for credential cache bust", {
+				accountId,
+				error: err,
+			});
+		}
+	}
+
+	private async fanOutToolsEnvCatalog(
+		previousDefaultEnvId: string | null,
+		nextDefaultEnvId: string | null,
+	): Promise<void> {
+		const accountId = this.getFamilyMeta().accountId;
+		try {
+			const families = await this.adminStore.listFamilies(accountId);
+			const currentMeta = this.getFamilyMeta();
+			await Promise.allSettled(
+				families.map(async (family) => {
+					if (
+						family.accountId === currentMeta.accountId &&
+						family.familyId === currentMeta.familyId
+					) {
+						return;
+					}
+					try {
+						const doId = this.env.CADMUS_BOT_FAMILY.idFromName(family.doName);
+						const stub = this.env.CADMUS_BOT_FAMILY.get(doId);
+						if (typeof stub.invalidateToolsEnvCatalog === "function") {
+							await stub.invalidateToolsEnvCatalog({
+								previousDefaultEnvId,
+								nextDefaultEnvId,
+							});
+						}
+					} catch (err) {
+						this.log().warn(
+							"failed to invalidate tools env catalog on family DO",
+							{
+								targetFamily: family.familyId,
+								error: err,
+							},
+						);
+					}
+				}),
+			);
+		} catch (err) {
+			this.log().warn("failed to list families for tools env catalog fan-out", {
 				accountId,
 				error: err,
 			});
@@ -349,6 +477,7 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 			webToolsExtension(),
 			scheduleExtension(),
 		];
+		registry.install(this.codingTools);
 		for (const ext of extensions) {
 			registry.install(ext);
 		}
@@ -365,6 +494,11 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 				this.ensureScheduleTaskInternal(scheduleId),
 			syncAlarm: () => this.syncAlarmInternal(),
 			broadcast: (event) => this.broadcastEvent(event),
+			prepareCodingTools: (conversationId) =>
+				this.prepareCodingTools(conversationId),
+			codingToolAllowed: (conversationId, botId, toolName) =>
+				this.codingToolAllowed(conversationId, botId, toolName),
+			describeToolsEnv: (input) => this.describeToolsEnv(input),
 		};
 
 		const context = createCadmusContext(services);
@@ -383,11 +517,42 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 				models,
 				registry,
 				settings: {
+					extensions,
 					contextRetentionMs: 0,
 					documentRetentionMs: 0,
 				},
-				onReport: (error) =>
-					this.log().warn("pi-durable extension report", { error }),
+				env: async (target) => {
+					try {
+						return await this.toolsEnvController.open(
+							target.conversationId as unknown as number,
+							target.cwd,
+						);
+					} catch (error) {
+						const message =
+							error instanceof Error ? error.message : String(error);
+						if (message.includes("env disconnected")) {
+							this.log().debug(OFFLINE_TOOLS_ENV);
+						}
+						throw error;
+					}
+				},
+				conversationCreated: (_tx, conversation) => {
+					const parent = conversation.parent?.conversationId;
+					if (parent === undefined) return;
+					this.familyStore.chats.copyConversationRoute(
+						parent as unknown as number,
+						conversation.id as unknown as number,
+					);
+				},
+				onReport: (error) => {
+					const message =
+						error instanceof Error ? error.message : String(error);
+					if (message.includes("env disconnected")) {
+						this.log().debug(message);
+						return;
+					}
+					this.log().warn("pi-durable extension report", { error });
+				},
 			},
 			context,
 		);
@@ -467,10 +632,7 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 			return Response.json({ ok: true, providerId: body.providerId });
 		}
 
-		if (
-			url.pathname === "/ws" ||
-			request.headers.get("Upgrade") === "websocket"
-		) {
+		if (url.pathname === "/ws") {
 			const pair = new WebSocketPair();
 			const client = pair[0];
 			const server = pair[1];
@@ -575,7 +737,7 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 		harness: Harness,
 		context: Context,
 	): Promise<void> {
-		for (let i = 0; i < 40; i++) {
+		for (let i = 0; i < 200; i++) {
 			const inspection = await harness.inspect(context);
 			const dueOrRunning = inspection.tasks.some((t) => {
 				if (t.record.kind !== "cadmus.schedule") return false;
@@ -763,6 +925,25 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 			}
 
 			case "account.update": {
+				const previous = await this.adminStore.getAccount(meta.accountId);
+				if (command.payload.defaultToolsEnv?.envId) {
+					const def = await this.adminStore.getToolsEnv(
+						meta.accountId,
+						command.payload.defaultToolsEnv.envId,
+					);
+					if (!def) {
+						throw new ProtocolValidationError(
+							`Unknown tools env '${command.payload.defaultToolsEnv.envId}'`,
+							"not_found",
+						);
+					}
+					if (def.kind !== "just-bash" && def.kind !== "local-daemon") {
+						throw new ProtocolValidationError(
+							`Tools env '${def.envId}' kind '${def.kind}' is not available`,
+							"unsupported_kind",
+						);
+					}
+				}
 				const updated = await this.adminStore.updateAccount(meta.accountId, {
 					...(command.payload.name !== undefined
 						? { name: command.payload.name }
@@ -770,11 +951,111 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 					...(command.payload.timezone !== undefined
 						? { timezone: command.payload.timezone }
 						: {}),
+					...(Object.hasOwn(command.payload, "defaultToolsEnv")
+						? { defaultToolsEnv: command.payload.defaultToolsEnv ?? null }
+						: {}),
 				});
 				if (command.payload.timezone !== undefined) {
 					this.setFamilyMeta({ timezone: command.payload.timezone });
 				}
+				if (Object.hasOwn(command.payload, "defaultToolsEnv")) {
+					const previousId = previous?.defaultToolsEnv?.envId ?? null;
+					const nextId = updated.defaultToolsEnv?.envId ?? null;
+					await this.invalidateToolsEnvCatalog({
+						previousDefaultEnvId: previousId,
+						nextDefaultEnvId: nextId,
+					});
+					await this.fanOutToolsEnvCatalog(previousId, nextId);
+				}
 				return { account: updated };
+			}
+
+			case "account.toolsEnvs.list": {
+				return this.toolsEnvController.listEnvs();
+			}
+
+			case "account.toolsEnvs.create": {
+				const env = await this.toolsEnvController.createEnv(command.payload);
+				await this.fanOutToolsEnvCatalog(null, null);
+				return { env: await this.toolsEnvController.present(env) };
+			}
+
+			case "account.toolsEnvs.update": {
+				const env = await this.toolsEnvController.updateEnv(
+					command.payload.envId,
+					command.payload,
+				);
+				await this.fanOutToolsEnvCatalog(null, null);
+				return { env: await this.toolsEnvController.present(env) };
+			}
+
+			case "account.toolsEnvs.delete": {
+				await this.toolsEnvController.deleteEnv(command.payload.envId);
+				await this.fanOutToolsEnvCatalog(null, null);
+				return { deleted: command.payload.envId };
+			}
+
+			case "account.toolsEnvSecrets.list": {
+				const secrets = await this.adminStore.listToolsEnvSecrets(
+					meta.accountId,
+				);
+				return { secrets };
+			}
+
+			case "account.toolsEnvSecrets.set": {
+				const created = await this.adminStore.setToolsEnvSecret(
+					meta.accountId,
+					command.payload?.label !== undefined
+						? { label: command.payload.label }
+						: undefined,
+				);
+				this.broadcastEvent({
+					type: "account.tools_env_secret",
+					payload: {
+						accountId: meta.accountId,
+						secretId: created.secret.secretId,
+						action: "set",
+						when: created.secret.updatedAt,
+					},
+				});
+				this.log().info("tools env secret minted", {
+					secretId: created.secret.secretId,
+				});
+				return created;
+			}
+
+			case "account.toolsEnvSecrets.delete": {
+				const outcome = await this.adminStore.deleteToolsEnvSecret(
+					meta.accountId,
+					command.payload.secretId,
+				);
+				if (!outcome.deleted) {
+					throw new ProtocolValidationError(
+						`Unknown tools env secret '${command.payload.secretId}'`,
+						"not_found",
+					);
+				}
+				for (const envId of outcome.flaggedEnvIds) {
+					await this.env.CADMUS_ENV.getByName(
+						envDoName(meta.accountId, envId),
+					).revokePairing();
+				}
+				const previousDefault = outcome.clearedDefaultEnvId;
+				await this.invalidateToolsEnvCatalog({
+					previousDefaultEnvId: previousDefault,
+					nextDefaultEnvId: null,
+				});
+				await this.fanOutToolsEnvCatalog(previousDefault, null);
+				this.broadcastEvent({
+					type: "account.tools_env_secret",
+					payload: {
+						accountId: meta.accountId,
+						secretId: command.payload.secretId,
+						action: "deleted",
+						when: Date.now(),
+					},
+				});
+				return { deleted: command.payload.secretId };
 			}
 
 			case "account.members.list": {
@@ -991,7 +1272,11 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 				const soul = this.familyStore.files.getSoul(bot.id);
 				const memory = this.familyStore.files.getMemory(bot.id);
 				const knowledge = this.familyStore.files.listKnowledge(bot.id);
-				return { bot, soul, memory, knowledge };
+				const resolved = await this.toolsEnvController.resolvedFields(
+					bot,
+					null,
+				);
+				return { bot, soul, memory, knowledge, ...resolved };
 			}
 
 			case "bot.update": {
@@ -1013,10 +1298,28 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 					name: command.payload.name ?? existing.name,
 					model: modelStr,
 					thinking: thinkingStr,
-					...(command.payload.tools !== undefined
-						? { tools: command.payload.tools }
-						: {}),
 				};
+				// Missing or null leaves the allowlist unchanged. An array replaces it.
+				// [] is an explicit allowlist of zero tools (configure must not see null:
+				// pi-durable deletes the filter on null, which offers every tool).
+				if (Array.isArray(command.payload.tools)) {
+					updated.tools = command.payload.tools;
+				}
+				const agentTools = Array.isArray(command.payload.tools)
+					? { tools: toToolRegs(command.payload.tools) }
+					: {};
+				if (Object.hasOwn(command.payload, "toolsEnv")) {
+					const next = command.payload.toolsEnv ?? null;
+					await this.toolsEnvController.assertSetting(next, "bot");
+					await this.toolsEnvController.dropPreviousBinding({
+						previous: existing.toolsEnv ?? null,
+						next,
+						level: "bot",
+						bot: existing,
+					});
+					if (next) updated.toolsEnv = next;
+					else delete updated.toolsEnv;
+				}
 				this.familyStore.bots.upsertBot(updated);
 				if (command.payload.soul !== undefined) {
 					this.familyStore.files.setSoul(updated.id, command.payload.soul);
@@ -1032,9 +1335,7 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 						{
 							model: modelRef,
 							thinkingLevel: parseThinkingLevel(thinkingStr) ?? null,
-							...(updated.tools !== undefined
-								? { tools: toToolRegs(updated.tools) }
-								: {}),
+							...agentTools,
 						},
 						context,
 					);
@@ -1050,9 +1351,7 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 								model: modelRef,
 								thinkingLevel:
 									parseThinkingLevel(chat.thinking ?? thinkingStr) ?? null,
-								...(updated.tools !== undefined
-									? { tools: toToolRegs(updated.tools) }
-									: {}),
+								...agentTools,
 							},
 							context,
 						);
@@ -1069,6 +1368,7 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 						"not_found",
 					);
 				}
+				await this.toolsEnvController.deleteScopesForBot(command.payload.botId);
 				this.familyStore.bots.deleteBot(command.payload.botId);
 				await this.syncAlarmInternal();
 				return { deleted: command.payload.botId };
@@ -1086,8 +1386,48 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 					key: command.payload.key ?? command.payload.chatId,
 					title: command.payload.title,
 					thinking: command.payload.thinking,
+					toolsEnv: command.payload.toolsEnv,
 				});
 				return { chat };
+			}
+
+			case "chat.update": {
+				const chat = this.familyStore.chats.getChat(command.payload.chatKey);
+				if (!chat) {
+					throw new ProtocolValidationError(
+						`Chat '${command.payload.chatKey}' not found`,
+						"not_found",
+					);
+				}
+				const bot = this.familyStore.bots.getBot(chat.botId);
+				if (!bot) {
+					throw new ProtocolValidationError(
+						`Bot '${chat.botId}' not found`,
+						"not_found",
+					);
+				}
+				const next = command.payload.toolsEnv;
+				await this.toolsEnvController.assertSetting(
+					next,
+					"chat",
+					bot.toolsEnv ?? null,
+				);
+				if (next === null) {
+					await this.toolsEnvController.dropChatNamespace(chat.key, bot);
+				} else {
+					await this.toolsEnvController.dropPreviousBinding({
+						previous: chat.toolsEnv ?? null,
+						next,
+						level: "chat",
+						bot,
+						chatKey: chat.key,
+					});
+				}
+				const updated: ChatRecord = { ...chat };
+				if (next) updated.toolsEnv = next;
+				else delete updated.toolsEnv;
+				this.familyStore.chats.upsertChat(updated);
+				return { chat: updated };
 			}
 
 			case "chat.get":
@@ -1118,12 +1458,21 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 					context,
 				);
 				const notes = this.familyStore.harvest.listNotes(chat.key);
+				const bot = this.familyStore.bots.getBot(chat.botId);
+				const resolved =
+					command.type === "chat.get" && bot
+						? await this.toolsEnvController.resolvedFields(
+								bot,
+								chat.toolsEnv ?? null,
+							)
+						: {};
 				return {
 					chat,
 					busy: Boolean(live?.run),
 					messages,
 					entries,
 					notes,
+					...resolved,
 				};
 			}
 
@@ -1690,6 +2039,107 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 		return { files };
 	}
 
+	private codingToolsSelected(extensions: AgentState["extensions"]): boolean {
+		if (!extensions) return false;
+		if (Array.isArray(extensions)) return extensions.includes("coding-tools");
+		if (extensions.remove?.includes("coding-tools")) return false;
+		return extensions.add?.includes("coding-tools") ?? false;
+	}
+
+	private async prepareCodingTools(conversationId: number): Promise<void> {
+		const { harness, context } = await this.ensureHarness();
+		const agent = await harness.snapshot(
+			AgentDoc,
+			conversationId as ConversationId,
+			context,
+		);
+		if (!agent?.cwd?.trim()) return;
+		const bot = this.familyStore.bots.getBot(agent.cwd.trim());
+		if (!bot) return;
+		const offer = await this.toolsEnvController.offerCodingTools(
+			conversationId,
+			bot,
+		);
+		if (offer === this.codingToolsSelected(agent.extensions)) return;
+		const conv = await harness.conversation(
+			conversationId as ConversationId,
+			context,
+		);
+		if (!conv) return;
+		await conv.configure(
+			{
+				extensions: offer
+					? { add: [this.codingTools] }
+					: { remove: [this.codingTools] },
+			},
+			context,
+		);
+	}
+
+	private async codingToolAllowed(
+		conversationId: number,
+		botId: string,
+		toolName: string,
+	): Promise<boolean> {
+		const bot = this.familyStore.bots.getBot(botId);
+		if (!bot) return false;
+		return this.toolsEnvController.codingToolAllowed(
+			conversationId,
+			bot,
+			toolName,
+		);
+	}
+
+	private async describeToolsEnv(input: {
+		conversationId: number;
+		botId: string;
+		toolNames: readonly string[];
+	}): Promise<
+		{ name: "tools-env" | "tools-env-unavailable"; text: string } | undefined
+	> {
+		const bot = this.familyStore.bots.getBot(input.botId);
+		if (!bot?.tools) return undefined;
+		if (!bot.tools.some((name) => isCodingTool(name))) return undefined;
+		const route = this.familyStore.chats.getConversationRoute(
+			input.conversationId,
+		);
+		if (route && !route.toolsEnvEnabled) return undefined;
+		const chat = route
+			? this.familyStore.chats.getChat(route.chatKey)
+			: undefined;
+		const { resolved, def } = await this.toolsEnvController.resolvedFor(
+			bot,
+			chat?.toolsEnv ?? null,
+		);
+		if (!resolved.enabled || !resolved.binding) return undefined;
+		const botLevel = await this.toolsEnvController.resolvedFor(bot, null);
+		const botDef = botLevel.resolved.binding
+			? (await this.toolsEnvController.catalog()).defs.get(
+					botLevel.resolved.binding.envId,
+				)
+			: undefined;
+		const connected = def
+			? (await this.toolsEnvController.connectionFor(def)).status ===
+				"connected"
+			: false;
+		return chooseToolsEnvIdentity({
+			enabled: true,
+			connected,
+			toolsOffered: input.toolNames.some((name) => isCodingTool(name)),
+			harvest: false,
+			kind: def?.kind,
+			envId: def?.envId ?? resolved.binding.envId,
+			enabledSource: resolved.enabledSource,
+			bindingSource: resolved.bindingSource,
+			persist: def?.persist,
+			confineToWorkspace: def?.confineToWorkspace,
+			sharedWorkspace: def?.sharedWorkspace,
+			scopeKind: resolved.scopeKind,
+			botDefaultKind: botDef?.kind,
+			root: def?.kind === "local-daemon" ? daemonCwd(def) : WORKSPACE_ROOT,
+		});
+	}
+
 	// ─── Out-of-Band `/status` Implementation ──────────────────────────────────
 
 	private async handleOutOfBandStatus(chatKey: string) {
@@ -1728,6 +2178,32 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 		}
 
 		const effectiveThinking = chat.thinking ?? bot.thinking;
+		const toolsEnvNest = await this.toolsEnvController.statusForChat(chat.key);
+		const toolsEnv = toolsEnvNest.enabled
+			? {
+					enabled: true,
+					enabledSource: toolsEnvNest.enabledSource,
+					...(toolsEnvNest.kind ? { kind: toolsEnvNest.kind } : {}),
+					...(toolsEnvNest.envId ? { envId: toolsEnvNest.envId } : {}),
+					...(toolsEnvNest.bindingSource
+						? { bindingSource: toolsEnvNest.bindingSource }
+						: {}),
+					...(toolsEnvNest.status ? { status: toolsEnvNest.status } : {}),
+					...(toolsEnvNest.connectedAt !== undefined
+						? { connectedAt: toolsEnvNest.connectedAt }
+						: {}),
+					...(toolsEnvNest.lastError
+						? { lastError: toolsEnvNest.lastError }
+						: {}),
+				}
+			: {
+					enabled: false,
+					enabledSource: toolsEnvNest.enabledSource,
+					...(toolsEnvNest.bindingSource
+						? { bindingSource: toolsEnvNest.bindingSource }
+						: {}),
+					...(toolsEnvNest.envId ? { envId: toolsEnvNest.envId } : {}),
+				};
 		const status = {
 			chatKey: chat.key,
 			conversationId: chat.conversationId,
@@ -1741,6 +2217,7 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 			harvestWatermark: watermark,
 			nextWakeAt,
 			usage: usage ?? {},
+			toolsEnv,
 		};
 
 		const text = [
@@ -1750,6 +2227,17 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 			`Tools: ${Array.isArray(status.tools) ? status.tools.join(", ") : "all"}`,
 			`Harvest watermark: entry #${watermark}`,
 			`Next scheduled wake: ${nextWakeAt ? new Date(nextWakeAt).toISOString() : "none"}`,
+			`Tools env: ${
+				toolsEnv.enabled
+					? `${toolsEnvNest.kind} (${toolsEnvNest.envId}, ${toolsEnvNest.status}${
+							toolsEnvNest.connectedAt !== undefined
+								? `, connectedAt ${new Date(toolsEnvNest.connectedAt).toISOString()}`
+								: ""
+						}${
+							toolsEnvNest.lastError ? `, error: ${toolsEnvNest.lastError}` : ""
+						})`
+					: "off"
+			}`,
 		].join("\n");
 
 		this.log().child(chatFields(chat)).debug("command", { name: "status" });
@@ -1772,6 +2260,7 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 		tools?: string[];
 		soul?: string;
 		memory?: string;
+		toolsEnv?: ToolsEnvSetting | null;
 		knowledge?: {
 			slug: string;
 			description: string;
@@ -1802,6 +2291,11 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 			);
 		}
 
+		const toolsEnv = input.toolsEnv ?? null;
+		if (toolsEnv) {
+			await this.toolsEnvController.assertSetting(toolsEnv, "bot");
+		}
+
 		const modelStr = input.model ?? "faux/echo";
 		const modelRef = parseModelRef(modelStr);
 		if (this.modelsInstance) {
@@ -1814,6 +2308,19 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 		}
 		const thinkingStr: ThinkingLevel = input.thinking ?? "off";
 
+		const preview: BotRecord = {
+			id: slug,
+			name: input.name,
+			model: modelStr,
+			thinking: thinkingStr,
+			timezone: "UTC",
+			...(input.tools !== undefined ? { tools: input.tools } : {}),
+			...(toolsEnv ? { toolsEnv } : {}),
+			rootConversationId: 0,
+			createdAt: Date.now(),
+		};
+		const offerCoding = await this.toolsEnvController.willOffer(preview, null);
+
 		const { harness, context } = await this.ensureHarness();
 		const rootConv = await harness.createConversation(
 			{
@@ -1822,6 +2329,9 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 					model: modelRef,
 					thinkingLevel: parseThinkingLevel(thinkingStr) ?? null,
 					cwd: slug,
+					extensions: offerCoding
+						? { add: [this.codingTools] }
+						: { remove: [this.codingTools] },
 					...(input.tools !== undefined
 						? { tools: toToolRegs(input.tools) }
 						: {}),
@@ -1841,6 +2351,7 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 			thinking: thinkingStr,
 			timezone: botTimezone,
 			...(input.tools !== undefined ? { tools: input.tools } : {}),
+			...(toolsEnv ? { toolsEnv } : {}),
 			rootConversationId: rootConv.id as unknown as number,
 			createdAt: Date.now(),
 		};
@@ -1877,6 +2388,7 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 		key?: string;
 		title?: string;
 		thinking?: ThinkingLevel;
+		toolsEnv?: ToolsEnvSetting | null;
 	}): Promise<ChatRecord> {
 		const bot = this.familyStore.bots.getBot(input.botId);
 		if (!bot) {
@@ -1893,6 +2405,16 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 			return existing;
 		}
 
+		const toolsEnv = input.toolsEnv ?? null;
+		if (toolsEnv) {
+			await this.toolsEnvController.assertSetting(
+				toolsEnv,
+				"chat",
+				bot.toolsEnv ?? null,
+			);
+		}
+		const offerCoding = await this.toolsEnvController.willOffer(bot, toolsEnv);
+
 		const { harness, context } = await this.ensureHarness();
 		const modelRef = parseModelRef(bot.model);
 		const effectiveThinking = input.thinking ?? bot.thinking;
@@ -1903,6 +2425,9 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 					model: modelRef,
 					thinkingLevel: parseThinkingLevel(effectiveThinking) ?? null,
 					cwd: bot.id,
+					extensions: offerCoding
+						? { add: [this.codingTools] }
+						: { remove: [this.codingTools] },
 					...(bot.tools !== undefined ? { tools: toToolRegs(bot.tools) } : {}),
 				},
 			},
@@ -1915,9 +2440,16 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 			conversationId: conv.id as unknown as number,
 			...(input.title ? { title: input.title } : {}),
 			...(input.thinking ? { thinking: input.thinking } : {}),
+			...(toolsEnv ? { toolsEnv } : {}),
 			createdAt: Date.now(),
 		};
 		this.familyStore.chats.upsertChat(chat);
+		this.familyStore.chats.recordConversationRoute({
+			conversationId: chat.conversationId,
+			chatKey: chat.key,
+			botId: chat.botId,
+			toolsEnvEnabled: true,
+		});
 		await this.attachConversationWatch(chat, conv, context);
 		this.log().info("chat created", chatFields(chat));
 		return chat;
@@ -2247,6 +2779,8 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 				: input.whenBusy;
 
 		log.debug("chat input admitted", { chars: input.text.length });
+
+		await this.prepareCodingTools(chat.conversationId);
 
 		const submission = await conv.submit(
 			{

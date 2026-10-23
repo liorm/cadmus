@@ -693,6 +693,7 @@ body,
 	overflow: hidden;
 	display: flex;
 	flex-direction: column;
+	min-height: 0;
 }
 
 .chat-loading-overlay {
@@ -1158,6 +1159,22 @@ body,
 	color: var(--accent-cyan);
 }
 
+.code-block {
+	font-family: var(--font-mono);
+	font-size: 11px;
+	line-height: 1.5;
+	background-color: var(--bg-surface-0);
+	border: 1px solid var(--border-subtle);
+	border-radius: var(--radius-sm);
+	padding: 8px 10px;
+	margin: 4px 0;
+	white-space: pre-wrap;
+	word-break: break-word;
+	overflow-x: auto;
+	max-height: 480px;
+	overflow-y: auto;
+}
+
 .markdown-list {
 	padding-left: 20px;
 	display: flex;
@@ -1287,6 +1304,7 @@ body,
 	flex-direction: column;
 	height: 100%;
 	width: 100%;
+	min-height: 0;
 	overflow: hidden;
 }
 
@@ -1318,6 +1336,7 @@ body,
 .raw-entries-scroll {
 	flex: 1;
 	overflow-y: auto;
+	min-height: 0;
 	padding: 16px;
 	display: flex;
 	flex-direction: column;
@@ -1331,6 +1350,7 @@ body,
 	overflow: hidden;
 	display: flex;
 	flex-direction: column;
+	flex-shrink: 0;
 }
 
 .raw-entry-header {
@@ -1487,6 +1507,7 @@ body,
 	border: 1px solid var(--border-subtle);
 	border-radius: var(--radius-md);
 	overflow: hidden;
+	flex-shrink: 0;
 }
 
 .live-events-summary {

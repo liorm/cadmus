@@ -400,6 +400,31 @@ export const AccountEventSchema = Type.Object(
 export type AccountEvent = Static<typeof AccountEventSchema>;
 
 /**
+ * Daemon pairing secret minted or deleted. The token is not included.
+ */
+export const AccountToolsEnvSecretEventSchema = Type.Object(
+	{
+		type: Type.Literal("account.tools_env_secret"),
+		payload: Type.Object(
+			{
+				accountId: Type.String(),
+				secretId: Type.String(),
+				action: Type.Union([Type.Literal("set"), Type.Literal("deleted")]),
+				when: Type.Number(),
+			},
+			{ additionalProperties: false },
+		),
+	},
+	{
+		description:
+			"Broadcast when a daemon pairing secret is minted or deleted. No token bytes.",
+	},
+);
+export type AccountToolsEnvSecretEvent = Static<
+	typeof AccountToolsEnvSecretEventSchema
+>;
+
+/**
  * Event emitted when an OAuth authorization flow transitions state or requests input.
  */
 export const AccountOAuthEventSchema = Type.Object(
@@ -452,6 +477,7 @@ export const ServerEventSchema = Type.Union(
 		HarvestNoteEventSchema,
 		BotMessageEventSchema,
 		AccountEventSchema,
+		AccountToolsEnvSecretEventSchema,
 		AccountOAuthEventSchema,
 		ProtocolErrorEventSchema,
 	],

@@ -4,11 +4,13 @@ import type {
 	ServerEvent,
 	TranscriptMessageView,
 } from "../../../src/protocol.js";
+import { useAutoScroll } from "../hooks/useAutoScroll.js";
 
 export interface ChatRawViewProps {
 	entries: RawTranscriptEntry[];
 	messages: TranscriptMessageView[];
 	liveEvents: ServerEvent[];
+	chatKey?: string;
 }
 
 interface RawModelMessage {
@@ -42,11 +44,25 @@ interface RawModelMessage {
 	}>;
 }
 
+function normalizeKind(kind: string): string {
+	const k = kind.replace(/^pi\./, "").toLowerCase().replace(/[-_]/g, "");
+	if (k === "system") return "system";
+	if (k === "user") return "user";
+	if (k === "assistant") return "assistant";
+	if (k === "toolresult") return "toolResult";
+	return kind;
+}
+
 export function ChatRawView({
 	entries,
 	messages: _messages,
 	liveEvents,
+	chatKey,
 }: ChatRawViewProps) {
+	const { scrollRef, handleScroll } = useAutoScroll<HTMLDivElement>({
+		chatKey,
+	});
+
 	const [filterKind, setFilterKind] = useState<string>("all");
 	const [showAllJson, setShowAllJson] = useState<boolean>(false);
 	const [expandedRawIds, setExpandedRawIds] = useState<Set<number>>(new Set());
@@ -61,10 +77,11 @@ export function ChatRawView({
 			other: 0,
 		};
 		for (const entry of entries) {
-			if (entry.kind === "system") res.system++;
-			else if (entry.kind === "user") res.user++;
-			else if (entry.kind === "assistant") res.assistant++;
-			else if (entry.kind === "toolResult") res.toolResult++;
+			const k = normalizeKind(entry.kind);
+			if (k === "system") res.system++;
+			else if (k === "user") res.user++;
+			else if (k === "assistant") res.assistant++;
+			else if (k === "toolResult") res.toolResult++;
 			else res.other++;
 		}
 		return res;
@@ -72,7 +89,7 @@ export function ChatRawView({
 
 	const filteredEntries = useMemo(() => {
 		if (filterKind === "all") return entries;
-		return entries.filter((e) => e.kind === filterKind);
+		return entries.filter((e) => normalizeKind(e.kind) === filterKind);
 	}, [entries, filterKind]);
 
 	const toggleRawJson = (id: number) => {
@@ -88,7 +105,8 @@ export function ChatRawView({
 	};
 
 	const getKindBadgeClass = (kind: string) => {
-		switch (kind) {
+		const k = normalizeKind(kind);
+		switch (k) {
 			case "user":
 				return "badge-indigo";
 			case "assistant":
@@ -151,7 +169,11 @@ export function ChatRawView({
 			</div>
 
 			{/* Entries List */}
-			<div className="raw-entries-scroll">
+			<div
+				className="raw-entries-scroll"
+				ref={scrollRef}
+				onScroll={handleScroll}
+			>
 				{filteredEntries.length === 0 && (
 					<div className="empty-state">
 						<span className="empty-icon">🔍</span>
@@ -346,11 +368,13 @@ export function ChatRawView({
 																			<summary className="inner-block-header">
 																				<span>{`Section: [${secName}]`}</span>
 																				<span className="badge badge-ghost">
-																					{`${secContent.length} chars`}
+																					{typeof secContent === "string"
+																						? `${secContent.length} chars`
+																						: "cleared"}
 																				</span>
 																			</summary>
 																			<pre className="code-block">
-																				{secContent}
+																				{secContent ?? "(cleared)"}
 																			</pre>
 																		</details>
 																	),
@@ -523,6 +547,22 @@ export function ChatRawView({
 															</div>
 														</div>
 													)}
+
+													{/* Object Content */}
+													{typeof msg.content === "object" &&
+														msg.content !== null &&
+														!Array.isArray(msg.content) && (
+															<div className="inner-block-card">
+																<div className="inner-block-header">
+																	Block [0] — type: "object"
+																</div>
+																<div className="inner-block-body">
+																	<pre className="code-block">
+																		{JSON.stringify(msg.content, null, 2)}
+																	</pre>
+																</div>
+															</div>
+														)}
 												</div>
 											</div>
 										);

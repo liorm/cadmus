@@ -4,12 +4,15 @@ import type {
 	CredentialInput,
 	CredentialSummary,
 	FamilyRecord,
+	ToolsEnvBinding,
 } from "../protocol.js";
 import type {
 	AccountRecord,
 	AdminStore,
 	AuthenticatedIdentity,
 	FamilySettingsPatch,
+	StoredToolsEnv,
+	ToolsEnvSecretMeta,
 } from "./admin-interface.js";
 
 const encoder = new TextEncoder();
@@ -247,7 +250,97 @@ export class D1AdminStore implements AdminStore {
 				.run();
 		}
 
+		await this.#db
+			.prepare(
+				`CREATE TABLE IF NOT EXISTS cadmus_tools_envs (
+          account_id TEXT NOT NULL,
+          env_id TEXT NOT NULL,
+          kind TEXT NOT NULL,
+          label TEXT,
+          workspace_path TEXT,
+          persist INTEGER NOT NULL DEFAULT 1,
+          confine_to_workspace INTEGER NOT NULL DEFAULT 1,
+          shared_workspace INTEGER NOT NULL DEFAULT 0,
+          secret_id TEXT,
+          secret_missing INTEGER NOT NULL DEFAULT 0,
+          updated_at INTEGER NOT NULL,
+          PRIMARY KEY (account_id, env_id)
+        )`,
+			)
+			.run();
+		const envCols = await this.#db
+			.prepare("PRAGMA table_info(cadmus_tools_envs)")
+			.all<{ name: string }>();
+		if (!envCols.results.some((column) => column.name === "secret_missing")) {
+			await this.#db
+				.prepare(
+					"ALTER TABLE cadmus_tools_envs ADD COLUMN secret_missing INTEGER NOT NULL DEFAULT 0",
+				)
+				.run();
+		}
+		await this.#db
+			.prepare(
+				`CREATE TABLE IF NOT EXISTS cadmus_tools_env_secrets (
+          account_id TEXT NOT NULL,
+          secret_id TEXT NOT NULL,
+          label TEXT,
+          kind TEXT NOT NULL,
+          token_hash TEXT NOT NULL,
+          iv_hex TEXT NOT NULL,
+          cipher_hex TEXT NOT NULL,
+          updated_at INTEGER NOT NULL,
+          PRIMARY KEY (account_id, secret_id)
+        )`,
+			)
+			.run();
+		await this.#db
+			.prepare(
+				`CREATE UNIQUE INDEX IF NOT EXISTS idx_cadmus_tools_env_secrets_token_hash
+         ON cadmus_tools_env_secrets (token_hash)`,
+			)
+			.run();
+
+		const accountColsAfter = await this.#db
+			.prepare("PRAGMA table_info(cadmus_accounts)")
+			.all<{ name: string }>();
+		if (
+			!accountColsAfter.results.some((c) => c.name === "default_tools_env_json")
+		) {
+			await this.#db
+				.prepare(
+					"ALTER TABLE cadmus_accounts ADD COLUMN default_tools_env_json TEXT",
+				)
+				.run();
+			const accounts = await this.#db
+				.prepare(`SELECT id FROM cadmus_accounts`)
+				.all<{ id: string }>();
+			const now = Date.now();
+			for (const account of accounts.results) {
+				await this.#seedJustBashDefault(account.id, now);
+				await this.#db
+					.prepare(
+						`UPDATE cadmus_accounts
+             SET default_tools_env_json = ?1
+             WHERE id = ?2 AND default_tools_env_json IS NULL`,
+					)
+					.bind(JSON.stringify({ envId: "jb_default" }), account.id)
+					.run();
+			}
+		}
+
 		this.#initialized = true;
+	}
+
+	async #seedJustBashDefault(accountId: string, now: number): Promise<void> {
+		await this.#db
+			.prepare(
+				`INSERT OR IGNORE INTO cadmus_tools_envs (
+          account_id, env_id, kind, label, workspace_path, persist,
+          confine_to_workspace, shared_workspace, secret_id, updated_at
+        ) VALUES (?1, 'jb_default', 'just-bash', 'Default just-bash', NULL, 1, 1, 0, NULL, ?2)`,
+			)
+			.bind(accountId, now)
+			.run();
 	}
 
 	async resolveToken(
@@ -292,12 +385,13 @@ export class D1AdminStore implements AdminStore {
 		const role = input.role ?? "owner";
 		const timezone = input.timezone ?? this.#defaultTimezone;
 
+		const inserted = await this.#db
+			.prepare(
+				`INSERT OR IGNORE INTO cadmus_accounts (id, name, timezone, created_at) VALUES (?1, ?2, ?3, ?4)`,
+			)
+			.bind(input.accountId, accountName, timezone, now)
+			.run();
 		await this.#db.batch([
-			this.#db
-				.prepare(
-					`INSERT OR IGNORE INTO cadmus_accounts (id, name, timezone, created_at) VALUES (?1, ?2, ?3, ?4)`,
-				)
-				.bind(input.accountId, accountName, timezone, now),
 			this.#db
 				.prepare(
 					`INSERT OR IGNORE INTO cadmus_users (id, name, email, created_at) VALUES (?1, ?2, NULL, ?3)`,
@@ -309,6 +403,15 @@ export class D1AdminStore implements AdminStore {
 				)
 				.bind(input.accountId, input.userId, role, now),
 		]);
+		if ((inserted.meta?.changes ?? 0) > 0) {
+			await this.#seedJustBashDefault(input.accountId, now);
+			await this.#db
+				.prepare(
+					`UPDATE cadmus_accounts SET default_tools_env_json = ?1 WHERE id = ?2`,
+				)
+				.bind(JSON.stringify({ envId: "jb_default" }), input.accountId)
+				.run();
+		}
 
 		const row = await this.getAccount(input.accountId);
 		return (
@@ -325,7 +428,7 @@ export class D1AdminStore implements AdminStore {
 		await this.initialize();
 		const row = await this.#db
 			.prepare(
-				`SELECT id, name, timezone, created_at FROM cadmus_accounts WHERE id = ?1`,
+				`SELECT id, name, timezone, created_at, default_tools_env_json FROM cadmus_accounts WHERE id = ?1`,
 			)
 			.bind(accountId)
 			.first<{
@@ -333,6 +436,7 @@ export class D1AdminStore implements AdminStore {
 				name: string;
 				timezone?: string;
 				created_at: number;
+				default_tools_env_json?: string | null;
 			}>();
 		if (!row) return undefined;
 		return {
@@ -340,12 +444,17 @@ export class D1AdminStore implements AdminStore {
 			name: row.name,
 			timezone: row.timezone ?? this.#defaultTimezone,
 			createdAt: row.created_at,
+			defaultToolsEnv: parseDefaultToolsEnv(row.default_tools_env_json),
 		};
 	}
 
 	async updateAccount(
 		accountId: string,
-		patch: { name?: string; timezone?: string },
+		patch: {
+			name?: string;
+			timezone?: string;
+			defaultToolsEnv?: { envId: string } | null;
+		},
 	): Promise<AccountRecord> {
 		await this.initialize();
 		const existing = await this.getAccount(accountId);
@@ -356,11 +465,28 @@ export class D1AdminStore implements AdminStore {
 			patch.name !== undefined ? patch.name.trim() : existing.name;
 		const nextTz =
 			patch.timezone !== undefined ? patch.timezone.trim() : existing.timezone;
+		const setDefault = Object.hasOwn(patch, "defaultToolsEnv");
+		const nextDefault = setDefault
+			? patch.defaultToolsEnv
+			: existing.defaultToolsEnv;
 		await this.#db
 			.prepare(
-				`UPDATE cadmus_accounts SET name = ?1, timezone = ?2 WHERE id = ?3`,
+				`UPDATE cadmus_accounts
+         SET name = ?1, timezone = ?2, default_tools_env_json = ?3
+         WHERE id = ?4`,
 			)
-			.bind(nextName, nextTz, accountId)
+			.bind(
+				nextName,
+				nextTz,
+				setDefault
+					? nextDefault
+						? JSON.stringify(nextDefault)
+						: null
+					: existing.defaultToolsEnv
+						? JSON.stringify(existing.defaultToolsEnv)
+						: null,
+				accountId,
+			)
 			.run();
 
 		if (patch.timezone !== undefined) {
@@ -376,6 +502,7 @@ export class D1AdminStore implements AdminStore {
 			...existing,
 			name: nextName,
 			timezone: nextTz,
+			defaultToolsEnv: nextDefault ?? null,
 		};
 	}
 
@@ -755,6 +882,378 @@ export class D1AdminStore implements AdminStore {
 			.run();
 		return true;
 	}
+
+	async listToolsEnvs(accountId: string): Promise<StoredToolsEnv[]> {
+		await this.initialize();
+		const { results } = await this.#db
+			.prepare(
+				`SELECT env_id, kind, label, workspace_path, persist, confine_to_workspace,
+                shared_workspace, secret_id, secret_missing, updated_at
+         FROM cadmus_tools_envs
+         WHERE account_id = ?1
+         ORDER BY env_id ASC`,
+			)
+			.bind(accountId)
+			.all<ToolsEnvSqlRow>();
+		return results.map(mapToolsEnv);
+	}
+
+	async getToolsEnv(
+		accountId: string,
+		envId: string,
+	): Promise<StoredToolsEnv | undefined> {
+		await this.initialize();
+		const row = await this.#db
+			.prepare(
+				`SELECT env_id, kind, label, workspace_path, persist, confine_to_workspace,
+                shared_workspace, secret_id, secret_missing, updated_at
+         FROM cadmus_tools_envs
+         WHERE account_id = ?1 AND env_id = ?2`,
+			)
+			.bind(accountId, envId)
+			.first<ToolsEnvSqlRow>();
+		return row ? mapToolsEnv(row) : undefined;
+	}
+
+	async createToolsEnv(
+		accountId: string,
+		input: {
+			envId: string;
+			kind: "just-bash" | "local-daemon";
+			label?: string;
+			persist: boolean;
+			confineToWorkspace: boolean;
+			sharedWorkspace: boolean;
+			workspacePath?: string;
+			secretId?: string;
+		},
+	): Promise<StoredToolsEnv> {
+		await this.initialize();
+		const now = Date.now();
+		await this.#db
+			.prepare(
+				`INSERT INTO cadmus_tools_envs (
+          account_id, env_id, kind, label, workspace_path, persist,
+          confine_to_workspace, shared_workspace, secret_id, secret_missing, updated_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 0, ?10)`,
+			)
+			.bind(
+				accountId,
+				input.envId,
+				input.kind,
+				input.label ?? null,
+				input.workspacePath ?? null,
+				input.persist ? 1 : 0,
+				input.confineToWorkspace ? 1 : 0,
+				input.sharedWorkspace ? 1 : 0,
+				input.secretId ?? null,
+				now,
+			)
+			.run();
+		const created = await this.getToolsEnv(accountId, input.envId);
+		if (!created)
+			throw new Error(`Failed to create tools env '${input.envId}'`);
+		return created;
+	}
+
+	async updateToolsEnv(
+		accountId: string,
+		envId: string,
+		patch: {
+			label?: string;
+			persist?: boolean;
+			confineToWorkspace?: boolean;
+			sharedWorkspace?: boolean;
+			workspacePath?: string;
+			secretId?: string;
+			secretMissing?: boolean;
+		},
+	): Promise<StoredToolsEnv | undefined> {
+		await this.initialize();
+		const existing = await this.getToolsEnv(accountId, envId);
+		if (!existing) return undefined;
+		const label =
+			patch.label !== undefined ? patch.label : (existing.label ?? null);
+		const persist = patch.persist ?? existing.persist;
+		const confine = patch.confineToWorkspace ?? existing.confineToWorkspace;
+		const shared = patch.sharedWorkspace ?? existing.sharedWorkspace;
+		const workspace =
+			patch.workspacePath !== undefined
+				? patch.workspacePath
+				: (existing.workspacePath ?? null);
+		const secret =
+			patch.secretId !== undefined
+				? patch.secretId
+				: (existing.secretId ?? null);
+		const secretMissing =
+			patch.secretMissing !== undefined
+				? patch.secretMissing
+				: Boolean(existing.secretMissing);
+		await this.#db
+			.prepare(
+				`UPDATE cadmus_tools_envs
+         SET label = ?1, persist = ?2, confine_to_workspace = ?3,
+             shared_workspace = ?4, workspace_path = ?5, secret_id = ?6,
+             secret_missing = ?7, updated_at = ?8
+         WHERE account_id = ?9 AND env_id = ?10`,
+			)
+			.bind(
+				label,
+				persist ? 1 : 0,
+				confine ? 1 : 0,
+				shared ? 1 : 0,
+				workspace,
+				secret,
+				secretMissing ? 1 : 0,
+				Date.now(),
+				accountId,
+				envId,
+			)
+			.run();
+		return this.getToolsEnv(accountId, envId);
+	}
+
+	async deleteToolsEnv(accountId: string, envId: string): Promise<boolean> {
+		await this.initialize();
+		const result = await this.#db
+			.prepare(
+				`DELETE FROM cadmus_tools_envs WHERE account_id = ?1 AND env_id = ?2`,
+			)
+			.bind(accountId, envId)
+			.run();
+		if ((result.meta?.changes ?? 0) === 0) return false;
+		await this.#db
+			.prepare(
+				`UPDATE cadmus_accounts
+         SET default_tools_env_json = NULL
+         WHERE id = ?1 AND json_extract(default_tools_env_json, '$.envId') = ?2`,
+			)
+			.bind(accountId, envId)
+			.run();
+		return true;
+	}
+
+	async listToolsEnvSecrets(accountId: string): Promise<ToolsEnvSecretMeta[]> {
+		await this.initialize();
+		const { results } = await this.#db
+			.prepare(
+				`SELECT secret_id, label, kind, updated_at
+         FROM cadmus_tools_env_secrets
+         WHERE account_id = ?1
+         ORDER BY updated_at ASC, secret_id ASC`,
+			)
+			.bind(accountId)
+			.all<ToolsEnvSecretSqlRow>();
+		return results.map(mapToolsEnvSecret);
+	}
+
+	async getToolsEnvSecretMeta(
+		accountId: string,
+		secretId: string,
+	): Promise<ToolsEnvSecretMeta | undefined> {
+		await this.initialize();
+		const row = await this.#db
+			.prepare(
+				`SELECT secret_id, label, kind, updated_at
+         FROM cadmus_tools_env_secrets
+         WHERE account_id = ?1 AND secret_id = ?2`,
+			)
+			.bind(accountId, secretId)
+			.first<ToolsEnvSecretSqlRow>();
+		return row ? mapToolsEnvSecret(row) : undefined;
+	}
+
+	async setToolsEnvSecret(
+		accountId: string,
+		input?: { label?: string },
+	): Promise<{ secret: ToolsEnvSecretMeta; token: string }> {
+		await this.initialize();
+		const token = mintDaemonToken();
+		const tokenHash = await sha256Hex(token);
+		const { ivHex, cipherHex } = await encryptJson(
+			this.#encryptionKey,
+			accountId,
+			{ token },
+		);
+		const secretId = `hs_${crypto.randomUUID()}`;
+		const now = Date.now();
+		const label = input?.label?.trim() ? input.label.trim() : null;
+		await this.#db
+			.prepare(
+				`INSERT INTO cadmus_tools_env_secrets (
+          account_id, secret_id, label, kind, token_hash, iv_hex, cipher_hex, updated_at
+        ) VALUES (?1, ?2, ?3, 'daemon_token', ?4, ?5, ?6, ?7)`,
+			)
+			.bind(accountId, secretId, label, tokenHash, ivHex, cipherHex, now)
+			.run();
+		const secret = await this.getToolsEnvSecretMeta(accountId, secretId);
+		if (!secret) {
+			throw new Error(`Failed to store tools env secret '${secretId}'`);
+		}
+		return { secret, token };
+	}
+
+	async getToolsEnvSecret(
+		accountId: string,
+		secretId: string,
+	): Promise<{ token: string } | undefined> {
+		await this.initialize();
+		const row = await this.#db
+			.prepare(
+				`SELECT iv_hex, cipher_hex
+         FROM cadmus_tools_env_secrets
+         WHERE account_id = ?1 AND secret_id = ?2`,
+			)
+			.bind(accountId, secretId)
+			.first<{ iv_hex: string; cipher_hex: string }>();
+		if (!row) return undefined;
+		return decryptJson<{ token: string }>(
+			this.#encryptionKey,
+			accountId,
+			row.iv_hex,
+			row.cipher_hex,
+		);
+	}
+
+	async deleteToolsEnvSecret(
+		accountId: string,
+		secretId: string,
+	): Promise<{
+		deleted: boolean;
+		flaggedEnvIds: string[];
+		clearedDefaultEnvId: string | null;
+	}> {
+		await this.initialize();
+		const existing = await this.getToolsEnvSecretMeta(accountId, secretId);
+		if (!existing) {
+			return { deleted: false, flaggedEnvIds: [], clearedDefaultEnvId: null };
+		}
+		const named = await this.#db
+			.prepare(
+				`SELECT env_id FROM cadmus_tools_envs
+         WHERE account_id = ?1 AND secret_id = ?2 AND kind = 'local-daemon'`,
+			)
+			.bind(accountId, secretId)
+			.all<{ env_id: string }>();
+		const flaggedEnvIds = named.results.map((row) => row.env_id);
+		if (flaggedEnvIds.length > 0) {
+			await this.#db
+				.prepare(
+					`UPDATE cadmus_tools_envs
+           SET secret_missing = 1, updated_at = ?1
+           WHERE account_id = ?2 AND secret_id = ?3 AND kind = 'local-daemon'`,
+				)
+				.bind(Date.now(), accountId, secretId)
+				.run();
+		}
+		await this.#db
+			.prepare(
+				`DELETE FROM cadmus_tools_env_secrets
+         WHERE account_id = ?1 AND secret_id = ?2`,
+			)
+			.bind(accountId, secretId)
+			.run();
+		const account = await this.getAccount(accountId);
+		const defaultId = account?.defaultToolsEnv?.envId ?? null;
+		let clearedDefaultEnvId: string | null = null;
+		if (defaultId && flaggedEnvIds.includes(defaultId)) {
+			const updateRes = await this.#db
+				.prepare(
+					`UPDATE cadmus_accounts
+           SET default_tools_env_json = NULL
+           WHERE id = ?1 AND json_extract(default_tools_env_json, '$.envId') = ?2`,
+				)
+				.bind(accountId, defaultId)
+				.run();
+			if ((updateRes.meta?.changes ?? 0) > 0) {
+				clearedDefaultEnvId = defaultId;
+			}
+		}
+		return { deleted: true, flaggedEnvIds, clearedDefaultEnvId };
+	}
+
+	async resolveToolsEnvDaemonToken(
+		tokenHash: string,
+	): Promise<{ accountId: string; secretId: string } | undefined> {
+		await this.initialize();
+		const row = await this.#db
+			.prepare(
+				`SELECT account_id, secret_id
+         FROM cadmus_tools_env_secrets
+         WHERE token_hash = ?1 AND kind = 'daemon_token'`,
+			)
+			.bind(tokenHash)
+			.first<{ account_id: string; secret_id: string }>();
+		if (!row) return undefined;
+		return { accountId: row.account_id, secretId: row.secret_id };
+	}
+}
+
+function mintDaemonToken(): string {
+	const bytes = crypto.getRandomValues(new Uint8Array(32));
+	const hex = Array.from(bytes)
+		.map((byte) => byte.toString(16).padStart(2, "0"))
+		.join("");
+	return `cadmus_dt_${hex}`;
+}
+
+function parseDefaultToolsEnv(
+	raw: string | null | undefined,
+): ToolsEnvBinding | null {
+	if (!raw) return null;
+	try {
+		const parsed = JSON.parse(raw) as { envId?: string };
+		if (!parsed?.envId) return null;
+		return { envId: parsed.envId };
+	} catch {
+		return null;
+	}
+}
+
+interface ToolsEnvSqlRow {
+	env_id: string;
+	kind: string;
+	label: string | null;
+	workspace_path: string | null;
+	persist: number;
+	confine_to_workspace: number;
+	shared_workspace: number;
+	secret_id: string | null;
+	secret_missing: number | null;
+	updated_at: number;
+}
+
+function mapToolsEnv(row: ToolsEnvSqlRow): StoredToolsEnv {
+	const record: StoredToolsEnv = {
+		envId: row.env_id,
+		kind: row.kind === "local-daemon" ? "local-daemon" : "just-bash",
+		persist: row.persist !== 0,
+		confineToWorkspace: row.confine_to_workspace !== 0,
+		sharedWorkspace: row.shared_workspace !== 0,
+		updatedAt: Number(row.updated_at),
+	};
+	if (row.label) record.label = row.label;
+	if (row.workspace_path) record.workspacePath = row.workspace_path;
+	if (row.secret_id) record.secretId = row.secret_id;
+	if (row.secret_missing) record.secretMissing = true;
+	return record;
+}
+
+interface ToolsEnvSecretSqlRow {
+	secret_id: string;
+	label: string | null;
+	kind: string;
+	updated_at: number;
+}
+
+function mapToolsEnvSecret(row: ToolsEnvSecretSqlRow): ToolsEnvSecretMeta {
+	const record: ToolsEnvSecretMeta = {
+		secretId: row.secret_id,
+		kind: "daemon_token",
+		updatedAt: Number(row.updated_at),
+	};
+	if (row.label) record.label = row.label;
+	return record;
 }
 
 function toFamilyRecord(row: {

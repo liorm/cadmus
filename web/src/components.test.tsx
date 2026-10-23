@@ -26,8 +26,21 @@ import {
 	UnifiedDiffViewer,
 } from "./components/HarvestInspector.js";
 import { SchedulesPanel } from "./components/SchedulesPanel.js";
+import { ToolsEnvPinFields } from "./components/ToolsEnvPinFields.js";
 import { TopBar } from "./components/TopBar.js";
 import { CadmusProvider } from "./context/CadmusContext.js";
+import {
+	isNearBottom,
+	SCROLL_BOTTOM_THRESHOLD,
+	useAutoScroll,
+} from "./hooks/useAutoScroll.js";
+import {
+	buildToolsEnvSetting,
+	formatToolsEnvSummary,
+	hasToolsEnvChanged,
+	toolsFormBaseline,
+	toolsPayload,
+} from "./tools-env-form.js";
 
 const TEST_FAMILY: FamilyRecord = {
 	accountId: "acc-test",
@@ -1070,5 +1083,364 @@ describe("Web UI Components", () => {
 		expect(html).toContain("harvest-pane");
 		expect(html).toContain("Scheduled Tasks");
 		expect(html).toContain("Harvest Inspector");
+	});
+
+	it("14. Tools env pins submit Inherit, On, and Off as envId-only payloads", () => {
+		expect(buildToolsEnvSetting({ choice: "inherit" })).toBeNull();
+		expect(
+			buildToolsEnvSetting({ choice: "off", retainEnvId: "ld_laptop" }),
+		).toEqual({
+			enabled: false,
+			binding: { envId: "ld_laptop" },
+		});
+		expect(buildToolsEnvSetting({ choice: "off" })).toEqual({ enabled: false });
+		const onDaemon = buildToolsEnvSetting({
+			choice: "on",
+			envId: "ld_laptop",
+		});
+		expect(onDaemon).toEqual({
+			enabled: true,
+			binding: { envId: "ld_laptop" },
+		});
+		expect(onDaemon).not.toHaveProperty("workspacePath");
+		expect(onDaemon).not.toHaveProperty("secretId");
+		expect(JSON.stringify(onDaemon)).not.toContain("token");
+		expect(JSON.stringify(onDaemon)).not.toContain("cadmus_dt_");
+
+		const html = renderToString(
+			<ToolsEnvPinFields
+				idPrefix="bot-tools-env"
+				choice="on"
+				envId="ld_laptop"
+				envs={[
+					{ envId: "jb_default", kind: "just-bash", label: "Default" },
+					{ envId: "ld_laptop", kind: "local-daemon", label: "Laptop" },
+				]}
+				onChoice={() => undefined}
+				onEnvId={() => undefined}
+			/>,
+		);
+		expect(html).toContain("Inherit");
+		expect(html).toContain("On");
+		expect(html).toContain("Off");
+		expect(html).toContain('value="jb_default"');
+		expect(html).toContain('value="ld_laptop"');
+		expect(html).toContain("local-daemon");
+		expect(html).not.toContain("cadmus_dt_");
+		expect(html).not.toContain("connected");
+		expect(html).not.toContain("probe");
+		const summary = formatToolsEnvSummary({
+			stored: { enabled: true, binding: { envId: "ld_laptop" } },
+			enabled: true,
+			effective: { kind: "local-daemon", envId: "ld_laptop" },
+			status: "disconnected",
+			connectedAt: Date.UTC(2026, 0, 2),
+			lastError: "secret_missing",
+		});
+		expect(summary).toContain("disconnected");
+		expect(summary).toContain("secret_missing");
+		expect(summary).toContain("connectedAt");
+		expect(summary).not.toContain("probe");
+	});
+
+	it("15. Edit sends tools only when the tools field or coding checkbox changed", () => {
+		const unchangedDefault = toolsFormBaseline(undefined);
+		expect(toolsPayload("", false, "edit", unchangedDefault)).toBeUndefined();
+
+		const explicit = toolsFormBaseline(["memory_read", "knowledge_read"]);
+		expect(
+			toolsPayload(
+				explicit.toolsText,
+				explicit.includeCoding,
+				"edit",
+				explicit,
+			),
+		).toBeUndefined();
+		const renamed = {
+			botId: "assistant",
+			name: "Renamed",
+			tools: toolsPayload(
+				explicit.toolsText,
+				explicit.includeCoding,
+				"edit",
+				explicit,
+			),
+		};
+		expect(JSON.parse(JSON.stringify(renamed))).toEqual({
+			botId: "assistant",
+			name: "Renamed",
+		});
+		expect(renamed.tools).not.toBeNull();
+
+		const codingOnly = toolsFormBaseline(["bash", "read", "write", "edit"]);
+		expect(codingOnly.includeCoding).toBe(true);
+		expect(
+			toolsPayload(codingOnly.toolsText, false, "edit", codingOnly),
+		).toEqual([]);
+
+		const listed = toolsFormBaseline(["memory_read"]);
+		expect(
+			toolsPayload("memory_read, knowledge_read", false, "edit", listed),
+		).toEqual(["memory_read", "knowledge_read"]);
+
+		expect(toolsPayload("", false, "create")).toBeUndefined();
+		const create = {
+			name: "Assistant",
+			tools: toolsPayload("", false, "create"),
+		};
+		expect(JSON.parse(JSON.stringify(create))).toEqual({ name: "Assistant" });
+		const cleared = {
+			botId: "assistant",
+			tools: toolsPayload(codingOnly.toolsText, false, "edit", codingOnly),
+		};
+		expect(JSON.parse(JSON.stringify(cleared)).tools).toEqual([]);
+		expect(cleared.tools).not.toBeNull();
+	});
+
+	it("16. Chat autoscroll logic and useAutoScroll hook maintain bottom anchor when at bottom and preserve position when scrolled up", () => {
+		// 1. isNearBottom threshold boundary checks
+		expect(SCROLL_BOTTOM_THRESHOLD).toBe(50);
+		// Exactly at bottom
+		expect(isNearBottom(1000, 500, 500)).toBe(true);
+		// Within 50px of bottom
+		expect(isNearBottom(1000, 460, 500)).toBe(true);
+		expect(isNearBottom(1000, 450, 500)).toBe(true);
+		// Scrolled up past threshold
+		expect(isNearBottom(1000, 449, 500)).toBe(false);
+		expect(isNearBottom(1000, 200, 500)).toBe(false);
+		expect(isNearBottom(1000, 0, 500)).toBe(false);
+		// Container content shorter than viewport
+		expect(isNearBottom(300, 0, 500)).toBe(true);
+
+		// 2. Simulated element and handleScroll testing
+		let currentScrollTop = 500;
+		const currentScrollHeight = 1000;
+		const fakeElement = {
+			get scrollTop() {
+				return currentScrollTop;
+			},
+			set scrollTop(val: number) {
+				currentScrollTop = val;
+			},
+			get scrollHeight() {
+				return currentScrollHeight;
+			},
+			clientHeight: 500,
+		} as unknown as HTMLDivElement;
+
+		// Test hook with simulated element
+		let hookResult:
+			| ReturnType<typeof useAutoScroll<HTMLDivElement>>
+			| undefined;
+		function TestScrollComponent(props: {
+			chatKey?: string;
+			streamingActive?: boolean;
+			hasNewUserMessage?: boolean;
+		}) {
+			const res = useAutoScroll<HTMLDivElement>(props);
+			hookResult = res;
+			return null;
+		}
+
+		// Initial render: starts at bottom
+		renderToString(<TestScrollComponent chatKey="chat-1" />);
+		expect(hookResult).toBeDefined();
+		if (!hookResult) throw new Error("hookResult was not captured");
+
+		expect(hookResult.isAtBottomRef.current).toBe(true);
+
+		// Assign fake ref
+		hookResult.scrollRef.current = fakeElement;
+
+		// User scrolls up
+		currentScrollTop = 100;
+		hookResult.handleScroll();
+		expect(hookResult.isAtBottomRef.current).toBe(false);
+
+		// While scrolled up, user scrolls near bottom (470px out of 500 max scroll, diff 30px <= 50)
+		currentScrollTop = 470;
+		hookResult.handleScroll();
+		expect(hookResult.isAtBottomRef.current).toBe(true);
+
+		// User scrolls up again
+		currentScrollTop = 200;
+		hookResult.handleScroll();
+		expect(hookResult.isAtBottomRef.current).toBe(false);
+
+		// Programmatic scrollToBottom
+		hookResult.scrollToBottom();
+		expect(currentScrollTop).toBe(1000);
+		expect(hookResult.isAtBottomRef.current).toBe(true);
+
+		// If user was scrolled up and chatKey changes, it resets to bottom
+		currentScrollTop = 200;
+		hookResult.handleScroll();
+		expect(hookResult.isAtBottomRef.current).toBe(false);
+
+		renderToString(<TestScrollComponent chatKey="chat-2" />);
+		if (!hookResult) throw new Error("hookResult was not captured");
+		expect(hookResult.isAtBottomRef.current).toBe(true);
+
+		// If user was scrolled up and streaming becomes active (new turn started), resets to bottom
+		hookResult.scrollRef.current = fakeElement;
+		currentScrollTop = 200;
+		hookResult.handleScroll();
+		expect(hookResult.isAtBottomRef.current).toBe(false);
+
+		renderToString(
+			<TestScrollComponent chatKey="chat-2" streamingActive={true} />,
+		);
+		if (!hookResult) throw new Error("hookResult was not captured");
+		expect(hookResult.isAtBottomRef.current).toBe(true);
+
+		// If user was scrolled up and user message was submitted, resets to bottom
+		hookResult.scrollRef.current = fakeElement;
+		currentScrollTop = 200;
+		hookResult.handleScroll();
+		expect(hookResult.isAtBottomRef.current).toBe(false);
+
+		renderToString(
+			<TestScrollComponent chatKey="chat-2" hasNewUserMessage={true} />,
+		);
+		if (!hookResult) throw new Error("hookResult was not captured");
+		expect(hookResult.isAtBottomRef.current).toBe(true);
+	});
+
+	it("17. Save tools env button is enabled ONLY when settings changed in the UI and disabled when unchanged", () => {
+		// Inherit baseline (stored is null/undefined)
+		expect(
+			hasToolsEnvChanged({ stored: null, choice: "inherit", envId: "" }),
+		).toBe(false);
+		expect(
+			hasToolsEnvChanged({ stored: undefined, choice: "inherit", envId: "" }),
+		).toBe(false);
+		expect(hasToolsEnvChanged({ stored: null, choice: "on", envId: "" })).toBe(
+			true,
+		);
+		expect(
+			hasToolsEnvChanged({ stored: null, choice: "on", envId: "jb_default" }),
+		).toBe(true);
+		expect(hasToolsEnvChanged({ stored: null, choice: "off", envId: "" })).toBe(
+			true,
+		);
+
+		// On baseline with pinned envId
+		const storedPinned = {
+			enabled: true,
+			binding: { envId: "jb_default" },
+		};
+		expect(
+			hasToolsEnvChanged({
+				stored: storedPinned,
+				choice: "on",
+				envId: "jb_default",
+			}),
+		).toBe(false);
+		expect(
+			hasToolsEnvChanged({
+				stored: storedPinned,
+				choice: "on",
+				envId: "ld_laptop",
+			}),
+		).toBe(true);
+		expect(
+			hasToolsEnvChanged({
+				stored: storedPinned,
+				choice: "on",
+				envId: "",
+			}),
+		).toBe(true);
+		expect(
+			hasToolsEnvChanged({
+				stored: storedPinned,
+				choice: "inherit",
+				envId: "jb_default",
+			}),
+		).toBe(true);
+		expect(
+			hasToolsEnvChanged({
+				stored: storedPinned,
+				choice: "off",
+				envId: "jb_default",
+			}),
+		).toBe(true);
+
+		// On baseline with account default (no binding / empty envId)
+		const storedDefault = { enabled: true };
+		expect(
+			hasToolsEnvChanged({
+				stored: storedDefault,
+				choice: "on",
+				envId: "",
+			}),
+		).toBe(false);
+		expect(
+			hasToolsEnvChanged({
+				stored: storedDefault,
+				choice: "on",
+				envId: "jb_default",
+			}),
+		).toBe(true);
+		expect(
+			hasToolsEnvChanged({
+				stored: storedDefault,
+				choice: "inherit",
+				envId: "",
+			}),
+		).toBe(true);
+		expect(
+			hasToolsEnvChanged({
+				stored: storedDefault,
+				choice: "off",
+				envId: "",
+			}),
+		).toBe(true);
+
+		// Off baseline
+		const storedOff = { enabled: false };
+		expect(
+			hasToolsEnvChanged({
+				stored: storedOff,
+				choice: "off",
+				envId: "",
+			}),
+		).toBe(false);
+		expect(
+			hasToolsEnvChanged({
+				stored: storedOff,
+				choice: "inherit",
+				envId: "",
+			}),
+		).toBe(true);
+		expect(
+			hasToolsEnvChanged({
+				stored: storedOff,
+				choice: "on",
+				envId: "",
+			}),
+		).toBe(true);
+
+		// Verify ChatWorkspace initial render has "Save tools env" button disabled
+		const client = createMockClient();
+		const html = renderToString(
+			<CadmusProvider clientOverride={client}>
+				<ChatWorkspace
+					initialChats={[TEST_CHAT]}
+					initialSelectedKey={TEST_CHAT.key}
+					initialChatData={{
+						chat: TEST_CHAT,
+						busy: false,
+						messages: [],
+						entries: [],
+						notes: [],
+					}}
+				/>
+			</CadmusProvider>,
+		);
+
+		// Button should be disabled on initial render since settings have not changed
+		expect(html).toMatch(
+			/<button[^>]*disabled=""[^>]*>[^<]*Save tools env[^<]*<\/button>/,
+		);
 	});
 });
