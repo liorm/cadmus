@@ -7,6 +7,7 @@
 		"build": "bun install --cwd web && bun run web:build",
 		"dev": "wrangler dev",
 		"deploy": "wrangler deploy --keep-vars",
+		"deploy:preview": "wrangler preview",
 		"tui": "bun run --cwd tui start",
 		"web:dev": "bun run --cwd web dev",
 		"web:build": "bun run --cwd web build",
