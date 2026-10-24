@@ -9,12 +9,16 @@ import {
 	type ServerEvent,
 } from "./protocol.js";
 import { defaultJsonShim } from "./shim.js";
-import { D1AdminStore } from "./store/d1-admin.js";
+import { D1AdminStore, resetD1InitializationCache } from "./store/d1-admin.js";
 import { handleToolsEnvWebsocket } from "./tools-env/edge-ws.js";
 import { CadmusEnvDO } from "./tools-env/env-do.js";
 import type { Env } from "./types.js";
 
 export { CadmusBotFamilyDO, CadmusEnvDO };
+
+export function resetEdgeD1InitCache(): void {
+	resetD1InitializationCache();
+}
 
 export default {
 	async fetch(

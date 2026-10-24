@@ -33,10 +33,21 @@ Because the Cloudflare account may host multiple Workers and Durable Object clas
 
 | Table | Purpose |
 | :--- | :--- |
-| `cadmus_accounts` | Account records (`id`, `name`, `created_at`). |
-| `cadmus_account_members` | Users associated with an account (`id`, `account_id`, `email`, `name`, `role`, `token_hash`, `created_at`). |
-| `cadmus_bot_families` | Registry mapping `(account_id, id)` to `do_name` (`cadmus:<accountId>:<familyId>`), `timezone`, and `harvest_delay_ms`. |
-| `cadmus_account_credentials` | AES-GCM encrypted provider credentials (`account_id`, `provider_id`, `cipher_hex`, `iv_hex`, `key_hint`, `updated_at`). |
+| `cadmus_schema_meta` | Schema metadata and version marker (`key = 'version'`, `value = '<version>'`). |
+| `cadmus_accounts` | Account records (`id`, `name`, `timezone`, `default_tools_env_json`, `created_at`). |
+| `cadmus_users` | User records (`id`, `name`, `email`, `created_at`). |
+| `cadmus_account_members` | Users associated with an account (`account_id`, `user_id`, `role`, `created_at`). |
+| `cadmus_auth_tokens` | Authentication token hashes (`token_hash`, `user_id`, `account_id`, `label`, `created_at`). |
+| `cadmus_families` | Registry mapping `(account_id, family_id)` to `do_name` (`cadmus:<accountId>:<familyId>`), `timezone`, and `harvest_delay_ms`. |
+| `cadmus_account_credentials` | AES-GCM encrypted provider credentials (`account_id`, `provider_id`, `cred_type`, `iv_hex`, `cipher_hex`, `updated_at`). |
+| `cadmus_tools_envs` | Execution environments (`account_id`, `env_id`, `kind`, `label`, `workspace_path`, `persist`, `confine_to_workspace`, `shared_workspace`, `secret_id`, `secret_missing`, `updated_at`). |
+| `cadmus_tools_env_secrets` | Local daemon pairing secrets (`account_id`, `secret_id`, `label`, `kind`, `token_hash`, `iv_hex`, `cipher_hex`, `updated_at`). |
+
+### Schema Versioning & Cold-Path Decoupling
+To avoid running 6-8 D1 round-trips (`CREATE TABLE IF NOT EXISTS`, `PRAGMA table_info`, `ALTER TABLE`) on every edge request:
+- **Isolate Cache**: D1 initialization status is cached in memory per Worker isolate (`ensureAdminStoreInitialized`). Warm requests bypass schema initialization completely (0 queries).
+- **Schema Version Marker (`cadmus_schema_meta`)**: On a cold isolate boot, a single fast SELECT checks `cadmus_schema_meta`. If the stored version matches `CADMUS_SCHEMA_VERSION`, full table migrations are skipped.
+- **Narrow Missing-Schema Fallback**: If a query encounters a "no such table" or "no such column" error at runtime, the store automatically runs schema migration and retries once.
 
 ### Encryption at Rest for Provider Credentials
 Provider API keys (`anthropic`, `openai`, `google`, `xai`) set via `account.credentials.set` are encrypted using WebCrypto **AES-GCM (256-bit)** derived from `CADMUS_ENCRYPTION_KEY` before being written to `cadmus_account_credentials`. Raw keys are never returned by `account.credentials.list` (only a masked `keyHint` such as `...abcd` is exposed).

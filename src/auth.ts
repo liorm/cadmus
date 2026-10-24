@@ -9,7 +9,7 @@ export interface ResolvedRequestScope extends AuthenticatedIdentity {
 	familyId: string;
 }
 
-function extractRawToken(request: Request): string | undefined {
+export function extractRawToken(request: Request): string | undefined {
 	const authHeader = request.headers.get("authorization");
 	if (authHeader) {
 		const match = /^Bearer\s+(.+)$/i.exec(authHeader.trim());
@@ -28,6 +28,57 @@ function extractRawToken(request: Request): string | undefined {
 	const queryToken = url.searchParams.get("token");
 	if (queryToken) return queryToken.trim();
 	return undefined;
+}
+
+async function timingSafeEqualSha256(a: string, b: string): Promise<boolean> {
+	const enc = new TextEncoder();
+	const [digestA, digestB] = await Promise.all([
+		crypto.subtle.digest("SHA-256", enc.encode(a)),
+		crypto.subtle.digest("SHA-256", enc.encode(b)),
+	]);
+	const viewA = new Uint8Array(digestA);
+	const viewB = new Uint8Array(digestB);
+	let diff = 0;
+	for (let i = 0; i < viewA.length; i++) {
+		diff |= viewA[i] ^ viewB[i];
+	}
+	return diff === 0;
+}
+
+export interface MasterSecretMatch {
+	matched: boolean;
+	accountId?: string;
+	userId?: string;
+}
+
+/**
+ * Validates whether rawToken matches CADMUS_AUTH_SECRET in any accepted form:
+ * 1. direct: <CADMUS_AUTH_SECRET>
+ * 2. scoped account: <accountId>:<CADMUS_AUTH_SECRET>
+ * 3. scoped account & user: <accountId>:<userId>:<CADMUS_AUTH_SECRET>
+ *
+ * Uses SHA-256 constant-time comparison to prevent timing/length side channels.
+ */
+export async function matchMasterSecret(
+	rawToken: string,
+	masterSecret: string,
+): Promise<MasterSecretMatch> {
+	if (await timingSafeEqualSha256(rawToken, masterSecret)) {
+		return { matched: true };
+	}
+
+	const parts = rawToken.split(":");
+	if (parts.length === 2 && parts[0]) {
+		if (await timingSafeEqualSha256(parts[1], masterSecret)) {
+			return { matched: true, accountId: parts[0] };
+		}
+	} else if (parts.length === 3 && parts[0] && parts[1]) {
+		if (await timingSafeEqualSha256(parts[2], masterSecret)) {
+			return { matched: true, accountId: parts[0], userId: parts[1] };
+		}
+	}
+
+	return { matched: false };
 }
 
 /**
@@ -73,38 +124,22 @@ export async function authenticateRequest(
 
 	// 2. Check against CADMUS_AUTH_SECRET
 	const masterSecret = env.CADMUS_AUTH_SECRET || "dev-cadmus-secret";
-	let accountId: string | undefined;
-	let userId: string | undefined;
-
-	if (rawToken === masterSecret) {
-		accountId =
-			request.headers.get("x-account-id")?.trim() ||
-			url.searchParams.get("accountId")?.trim() ||
-			"default-account";
-		userId =
-			request.headers.get("x-user-id")?.trim() ||
-			url.searchParams.get("userId")?.trim() ||
-			`user:${accountId}`;
-	} else {
-		const parts = rawToken.split(":");
-		if (parts.length === 2 && parts[1] === masterSecret && parts[0]) {
-			accountId = parts[0];
-			userId = request.headers.get("x-user-id")?.trim() || `user:${accountId}`;
-		} else if (
-			parts.length === 3 &&
-			parts[2] === masterSecret &&
-			parts[0] &&
-			parts[1]
-		) {
-			accountId = parts[0];
-			userId = parts[1];
-		}
-	}
-
-	if (!accountId || !userId) {
+	const masterMatch = await matchMasterSecret(rawToken, masterSecret);
+	if (!masterMatch.matched) {
 		getLogger().warn("auth failed: invalid bearer token");
 		return undefined;
 	}
+
+	const accountId =
+		masterMatch.accountId ||
+		request.headers.get("x-account-id")?.trim() ||
+		url.searchParams.get("accountId")?.trim() ||
+		"default-account";
+	const userId =
+		masterMatch.userId ||
+		request.headers.get("x-user-id")?.trim() ||
+		url.searchParams.get("userId")?.trim() ||
+		`user:${accountId}`;
 
 	await adminStore.ensureAccountAndUser({
 		accountId,

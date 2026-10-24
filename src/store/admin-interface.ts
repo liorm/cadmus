@@ -56,7 +56,7 @@ export interface FamilySettingsPatch {
  * and the Bot Families catalog (`account_id <-> family_id <-> do_name`).
  */
 export interface AdminStore {
-	initialize(): Promise<void>;
+	initialize(options?: { force?: boolean }): Promise<void>;
 
 	// Auth & Accounts
 	resolveToken(rawToken: string): Promise<AuthenticatedIdentity | undefined>;

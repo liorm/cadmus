@@ -1,4 +1,5 @@
 import type { Credential } from "@earendil-works/pi-ai";
+import { getLogger } from "../log.js";
 import type {
 	AccountMember,
 	CredentialInput,
@@ -157,30 +158,97 @@ function slugifyId(text: string): string {
 	);
 }
 
-export class D1AdminStore implements AdminStore {
-	readonly #db: D1Database;
-	readonly #encryptionKey: string;
-	readonly #defaultTimezone: string;
-	readonly #defaultHarvestDelayMs: number;
-	#initialized = false;
+export const CADMUS_SCHEMA_VERSION = 1;
 
-	constructor(options: {
-		db: D1Database;
-		encryptionKey?: string;
-		defaultTimezone?: string;
-		defaultHarvestDelayMs?: number;
-	}) {
-		this.#db = options.db;
-		this.#encryptionKey =
-			options.encryptionKey || "default-cadmus-encryption-key-32b";
-		this.#defaultTimezone = options.defaultTimezone || "UTC";
-		this.#defaultHarvestDelayMs = options.defaultHarvestDelayMs ?? 60_000;
+export function isMissingSchemaError(error: unknown): boolean {
+	if (!error) return false;
+	const msg =
+		typeof error === "string"
+			? error
+			: (error as { message?: string }).message || String(error);
+	return /no such (table|column):/i.test(msg);
+}
+
+export interface D1InitStats {
+	schemaChecks: number;
+	migrationsRun: number;
+}
+
+const d1InitStats: D1InitStats = {
+	schemaChecks: 0,
+	migrationsRun: 0,
+};
+
+export function getD1InitStats(): D1InitStats {
+	return { ...d1InitStats };
+}
+
+export function resetD1InitStats(): void {
+	d1InitStats.schemaChecks = 0;
+	d1InitStats.migrationsRun = 0;
+}
+
+interface InFlightInit {
+	promise: Promise<void>;
+	forced: boolean;
+}
+
+const initializedDbs = new Set<D1Database>();
+const inFlightInits = new Map<D1Database, InFlightInit>();
+
+export function isD1DatabaseInitialized(db: D1Database): boolean {
+	return initializedDbs.has(db);
+}
+
+export function resetD1InitializationCache(db?: D1Database): void {
+	if (db) {
+		initializedDbs.delete(db);
+		inFlightInits.delete(db);
+	} else {
+		initializedDbs.clear();
+		inFlightInits.clear();
 	}
+}
 
-	async initialize(): Promise<void> {
-		if (this.#initialized) return;
-		await this.#db.batch([
-			this.#db.prepare(`
+export async function readSchemaVersion(
+	db: D1Database,
+): Promise<number | null> {
+	d1InitStats.schemaChecks++;
+	try {
+		const row = await db
+			.prepare("SELECT value FROM cadmus_schema_meta WHERE key = 'version'")
+			.first<{ value: string }>();
+		if (!row?.value) return null;
+		const parsed = Number.parseInt(row.value, 10);
+		return Number.isNaN(parsed) ? null : parsed;
+	} catch (error) {
+		if (isMissingSchemaError(error)) {
+			return null;
+		}
+		throw error;
+	}
+}
+
+async function seedJustBashDefault(
+	db: D1Database,
+	accountId: string,
+	now: number,
+): Promise<void> {
+	await db
+		.prepare(
+			`INSERT OR IGNORE INTO cadmus_tools_envs (
+          account_id, env_id, kind, label, workspace_path, persist,
+          confine_to_workspace, shared_workspace, secret_id, updated_at
+        ) VALUES (?1, 'jb_default', 'just-bash', 'Default just-bash', NULL, 1, 1, 0, NULL, ?2)`,
+		)
+		.bind(accountId, now)
+		.run();
+}
+
+export async function runD1SchemaMigrations(db: D1Database): Promise<void> {
+	d1InitStats.migrationsRun++;
+	await db.batch([
+		db.prepare(`
         CREATE TABLE IF NOT EXISTS cadmus_accounts (
           id TEXT PRIMARY KEY,
           name TEXT NOT NULL,
@@ -188,7 +256,7 @@ export class D1AdminStore implements AdminStore {
           created_at INTEGER NOT NULL
         )
       `),
-			this.#db.prepare(`
+		db.prepare(`
         CREATE TABLE IF NOT EXISTS cadmus_users (
           id TEXT PRIMARY KEY,
           name TEXT NOT NULL,
@@ -196,7 +264,7 @@ export class D1AdminStore implements AdminStore {
           created_at INTEGER NOT NULL
         )
       `),
-			this.#db.prepare(`
+		db.prepare(`
         CREATE TABLE IF NOT EXISTS cadmus_account_members (
           account_id TEXT NOT NULL,
           user_id TEXT NOT NULL,
@@ -205,7 +273,7 @@ export class D1AdminStore implements AdminStore {
           PRIMARY KEY (account_id, user_id)
         )
       `),
-			this.#db.prepare(`
+		db.prepare(`
         CREATE TABLE IF NOT EXISTS cadmus_auth_tokens (
           token_hash TEXT PRIMARY KEY,
           user_id TEXT NOT NULL,
@@ -214,7 +282,7 @@ export class D1AdminStore implements AdminStore {
           created_at INTEGER NOT NULL
         )
       `),
-			this.#db.prepare(`
+		db.prepare(`
         CREATE TABLE IF NOT EXISTS cadmus_account_credentials (
           account_id TEXT NOT NULL,
           provider_id TEXT NOT NULL,
@@ -225,7 +293,7 @@ export class D1AdminStore implements AdminStore {
           PRIMARY KEY (account_id, provider_id)
         )
       `),
-			this.#db.prepare(`
+		db.prepare(`
         CREATE TABLE IF NOT EXISTS cadmus_families (
           account_id TEXT NOT NULL,
           family_id TEXT NOT NULL,
@@ -237,22 +305,8 @@ export class D1AdminStore implements AdminStore {
           PRIMARY KEY (account_id, family_id)
         )
       `),
-		]);
-
-		const accountCols = await this.#db
-			.prepare("PRAGMA table_info(cadmus_accounts)")
-			.all<{ name: string }>();
-		if (!accountCols.results.some((c) => c.name === "timezone")) {
-			await this.#db
-				.prepare(
-					"ALTER TABLE cadmus_accounts ADD COLUMN timezone TEXT NOT NULL DEFAULT 'UTC'",
-				)
-				.run();
-		}
-
-		await this.#db
-			.prepare(
-				`CREATE TABLE IF NOT EXISTS cadmus_tools_envs (
+		db.prepare(`
+        CREATE TABLE IF NOT EXISTS cadmus_tools_envs (
           account_id TEXT NOT NULL,
           env_id TEXT NOT NULL,
           kind TEXT NOT NULL,
@@ -265,22 +319,10 @@ export class D1AdminStore implements AdminStore {
           secret_missing INTEGER NOT NULL DEFAULT 0,
           updated_at INTEGER NOT NULL,
           PRIMARY KEY (account_id, env_id)
-        )`,
-			)
-			.run();
-		const envCols = await this.#db
-			.prepare("PRAGMA table_info(cadmus_tools_envs)")
-			.all<{ name: string }>();
-		if (!envCols.results.some((column) => column.name === "secret_missing")) {
-			await this.#db
-				.prepare(
-					"ALTER TABLE cadmus_tools_envs ADD COLUMN secret_missing INTEGER NOT NULL DEFAULT 0",
-				)
-				.run();
-		}
-		await this.#db
-			.prepare(
-				`CREATE TABLE IF NOT EXISTS cadmus_tools_env_secrets (
+        )
+      `),
+		db.prepare(`
+        CREATE TABLE IF NOT EXISTS cadmus_tools_env_secrets (
           account_id TEXT NOT NULL,
           secret_id TEXT NOT NULL,
           label TEXT,
@@ -290,57 +332,272 @@ export class D1AdminStore implements AdminStore {
           cipher_hex TEXT NOT NULL,
           updated_at INTEGER NOT NULL,
           PRIMARY KEY (account_id, secret_id)
-        )`,
-			)
-			.run();
-		await this.#db
-			.prepare(
-				`CREATE UNIQUE INDEX IF NOT EXISTS idx_cadmus_tools_env_secrets_token_hash
-         ON cadmus_tools_env_secrets (token_hash)`,
-			)
-			.run();
+        )
+      `),
+		db.prepare(`
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_cadmus_tools_env_secrets_token_hash
+         ON cadmus_tools_env_secrets (token_hash)
+      `),
+		db.prepare(`
+        CREATE TABLE IF NOT EXISTS cadmus_schema_meta (
+          key TEXT PRIMARY KEY,
+          value TEXT NOT NULL
+        )
+      `),
+	]);
 
-		const accountColsAfter = await this.#db
-			.prepare("PRAGMA table_info(cadmus_accounts)")
-			.all<{ name: string }>();
-		if (
-			!accountColsAfter.results.some((c) => c.name === "default_tools_env_json")
-		) {
-			await this.#db
+	await addColumnIfNotExists(
+		db,
+		"cadmus_accounts",
+		"timezone",
+		"TEXT NOT NULL DEFAULT 'UTC'",
+	);
+
+	await addColumnIfNotExists(
+		db,
+		"cadmus_tools_envs",
+		"secret_missing",
+		"INTEGER NOT NULL DEFAULT 0",
+	);
+
+	const addedDefaultToolsEnv = await addColumnIfNotExists(
+		db,
+		"cadmus_accounts",
+		"default_tools_env_json",
+		"TEXT",
+	);
+	if (addedDefaultToolsEnv) {
+		const accounts = await db
+			.prepare(`SELECT id FROM cadmus_accounts`)
+			.all<{ id: string }>();
+		const now = Date.now();
+		for (const account of accounts.results) {
+			await seedJustBashDefault(db, account.id, now);
+			await db
 				.prepare(
-					"ALTER TABLE cadmus_accounts ADD COLUMN default_tools_env_json TEXT",
-				)
-				.run();
-			const accounts = await this.#db
-				.prepare(`SELECT id FROM cadmus_accounts`)
-				.all<{ id: string }>();
-			const now = Date.now();
-			for (const account of accounts.results) {
-				await this.#seedJustBashDefault(account.id, now);
-				await this.#db
-					.prepare(
-						`UPDATE cadmus_accounts
+					`UPDATE cadmus_accounts
              SET default_tools_env_json = ?1
              WHERE id = ?2 AND default_tools_env_json IS NULL`,
-					)
-					.bind(JSON.stringify({ envId: "jb_default" }), account.id)
-					.run();
+				)
+				.bind(JSON.stringify({ envId: "jb_default" }), account.id)
+				.run();
+		}
+	}
+
+	await db
+		.prepare(
+			`INSERT INTO cadmus_schema_meta (key, value)
+       VALUES ('version', ?1)
+       ON CONFLICT(key) DO UPDATE SET value = ?1`,
+		)
+		.bind(String(CADMUS_SCHEMA_VERSION))
+		.run();
+}
+
+async function addColumnIfNotExists(
+	db: D1Database,
+	table: string,
+	column: string,
+	definition: string,
+): Promise<boolean> {
+	const cols = await db
+		.prepare(`PRAGMA table_info(${table})`)
+		.all<{ name: string }>();
+	if (cols.results.some((c) => c.name === column)) {
+		return false;
+	}
+	try {
+		await db
+			.prepare(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`)
+			.run();
+		return true;
+	} catch (err) {
+		const msg = err instanceof Error ? err.message : String(err);
+		if (msg.includes("duplicate column name")) {
+			return false;
+		}
+		throw err;
+	}
+}
+
+export async function ensureD1Schema(
+	db: D1Database,
+	options: { force?: boolean } = {},
+): Promise<void> {
+	if (options.force) {
+		initializedDbs.delete(db);
+	} else if (initializedDbs.has(db)) {
+		return;
+	}
+
+	while (true) {
+		const existing = inFlightInits.get(db);
+		if (!existing) break;
+		await existing.promise;
+		if (existing.forced || !options.force) {
+			if (initializedDbs.has(db)) {
+				return;
 			}
 		}
+	}
 
+	const promise = (async () => {
+		try {
+			if (!options.force) {
+				const currentVersion = await readSchemaVersion(db);
+				if (
+					currentVersion !== null &&
+					currentVersion >= CADMUS_SCHEMA_VERSION
+				) {
+					initializedDbs.add(db);
+					return;
+				}
+			}
+			await runD1SchemaMigrations(db);
+			initializedDbs.add(db);
+		} finally {
+			inFlightInits.delete(db);
+		}
+	})();
+
+	inFlightInits.set(db, { promise, forced: !!options.force });
+	await promise;
+}
+
+export function wrapD1WithSchemaFallback(
+	db: D1Database,
+	ensureSchema: (options?: { force?: boolean }) => Promise<void>,
+	invalidateCache: () => void,
+): D1Database {
+	return new Proxy(db, {
+		get(target, prop, receiver) {
+			if (prop === "batch") {
+				return async (statements: D1PreparedStatement[]) => {
+					try {
+						return await target.batch(statements);
+					} catch (error) {
+						if (isMissingSchemaError(error)) {
+							getLogger().warn(
+								"D1 batch failed with missing schema error, forcing migration and retrying",
+								{
+									error: error instanceof Error ? error.message : String(error),
+								},
+							);
+							invalidateCache();
+							await ensureSchema({ force: true });
+							return await target.batch(statements);
+						}
+						throw error;
+					}
+				};
+			}
+
+			if (prop === "prepare") {
+				return (query: string) => {
+					const stmt = target.prepare(query);
+					return wrapPreparedStatement(stmt, ensureSchema, invalidateCache);
+				};
+			}
+
+			return Reflect.get(target, prop, receiver);
+		},
+	});
+}
+
+function wrapPreparedStatement(
+	stmt: D1PreparedStatement,
+	ensureSchema: (options?: { force?: boolean }) => Promise<void>,
+	invalidateCache: () => void,
+): D1PreparedStatement {
+	return new Proxy(stmt, {
+		get(target, prop, receiver) {
+			if (
+				prop === "first" ||
+				prop === "all" ||
+				prop === "run" ||
+				prop === "raw"
+			) {
+				return async (...args: unknown[]) => {
+					try {
+						return await (target[prop] as (...a: unknown[]) => unknown).apply(
+							target,
+							args,
+						);
+					} catch (error) {
+						if (isMissingSchemaError(error)) {
+							getLogger().warn(
+								`D1 statement.${String(prop)} failed with missing schema error, forcing migration and retrying`,
+								{
+									error: error instanceof Error ? error.message : String(error),
+								},
+							);
+							invalidateCache();
+							await ensureSchema({ force: true });
+							return await (target[prop] as (...a: unknown[]) => unknown).apply(
+								target,
+								args,
+							);
+						}
+						throw error;
+					}
+				};
+			}
+
+			if (prop === "bind") {
+				return (...args: unknown[]) => {
+					const bound = target.bind(...args);
+					return wrapPreparedStatement(bound, ensureSchema, invalidateCache);
+				};
+			}
+
+			return Reflect.get(target, prop, receiver);
+		},
+	});
+}
+
+export class D1AdminStore implements AdminStore {
+	readonly #rawDb: D1Database;
+	readonly #db: D1Database;
+	readonly #encryptionKey: string;
+	readonly #defaultTimezone: string;
+	readonly #defaultHarvestDelayMs: number;
+	#initialized = false;
+
+	constructor(options: {
+		db: D1Database;
+		encryptionKey?: string;
+		defaultTimezone?: string;
+		defaultHarvestDelayMs?: number;
+	}) {
+		this.#rawDb = options.db;
+		this.#db = wrapD1WithSchemaFallback(
+			options.db,
+			(opts) => this.initialize(opts),
+			() => {
+				this.#initialized = false;
+				resetD1InitializationCache(this.#rawDb);
+			},
+		);
+		this.#encryptionKey =
+			options.encryptionKey || "default-cadmus-encryption-key-32b";
+		this.#defaultTimezone = options.defaultTimezone || "UTC";
+		this.#defaultHarvestDelayMs = options.defaultHarvestDelayMs ?? 60_000;
+	}
+
+	async initialize(options: { force?: boolean } = {}): Promise<void> {
+		if (options.force) {
+			this.#initialized = false;
+			resetD1InitializationCache(this.#rawDb);
+		} else if (this.#initialized || isD1DatabaseInitialized(this.#rawDb)) {
+			this.#initialized = true;
+			return;
+		}
+		await ensureD1Schema(this.#rawDb, options);
 		this.#initialized = true;
 	}
 
 	async #seedJustBashDefault(accountId: string, now: number): Promise<void> {
-		await this.#db
-			.prepare(
-				`INSERT OR IGNORE INTO cadmus_tools_envs (
-          account_id, env_id, kind, label, workspace_path, persist,
-          confine_to_workspace, shared_workspace, secret_id, updated_at
-        ) VALUES (?1, 'jb_default', 'just-bash', 'Default just-bash', NULL, 1, 1, 0, NULL, ?2)`,
-			)
-			.bind(accountId, now)
-			.run();
+		await seedJustBashDefault(this.#db, accountId, now);
 	}
 
 	async resolveToken(
