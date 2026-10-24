@@ -48,6 +48,10 @@ This document contains everything an autonomous coding agent needs to understand
    - **DO SQLite (`CadmusBotFamilyDO`)**: Schema is self-initializing in code inside [`src/store/sqlite-family.ts`](src/store/sqlite-family.ts) (`SqliteFamilyStore.initialize()`), using `CREATE TABLE IF NOT EXISTS` and index creation. DO class declarations use Wrangler class migrations in `wrangler.jsonc` (`new_sqlite_classes`), not SQL files.
    - Deployment is pure `bun run deploy` (`wrangler deploy --keep-vars`) without any pre-deployment database migration steps.
 
+9. **Task & Issue Management via GitHub Issues**:
+   - All tasks, performance improvements, bug fixes, and feature tickets are managed directly via **GitHub Issues** on [`liorm/pi-bot`](https://github.com/liorm/pi-bot/issues) using the GitHub CLI (`gh issue ...`).
+   - Do not create or track tickets in local markdown documents unless explicitly requested.
+
 ---
 
 ## 2. Project Layout
