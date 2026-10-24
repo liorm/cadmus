@@ -34,6 +34,7 @@ export const AccountGetCommandSchema = Type.Object(
 		),
 	},
 	{
+		readOnly: true,
 		description:
 			"Retrieve tenant account details including membership, configured bot families, and provider credentials.",
 	},
@@ -103,6 +104,7 @@ export const AccountMembersListCommandSchema = Type.Object(
 		),
 	},
 	{
+		readOnly: true,
 		description:
 			"List all user members and their roles associated with the tenant account.",
 	},
@@ -183,6 +185,7 @@ export const AccountCredentialsListCommandSchema = Type.Object(
 		),
 	},
 	{
+		readOnly: true,
 		description:
 			"List configured AI provider credential summaries (excluding secret tokens).",
 	},
@@ -297,6 +300,7 @@ export const AccountModelsListCommandSchema = Type.Object(
 		),
 	},
 	{
+		readOnly: true,
 		description:
 			"List supported LLM models and their capabilities, optionally filtered by provider or authentication status.",
 	},
@@ -323,6 +327,7 @@ export const FamilyListCommandSchema = Type.Object(
 		),
 	},
 	{
+		readOnly: true,
 		description:
 			"List all bot families (Durable Object clusters) registered to the account.",
 	},
@@ -408,6 +413,7 @@ export const FamilyGetCommandSchema = Type.Object(
 		),
 	},
 	{
+		readOnly: true,
 		description:
 			"Retrieve metadata for a specific bot family or the currently scoped family.",
 	},
@@ -510,6 +516,7 @@ export const BotListCommandSchema = Type.Object(
 		),
 	},
 	{
+		readOnly: true,
 		description: "List all bots configured within the current bot family.",
 	},
 );
@@ -630,6 +637,7 @@ export const BotGetCommandSchema = Type.Object(
 		),
 	},
 	{
+		readOnly: true,
 		description:
 			"Retrieve full bot configuration, system prompt (SOUL.md), memory state, and knowledge documents.",
 	},
@@ -803,6 +811,7 @@ export const ChatListCommandSchema = Type.Object(
 		),
 	},
 	{
+		readOnly: true,
 		description:
 			"List chat conversation sessions in this bot family, optionally filtered by botId.",
 	},
@@ -833,6 +842,7 @@ export const ChatGetCommandSchema = Type.Object(
 		),
 	},
 	{
+		readOnly: true,
 		description:
 			"Retrieve chat session metadata, active busy flag, recent messages, entries, and harvest notes.",
 	},
@@ -870,6 +880,7 @@ export const AccountToolsEnvsListCommandSchema = Type.Object(
 		payload: Type.Optional(Type.Object({}, { additionalProperties: false })),
 	},
 	{
+		readOnly: true,
 		description: "List account tools env definitions and the default binding.",
 	},
 );
@@ -950,6 +961,7 @@ export const AccountToolsEnvSecretsListCommandSchema = Type.Object(
 		payload: Type.Optional(Type.Object({}, { additionalProperties: false })),
 	},
 	{
+		readOnly: true,
 		description:
 			"List daemon pairing secrets. Metadata only; the token is never returned.",
 	},
@@ -1121,6 +1133,7 @@ export const ChatMessagesCommandSchema = Type.Object(
 		),
 	},
 	{
+		readOnly: true,
 		description:
 			"Fetch the user and assistant message exchange history for a chat session.",
 	},
@@ -1151,6 +1164,7 @@ export const ChatEntriesCommandSchema = Type.Object(
 		),
 	},
 	{
+		readOnly: true,
 		description:
 			"Fetch the underlying durable transcript entries (including tool calls and state records) for a chat session.",
 	},
@@ -1181,6 +1195,7 @@ export const ChatStatusCommandSchema = Type.Object(
 		),
 	},
 	{
+		readOnly: true,
 		description:
 			"Fetch out-of-band runtime execution status for a chat session without invoking the model or modifying history.",
 	},
@@ -1457,6 +1472,7 @@ export const FileListCommandSchema = Type.Object(
 		),
 	},
 	{
+		readOnly: true,
 		description:
 			"List virtual workspace files (SOUL.md, MEMORY.md, and knowledge documents) associated with a bot.",
 	},
@@ -1493,6 +1509,7 @@ export const FileReadCommandSchema = Type.Object(
 		),
 	},
 	{
+		readOnly: true,
 		description:
 			"Read a virtual workspace file's content and version metadata, or list files if path is omitted.",
 	},
@@ -1655,6 +1672,7 @@ export const KnowledgeSearchCommandSchema = Type.Object(
 		),
 	},
 	{
+		readOnly: true,
 		description:
 			"Search across knowledge base documents for a bot using keyword and category filters.",
 	},
@@ -1776,6 +1794,7 @@ export const ScheduleListCommandSchema = Type.Object(
 		),
 	},
 	{
+		readOnly: true,
 		description:
 			"List scheduled tasks for a bot, optionally including internal idle harvest schedules.",
 	},

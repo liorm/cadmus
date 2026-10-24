@@ -1,7 +1,13 @@
+import {
+	apiResponseFromRpc,
+	isApiPath,
+	prepareApiCommand,
+	withPrivateApiCache,
+} from "./api-adapter.js";
 import { authenticateRequest } from "./auth.js";
 import { type EdgeCache, getEdgeCache } from "./edge-cache.js";
 import { CadmusBotFamilyDO } from "./family-do.js";
-import { ensureLogger, getLogger } from "./log.js";
+import { ensureLogger, getLogger, type Logger } from "./log.js";
 import {
 	type ClientCommand,
 	type CommandResultFrame,
@@ -71,7 +77,7 @@ export default {
 				method: request.method,
 				path: url.pathname,
 			});
-			return Response.json(
+			const unauthorized = Response.json(
 				{
 					type: "protocol.error",
 					payload: {
@@ -81,6 +87,10 @@ export default {
 				} satisfies ServerEvent,
 				{ status: 401 },
 			);
+			// Cookie and ?token= requests have no Authorization header. Only
+			// /api/* is marked uncacheable here; /rpc, /ws, and /events stay as they were.
+			if (isApiPath(url.pathname)) return withPrivateApiCache(unauthorized);
+			return unauthorized;
 		}
 
 		const { accountId, familyId: requestedFamilyId } = scope;
@@ -168,90 +178,151 @@ export default {
 				});
 			}
 
-			const payloadFamilyId =
-				command.payload &&
-				typeof command.payload === "object" &&
-				"familyId" in command.payload &&
-				typeof (command.payload as { familyId?: unknown }).familyId === "string"
-					? (command.payload as { familyId: string }).familyId ||
-						requestedFamilyId
-					: requestedFamilyId;
-
-			if (command.type === "family.create") {
-				const created = await adminStore.createFamily(accountId, {
-					familyId: command.payload.familyId,
-					name: command.payload.name,
-					timezone: command.payload.timezone ?? defaultTimezone,
-					harvestDelayMs:
-						command.payload.harvestDelayMs ?? defaultHarvestDelayMs,
-				});
-				reqLog.info("created bot family", {
-					family: created.familyId,
-					doName: created.doName,
-					timezone: created.timezone,
-				});
-				const doId = env.CADMUS_BOT_FAMILY.idFromName(created.doName);
-				const stub = env.CADMUS_BOT_FAMILY.get(doId);
-				await stub.fetch("https://cadmus.internal/__internal/configure", {
-					method: "POST",
-					headers: { "Content-Type": "application/json" },
-					body: JSON.stringify({
-						accountId: created.accountId,
-						familyId: created.familyId,
-						name: created.name,
-						timezone: created.timezone,
-						harvestDelayMs: created.harvestDelayMs,
-					}),
-				});
-				const frame: CommandResultFrame = {
-					id: command.id,
-					type: "command.result",
-					command: command.type,
-					ok: true,
-					result: { family: created },
-					payload: { family: created },
-				};
-				return new Response(defaultJsonShim.encodeFrame(frame), {
-					status: 200,
-					headers: { "Content-Type": defaultJsonShim.contentType },
-				});
-			}
-
-			const family = await resolveOrEnsureFamily(
-				edgeCache,
+			return dispatchDecodedCommand(
+				request,
+				env,
 				adminStore,
+				edgeCache,
 				accountId,
-				payloadFamilyId,
+				requestedFamilyId,
+				command,
+				raw,
+				reqLog,
 				defaultTimezone,
 				defaultHarvestDelayMs,
 			);
-			if (!family) {
-				reqLog.warn("rpc command rejected: family not found", {
-					command: command.type,
-					targetFamily: payloadFamilyId,
-				});
-				const errFrame: CommandResultFrame = {
-					id: command.id,
-					type: "command.result",
-					command: command.type,
-					ok: false,
-					error: {
-						code: "family_not_found",
-						message: `Bot Family '${payloadFamilyId}' not found in account '${accountId}'`,
-					},
-				};
-				return new Response(defaultJsonShim.encodeFrame(errFrame), {
-					status: 404,
-					headers: { "Content-Type": defaultJsonShim.contentType },
-				});
-			}
+		}
 
-			return forwardToFamilyDO(env, family, request, "/rpc", raw);
+		if (isApiPath(url.pathname)) {
+			const prepared = await prepareApiCommand(request);
+			if (!prepared.ok) return withPrivateApiCache(prepared.response);
+			reqLog.debug("dispatching api command", {
+				method: prepared.prepared.method,
+				command: prepared.prepared.command.type,
+			});
+			const rpcResponse = await dispatchDecodedCommand(
+				request,
+				env,
+				adminStore,
+				edgeCache,
+				accountId,
+				requestedFamilyId,
+				prepared.prepared.command,
+				prepared.prepared.raw,
+				reqLog,
+				defaultTimezone,
+				defaultHarvestDelayMs,
+				true,
+			);
+			return withPrivateApiCache(
+				await apiResponseFromRpc(rpcResponse, prepared.prepared.method),
+			);
 		}
 
 		return Response.json({ error: "Not found" }, { status: 404 });
 	},
 } satisfies ExportedHandler<Env>;
+
+async function dispatchDecodedCommand(
+	request: Request,
+	env: Env,
+	adminStore: D1AdminStore,
+	edgeCache: EdgeCache,
+	accountId: string,
+	requestedFamilyId: string,
+	command: ClientCommand,
+	raw: string,
+	reqLog: Logger,
+	defaultTimezone: string,
+	defaultHarvestDelayMs: number,
+	ensureJsonContentType = false,
+): Promise<Response> {
+	const payloadFamilyId =
+		command.payload &&
+		typeof command.payload === "object" &&
+		"familyId" in command.payload &&
+		typeof (command.payload as { familyId?: unknown }).familyId === "string"
+			? (command.payload as { familyId: string }).familyId || requestedFamilyId
+			: requestedFamilyId;
+
+	if (command.type === "family.create") {
+		const created = await adminStore.createFamily(accountId, {
+			familyId: command.payload.familyId,
+			name: command.payload.name,
+			timezone: command.payload.timezone ?? defaultTimezone,
+			harvestDelayMs: command.payload.harvestDelayMs ?? defaultHarvestDelayMs,
+		});
+		reqLog.info("created bot family", {
+			family: created.familyId,
+			doName: created.doName,
+			timezone: created.timezone,
+		});
+		const doId = env.CADMUS_BOT_FAMILY.idFromName(created.doName);
+		const stub = env.CADMUS_BOT_FAMILY.get(doId);
+		await stub.fetch("https://cadmus.internal/__internal/configure", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({
+				accountId: created.accountId,
+				familyId: created.familyId,
+				name: created.name,
+				timezone: created.timezone,
+				harvestDelayMs: created.harvestDelayMs,
+			}),
+		});
+		const frame: CommandResultFrame = {
+			id: command.id,
+			type: "command.result",
+			command: command.type,
+			ok: true,
+			result: { family: created },
+			payload: { family: created },
+		};
+		return new Response(defaultJsonShim.encodeFrame(frame), {
+			status: 200,
+			headers: { "Content-Type": defaultJsonShim.contentType },
+		});
+	}
+
+	const family = await resolveOrEnsureFamily(
+		edgeCache,
+		adminStore,
+		accountId,
+		payloadFamilyId,
+		defaultTimezone,
+		defaultHarvestDelayMs,
+	);
+	if (!family) {
+		reqLog.warn("rpc command rejected: family not found", {
+			command: command.type,
+			targetFamily: payloadFamilyId,
+		});
+		const errFrame: CommandResultFrame = {
+			id: command.id,
+			type: "command.result",
+			command: command.type,
+			ok: false,
+			error: {
+				code: "family_not_found",
+				message: `Bot Family '${payloadFamilyId}' not found in account '${accountId}'`,
+			},
+		};
+		return new Response(defaultJsonShim.encodeFrame(errFrame), {
+			status: 404,
+			headers: { "Content-Type": defaultJsonShim.contentType },
+		});
+	}
+
+	return forwardToFamilyDO(
+		env,
+		family,
+		request,
+		"/rpc",
+		raw,
+		"POST",
+		ensureJsonContentType,
+	);
+}
 
 async function resolveOrEnsureFamily(
 	edgeCache: EdgeCache,
@@ -293,25 +364,31 @@ async function forwardToFamilyDO(
 	originalRequest: Request,
 	pathname: string,
 	bodyOverride?: string,
+	methodOverride?: string,
+	ensureJsonContentType = false,
 ): Promise<Response> {
 	const doId = env.CADMUS_BOT_FAMILY.idFromName(family.doName);
 	const stub = env.CADMUS_BOT_FAMILY.get(doId);
 
+	const method = methodOverride ?? originalRequest.method;
 	const headers = new Headers(originalRequest.headers);
 	headers.set("X-Cadmus-Account-Id", family.accountId);
 	headers.set("X-Cadmus-Family-Id", family.familyId);
 	headers.set("X-Cadmus-Timezone", family.timezone);
 	headers.set("X-Cadmus-Harvest-Delay-Ms", String(family.harvestDelayMs));
+	if (ensureJsonContentType && !headers.has("content-type")) {
+		headers.set("content-type", "application/json");
+	}
 
 	const targetUrl = new URL(originalRequest.url);
 	targetUrl.pathname = pathname;
 
 	const init: RequestInit = {
-		method: originalRequest.method,
+		method,
 		headers,
 		...(bodyOverride !== undefined
 			? { body: bodyOverride }
-			: originalRequest.method !== "GET" && originalRequest.method !== "HEAD"
+			: method !== "GET" && method !== "HEAD"
 				? { body: originalRequest.body }
 				: {}),
 	};

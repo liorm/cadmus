@@ -14,7 +14,8 @@
 			"/ws",
 			"/tools-env/ws",
 			"/events",
-			"/rpc"
+			"/rpc",
+			"/api/*"
 		]
 	},
 	"durable_objects": {

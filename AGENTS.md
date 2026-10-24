@@ -38,11 +38,16 @@ This document contains everything an autonomous coding agent needs to understand
 6. **Idempotent Replay Safety (`replay: "safe"`)**:
    - All mutating agent tools (`knowledge_update`, `knowledge_delete`, `memory_update`, `schedule_create`, `schedule_update`, `schedule_delete`, `create_bot`, `message_bot`, `web.fetch`) must memoize their side-effect results via `await api.memo(key, value, context)` so `pi-durable` task replay across DO restarts never duplicates mutations.
 
-7. **Structured Logging Only (`src/log.ts`, Zero `console.*`)**:
+7. **REST `/api/*` Is a Translation of the Protocol, Not a Second Dispatcher**:
+   - Readonly vs mutating is the TypeBox `readOnly` option on each command schema in [`src/protocol/commands.ts`](src/protocol/commands.ts) (and [`src/protocol/oauth.ts`](src/protocol/oauth.ts)). Do not keep a parallel method map.
+   - [`isCommandReadOnly`](src/protocol/rest.ts) / path mapping (`file.read` ↔ `/api/file/read`) live in the pure module [`src/protocol/rest.ts`](src/protocol/rest.ts), re-exported from [`src/protocol.ts`](src/protocol.ts), so `web/` can import them the same way it imports protocol types.
+   - `/api/*` authenticates with the same `authenticateRequest` path as `/rpc`, then runs the shared command dispatch. It does not replace `/rpc` or `/ws`.
+
+8. **Structured Logging Only (`src/log.ts`, Zero `console.*`)**:
    - Never use `console.log`, `console.warn`, `console.error`, or `console.debug` anywhere in the codebase.
    - Always log through [`getLogger()`](src/log.ts) (configured via [`setupLogger()`](src/log.ts) / [`ensureLogger()`](src/log.ts), supporting `{ type: "console", level, stream, colors }`, `{ type: "custom", logger }`, and `{ type: "silent" }`) with structured `LogFields` and `.child(chatFields(...))` / `.child(familyFields(...))`.
 
-8. **Self-Initializing DB Schemas (Zero SQL Migration Files / No D1 Migrations)**:
+9. **Self-Initializing DB Schemas (Zero SQL Migration Files / No D1 Migrations)**:
    - Neither D1 nor Durable Object SQLite uses external SQL migration files (e.g. `migrations/*.sql`) or `wrangler d1 migrations` commands.
    - **Do not add a `migrations/` directory, `migrations_dir` in `wrangler.jsonc`, or `db:migrate:*` scripts in `package.json`**.
    - **Cloudflare D1 (`CADMUS_ADMIN_DB`)**: Schema is self-initializing and self-migrating in code inside [`src/store/d1-admin.ts`](src/store/d1-admin.ts) (`D1AdminStore.initialize()`), using `CREATE TABLE IF NOT EXISTS`, column inspection via `PRAGMA table_info`, and non-destructive `ALTER TABLE ADD COLUMN`.
@@ -53,7 +58,7 @@ This document contains everything an autonomous coding agent needs to understand
    - **DO SQLite (`CadmusBotFamilyDO`)**: Schema is self-initializing in code inside [`src/store/sqlite-family.ts`](src/store/sqlite-family.ts) (`SqliteFamilyStore.initialize()`), using `CREATE TABLE IF NOT EXISTS` and index creation. DO class declarations use Wrangler class migrations in `wrangler.jsonc` (`new_sqlite_classes`), not SQL files.
    - Deployment is pure `bun run deploy` (`wrangler deploy --keep-vars`) without any pre-deployment database migration steps.
 
-9. **Task & Issue Management via GitHub Issues**:
+10. **Task & Issue Management via GitHub Issues**:
    - All tasks, performance improvements, bug fixes, and feature tickets are managed directly via **GitHub Issues** on [`liorm/pi-bot`](https://github.com/liorm/pi-bot/issues) using the GitHub CLI (`gh issue ...`).
    - Do not create or track tickets in local markdown documents unless explicitly requested.
 
@@ -63,7 +68,8 @@ This document contains everything an autonomous coding agent needs to understand
 
 ```text
 ├── src/
-│   ├── index.ts                 # Worker Edge entrypoint (/health, /protocol/schema, auth, routing)
+│   ├── index.ts                 # Worker Edge entrypoint (/health, /protocol/schema, /rpc, /api, auth, routing)
+│   ├── api-adapter.ts           # /api/* ↔ ClientCommand translation (uses the /rpc dispatch path)
 │   ├── family-do.ts             # CadmusBotFamilyDO (RPC, WS, SSE, alarm(), pi-durable harness)
 │   ├── log.ts                   # Structured logger (setupLogger, getLogger, chatFields, familyFields)
 │   ├── protocol.ts              # TypeBox schemas & types for all commands and server frames

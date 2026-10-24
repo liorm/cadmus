@@ -241,6 +241,7 @@ export const AccountOAuthProvidersCommandSchema = Type.Object(
 		),
 	},
 	{
+		readOnly: true,
 		description:
 			"Command to list all supported OAuth providers and their authorization requirements.",
 	},
@@ -313,6 +314,7 @@ export const AccountOAuthStatusCommandSchema = Type.Object(
 		),
 	},
 	{
+		readOnly: true,
 		description:
 			"Command to query the current progress, prompt, or completion status of an active OAuth flow.",
 	},

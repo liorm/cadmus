@@ -93,7 +93,7 @@ To avoid querying D1 on every single `/rpc` request, Cadmus implements a two-tie
 - Subsequent requests for the same `(accountId, userId)` in that isolate are memoized in an in-memory isolate set (TTL 300s), skipping D1 upserts entirely.
 
 ### Verification Per Access Layer
-- **RPC (`/rpc`)**: Each HTTP POST frame authenticates via cache lookup (zero D1 queries after warming).
+- **RPC (`/rpc`) and REST (`/api/*`)**: Each request authenticates via the same `authenticateRequest` path and cache lookup (zero D1 queries after warming). `/api/*` does not have a separate auth stack.
 - **WebSocket (`/ws`)**: Authenticated once during HTTP upgrade / handshake. Individual frames over the open WebSocket bypass edge verification and stream directly to the DO.
 - **SSE (`/events`)**: Authenticated once upon stream establishment.
 

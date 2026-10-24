@@ -123,6 +123,7 @@ export * from "./protocol/common.js";
 export * from "./protocol/frames.js";
 export * from "./protocol/oauth.js";
 export * from "./protocol/records.js";
+export * from "./protocol/rest.js";
 export * from "./protocol/results.js";
 export * from "./protocol/schema.js";
 
