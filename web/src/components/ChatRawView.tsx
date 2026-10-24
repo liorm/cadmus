@@ -53,6 +53,25 @@ function normalizeKind(kind: string): string {
 	return kind;
 }
 
+function triggerBlobDownload(
+	content: string,
+	filename: string,
+	mimeType = "application/x-jsonlines",
+) {
+	if (typeof window === "undefined" || typeof document === "undefined") {
+		return;
+	}
+	const blob = new Blob([content], { type: mimeType });
+	const url = URL.createObjectURL(blob);
+	const a = document.createElement("a");
+	a.href = url;
+	a.download = filename;
+	document.body.appendChild(a);
+	a.click();
+	document.body.removeChild(a);
+	URL.revokeObjectURL(url);
+}
+
 export function ChatRawView({
 	entries,
 	messages: _messages,
@@ -164,6 +183,30 @@ export function ChatRawView({
 						{showAllJson
 							? "Hide Raw JSON for All"
 							: "{ } Show Raw JSON for All"}
+					</button>
+
+					<button
+						type="button"
+						className="btn btn-secondary btn-sm"
+						onClick={() => {
+							const jsonlContent =
+								entries.map((entry) => JSON.stringify(entry)).join("\n") +
+								(entries.length > 0 ? "\n" : "");
+							const safeKey = (chatKey ?? "chat").replace(
+								/[^a-zA-Z0-9_-]/g,
+								"_",
+							);
+							const dateStamp = new Date().toISOString().slice(0, 10);
+							const filename = `${safeKey}-transcript-${dateStamp}.jsonl`;
+							triggerBlobDownload(
+								jsonlContent,
+								filename,
+								"application/x-jsonlines",
+							);
+						}}
+						title="Export transcript as JSONL file"
+					>
+						Export JSONL
 					</button>
 				</div>
 			</div>

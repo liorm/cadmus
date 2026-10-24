@@ -441,6 +441,26 @@ function StatusDrawer({
 	);
 }
 
+// Helper to trigger browser download of a string blob
+function triggerBlobDownload(
+	content: string,
+	filename: string,
+	mimeType = "application/x-jsonlines",
+) {
+	if (typeof window === "undefined" || typeof document === "undefined") {
+		return;
+	}
+	const blob = new Blob([content], { type: mimeType });
+	const url = URL.createObjectURL(blob);
+	const a = document.createElement("a");
+	a.href = url;
+	a.download = filename;
+	document.body.appendChild(a);
+	a.click();
+	document.body.removeChild(a);
+	URL.revokeObjectURL(url);
+}
+
 // ─── Main ChatWorkspace Component ─────────────────────────────────────────────
 
 export interface ChatWorkspaceProps {
@@ -843,6 +863,19 @@ export function ChatWorkspace({
 		}
 	};
 
+	// Export chat transcript as JSONL file
+	const handleExportTranscript = () => {
+		if (!selectedChatKey || !chatData) return;
+		// Format each raw transcript entry as a single line JSON string
+		const jsonlContent =
+			chatData.entries.map((entry) => JSON.stringify(entry)).join("\n") +
+			(chatData.entries.length > 0 ? "\n" : "");
+		const safeKey = selectedChatKey.replace(/[^a-zA-Z0-9_-]/g, "_");
+		const dateStamp = new Date().toISOString().slice(0, 10);
+		const filename = `${safeKey}-transcript-${dateStamp}.jsonl`;
+		triggerBlobDownload(jsonlContent, filename, "application/x-jsonlines");
+	};
+
 	// Submit Prompt or Intercept /status
 	const handleSubmitPrompt = async (e?: React.FormEvent) => {
 		if (e) e.preventDefault();
@@ -1152,6 +1185,15 @@ export function ChatWorkspace({
 									onClick={() => setIsRenameModalOpen(true)}
 								>
 									Rename
+								</button>
+
+								<button
+									type="button"
+									className="btn btn-secondary btn-sm"
+									onClick={handleExportTranscript}
+									title="Export transcript as JSONL file"
+								>
+									Export JSONL
 								</button>
 
 								<button

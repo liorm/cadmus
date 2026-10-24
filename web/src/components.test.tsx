@@ -781,6 +781,7 @@ describe("Web UI Components", () => {
 		expect(html).toContain("assistant: 1");
 		expect(html).toContain("toolResult: 1");
 		expect(html).toContain("Show Raw JSON for All");
+		expect(html).toContain("Export JSONL");
 
 		// System sections & declared tools
 		expect(html).toContain("Entry #1");
@@ -847,6 +848,7 @@ describe("Web UI Components", () => {
 		expect(html).toContain("Raw (Blocks)");
 		expect(html).toContain("⚡ /status");
 		expect(html).toContain("Rename");
+		expect(html).toContain("Export JSONL");
 		expect(html).toContain("Reset");
 		expect(html).toContain("Close");
 
