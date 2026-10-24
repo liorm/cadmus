@@ -1,4 +1,3 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
 	ChatRecord,
 	ChatStatusRecord,
@@ -7,7 +6,8 @@ import type {
 	ServerEvent,
 	ThinkingLevel,
 	TranscriptMessageView,
-} from "../../../src/protocol.js";
+} from "@cadmus/contract/types";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useCadmus } from "../context/CadmusContext.js";
 import {
 	buildToolsEnvSetting,

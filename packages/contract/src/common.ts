@@ -30,15 +30,3 @@ export const ProtocolErrorSchema = Type.Object(
  * Strongly typed representation of a protocol error object.
  */
 export type ProtocolError = Static<typeof ProtocolErrorSchema>;
-
-/**
- * Error thrown when an incoming command frame violates the protocol schema or format constraints.
- */
-export class ProtocolValidationError extends Error {
-	readonly code: string;
-	constructor(message: string, code = "invalid_command") {
-		super(message);
-		this.name = "ProtocolValidationError";
-		this.code = code;
-	}
-}

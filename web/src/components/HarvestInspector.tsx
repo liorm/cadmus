@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
 import type {
 	ChatRecord,
 	HarvestNote,
 	ServerEvent,
-} from "../../../src/protocol.js";
+} from "@cadmus/contract/types";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useCadmus } from "../context/CadmusContext.js";
 
 interface UnifiedDiffViewerProps {

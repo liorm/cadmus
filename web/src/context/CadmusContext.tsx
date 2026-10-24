@@ -1,3 +1,9 @@
+import type {
+	BotRecord,
+	FamilyRecord,
+	ModelInfo,
+	ServerEvent,
+} from "@cadmus/contract/types";
 import type { ReactNode } from "react";
 import {
 	createContext,
@@ -7,12 +13,6 @@ import {
 	useMemo,
 	useState,
 } from "react";
-import type {
-	BotRecord,
-	FamilyRecord,
-	ModelInfo,
-	ServerEvent,
-} from "../../../src/protocol.js";
 import { CadmusClient, type ConnectionStatus } from "../client.js";
 
 export type ActiveTab = "chat" | "bots" | "schedules";

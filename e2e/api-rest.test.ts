@@ -1,9 +1,12 @@
 import { SELF } from "cloudflare:test";
+import { API_ROUTES } from "@cadmus/contract/routes";
 import { Type } from "typebox";
 import { describe, expect, it } from "vitest";
+import { type Logger, setupLogger } from "../src/log.js";
 import {
 	allowHeaderForCommand,
 	apiPathFromCommandType,
+	apiRouteForCommand,
 	type CommandType,
 	coerceQueryToSchema,
 	coerceSearchParamsToPayload,
@@ -120,6 +123,17 @@ describe("REST /api command translation", () => {
 			expect(isCommandReadOnly(type)).toBe(false);
 			expect(allowHeaderForCommand(type)).toBe("POST");
 		}
+
+		expect(Object.keys(API_ROUTES).sort()).toEqual(actual);
+		for (const type of listCommandTypes()) {
+			const route = API_ROUTES[type];
+			expect({
+				method: route.method,
+				path: route.path,
+				allow: route.allow,
+			}).toEqual(apiRouteForCommand(type));
+			expect(route.readOnly).toBe(isCommandReadOnly(type));
+		}
 	});
 
 	it("coerces query values against a payload schema and round-trips encodePayloadQuery", () => {
@@ -137,7 +151,6 @@ describe("REST /api command translation", () => {
 		params.append("tags", "a");
 		params.append("tags", "b");
 		params.append("meta", JSON.stringify({ a: "z" }));
-		params.append("token", "secret");
 		params.append("familyId", "alpha");
 		expect(coerceQueryToSchema(schema, params)).toEqual({
 			n: 1.5,
@@ -146,6 +159,11 @@ describe("REST /api command translation", () => {
 			tags: ["a", "b"],
 			meta: { a: "z" },
 		});
+		const withToken = new URLSearchParams(params);
+		withToken.append("token", "secret");
+		expect(() => coerceQueryToSchema(schema, withToken)).toThrow(
+			/Unknown query parameter 'token'/,
+		);
 
 		const encoded = encodePayloadQuery({
 			botId: "scribe",
@@ -473,19 +491,271 @@ describe("REST /api command translation", () => {
 		expect(unknownParam.status).toBe(400);
 	});
 
-	it("authenticates /api with a session cookie and a query token", async () => {
+	it("accepts Authorization Bearer on GET and POST /api and rejects query tokens and cookies", async () => {
+		const accountId = "acct-api-bearer";
+		const headers = authHeaders(accountId);
+
+		const listed = await SELF.fetch("http://example.com/api/bot/list", {
+			headers,
+		});
+		expect(listed.status).toBe(200);
+		expectPrivateApiCache(listed);
+		expect(await listed.json()).toMatchObject({ bots: [] });
+
+		const created = await SELF.fetch("http://example.com/api/family/create", {
+			method: "POST",
+			headers: { ...headers, "Content-Type": "application/json" },
+			body: JSON.stringify({ familyId: "bearer-fam", name: "Bearer" }),
+		});
+		expect(created.status).toBe(200);
+		expectPrivateApiCache(created);
+		expect(await created.json()).toMatchObject({
+			family: { familyId: "bearer-fam", name: "Bearer" },
+		});
+
+		const querySecret = "qtok-9f3a7c2e-do-not-log";
+		const captured: {
+			level: string;
+			message: string;
+			fields?: Record<string, unknown>;
+		}[] = [];
+		const makeCustom = (bound: Record<string, unknown> = {}): Logger => ({
+			debug: (message, fields) =>
+				captured.push({
+					level: "debug",
+					message,
+					fields: { ...bound, ...fields },
+				}),
+			info: (message, fields) =>
+				captured.push({
+					level: "info",
+					message,
+					fields: { ...bound, ...fields },
+				}),
+			warn: (message, fields) =>
+				captured.push({
+					level: "warn",
+					message,
+					fields: { ...bound, ...fields },
+				}),
+			error: (message, fields) =>
+				captured.push({
+					level: "error",
+					message,
+					fields: { ...bound, ...fields },
+				}),
+			child: (fields) => makeCustom({ ...bound, ...fields }),
+		});
+
+		const expectQueryTokenRejected = async (
+			url: string,
+			init?: RequestInit,
+		) => {
+			const response = await SELF.fetch(url, init);
+			expect(response.status).toBe(401);
+			expectPrivateApiCache(response);
+			if ((init?.method ?? "GET").toUpperCase() === "HEAD") {
+				expect(await response.text()).toBe("");
+				expect(response.headers.get("content-type")).toContain(
+					"application/json",
+				);
+				return;
+			}
+			expect(await response.json()).toEqual({
+				error: {
+					code: "query_token_not_allowed",
+					message:
+						"The token query parameter is not allowed. Send Authorization: Bearer instead.",
+				},
+			});
+		};
+
+		try {
+			setupLogger({ type: "custom", logger: makeCustom() });
+			await expectQueryTokenRejected(
+				`http://example.com/api/bot/list?token=${encodeURIComponent(querySecret)}&accountId=acct-api-query`,
+			);
+			await expectQueryTokenRejected(
+				`http://example.com/api/bot/list?token=${encodeURIComponent(querySecret)}`,
+				{ headers },
+			);
+			await expectQueryTokenRejected(
+				`http://example.com/api/family/create?token=${encodeURIComponent(querySecret)}`,
+				{
+					method: "POST",
+					headers: { ...headers, "Content-Type": "application/json" },
+					body: JSON.stringify({ familyId: "should-not-run", name: "No" }),
+				},
+			);
+			await expectQueryTokenRejected("http://example.com/api/bot/list?token=", {
+				headers,
+			});
+			// Auth runs before route and method checks, so ?token= is 401 here
+			// rather than 404 or 405.
+			await expectQueryTokenRejected(
+				"http://example.com/api/no/such/path?token=",
+			);
+			await expectQueryTokenRejected("http://example.com/api/bot/list?token=", {
+				method: "DELETE",
+			});
+			await expectQueryTokenRejected("http://example.com/api/bot/list?token=", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({}),
+			});
+			await expectQueryTokenRejected("http://example.com/api/bot/list?token=", {
+				method: "HEAD",
+			});
+
+			const logged = JSON.stringify(captured);
+			expect(logged).toContain("query_token_not_allowed");
+			expect(logged).toContain("/api/bot/list");
+			expect(logged).not.toContain(querySecret);
+		} finally {
+			setupLogger({ type: "silent" });
+		}
+
 		const viaCookie = await SELF.fetch("http://example.com/api/bot/list", {
 			headers: {
 				Cookie: `cadmus_session=${encodeURIComponent(`acct-api-cookie:owner:${TEST_TOKEN}`)}`,
 			},
 		});
-		expect(viaCookie.status).toBe(200);
-		expect(await viaCookie.json()).toMatchObject({ bots: [] });
+		expect(viaCookie.status).toBe(401);
+		expectPrivateApiCache(viaCookie);
+		expect(await viaCookie.json()).toEqual({
+			error: {
+				code: "header_required",
+				message:
+					"Authorization: Bearer token is required. Session cookies are not accepted.",
+			},
+		});
 
-		const viaQuery = await SELF.fetch(
-			`http://example.com/api/bot/list?token=${TEST_TOKEN}&accountId=acct-api-query&userId=query-user`,
+		const headCookie = await SELF.fetch("http://example.com/api/bot/list", {
+			method: "HEAD",
+			headers: {
+				Cookie: `cadmus_session=${encodeURIComponent(`acct-api-cookie:owner:${TEST_TOKEN}`)}`,
+			},
+		});
+		expect(headCookie.status).toBe(401);
+		expectPrivateApiCache(headCookie);
+		expect(await headCookie.text()).toBe("");
+		expect(headCookie.headers.get("content-type")).toContain(
+			"application/json",
 		);
-		expect(viaQuery.status).toBe(200);
-		expect(await viaQuery.json()).toMatchObject({ bots: [] });
+
+		const cookieIgnored = await SELF.fetch("http://example.com/api/bot/list", {
+			headers: {
+				...headers,
+				Cookie: `cadmus_session=${encodeURIComponent("acct-other:owner:not-the-header-token")}`,
+			},
+		});
+		expect(cookieIgnored.status).toBe(200);
+		expect(await cookieIgnored.json()).toMatchObject({ bots: [] });
+
+		const rpcQuery = await SELF.fetch(
+			`http://example.com/rpc?token=${encodeURIComponent(TEST_TOKEN)}&accountId=acct-rpc-query&userId=rpc-query-user`,
+			{
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ id: "rpc-q", type: "bot.list", payload: {} }),
+			},
+		);
+		expect(rpcQuery.status).toBe(200);
+		expect(await rpcQuery.json()).toMatchObject({
+			type: "command.result",
+			ok: true,
+		});
+
+		const rpcCookie = await sendRpc(
+			"bot.list",
+			{},
+			{
+				token: "",
+				cookie: `cadmus_session=${encodeURIComponent(`acct-rpc-cookie:owner:${TEST_TOKEN}`)}`,
+			},
+		);
+		expect(rpcCookie.status).toBe(200);
+		expect(rpcCookie.frame.ok).toBe(true);
+
+		const eventsQuery = await SELF.fetch(
+			`http://example.com/events?token=${encodeURIComponent(TEST_TOKEN)}&accountId=acct-events-query`,
+		);
+		expect(eventsQuery.status).toBe(200);
+		expect(eventsQuery.headers.get("content-type")).toContain(
+			"text/event-stream",
+		);
+		await eventsQuery.body?.cancel();
+	});
+});
+
+describe("API document routes", () => {
+	const specs = ["/api/openapi.json", "/api/asyncapi.json"] as const;
+
+	it("treats OpenAPI and AsyncAPI paths as unknown /api commands", async () => {
+		for (const path of specs) {
+			const res = await SELF.fetch(`http://example.com${path}`, {
+				headers: { Authorization: `Bearer ${TEST_TOKEN}` },
+			});
+			expect(res.status).toBe(404);
+			expectPrivateApiCache(res);
+			expect(await res.json()).toMatchObject({
+				error: { code: "not_found" },
+			});
+
+			const head = await SELF.fetch(`http://example.com${path}`, {
+				method: "HEAD",
+				headers: { Authorization: `Bearer ${TEST_TOKEN}` },
+			});
+			expect(head.status).toBe(404);
+			expect(await head.text()).toBe("");
+			expectPrivateApiCache(head);
+		}
+	});
+
+	it("authenticates those paths as /api before 404", async () => {
+		for (const path of specs) {
+			const anon = await SELF.fetch(`http://example.com${path}`);
+			expect(anon.status).toBe(401);
+			expectPrivateApiCache(anon);
+			expect(await anon.json()).toMatchObject({
+				type: "protocol.error",
+				payload: { code: "unauthorized" },
+			});
+
+			const query = await SELF.fetch(
+				`http://example.com${path}?token=${encodeURIComponent(TEST_TOKEN)}`,
+				{ headers: { Authorization: `Bearer ${TEST_TOKEN}` } },
+			);
+			expect(query.status).toBe(401);
+			expectPrivateApiCache(query);
+			expect(await query.json()).toEqual({
+				error: {
+					code: "query_token_not_allowed",
+					message: expect.any(String),
+				},
+			});
+
+			const headQuery = await SELF.fetch(
+				`http://example.com${path}?token=${encodeURIComponent(TEST_TOKEN)}`,
+				{ method: "HEAD", headers: { Authorization: `Bearer ${TEST_TOKEN}` } },
+			);
+			expect(headQuery.status).toBe(401);
+			expect(await headQuery.text()).toBe("");
+			expectPrivateApiCache(headQuery);
+
+			const cookie = await SELF.fetch(`http://example.com${path}`, {
+				headers: {
+					Cookie: `cadmus_session=${encodeURIComponent(`acct-docs:owner:${TEST_TOKEN}`)}`,
+				},
+			});
+			expect(cookie.status).toBe(401);
+			expectPrivateApiCache(cookie);
+			expect(await cookie.json()).toEqual({
+				error: {
+					code: "header_required",
+					message: expect.any(String),
+				},
+			});
+		}
 	});
 });

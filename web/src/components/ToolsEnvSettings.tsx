@@ -1,5 +1,5 @@
+import type { ToolsEnvRecord } from "@cadmus/contract/types";
 import { useEffect, useState } from "react";
-import type { ToolsEnvRecord } from "../../../src/protocol.js";
 import { useCadmus } from "../context/CadmusContext.js";
 
 interface ToolsEnvSettingsProps {

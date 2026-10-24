@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ProtocolValidationError } from "../src/protocol/common.js";
+import { ProtocolValidationError } from "../src/protocol/validate.js";
 import {
 	assertDaemonEnvWrite,
 	assertJustBashEnvWrite,

@@ -4,7 +4,7 @@ import type {
 	CommandResultFrame,
 	ServerEvent,
 	TurnBlock,
-} from "../../src/protocol.js";
+} from "@cadmus/contract/types";
 import {
 	createTuiState,
 	handleServerEvent,

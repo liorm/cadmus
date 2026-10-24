@@ -16,24 +16,76 @@ export interface ResolvedRequestScope extends AuthenticatedIdentity {
 	familyId: string;
 }
 
-export function extractRawToken(request: Request): string | undefined {
+/**
+ * Which credential transports `authenticateRequest` may read.
+ *
+ * Defaults accept the `Authorization` header, the `cadmus_session` cookie, and
+ * `?token=`. `/api` passes `{ allowQueryToken: false, allowCookie: false }`
+ * so only the header is a credential. `/rpc`, `/ws`, and `/events` keep the defaults.
+ */
+export interface AuthenticateRequestOptions {
+	allowQueryToken?: boolean;
+	allowCookie?: boolean;
+}
+
+export type AuthDenialCode =
+	| "unauthorized"
+	| "query_token_not_allowed"
+	| "header_required";
+
+export type AuthenticateRequestResult =
+	| { ok: true; scope: ResolvedRequestScope }
+	| { ok: false; code: AuthDenialCode; message: string };
+
+const UNAUTHORIZED_MESSAGE = "Missing or invalid authentication token";
+const QUERY_TOKEN_MESSAGE =
+	"The token query parameter is not allowed. Send Authorization: Bearer instead.";
+const HEADER_REQUIRED_MESSAGE =
+	"Authorization: Bearer token is required. Session cookies are not accepted.";
+
+function bearerToken(request: Request): string | undefined {
 	const authHeader = request.headers.get("authorization");
-	if (authHeader) {
-		const match = /^Bearer\s+(.+)$/i.exec(authHeader.trim());
-		if (match?.[1]) return match[1].trim();
-	}
+	if (!authHeader) return undefined;
+	const match = /^Bearer\s+(.+)$/i.exec(authHeader.trim());
+	const token = match?.[1]?.trim();
+	return token ? token : undefined;
+}
+
+function sessionCookieToken(request: Request): string | undefined {
 	const cookieHeader = request.headers.get("cookie");
-	if (cookieHeader) {
-		for (const part of cookieHeader.split(";")) {
-			const [key, ...rest] = part.trim().split("=");
-			if (key === "cadmus_session" && rest.length > 0) {
-				return decodeURIComponent(rest.join("=").trim());
-			}
+	if (!cookieHeader) return undefined;
+	for (const part of cookieHeader.split(";")) {
+		const [key, ...rest] = part.trim().split("=");
+		if (key === "cadmus_session" && rest.length > 0) {
+			const value = decodeURIComponent(rest.join("=").trim());
+			if (value.length > 0) return value;
 		}
 	}
-	const url = new URL(request.url);
-	const queryToken = url.searchParams.get("token");
-	if (queryToken) return queryToken.trim();
+	return undefined;
+}
+
+/**
+ * True when the URL has a `token` query parameter.
+ * The value is not read, so it cannot be logged from this check.
+ */
+export function hasQueryToken(request: Request): boolean {
+	return new URL(request.url).searchParams.has("token");
+}
+
+export function extractRawToken(
+	request: Request,
+	options: AuthenticateRequestOptions = {},
+): string | undefined {
+	const headerToken = bearerToken(request);
+	if (headerToken) return headerToken;
+	if (options.allowCookie !== false) {
+		const cookieToken = sessionCookieToken(request);
+		if (cookieToken) return cookieToken;
+	}
+	if (options.allowQueryToken !== false) {
+		const queryToken = new URL(request.url).searchParams.get("token")?.trim();
+		if (queryToken) return queryToken;
+	}
 	return undefined;
 }
 
@@ -93,22 +145,64 @@ export async function matchMasterSecret(
 
 /**
  * Authenticates every inbound HTTP / WebSocket request at the Worker Edge.
- * Anonymous requests are rejected with undefined (401 Unauthorized).
+ * Anonymous and invalid credentials resolve as `{ ok: false, code: "unauthorized" }`
+ * (401). `/api` may also deny with `query_token_not_allowed` or `header_required`.
  *
  * Supported token formats:
  * 1. Direct or scoped master secret (<CADMUS_AUTH_SECRET>) with constant-time check & isolate fast-path.
  * 2. Stored token in D1 `cadmus_auth_tokens` with L1 (memory) and optional L2 (KV) caching.
+ *
+ * `options.allowQueryToken` / `options.allowCookie` default to true. `/api` sets
+ * both to false: a `token` query parameter is rejected before it is read, and a
+ * session cookie is not a credential (`header_required` when it is the only one).
  */
 export async function authenticateRequest(
 	request: Request,
 	env: Env,
 	adminStore: AdminStore,
 	edgeCache: EdgeCache = getEdgeCache(env),
-): Promise<ResolvedRequestScope | undefined> {
-	const rawToken = extractRawToken(request);
+	options: AuthenticateRequestOptions = {},
+): Promise<AuthenticateRequestResult> {
+	const allowQueryToken = options.allowQueryToken !== false;
+	const allowCookie = options.allowCookie !== false;
+	if (!allowQueryToken && hasQueryToken(request)) {
+		const path = new URL(request.url).pathname;
+		getLogger().warn("api credential transport rejected", {
+			code: "query_token_not_allowed",
+			method: request.method,
+			path,
+		});
+		return {
+			ok: false,
+			code: "query_token_not_allowed",
+			message: QUERY_TOKEN_MESSAGE,
+		};
+	}
+
+	const rawToken = extractRawToken(request, {
+		allowQueryToken,
+		allowCookie,
+	});
 	if (!rawToken) {
+		if (!allowCookie && sessionCookieToken(request)) {
+			const path = new URL(request.url).pathname;
+			getLogger().warn("api credential transport rejected", {
+				code: "header_required",
+				method: request.method,
+				path,
+			});
+			return {
+				ok: false,
+				code: "header_required",
+				message: HEADER_REQUIRED_MESSAGE,
+			};
+		}
 		getLogger().debug("auth failed: no token present");
-		return undefined;
+		return {
+			ok: false,
+			code: "unauthorized",
+			message: UNAUTHORIZED_MESSAGE,
+		};
 	}
 
 	const url = new URL(request.url);
@@ -149,10 +243,13 @@ export async function authenticateRequest(
 			family: requestedFamilyId,
 		});
 		return {
-			accountId,
-			userId,
-			role: "owner",
-			familyId: requestedFamilyId,
+			ok: true,
+			scope: {
+				accountId,
+				userId,
+				role: "owner",
+				familyId: requestedFamilyId,
+			},
 		};
 	}
 
@@ -166,8 +263,11 @@ export async function authenticateRequest(
 			family: requestedFamilyId,
 		});
 		return {
-			...cached,
-			familyId: requestedFamilyId,
+			ok: true,
+			scope: {
+				...cached,
+				familyId: requestedFamilyId,
+			},
 		};
 	}
 
@@ -181,12 +281,19 @@ export async function authenticateRequest(
 			family: requestedFamilyId,
 		});
 		return {
-			...stored,
-			familyId: requestedFamilyId,
+			ok: true,
+			scope: {
+				...stored,
+				familyId: requestedFamilyId,
+			},
 		};
 	}
 
 	// Auth failed: invalid token (negative results are NOT cached)
 	getLogger().warn("auth failed: invalid bearer token");
-	return undefined;
+	return {
+		ok: false,
+		code: "unauthorized",
+		message: UNAUTHORIZED_MESSAGE,
+	};
 }

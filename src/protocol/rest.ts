@@ -1,6 +1,19 @@
+import {
+	ClientCommandSchema,
+	type CommandType,
+	DEFAULT_ERROR_HTTP_STATUS,
+	ERROR_HTTP_STATUS,
+	NOT_FOUND_CODE_SUFFIX,
+	REST_RESERVED_QUERY_KEYS,
+} from "@cadmus/contract/schemas";
 import { Value } from "typebox/value";
-import { ClientCommandSchema, type CommandType } from "./commands.js";
-import { ProtocolValidationError } from "./common.js";
+import { apiPathFromCommandType } from "./rest-encode.js";
+import { ProtocolValidationError } from "./validate.js";
+
+export {
+	apiPathFromCommandType,
+	commandTypeFromApiPath,
+} from "./rest-encode.js";
 
 /**
  * Structural view of a TypeBox JSON schema node. `TSchema` itself is an empty
@@ -25,25 +38,21 @@ type SchemaNode = {
  * `isCommandReadOnly` reads it back from `ClientCommandSchema`. Mutating commands omit
  * the flag and map to `POST`.
  *
- * This module is pure (TypeBox + protocol schemas only) so `web/` can import it the
- * same way it imports `src/protocol.ts`.
+ * Path strings live in `rest-encode.ts` (no TypeBox) and are re-exported here.
+ * `encodePayloadQuery` is the generated encoder in `@cadmus/contract/routes`,
+ * re-exported from `src/protocol.ts`. `coerceSearchParamsToPayload` decodes
+ * that query string.
  */
 
-export const API_PATH_PREFIX = "/api/";
-
 /**
- * Query keys consumed by edge authentication and family routing.
+ * Query keys consumed by edge family routing.
  * They are not command payload fields unless the payload schema lists them
  * (`familyId` on family commands). When they are not payload fields they are
  * ignored here; `authenticateRequest` has already applied them to the scope.
+ *
+ * `token` is not reserved. `/api` rejects a `token` query parameter before
+ * coercion, and a leftover `token` key is an unknown parameter.
  */
-export const REST_RESERVED_QUERY_KEYS = [
-	"token",
-	"accountId",
-	"userId",
-	"familyId",
-] as const;
-
 const RESERVED_QUERY_KEYS = new Set<string>(REST_RESERVED_QUERY_KEYS);
 
 type CommandVariant = SchemaNode & {
@@ -101,25 +110,6 @@ export function listReadOnlyCommandTypes(): CommandType[] {
 	return listCommandTypes().filter((type) => isCommandReadOnly(type));
 }
 
-/** `file.read` -> `/api/file/read`. */
-export function apiPathFromCommandType(commandType: string): string {
-	return `${API_PATH_PREFIX}${commandType.replaceAll(".", "/")}`;
-}
-
-/**
- * `/api/file/read` -> `file.read`.
- * Returns undefined for paths outside `/api/*`, empty paths, or trailing slashes.
- * Does not check that the command exists.
- */
-export function commandTypeFromApiPath(pathname: string): string | undefined {
-	if (!pathname.startsWith(API_PATH_PREFIX)) return undefined;
-	const rest = pathname.slice(API_PATH_PREFIX.length);
-	if (rest.length === 0 || rest.endsWith("/")) return undefined;
-	const segments = rest.split("/");
-	if (segments.some((segment) => segment.length === 0)) return undefined;
-	return segments.join(".");
-}
-
 /** `Allow` header value. Readonly commands accept `GET` and `HEAD`. */
 export function allowHeaderForCommand(commandType: CommandType): string {
 	return isCommandReadOnly(commandType) ? "GET, HEAD" : "POST";
@@ -158,22 +148,10 @@ export function apiRouteForCommand(commandType: CommandType): {
  * results. Only the REST adapter remaps these codes.
  */
 export function httpStatusForProtocolCode(code: string): number {
-	switch (code) {
-		case "unauthorized":
-			return 401;
-		case "forbidden":
-			return 403;
-		case "not_found":
-		case "family_not_found":
-			return 404;
-		case "cas_conflict":
-		case "conflict":
-			return 409;
-		case "command_failed":
-			return 500;
-		default:
-			return code.endsWith("_not_found") ? 404 : 400;
+	if (Object.hasOwn(ERROR_HTTP_STATUS, code)) {
+		return ERROR_HTTP_STATUS[code as keyof typeof ERROR_HTTP_STATUS];
 	}
+	return code.endsWith(NOT_FOUND_CODE_SUFFIX) ? 404 : DEFAULT_ERROR_HTTP_STATUS;
 }
 
 function payloadSchemaOf(commandType: string): SchemaNode {
@@ -199,8 +177,8 @@ function payloadSchemaOf(commandType: string): SchemaNode {
  * - objects (and other nested values): one JSON-encoded query value
  * - unions: the first successful coercion among boolean, number, JSON, then string
  *
- * `token`, `accountId`, `userId`, and `familyId` are skipped when they are not
- * payload properties. Any other unknown key is rejected.
+ * `accountId`, `userId`, and `familyId` are skipped when they are not payload
+ * properties. `token` is not skipped. Any other unknown key is rejected.
  */
 export function coerceSearchParamsToPayload(
 	commandType: CommandType,
@@ -347,57 +325,4 @@ function scalarCandidates(raw: string): unknown[] {
 	}
 	candidates.push(raw);
 	return candidates;
-}
-
-/**
- * Encode a payload object as query parameters that `coerceSearchParamsToPayload`
- * accepts. Nested objects and arrays of objects are JSON-encoded. Arrays of
- * primitives use repeated keys. Booleans and numbers use their JSON text form.
- */
-export function encodePayloadQuery(
-	payload: Record<string, unknown>,
-): URLSearchParams {
-	const params = new URLSearchParams();
-	for (const [key, value] of Object.entries(payload)) {
-		if (value === undefined) continue;
-		appendQueryValue(params, key, value);
-	}
-	return params;
-}
-
-function appendQueryValue(
-	params: URLSearchParams,
-	key: string,
-	value: unknown,
-): void {
-	if (
-		typeof value === "string" ||
-		typeof value === "number" ||
-		typeof value === "boolean"
-	) {
-		params.append(key, String(value));
-		return;
-	}
-	if (Array.isArray(value)) {
-		const nested = value.some(
-			(item) => item !== null && typeof item === "object",
-		);
-		if (nested) {
-			params.append(key, JSON.stringify(value));
-			return;
-		}
-		for (const item of value) {
-			if (
-				typeof item === "string" ||
-				typeof item === "number" ||
-				typeof item === "boolean"
-			) {
-				params.append(key, String(item));
-			} else if (item !== undefined) {
-				params.append(key, JSON.stringify(item));
-			}
-		}
-		return;
-	}
-	params.append(key, JSON.stringify(value));
 }

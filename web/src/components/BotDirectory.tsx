@@ -1,5 +1,5 @@
+import type { BotRecord, ThinkingLevel } from "@cadmus/contract/types";
 import { useEffect, useMemo, useState } from "react";
-import type { BotRecord, ThinkingLevel } from "../../../src/protocol.js";
 import { useCadmus } from "../context/CadmusContext.js";
 import {
 	buildToolsEnvSetting,

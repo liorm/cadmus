@@ -1,12 +1,17 @@
+import {
+	API_ROUTES,
+	encodePayloadQuery,
+	routeForCommand,
+} from "@cadmus/contract/routes";
 import type {
-	ClientCommand,
+	ClientToServer,
+	CommandName,
 	CommandResultFrame,
-	RpcPayload,
-	RpcResult,
-	RpcType,
+	Payload,
+	Result,
 	ServerEvent,
-	ServerFrame,
-} from "../../src/protocol.js";
+	ServerToClient,
+} from "@cadmus/contract/types";
 
 export interface CadmusTuiClientOptions {
 	baseUrl: string;
@@ -83,7 +88,7 @@ export class CadmusProtocolClient {
 							typeof ev.data === "string"
 								? ev.data
 								: new TextDecoder().decode(ev.data as ArrayBuffer);
-						const frame = JSON.parse(raw) as ServerFrame;
+						const frame = JSON.parse(raw) as ServerToClient;
 						if (frame.type === "command.result") {
 							const waiter = this.pending.get(frame.id);
 							if (waiter) {
@@ -111,10 +116,21 @@ export class CadmusProtocolClient {
 		});
 	}
 
-	async sendCommand<K extends RpcType>(
-		type: K,
-		payload?: RpcPayload<K>,
-	): Promise<CommandResultFrame<RpcResult<K>>>;
+	async call<C extends CommandName>(
+		command: C,
+		payload?: Payload<C>,
+	): Promise<Result<C>> {
+		const frame = await this.sendCommand(command, payload);
+		if (!frame.ok) {
+			throw new Error(frame.error?.message ?? `${command} failed`);
+		}
+		return frame.result as Result<C>;
+	}
+
+	async sendCommand<C extends CommandName>(
+		type: C,
+		payload?: Payload<C>,
+	): Promise<CommandResultFrame<Result<C>>>;
 	async sendCommand<T = unknown>(
 		type: string,
 		payload?: Record<string, unknown>,
@@ -124,11 +140,11 @@ export class CadmusProtocolClient {
 		payload?: Record<string, unknown>,
 	): Promise<CommandResultFrame<T>> {
 		const id = `cmd-${crypto.randomUUID().slice(0, 8)}`;
-		const command = {
+		const command: ClientToServer = {
 			id,
 			type,
 			...(payload !== undefined ? { payload } : {}),
-		} as ClientCommand;
+		} as ClientToServer;
 
 		if (this.ws && this.ws.readyState === WebSocket.OPEN) {
 			return new Promise<CommandResultFrame<T>>((resolve, reject) => {
@@ -140,23 +156,75 @@ export class CadmusProtocolClient {
 			});
 		}
 
-		const res = await fetch(`${this.baseUrl}/rpc`, {
-			method: "POST",
-			headers: this.buildHeaders(),
-			body: JSON.stringify(command),
-		});
+		return this.sendOverRest<T>(id, type, payload);
+	}
 
-		const data = (await res.json()) as ServerFrame;
-		if (data.type === "protocol.error") {
+	private async sendOverRest<T>(
+		id: string,
+		type: string,
+		payload?: Record<string, unknown>,
+	): Promise<CommandResultFrame<T>> {
+		const known = Object.hasOwn(API_ROUTES, type)
+			? routeForCommand(type as CommandName)
+			: undefined;
+		const method = known?.method ?? "POST";
+		const path = known?.path ?? `/api/${type.replaceAll(".", "/")}`;
+		let url = `${this.baseUrl}${path}`;
+		const headers = this.buildHeaders();
+		const init: RequestInit = { method, headers };
+		if (method === "GET") {
+			delete headers["Content-Type"];
+			if (payload) {
+				const query = encodePayloadQuery(payload).toString();
+				if (query.length > 0) url += `?${query}`;
+			}
+		} else {
+			init.body = JSON.stringify(payload ?? {});
+		}
+		const res = await fetch(url, init);
+		const data: unknown = await res.json();
+		if (isRecord(data) && data.type === "protocol.error") {
+			const errorPayload = isRecord(data.payload) ? data.payload : {};
 			return {
 				id,
 				type: "command.result",
 				command: type,
 				ok: false,
-				error: data.payload,
+				error: {
+					code:
+						typeof errorPayload.code === "string"
+							? errorPayload.code
+							: "protocol_error",
+					message:
+						typeof errorPayload.message === "string"
+							? errorPayload.message
+							: "Protocol error",
+				},
 			};
 		}
-		return data as CommandResultFrame<T>;
+		if (!res.ok) {
+			const error = isRecord(data) && isRecord(data.error) ? data.error : {};
+			return {
+				id,
+				type: "command.result",
+				command: type,
+				ok: false,
+				error: {
+					code: typeof error.code === "string" ? error.code : "command_failed",
+					message:
+						typeof error.message === "string"
+							? error.message
+							: `HTTP ${res.status}`,
+				},
+			};
+		}
+		return {
+			id,
+			type: "command.result",
+			command: type,
+			ok: true,
+			result: data as T,
+		};
 	}
 
 	close(): void {
@@ -166,4 +234,8 @@ export class CadmusProtocolClient {
 			// Ignore
 		}
 	}
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
 }

@@ -1,5 +1,5 @@
-import { ProtocolValidationError } from "../protocol/common.js";
-import type { ToolsEnvBinding, ToolsEnvSetting } from "../protocol/records.js";
+import type { ToolsEnvBinding, ToolsEnvSetting } from "@cadmus/contract/types";
+import { ProtocolValidationError } from "../protocol/validate.js";
 
 export const WORKSPACE_ROOT = "/workspace";
 export const NAMESPACE_BYTE_CAP = 8 * 1024 * 1024;

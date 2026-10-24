@@ -33,15 +33,16 @@ This document contains everything an autonomous coding agent needs to understand
 
 5. **Standalone TUI (`tui/`)**:
    - `tui/` is an independent project with its own [`tui/package.json`](tui/package.json) and [`tui/tsconfig.json`](tui/tsconfig.json) (`verbatimModuleSyntax: true`).
-   - Never import runtime code from `src/` into `tui/src/`. Only `import type { ... } from "../../src/protocol.js"` is allowed.
+   - `tui/src/` imports only `@cadmus/contract/types` and `@cadmus/contract/routes`. It does not import `src/` or `daemon/`. See [API boundaries](#4-api-boundaries).
 
 6. **Idempotent Replay Safety (`replay: "safe"`)**:
    - All mutating agent tools (`knowledge_update`, `knowledge_delete`, `memory_update`, `schedule_create`, `schedule_update`, `schedule_delete`, `create_bot`, `message_bot`, `web.fetch`) must memoize their side-effect results via `await api.memo(key, value, context)` so `pi-durable` task replay across DO restarts never duplicates mutations.
 
 7. **REST `/api/*` Is a Translation of the Protocol, Not a Second Dispatcher**:
-   - Readonly vs mutating is the TypeBox `readOnly` option on each command schema in [`src/protocol/commands.ts`](src/protocol/commands.ts) (and [`src/protocol/oauth.ts`](src/protocol/oauth.ts)). Do not keep a parallel method map.
-   - [`isCommandReadOnly`](src/protocol/rest.ts) / path mapping (`file.read` ↔ `/api/file/read`) live in the pure module [`src/protocol/rest.ts`](src/protocol/rest.ts), re-exported from [`src/protocol.ts`](src/protocol.ts), so `web/` can import them the same way it imports protocol types.
-   - `/api/*` authenticates with the same `authenticateRequest` path as `/rpc`, then runs the shared command dispatch. It does not replace `/rpc` or `/ws`.
+   - Readonly vs mutating is the TypeBox `readOnly` option on each command schema in [`packages/contract`](packages/contract) (`commands.ts` and `oauth.ts`). Do not keep a parallel method map.
+   - [`isCommandReadOnly`](src/protocol/rest.ts) / path mapping (`file.read` ↔ `/api/file/read`) live in [`src/protocol/rest.ts`](src/protocol/rest.ts), re-exported from [`src/protocol.ts`](src/protocol.ts). Path strings live in [`src/protocol/rest-encode.ts`](src/protocol/rest-encode.ts) and do not import TypeBox. `encodePayloadQuery` has one implementation, generated into `@cadmus/contract/routes` and re-exported from `src/protocol.ts`. Do not keep a second encoder or a parallel hand-written readonly list.
+   - `/api/*` authenticates with the same `authenticateRequest` path as `/rpc`, then runs the shared command dispatch. It does not replace `/rpc` or `/ws`. `/api` calls that path with `{ allowQueryToken: false, allowCookie: false }`: the only credential is `Authorization: Bearer`. A `token` query parameter is **401** `{ error: { code: "query_token_not_allowed" } }` even when a valid header is also present, and the query value is never logged. A `cadmus_session` cookie without that header is **401** `{ error: { code: "header_required" } }`. `/rpc`, `/ws`, and `/events` still accept the query token and the session cookie. `token` is not a reserved `/api` query key. OpenAPI and AsyncAPI documents are internal generated artifacts; the Worker does not serve them. `/api/openapi.json` and `/api/asyncapi.json` are unknown `/api` paths (header auth first, then **404**).
+   - The Web UI `CadmusClient.callRpc` / `sendCommand` keep their signatures and `CommandResultFrame` results, but the HTTP call is `/api/*` via `@cadmus/contract/routes` (`API_ROUTES` and `encodePayloadQuery`). The web bundle ships that route table, not the TypeBox schemas. Transport failures and non-JSON bodies reject. HTTP and protocol error JSON resolves as `{ ok: false, error }`. `GET /ws` stays event-only. The TUI prefers an open WebSocket and falls back to the same `/api` routes. The `sendRpc` test helper still uses `/rpc`.
 
 8. **Structured Logging Only (`src/log.ts`, Zero `console.*`)**:
    - Never use `console.log`, `console.warn`, `console.error`, or `console.debug` anywhere in the codebase.
@@ -67,14 +68,17 @@ This document contains everything an autonomous coding agent needs to understand
 ## 2. Project Layout
 
 ```text
+├── packages/contract/           # @cadmus/contract declarations (types, schemas, generated routes, OpenAPI, AsyncAPI)
+├── scripts/                     # contract generator and API boundary check
 ├── src/
 │   ├── index.ts                 # Worker Edge entrypoint (/health, /protocol/schema, /rpc, /api, auth, routing)
 │   ├── api-adapter.ts           # /api/* ↔ ClientCommand translation (uses the /rpc dispatch path)
+│   ├── command-handlers.ts      # CommandHandlerMap: one handler per contract command
 │   ├── family-do.ts             # CadmusBotFamilyDO (RPC, WS, SSE, alarm(), pi-durable harness)
 │   ├── log.ts                   # Structured logger (setupLogger, getLogger, chatFields, familyFields)
-│   ├── protocol.ts              # TypeBox schemas & types for all commands and server frames
+│   ├── protocol.ts              # Re-exports the contract plus server REST and validation helpers
 │   ├── shim.ts                  # ProtocolShim interface & defaultJsonShim
-│   ├── auth.ts                  # Edge request authentication (Bearer, cookie, D1 member tokens)
+│   ├── auth.ts                  # Edge auth (Bearer; cookie and ?token= on /rpc /ws /events only)
 │   ├── edge-cache.ts            # Two-tier Edge Cache (L1 LRU memory + optional L2 Workers KV)
 │   ├── context.ts               # CadmusServices Chord context binding
 │   ├── models.ts                # pi-ai Models, AccountCredentialStore, xAI native tools, faux/echo
@@ -108,6 +112,13 @@ This document contains everything an autonomous coding agent needs to understand
 # Run full E2E test suite in workerd
 bun run test
 
+# Contract conformance (daemon wire tests + every command through the Worker)
+bun run test:conformance
+
+# Regenerate committed routes, OpenAPI, and AsyncAPI, or fail if they are stale
+bun run contract:gen
+bun run contract:check
+
 # Typecheck both root Worker and standalone TUI (fast native check via bun check)
 bun run typecheck
 bun check
@@ -128,3 +139,17 @@ bun run check:all
    - Standard user text `"Hello"` replies with `"echo(<visibleUserMessages>): Hello"`.
    - Embed `[tool:<toolName> <jsonArgs>]` in a user prompt to trigger a real tool call through `pi-durable`'s tool execution pipeline during a turn.
    - Embed `[remember: <fact>]` or `[learn:<slug> <body>]` in a user prompt and trigger `await runDurableObjectAlarm(stub)` from `cloudflare:test` to test the full idle harvest fork -> tool call -> file diff -> `HarvestNote` pipeline.
+
+---
+
+## 4. API boundaries
+
+The backend publishes the API as [`@cadmus/contract`](packages/contract). That package is declarations: command names, payload and result schemas, the `readOnly` flag, error codes, record types, the `{ error: { code, message } }` envelope, and the `/ws` and `/events` message unions. The only dependency is `typebox`.
+
+Clients never import backend source. `web/src` and `tui/src` import `@cadmus/contract/types` (types only) and `@cadmus/contract/routes` (the small generated route table and query encoder). They do not import `src/`, `daemon/`, `@cadmus/contract/schemas`, or the generated OpenAPI and AsyncAPI documents. Our clients do not depend on those documents. OpenAPI (`packages/contract/generated/openapi.json`) and AsyncAPI (`packages/contract/generated/asyncapi.json`) are internal, committed, validated artifacts. The Worker does not serve them and does not import them, so they are not in the Worker bundle.
+
+Contract changes are explicit and reviewed. Edit the schemas under `packages/contract/src`, then run `bun run contract:gen`. Commit the regenerated `packages/contract/generated/routes.ts`, `openapi.json`, and `asyncapi.json`. `bun run contract:check` regenerates those files in memory, formats them, and fails if the committed copies differ. `bun run boundaries` (`scripts/check-boundaries.ts`) fails if a client imports backend source, anything other than `@cadmus/contract/types` and `@cadmus/contract/routes`, or the contract imports anything other than `typebox`. The scanner reads whole-file `import`, `export ... from`, `import type`, dynamic `import()`, and `require()`, including when the specifier is on a later line. Biome `noRestrictedImports` overrides on `web/**` and `tui/**` reject `src/`, `daemon/`, the bare `@cadmus/contract` package, `@cadmus/contract/schemas`, and the generated OpenAPI and AsyncAPI documents. Both checks run at the start of `bun run check:all`.
+
+`packages/contract` is the only Bun workspace member. `web/` and `tui/` stay separate packages and depend on the contract with `"@cadmus/contract": "file:../packages/contract"`, so Cloudflare Workers Builds can keep running `bun install --cwd web` without a workspace install. Do not add `web/` or `tui/` to the root workspaces, and do not change `wrangler.jsonc` to alias the package.
+
+Bump `CADMUS_SCHEMA_VERSION` only when D1 tables or columns change in [`src/store/d1-admin.ts`](src/store/d1-admin.ts). A contract or HTTP change does not bump that version. The handler map in [`src/command-handlers.ts`](src/command-handlers.ts) is typed so a missing or mismatched command handler fails `bun run typecheck`.

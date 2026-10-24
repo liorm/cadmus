@@ -1,10 +1,10 @@
-import { useRef } from "react";
 import type {
 	HarvestNote,
 	TranscriptContentBlock,
 	TranscriptMessageView,
 	TranscriptToolCallView,
-} from "../../../src/protocol.js";
+} from "@cadmus/contract/types";
+import { useRef } from "react";
 import { useAutoScroll } from "../hooks/useAutoScroll.js";
 
 export interface ChatRenderedViewProps {

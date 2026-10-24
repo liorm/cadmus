@@ -5,7 +5,7 @@ import type {
 	ServerEvent,
 	ToolsEnvSetting,
 	TurnBlock,
-} from "../../src/protocol.js";
+} from "@cadmus/contract/types";
 import { CadmusProtocolClient } from "./client.js";
 import {
 	ANSI,

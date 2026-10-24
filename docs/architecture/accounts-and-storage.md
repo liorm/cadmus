@@ -59,7 +59,7 @@ Provider API keys (`anthropic`, `openai`, `google`, `xai`) set via `account.cred
 Every incoming HTTP/WebSocket request is authenticated by the Worker entrypoint (`src/index.ts`) before forwarding to `CadmusBotFamilyDO`:
 
 1. **`CADMUS_AUTH_MODE="cf-access"`**: Verifies Cloudflare Access headers (`Cf-Access-Authenticated-User-Email` / JWT) and resolves the member's `accountId` in `D1AdminStore`.
-2. **`CADMUS_AUTH_MODE="token"`**: Verifies `Authorization: Bearer <token>` (or `?token=<token>` on WebSocket upgrades) against either `CADMUS_DEV_TOKEN` or SHA-256 `token_hash` in `cadmus_auth_tokens` / `cadmus_account_members`.
+2. **`CADMUS_AUTH_MODE="token"`**: Verifies `Authorization: Bearer <token>` against either `CADMUS_DEV_TOKEN` or SHA-256 `token_hash` in `cadmus_auth_tokens` / `cadmus_account_members`. `/rpc`, `/ws`, and `/events` also accept `?token=` and the `cadmus_session` cookie. `/api/*` accepts the header only (`authenticateRequest` options `{ allowQueryToken: false, allowCookie: false }`).
 3. **`CADMUS_AUTH_MODE="none"`**: Local development/test mode; accepts `X-Cadmus-Account` and `X-Cadmus-Family` headers (defaulting to `default-account` / `default`).
 
 ---
@@ -93,7 +93,7 @@ To avoid querying D1 on every single `/rpc` request, Cadmus implements a two-tie
 - Subsequent requests for the same `(accountId, userId)` in that isolate are memoized in an in-memory isolate set (TTL 300s), skipping D1 upserts entirely.
 
 ### Verification Per Access Layer
-- **RPC (`/rpc`) and REST (`/api/*`)**: Each request authenticates via the same `authenticateRequest` path and cache lookup (zero D1 queries after warming). `/api/*` does not have a separate auth stack.
+- **RPC (`/rpc`) and REST (`/api/*`)**: Each request authenticates via the same `authenticateRequest` path and cache lookup (zero D1 queries after warming). `/api/*` does not have a separate auth stack. `/api` disables query-token and cookie transports; `/rpc` does not. A rejected `/api` query token is not written to logs.
 - **WebSocket (`/ws`)**: Authenticated once during HTTP upgrade / handshake. Individual frames over the open WebSocket bypass edge verification and stream directly to the DO.
 - **SSE (`/events`)**: Authenticated once upon stream establishment.
 

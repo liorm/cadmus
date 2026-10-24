@@ -18,8 +18,10 @@ import { defaultJsonShim } from "./shim.js";
  * `CommandResultFrame` responses back into REST JSON.
  *
  * Authentication is intentionally not handled here. The edge worker runs
- * `authenticateRequest` before this adapter, so `/api/*` and `/rpc` share one
- * auth path and the same 401 `protocol.error` body.
+ * `authenticateRequest` before this adapter. `/api` uses that path with
+ * `{ allowQueryToken: false, allowCookie: false }` (header only). A rejected
+ * `?token=` or cookie-only request is a 401 `{ error }` body and never reaches
+ * this adapter. Other auth failures still use the 401 `protocol.error` body.
  */
 
 export type PreparedApiCommand = {
@@ -259,9 +261,10 @@ export function isApiPath(pathname: string): boolean {
 }
 
 /**
- * `/api/*` bodies are per-tenant. Cookie and `?token=` auth send no
- * `Authorization` header, so a shared cache must not store the response.
- * Existing `Vary` tokens are kept and the three auth inputs are added.
+ * `/api/*` bodies are per-tenant and authenticate with `Authorization: Bearer`
+ * only. `Cache-Control: private, no-store` keeps them out of shared caches.
+ * Existing `Vary` tokens are kept and `Authorization`, `Cookie`, and
+ * `X-Cadmus-Family-Id` are added.
  */
 export function withPrivateApiCache(response: Response): Response {
 	const headers = new Headers(response.headers);

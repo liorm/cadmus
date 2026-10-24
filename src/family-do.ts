@@ -24,6 +24,10 @@ import {
 } from "@earendil-works/pi-durable";
 import { openDurableObjectSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/cloudflare";
 import { syncDurableObjectAlarm } from "./alarms.js";
+import {
+	type CommandHandlerMap,
+	callCommandHandler,
+} from "./command-handlers.js";
 import { type CadmusServices, createCadmusContext } from "./context.js";
 import {
 	computeInSeconds,
@@ -62,9 +66,11 @@ import {
 	type ChatRecord,
 	type ClientCommand,
 	type CommandResultFrame,
+	type CommandType,
 	type ModelInfo,
 	ProtocolValidationError,
 	type RawTranscriptEntry,
+	type RpcResult,
 	type ScheduleRecord,
 	type ScheduleTarget,
 	type ServerEvent,
@@ -904,11 +910,92 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 		}
 	}
 
-	private async dispatchCommand(command: ClientCommand): Promise<unknown> {
-		const meta = this.getFamilyMeta();
+	private async dispatchCommand(
+		command: ClientCommand,
+	): Promise<RpcResult<CommandType>> {
+		return callCommandHandler(this.commandHandlers(), command);
+	}
 
-		switch (command.type) {
-			case "account.get": {
+	private commandHandlers(): CommandHandlerMap {
+		const meta = this.getFamilyMeta();
+		const readChatSnapshot = async (
+			command: Extract<
+				ClientCommand,
+				{
+					type:
+						| "chat.get"
+						| "chat.messages"
+						| "chat.entries"
+						| "chat.subscribe";
+				}
+			>,
+		) => {
+			const chat = this.familyStore.chats.getChat(command.payload.chatKey);
+			if (!chat) {
+				throw new ProtocolValidationError(
+					`Chat '${command.payload.chatKey}' not found`,
+					"not_found",
+				);
+			}
+			const { harness, context } = await this.ensureHarness();
+			const conv = await harness.conversation(
+				chat.conversationId as ConversationId,
+				context,
+			);
+			if (conv) {
+				await this.attachConversationWatch(chat, conv, context);
+			}
+			const { messages, entries } = conv
+				? await this.readTranscriptData(conv, context)
+				: { messages: [], entries: [] };
+			const live = await harness.snapshot(
+				LiveDoc,
+				chat.conversationId as ConversationId,
+				context,
+			);
+			const notes = this.familyStore.harvest.listNotes(chat.key);
+			const bot = this.familyStore.bots.getBot(chat.botId);
+			const resolved =
+				command.type === "chat.get" && bot
+					? await this.toolsEnvController.resolvedFields(
+							bot,
+							chat.toolsEnv ?? null,
+						)
+					: {};
+			return {
+				chat,
+				busy: Boolean(live?.run),
+				messages,
+				entries,
+				notes,
+				...resolved,
+			};
+		};
+		const abortTurn = async (
+			command: Extract<
+				ClientCommand,
+				{ type: "turn.abort" | "turn.interrupt" }
+			>,
+		) => {
+			const chat = this.familyStore.chats.getChat(command.payload.chatKey);
+			if (!chat) {
+				throw new ProtocolValidationError(
+					`Chat '${command.payload.chatKey}' not found`,
+					"not_found",
+				);
+			}
+			const { harness, context } = await this.ensureHarness();
+			const conv = await harness.conversation(
+				chat.conversationId as ConversationId,
+				context,
+			);
+			if (conv) {
+				await conv.abort(context);
+			}
+			return { aborted: true as const, chatKey: chat.key };
+		};
+		return {
+			"account.get": async (_command) => {
 				const account = await this.adminStore.getAccount(meta.accountId);
 				const members = await this.adminStore.listMembers(meta.accountId);
 				const families = await this.adminStore.listFamilies(meta.accountId);
@@ -919,15 +1006,15 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 					account: account ?? {
 						id: meta.accountId,
 						name: `Account ${meta.accountId}`,
+						timezone: meta.timezone,
 						createdAt: Date.now(),
 					},
 					members,
 					families,
 					credentials,
 				};
-			}
-
-			case "account.update": {
+			},
+			"account.update": async (command) => {
 				const previous = await this.adminStore.getAccount(meta.accountId);
 				if (command.payload.defaultToolsEnv?.envId) {
 					const def = await this.adminStore.getToolsEnv(
@@ -971,41 +1058,35 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 					await this.fanOutToolsEnvCatalog(previousId, nextId);
 				}
 				return { account: updated };
-			}
-
-			case "account.toolsEnvs.list": {
+			},
+			"account.toolsEnvs.list": async (_command) => {
 				return this.toolsEnvController.listEnvs();
-			}
-
-			case "account.toolsEnvs.create": {
+			},
+			"account.toolsEnvs.create": async (command) => {
 				const env = await this.toolsEnvController.createEnv(command.payload);
 				await this.fanOutToolsEnvCatalog(null, null);
 				return { env: await this.toolsEnvController.present(env) };
-			}
-
-			case "account.toolsEnvs.update": {
+			},
+			"account.toolsEnvs.update": async (command) => {
 				const env = await this.toolsEnvController.updateEnv(
 					command.payload.envId,
 					command.payload,
 				);
 				await this.fanOutToolsEnvCatalog(null, null);
 				return { env: await this.toolsEnvController.present(env) };
-			}
-
-			case "account.toolsEnvs.delete": {
+			},
+			"account.toolsEnvs.delete": async (command) => {
 				await this.toolsEnvController.deleteEnv(command.payload.envId);
 				await this.fanOutToolsEnvCatalog(null, null);
 				return { deleted: command.payload.envId };
-			}
-
-			case "account.toolsEnvSecrets.list": {
+			},
+			"account.toolsEnvSecrets.list": async (_command) => {
 				const secrets = await this.adminStore.listToolsEnvSecrets(
 					meta.accountId,
 				);
 				return { secrets };
-			}
-
-			case "account.toolsEnvSecrets.set": {
+			},
+			"account.toolsEnvSecrets.set": async (command) => {
 				const created = await this.adminStore.setToolsEnvSecret(
 					meta.accountId,
 					command.payload?.label !== undefined
@@ -1025,9 +1106,8 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 					secretId: created.secret.secretId,
 				});
 				return created;
-			}
-
-			case "account.toolsEnvSecrets.delete": {
+			},
+			"account.toolsEnvSecrets.delete": async (command) => {
 				const outcome = await this.adminStore.deleteToolsEnvSecret(
 					meta.accountId,
 					command.payload.secretId,
@@ -1059,14 +1139,12 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 					},
 				});
 				return { deleted: command.payload.secretId };
-			}
-
-			case "account.members.list": {
+			},
+			"account.members.list": async (_command) => {
 				const members = await this.adminStore.listMembers(meta.accountId);
 				return { members };
-			}
-
-			case "account.members.add": {
+			},
+			"account.members.add": async (command) => {
 				const member = await this.adminStore.addMember({
 					accountId: meta.accountId,
 					userId: command.payload.userId,
@@ -1076,16 +1154,14 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 					rawToken: command.payload.token,
 				});
 				return { member };
-			}
-
-			case "account.credentials.list": {
+			},
+			"account.credentials.list": async (_command) => {
 				const credentials = await this.adminStore.listCredentials(
 					meta.accountId,
 				);
 				return { credentials };
-			}
-
-			case "account.credentials.set": {
+			},
+			"account.credentials.set": async (command) => {
 				const summary = await this.adminStore.setCredential(
 					meta.accountId,
 					command.payload.providerId,
@@ -1105,9 +1181,8 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 					},
 				});
 				return { credential: summary };
-			}
-
-			case "account.credentials.delete": {
+			},
+			"account.credentials.delete": async (command) => {
 				await this.adminStore.deleteCredential(
 					meta.accountId,
 					command.payload.providerId,
@@ -1126,9 +1201,8 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 					},
 				});
 				return { deleted: command.payload.providerId };
-			}
-
-			case "account.models.list": {
+			},
+			"account.models.list": async (command) => {
 				const models = this.ensureModels();
 				const targetProvider = command.payload?.provider;
 				const providers = targetProvider
@@ -1171,14 +1245,12 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 					}
 				}
 				return { models: result };
-			}
-
-			case "account.oauth.providers": {
+			},
+			"account.oauth.providers": async (_command) => {
 				const providers = this.oauthManager.listProviders();
 				return { providers };
-			}
-
-			case "account.oauth.start": {
+			},
+			"account.oauth.start": async (command) => {
 				const { record, backgroundPromise } = await this.oauthManager.startFlow(
 					{
 						accountId: meta.accountId,
@@ -1188,32 +1260,27 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 				);
 				this.ctx.waitUntil(backgroundPromise);
 				return { flow: record };
-			}
-
-			case "account.oauth.status": {
+			},
+			"account.oauth.status": async (command) => {
 				const flow = this.oauthManager.getStatus(command.payload.flowId);
 				return { flow };
-			}
-
-			case "account.oauth.submit": {
+			},
+			"account.oauth.submit": async (command) => {
 				const flow = this.oauthManager.submitInput(
 					command.payload.flowId,
 					command.payload.input,
 				);
 				return { flow };
-			}
-
-			case "account.oauth.cancel": {
+			},
+			"account.oauth.cancel": async (command) => {
 				const flow = this.oauthManager.cancelFlow(command.payload.flowId);
 				return { flow, cancelled: true };
-			}
-
-			case "family.list": {
+			},
+			"family.list": async (_command) => {
 				const families = await this.adminStore.listFamilies(meta.accountId);
 				return { families };
-			}
-
-			case "family.create": {
+			},
+			"family.create": async (command) => {
 				const family = await this.adminStore.createFamily(meta.accountId, {
 					familyId: command.payload.familyId,
 					name: command.payload.name,
@@ -1221,21 +1288,28 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 					harvestDelayMs: command.payload.harvestDelayMs ?? meta.harvestDelayMs,
 				});
 				return { family };
-			}
-
-			case "family.delete": {
+			},
+			"family.delete": async (command) => {
 				await this.adminStore.deleteFamily(
 					meta.accountId,
 					command.payload.familyId,
 				);
 				return { deleted: command.payload.familyId };
-			}
-
-			case "family.get": {
-				return { family: this.getFamilyMeta() };
-			}
-
-			case "family.update": {
+			},
+			"family.get": async () => {
+				const record = await this.adminStore.getFamily(
+					meta.accountId,
+					meta.familyId,
+				);
+				if (!record) {
+					throw new ProtocolValidationError(
+						`Bot Family '${meta.familyId}' not found in account '${meta.accountId}'`,
+						"family_not_found",
+					);
+				}
+				return { family: record };
+			},
+			"family.update": async (command) => {
 				const updated = this.setFamilyMeta({
 					...(command.payload.name !== undefined
 						? { name: command.payload.name }
@@ -1247,24 +1321,31 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 						? { harvestDelayMs: command.payload.harvestDelayMs }
 						: {}),
 				});
-				await this.adminStore.updateFamily(meta.accountId, updated.familyId, {
-					name: updated.name,
-					timezone: updated.timezone,
-					harvestDelayMs: updated.harvestDelayMs,
-				});
-				return { family: updated };
-			}
-
-			case "bot.list": {
+				const record = await this.adminStore.updateFamily(
+					meta.accountId,
+					updated.familyId,
+					{
+						name: updated.name,
+						timezone: updated.timezone,
+						harvestDelayMs: updated.harvestDelayMs,
+					},
+				);
+				if (!record) {
+					throw new ProtocolValidationError(
+						`Bot Family '${updated.familyId}' not found in account '${meta.accountId}'`,
+						"family_not_found",
+					);
+				}
+				return { family: record };
+			},
+			"bot.list": async (_command) => {
 				return { bots: this.familyStore.bots.listBots() };
-			}
-
-			case "bot.create": {
+			},
+			"bot.create": async (command) => {
 				const bot = await this.createBotInternal(command.payload);
 				return { bot };
-			}
-
-			case "bot.get": {
+			},
+			"bot.get": async (command) => {
 				const bot = this.familyStore.bots.getBot(command.payload.botId);
 				if (!bot) {
 					throw new ProtocolValidationError(
@@ -1280,9 +1361,8 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 					null,
 				);
 				return { bot, soul, memory, knowledge, ...resolved };
-			}
-
-			case "bot.update": {
+			},
+			"bot.update": async (command) => {
 				const existing = this.familyStore.bots.getBot(command.payload.botId);
 				if (!existing) {
 					throw new ProtocolValidationError(
@@ -1361,9 +1441,8 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 					}
 				}
 				return { bot: updated };
-			}
-
-			case "bot.delete": {
+			},
+			"bot.delete": async (command) => {
 				const existing = this.familyStore.bots.getBot(command.payload.botId);
 				if (!existing) {
 					throw new ProtocolValidationError(
@@ -1375,15 +1454,13 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 				this.familyStore.bots.deleteBot(command.payload.botId);
 				await this.syncAlarmInternal();
 				return { deleted: command.payload.botId };
-			}
-
-			case "chat.list": {
+			},
+			"chat.list": async (command) => {
 				return {
 					chats: this.familyStore.chats.listChats(command.payload?.botId),
 				};
-			}
-
-			case "chat.create": {
+			},
+			"chat.create": async (command) => {
 				const chat = await this.createChatInternal({
 					botId: command.payload.botId,
 					key: command.payload.key ?? command.payload.chatId,
@@ -1392,9 +1469,8 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 					toolsEnv: command.payload.toolsEnv,
 				});
 				return { chat };
-			}
-
-			case "chat.update": {
+			},
+			"chat.update": async (command) => {
 				const chat = this.familyStore.chats.getChat(command.payload.chatKey);
 				if (!chat) {
 					throw new ProtocolValidationError(
@@ -1431,59 +1507,15 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 				else delete updated.toolsEnv;
 				this.familyStore.chats.upsertChat(updated);
 				return { chat: updated };
-			}
-
-			case "chat.get":
-			case "chat.messages":
-			case "chat.entries":
-			case "chat.subscribe": {
-				const chat = this.familyStore.chats.getChat(command.payload.chatKey);
-				if (!chat) {
-					throw new ProtocolValidationError(
-						`Chat '${command.payload.chatKey}' not found`,
-						"not_found",
-					);
-				}
-				const { harness, context } = await this.ensureHarness();
-				const conv = await harness.conversation(
-					chat.conversationId as ConversationId,
-					context,
-				);
-				if (conv) {
-					await this.attachConversationWatch(chat, conv, context);
-				}
-				const { messages, entries } = conv
-					? await this.readTranscriptData(conv, context)
-					: { messages: [], entries: [] };
-				const live = await harness.snapshot(
-					LiveDoc,
-					chat.conversationId as ConversationId,
-					context,
-				);
-				const notes = this.familyStore.harvest.listNotes(chat.key);
-				const bot = this.familyStore.bots.getBot(chat.botId);
-				const resolved =
-					command.type === "chat.get" && bot
-						? await this.toolsEnvController.resolvedFields(
-								bot,
-								chat.toolsEnv ?? null,
-							)
-						: {};
-				return {
-					chat,
-					busy: Boolean(live?.run),
-					messages,
-					entries,
-					notes,
-					...resolved,
-				};
-			}
-
-			case "chat.status": {
+			},
+			"chat.get": readChatSnapshot,
+			"chat.messages": readChatSnapshot,
+			"chat.entries": readChatSnapshot,
+			"chat.subscribe": readChatSnapshot,
+			"chat.status": async (command) => {
 				return this.handleOutOfBandStatus(command.payload.chatKey);
-			}
-
-			case "chat.rename": {
+			},
+			"chat.rename": async (command) => {
 				const chat = this.familyStore.chats.getChat(command.payload.chatKey);
 				if (!chat) {
 					throw new ProtocolValidationError(
@@ -1497,9 +1529,8 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 				};
 				this.familyStore.chats.upsertChat(updated);
 				return { chat: updated };
-			}
-
-			case "chat.reset": {
+			},
+			"chat.reset": async (command) => {
 				const chat = this.familyStore.chats.getChat(command.payload.chatKey);
 				if (!chat) {
 					throw new ProtocolValidationError(
@@ -1516,9 +1547,8 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 					await conv.reset(command.payload.handoff, context);
 				}
 				return { chat, reset: true };
-			}
-
-			case "chat.close": {
+			},
+			"chat.close": async (command) => {
 				const chat = this.familyStore.chats.getChat(command.payload.chatKey);
 				if (!chat) {
 					throw new ProtocolValidationError(
@@ -1529,9 +1559,8 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 				const updated: ChatRecord = { ...chat, closed: true };
 				this.familyStore.chats.upsertChat(updated);
 				return { chat: updated };
-			}
-
-			case "turn.submit": {
+			},
+			"turn.submit": async (command) => {
 				const trimmed = command.payload.text.trim();
 				if (trimmed === "/status") {
 					return this.handleOutOfBandStatus(command.payload.chatKey);
@@ -1549,9 +1578,8 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 					requestId: command.payload.requestId ?? command.payload.clientMsgId,
 					whenBusy: command.payload.whenBusy,
 				});
-			}
-
-			case "turn.command": {
+			},
+			"turn.command": async (command) => {
 				const cmd = command.payload.command.trim();
 				if (cmd === "/status" || cmd === "status") {
 					return this.handleOutOfBandStatus(command.payload.chatKey);
@@ -1560,45 +1588,24 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 					`Slash command '${cmd}' is not supported. Only '/status' is supported out-of-band.`,
 					"unsupported_command",
 				);
-			}
-
-			case "turn.steer": {
+			},
+			"turn.steer": async (command) => {
 				return this.submitChatTurnInternal({
 					chatKey: command.payload.chatKey,
 					text: command.payload.text,
 					requestId: command.payload.requestId ?? command.payload.clientMsgId,
 					whenBusy: "steer",
 				});
-			}
-
-			case "turn.abort":
-			case "turn.interrupt": {
-				const chat = this.familyStore.chats.getChat(command.payload.chatKey);
-				if (!chat) {
-					throw new ProtocolValidationError(
-						`Chat '${command.payload.chatKey}' not found`,
-						"not_found",
-					);
-				}
-				const { harness, context } = await this.ensureHarness();
-				const conv = await harness.conversation(
-					chat.conversationId as ConversationId,
-					context,
-				);
-				if (conv) {
-					await conv.abort(context);
-				}
-				return { aborted: true, chatKey: chat.key };
-			}
-
-			case "file.list": {
+			},
+			"turn.abort": abortTurn,
+			"turn.interrupt": abortTurn,
+			"file.list": async (command) => {
 				return this.listBotFiles(
 					command.payload.botId,
 					command.payload.category,
 				);
-			}
-
-			case "file.read": {
+			},
+			"file.read": async (command) => {
 				const { botId, path } = command.payload;
 				if (!path) {
 					return this.listBotFiles(botId);
@@ -1648,9 +1655,8 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 					`Unsupported virtual file path '${path}'. Expected SOUL.md, MEMORY.md, or knowledge/<slug>.md`,
 					"invalid_path",
 				);
-			}
-
-			case "file.write": {
+			},
+			"file.write": async (command) => {
 				const {
 					botId,
 					path,
@@ -1758,9 +1764,8 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 					`Unsupported virtual file path '${path}'`,
 					"invalid_path",
 				);
-			}
-
-			case "file.delete": {
+			},
+			"file.delete": async (command) => {
 				const { botId, path, expectedVersion, version } = command.payload;
 				const kMatch = /^knowledge\/([a-z0-9-]+)\.md$/.exec(path);
 				if (!kMatch?.[1]) {
@@ -1783,26 +1788,23 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 					expectedVersion ?? version ?? existing.version,
 				);
 				return { deleted: path };
-			}
-
-			case "knowledge.search": {
+			},
+			"knowledge.search": async (command) => {
 				const results = this.familyStore.files.searchKnowledge(
 					command.payload.botId,
 					command.payload.query ?? "",
 					command.payload.category,
 				);
 				return { results };
-			}
-
-			case "schedule.list": {
+			},
+			"schedule.list": async (command) => {
 				const schedules = this.familyStore.schedules.listSchedules(
 					command.payload?.botId,
 					command.payload?.includeInternal ?? false,
 				);
 				return { schedules };
-			}
-
-			case "schedule.create": {
+			},
+			"schedule.create": async (command) => {
 				const {
 					id: customId,
 					botId,
@@ -1892,9 +1894,8 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 					inSeconds: schedule.inSeconds,
 				});
 				return { schedule };
-			}
-
-			case "schedule.update": {
+			},
+			"schedule.update": async (command) => {
 				const existing = this.familyStore.schedules.getSchedule(
 					command.payload.id,
 				);
@@ -1986,9 +1987,8 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 					inSeconds: updated.inSeconds,
 				});
 				return { schedule: updated };
-			}
-
-			case "schedule.delete": {
+			},
+			"schedule.delete": async (command) => {
 				const existing = this.familyStore.schedules.getSchedule(
 					command.payload.id,
 				);
@@ -2002,8 +2002,8 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 				await this.syncAlarmInternal();
 				this.log().debug("schedule deleted", { schedule: command.payload.id });
 				return { deleted: command.payload.id };
-			}
-		}
+			},
+		};
 	}
 
 	private listBotFiles(botId: string, category?: string) {
@@ -2246,7 +2246,7 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 		this.log().child(chatFields(chat)).debug("command", { name: "status" });
 
 		return {
-			outOfBand: true,
+			outOfBand: true as const,
 			command: "/status" as const,
 			status,
 			text,

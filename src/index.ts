@@ -66,13 +66,34 @@ export default {
 			return handleToolsEnvWebsocket(request, env, adminStore, url);
 		}
 
-		const scope = await authenticateRequest(
+		const apiRequest = isApiPath(url.pathname);
+		// /api takes Authorization: Bearer only. /rpc, /ws, and /events still
+		// accept the session cookie and ?token=.
+		const auth = await authenticateRequest(
 			request,
 			env,
 			adminStore,
 			edgeCache,
+			apiRequest ? { allowQueryToken: false, allowCookie: false } : {},
 		);
-		if (!scope) {
+		if (!auth.ok) {
+			if (
+				apiRequest &&
+				(auth.code === "query_token_not_allowed" ||
+					auth.code === "header_required")
+			) {
+				// HEAD keeps status and cache headers and omits the body, matching
+				// apiJson() in the adapter.
+				const headers = new Headers({ "content-type": "application/json" });
+				const denied =
+					request.method === "HEAD"
+						? new Response(null, { status: 401, headers })
+						: Response.json(
+								{ error: { code: auth.code, message: auth.message } },
+								{ status: 401, headers },
+							);
+				return withPrivateApiCache(denied);
+			}
 			log.warn("edge request unauthorized", {
 				method: request.method,
 				path: url.pathname,
@@ -87,11 +108,11 @@ export default {
 				} satisfies ServerEvent,
 				{ status: 401 },
 			);
-			// Cookie and ?token= requests have no Authorization header. Only
 			// /api/* is marked uncacheable here; /rpc, /ws, and /events stay as they were.
-			if (isApiPath(url.pathname)) return withPrivateApiCache(unauthorized);
+			if (apiRequest) return withPrivateApiCache(unauthorized);
 			return unauthorized;
 		}
+		const scope = auth.scope;
 
 		const { accountId, familyId: requestedFamilyId } = scope;
 		const reqLog = log.child({

@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
 import type {
 	FileListItem,
 	FileReadDocResult,
 	KnowledgeSearchResult,
-} from "../../../src/protocol.js";
+} from "@cadmus/contract/types";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useCadmus } from "../context/CadmusContext.js";
 
 function formatBytes(bytes?: number): string {

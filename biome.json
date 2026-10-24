@@ -31,5 +31,61 @@
 				"organizeImports": "on"
 			}
 		}
-	}
+	},
+	"overrides": [
+		{
+			"includes": ["web/**", "tui/**"],
+			"linter": {
+				"rules": {
+					"style": {
+						"noRestrictedImports": {
+							"level": "error",
+							"options": {
+								"patterns": [
+									{
+										"group": [
+											"src",
+											"src/**",
+											"daemon",
+											"daemon/**",
+											"../src",
+											"../src/**",
+											"../../src",
+											"../../src/**",
+											"../../../src",
+											"../../../src/**",
+											"../../../../src",
+											"../../../../src/**",
+											"../daemon",
+											"../daemon/**",
+											"../../daemon",
+											"../../daemon/**",
+											"../../../daemon",
+											"../../../daemon/**",
+											"../../../../daemon",
+											"../../../../daemon/**"
+										],
+										"message": "Clients import @cadmus/contract/types and @cadmus/contract/routes only. Backend source is off limits."
+									},
+									{
+										"group": [
+											"@cadmus/contract",
+											"@cadmus/contract/schemas",
+											"@cadmus/contract/schemas/**",
+											"@cadmus/contract/openapi.json",
+											"@cadmus/contract/asyncapi.json",
+											"@cadmus/contract/**",
+											"!@cadmus/contract/types",
+											"!@cadmus/contract/routes"
+										],
+										"message": "Clients may import only @cadmus/contract/types and @cadmus/contract/routes."
+									}
+								]
+							}
+						}
+					}
+				}
+			}
+		}
+	]
 }

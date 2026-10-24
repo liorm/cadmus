@@ -1,10 +1,8 @@
 import { describe, expect, it } from "bun:test";
-import { renderToString } from "react-dom/server";
 import type {
 	BotRecord,
 	ChatRecord,
 	ChatStatusRecord,
-	CommandResultFrame,
 	FamilyRecord,
 	FileListItem,
 	FileReadDocResult,
@@ -13,7 +11,8 @@ import type {
 	ScheduleRecord,
 	ServerEvent,
 	TranscriptMessageView,
-} from "../../src/protocol.js";
+} from "@cadmus/contract/types";
+import { renderToString } from "react-dom/server";
 import { App } from "./App.js";
 import { CadmusClient, type FetchFunction } from "./client.js";
 import { BotDirectory } from "./components/BotDirectory.js";
@@ -34,6 +33,10 @@ import {
 	SCROLL_BOTTOM_THRESHOLD,
 	useAutoScroll,
 } from "./hooks/useAutoScroll.js";
+import {
+	commandTypeFromApiPath,
+	decodePayloadQuery,
+} from "./read-api-request.js";
 import {
 	buildToolsEnvSetting,
 	formatToolsEnvSummary,
@@ -142,25 +145,37 @@ const TEST_HARVEST_NOTE: HarvestNote = {
 	],
 };
 
+function readMockApiRequest(
+	input: RequestInfo | URL,
+	init?: RequestInit,
+): { type: string; payload: unknown } {
+	const url = new URL(String(input), "http://cadmus.test");
+	const type = commandTypeFromApiPath(url.pathname);
+	if (!type) throw new Error(`Unexpected API path ${url.pathname}`);
+	const method = (init?.method ?? "GET").toUpperCase();
+	if (method === "GET" || method === "HEAD") {
+		return {
+			type,
+			payload: decodePayloadQuery(url.searchParams),
+		};
+	}
+	const raw = typeof init?.body === "string" ? init.body : "";
+	return {
+		type,
+		payload: raw.trim().length === 0 ? {} : JSON.parse(raw),
+	};
+}
+
 function createMockClient(
 	options: { onRpc?: (type: string, payload: unknown) => unknown } = {},
 ): CadmusClient {
-	const mockFetch: FetchFunction = async (_input, init) => {
-		const body = JSON.parse(init?.body as string);
-		const type = body.type as string;
-		const payload = body.payload;
+	const mockFetch: FetchFunction = async (input, init) => {
+		const { type, payload } = readMockApiRequest(input, init);
 
 		if (options.onRpc) {
 			const customRes = options.onRpc(type, payload);
 			if (customRes !== undefined) {
-				const frame: CommandResultFrame = {
-					id: body.id,
-					type: "command.result",
-					command: type,
-					ok: true,
-					result: customRes,
-				};
-				return new Response(JSON.stringify(frame));
+				return new Response(JSON.stringify(customRes));
 			}
 		}
 
@@ -246,14 +261,7 @@ function createMockClient(
 			result = { ok: true };
 		}
 
-		const frame: CommandResultFrame = {
-			id: body.id,
-			type: "command.result",
-			command: type,
-			ok: true,
-			result,
-		};
-		return new Response(JSON.stringify(frame));
+		return new Response(JSON.stringify(result));
 	};
 
 	return new CadmusClient({

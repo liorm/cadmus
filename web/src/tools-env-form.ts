@@ -1,4 +1,4 @@
-import type { ToolsEnvSetting } from "../../src/protocol.js";
+import type { ToolsEnvSetting } from "@cadmus/contract/types";
 
 export const CODING_TOOL_NAMES = ["bash", "read", "write", "edit"] as const;
 

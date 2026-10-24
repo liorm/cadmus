@@ -1,5 +1,5 @@
 import type { ExecutionEnv } from "@earendil-works/pi-durable/env";
-import { ProtocolValidationError } from "../protocol/common.js";
+import { ProtocolValidationError } from "../protocol/validate.js";
 import type {
 	BotRecord,
 	ToolsEnvBinding,

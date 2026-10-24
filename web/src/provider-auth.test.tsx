@@ -1,15 +1,18 @@
 import { describe, expect, it } from "bun:test";
-import { renderToString } from "react-dom/server";
 import type {
-	CommandResultFrame,
 	CredentialSummary,
 	OAuthFlowRecord,
 	OAuthProviderInfo,
-} from "../../src/protocol.js";
+} from "@cadmus/contract/types";
+import { renderToString } from "react-dom/server";
 import { CadmusClient, type FetchFunction } from "./client.js";
 import { ProviderAuthModal } from "./components/ProviderAuthModal.js";
 import { TopBar } from "./components/TopBar.js";
 import { CadmusProvider } from "./context/CadmusContext.js";
+import {
+	commandTypeFromApiPath,
+	decodePayloadQuery,
+} from "./read-api-request.js";
 
 const TEST_OAUTH_PROVIDERS: OAuthProviderInfo[] = [
 	{
@@ -43,26 +46,20 @@ function createAuthMockClient(
 		credentials?: CredentialSummary[];
 	} = {},
 ) {
-	const mockFetch: FetchFunction = async (_input, init) => {
-		const body = JSON.parse(init?.body as string) as {
-			id: string;
-			type: string;
-			payload?: unknown;
-		};
-		const type = body.type;
-		const payload = body.payload;
+	const mockFetch: FetchFunction = async (input, init) => {
+		const url = new URL(String(input), "http://cadmus.test");
+		const type = commandTypeFromApiPath(url.pathname);
+		if (!type) throw new Error(`Unexpected API path ${url.pathname}`);
+		const method = (init?.method ?? "GET").toUpperCase();
+		const payload =
+			method === "GET" || method === "HEAD"
+				? decodePayloadQuery(url.searchParams)
+				: JSON.parse(typeof init?.body === "string" ? init.body : "{}");
 
 		if (options.onRpc) {
 			const customRes = options.onRpc(type, payload);
 			if (customRes !== undefined) {
-				const frame: CommandResultFrame = {
-					id: body.id,
-					type: "command.result",
-					command: type,
-					ok: true,
-					result: customRes,
-				};
-				return new Response(JSON.stringify(frame));
+				return new Response(JSON.stringify(customRes));
 			}
 		}
 
@@ -140,14 +137,7 @@ function createAuthMockClient(
 			result = { deleted: true };
 		}
 
-		const frame: CommandResultFrame = {
-			id: body.id,
-			type: "command.result",
-			command: type,
-			ok: true,
-			result,
-		};
-		return new Response(JSON.stringify(frame));
+		return new Response(JSON.stringify(result));
 	};
 
 	return new CadmusClient({

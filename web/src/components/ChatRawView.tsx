@@ -1,9 +1,9 @@
-import { useMemo, useState } from "react";
 import type {
 	RawTranscriptEntry,
 	ServerEvent,
 	TranscriptMessageView,
-} from "../../../src/protocol.js";
+} from "@cadmus/contract/types";
+import { useMemo, useState } from "react";
 import { useAutoScroll } from "../hooks/useAutoScroll.js";
 
 export interface ChatRawViewProps {

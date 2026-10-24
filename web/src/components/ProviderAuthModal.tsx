@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useState } from "react";
 import type {
 	CredentialSummary,
 	OAuthFlowRecord,
 	OAuthProviderInfo,
 	ServerEvent,
-} from "../../../src/protocol.js";
+} from "@cadmus/contract/types";
+import { useCallback, useEffect, useState } from "react";
 import { useCadmus } from "../context/CadmusContext.js";
 
 export interface ProviderAuthModalProps {

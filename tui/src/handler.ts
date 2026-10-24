@@ -2,7 +2,7 @@ import type {
 	CommandResultFrame,
 	ServerEvent,
 	TurnBlock,
-} from "../../src/protocol.js";
+} from "@cadmus/contract/types";
 
 export const ANSI = {
 	reset: "\x1b[0m",

@@ -6,6 +6,11 @@ export default defineConfig({
 		fsModuleCache: false,
 		isolate: false,
 		include: ["e2e/**/*.test.ts"],
+		exclude: [
+			"**/node_modules/**",
+			"**/dist/**",
+			"e2e/contract-conformance.test.ts",
+		],
 	},
 	plugins: [
 		cloudflareTest({

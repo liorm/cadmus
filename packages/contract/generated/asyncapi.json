@@ -1,0 +1,3257 @@
+{
+	"asyncapi": "3.0.0",
+	"info": {
+		"title": "Cadmus WebSocket and SSE",
+		"version": "1.0.0",
+		"description": "Generated from @cadmus/contract. /ws carries ClientToServer commands and ServerToClient frames (command.result and events). /events is Server-Sent Events whose data field is a ServerEvent. command.result is not sent on /events. A `: connected` comment is a heartbeat."
+	},
+	"defaultContentType": "application/json",
+	"servers": {
+		"cadmus": {
+			"host": "localhost",
+			"protocol": "ws",
+			"pathname": "/ws"
+		}
+	},
+	"channels": {
+		"ws": {
+			"address": "/ws",
+			"messages": {
+				"clientToServer": {
+					"$ref": "#/components/messages/ClientToServer"
+				},
+				"serverToClient": {
+					"$ref": "#/components/messages/ServerToClient"
+				}
+			}
+		},
+		"events": {
+			"address": "/events",
+			"description": "SSE. Each data field is a JSON ServerEvent. Auth matches /ws (query token and session cookie are accepted). This is not /api.",
+			"messages": {
+				"sseEvent": {
+					"$ref": "#/components/messages/SseEvent"
+				}
+			}
+		}
+	},
+	"operations": {
+		"sendCommand": {
+			"action": "send",
+			"channel": {
+				"$ref": "#/channels/ws"
+			},
+			"messages": [
+				{
+					"$ref": "#/channels/ws/messages/clientToServer"
+				}
+			]
+		},
+		"receiveWs": {
+			"action": "receive",
+			"channel": {
+				"$ref": "#/channels/ws"
+			},
+			"messages": [
+				{
+					"$ref": "#/channels/ws/messages/serverToClient"
+				}
+			]
+		},
+		"receiveSse": {
+			"action": "receive",
+			"channel": {
+				"$ref": "#/channels/events"
+			},
+			"messages": [
+				{
+					"$ref": "#/channels/events/messages/sseEvent"
+				}
+			]
+		}
+	},
+	"components": {
+		"messages": {
+			"ClientToServer": {
+				"name": "ClientToServer",
+				"title": "Client command",
+				"contentType": "application/json",
+				"payload": {
+					"$ref": "#/components/schemas/ClientCommand"
+				}
+			},
+			"ServerToClient": {
+				"name": "ServerToClient",
+				"title": "Server frame",
+				"contentType": "application/json",
+				"payload": {
+					"$ref": "#/components/schemas/ServerFrame"
+				}
+			},
+			"SseEvent": {
+				"name": "SseEvent",
+				"title": "SSE event",
+				"contentType": "application/json",
+				"payload": {
+					"$ref": "#/components/schemas/ServerEvent"
+				}
+			}
+		},
+		"schemas": {
+			"AccountCredentialsDeleteCommand": {
+				"type": "object",
+				"required": ["id", "type", "payload"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Non-empty unique correlation identifier for this command request."
+					},
+					"type": {
+						"type": "string",
+						"const": "account.credentials.delete",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"required": ["providerId"],
+						"properties": {
+							"providerId": {
+								"type": "string",
+								"minLength": 1,
+								"description": "Provider identifier whose credentials should be permanently deleted."
+							}
+						},
+						"description": "Parameters identifying the provider credential to delete."
+					}
+				},
+				"description": "Permanently delete configured credentials for a provider from the account."
+			},
+			"AccountCredentialsListCommand": {
+				"type": "object",
+				"required": ["id", "type"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Non-empty unique correlation identifier for this command request."
+					},
+					"type": {
+						"type": "string",
+						"const": "account.credentials.list",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"properties": {},
+						"description": "Empty parameter payload."
+					}
+				},
+				"readOnly": true,
+				"description": "List configured AI provider credential summaries (excluding secret tokens)."
+			},
+			"AccountCredentialsSetCommand": {
+				"type": "object",
+				"required": ["id", "type", "payload"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Non-empty unique correlation identifier for this command request."
+					},
+					"type": {
+						"type": "string",
+						"const": "account.credentials.set",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"required": ["providerId", "credential"],
+						"properties": {
+							"providerId": {
+								"type": "string",
+								"minLength": 1,
+								"description": "AI provider identifier (e.g. 'anthropic', 'openai', 'google', 'groq', 'deepseek', 'xai')."
+							},
+							"credential": {
+								"$ref": "#/components/schemas/CredentialInput"
+							}
+						},
+						"description": "Parameters containing the provider credentials to store."
+					}
+				},
+				"description": "Store or update encrypted provider credentials (API key or OAuth token set) for the account."
+			},
+			"AccountEvent": {
+				"type": "object",
+				"required": ["type", "payload"],
+				"properties": {
+					"type": {
+						"type": "string",
+						"const": "account.event",
+						"description": "Event type identifier for account-level changes."
+					},
+					"payload": {
+						"type": "object",
+						"required": ["accountId", "action", "providerId", "when"],
+						"properties": {
+							"accountId": {
+								"type": "string",
+								"description": "Tenant account identifier."
+							},
+							"action": {
+								"anyOf": [
+									{
+										"type": "string",
+										"const": "credential.set",
+										"description": "A provider credential was added or updated."
+									},
+									{
+										"type": "string",
+										"const": "credential.deleted",
+										"description": "A provider credential was removed."
+									},
+									{
+										"type": "string",
+										"const": "credential.refreshed",
+										"description": "An OAuth credential token set was refreshed."
+									}
+								],
+								"description": "Action type: 'credential.set', 'credential.deleted', or 'credential.refreshed'."
+							},
+							"providerId": {
+								"type": "string",
+								"description": "Identifier of the provider affected."
+							},
+							"when": {
+								"type": "number",
+								"description": "Epoch timestamp in milliseconds when the event occurred."
+							}
+						},
+						"description": "Account event payload."
+					}
+				},
+				"description": "Broadcast event for account-level credential additions, updates, or deletions."
+			},
+			"AccountGetCommand": {
+				"type": "object",
+				"required": ["id", "type"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Non-empty unique correlation identifier for this command request."
+					},
+					"type": {
+						"type": "string",
+						"const": "account.get",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"properties": {},
+						"description": "Empty parameter payload."
+					}
+				},
+				"readOnly": true,
+				"description": "Retrieve tenant account details including membership, configured bot families, and provider credentials."
+			},
+			"AccountMembersAddCommand": {
+				"type": "object",
+				"required": ["id", "type", "payload"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Non-empty unique correlation identifier for this command request."
+					},
+					"type": {
+						"type": "string",
+						"const": "account.members.add",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"required": ["userId"],
+						"properties": {
+							"userId": {
+								"type": "string",
+								"minLength": 1,
+								"description": "Unique identifier of the user to grant access to."
+							},
+							"name": {
+								"type": "string",
+								"description": "Optional display name for the user."
+							},
+							"email": {
+								"type": "string",
+								"description": "Optional email address for the user."
+							},
+							"role": {
+								"anyOf": [
+									{
+										"type": "string",
+										"const": "owner"
+									},
+									{
+										"type": "string",
+										"const": "member"
+									}
+								],
+								"description": "Access role: 'owner' has full administrative rights; 'member' has standard access (defaults to 'member')."
+							},
+							"token": {
+								"type": "string",
+								"description": "Optional authentication token associated with this user."
+							}
+						},
+						"description": "Parameters for adding or inviting an account member."
+					}
+				},
+				"description": "Add or invite a user to the account with a specified access role and optional credentials."
+			},
+			"AccountMembersListCommand": {
+				"type": "object",
+				"required": ["id", "type"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Non-empty unique correlation identifier for this command request."
+					},
+					"type": {
+						"type": "string",
+						"const": "account.members.list",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"properties": {},
+						"description": "Empty parameter payload."
+					}
+				},
+				"readOnly": true,
+				"description": "List all user members and their roles associated with the tenant account."
+			},
+			"AccountModelsListCommand": {
+				"type": "object",
+				"required": ["id", "type"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Non-empty unique correlation identifier for this command request."
+					},
+					"type": {
+						"type": "string",
+						"const": "account.models.list",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"properties": {
+							"provider": {
+								"type": "string",
+								"description": "Optional provider identifier to filter models (e.g. 'anthropic')."
+							},
+							"onlyAuthenticated": {
+								"type": "boolean",
+								"description": "If true, only returns models that have valid configured credentials."
+							}
+						},
+						"description": "Filters for listing models."
+					}
+				},
+				"readOnly": true,
+				"description": "List supported LLM models and their capabilities, optionally filtered by provider or authentication status."
+			},
+			"AccountOAuthCancelCommand": {
+				"type": "object",
+				"required": ["id", "type", "payload"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Non-empty unique correlation identifier for this command request."
+					},
+					"type": {
+						"type": "string",
+						"const": "account.oauth.cancel",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"required": ["flowId"],
+						"properties": {
+							"flowId": {
+								"type": "string",
+								"minLength": 1,
+								"description": "Unique flow identifier to cancel."
+							}
+						},
+						"description": "Parameters identifying the OAuth flow to cancel."
+					}
+				},
+				"description": "Command to immediately abort an active OAuth flow and release pending resources."
+			},
+			"AccountOAuthEvent": {
+				"type": "object",
+				"required": ["type", "payload"],
+				"properties": {
+					"type": {
+						"type": "string",
+						"const": "account.oauth.event",
+						"description": "Event type identifier for OAuth lifecycle updates."
+					},
+					"payload": {
+						"$ref": "#/components/schemas/OAuthFlowRecord"
+					}
+				},
+				"description": "Broadcast event tracking progression and status updates of an active OAuth authorization flow."
+			},
+			"AccountOAuthProvidersCommand": {
+				"type": "object",
+				"required": ["id", "type"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Non-empty unique correlation identifier for this command request."
+					},
+					"type": {
+						"type": "string",
+						"const": "account.oauth.providers",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"properties": {},
+						"description": "Empty parameter payload."
+					}
+				},
+				"readOnly": true,
+				"description": "Command to list all supported OAuth providers and their authorization requirements."
+			},
+			"AccountOAuthStartCommand": {
+				"type": "object",
+				"required": ["id", "type", "payload"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Non-empty unique correlation identifier for this command request."
+					},
+					"type": {
+						"type": "string",
+						"const": "account.oauth.start",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"required": ["providerId"],
+						"properties": {
+							"providerId": {
+								"type": "string",
+								"minLength": 1,
+								"description": "Provider identifier to authenticate (e.g. 'anthropic', 'openai')."
+							},
+							"redirectUri": {
+								"type": "string",
+								"description": "Optional callback URL for redirect-based browser OAuth flows."
+							}
+						},
+						"description": "Parameters for starting the OAuth flow."
+					}
+				},
+				"description": "Command to begin an OAuth authentication process for a provider, returning verification URLs and flowId."
+			},
+			"AccountOAuthStatusCommand": {
+				"type": "object",
+				"required": ["id", "type", "payload"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Non-empty unique correlation identifier for this command request."
+					},
+					"type": {
+						"type": "string",
+						"const": "account.oauth.status",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"required": ["flowId"],
+						"properties": {
+							"flowId": {
+								"type": "string",
+								"minLength": 1,
+								"description": "Unique flow identifier returned by account.oauth.start."
+							}
+						},
+						"description": "Parameters identifying the active OAuth flow."
+					}
+				},
+				"readOnly": true,
+				"description": "Command to query the current progress, prompt, or completion status of an active OAuth flow."
+			},
+			"AccountOAuthSubmitCommand": {
+				"type": "object",
+				"required": ["id", "type", "payload"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Non-empty unique correlation identifier for this command request."
+					},
+					"type": {
+						"type": "string",
+						"const": "account.oauth.submit",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"required": ["flowId", "input"],
+						"properties": {
+							"flowId": {
+								"type": "string",
+								"minLength": 1,
+								"description": "Unique flow identifier returned by account.oauth.start."
+							},
+							"input": {
+								"type": "string",
+								"minLength": 1,
+								"description": "User-provided input string, such as a copied authorization code or selected choice ID."
+							}
+						},
+						"description": "Parameters containing the user response for the active flow."
+					}
+				},
+				"description": "Command to advance an interactive or code-submission OAuth step with user-supplied input."
+			},
+			"AccountToolsEnvSecretEvent": {
+				"type": "object",
+				"required": ["type", "payload"],
+				"properties": {
+					"type": {
+						"type": "string",
+						"const": "account.tools_env_secret"
+					},
+					"payload": {
+						"type": "object",
+						"required": ["accountId", "secretId", "action", "when"],
+						"properties": {
+							"accountId": {
+								"type": "string"
+							},
+							"secretId": {
+								"type": "string"
+							},
+							"action": {
+								"anyOf": [
+									{
+										"type": "string",
+										"const": "set"
+									},
+									{
+										"type": "string",
+										"const": "deleted"
+									}
+								]
+							},
+							"when": {
+								"type": "number"
+							}
+						},
+						"additionalProperties": false
+					}
+				},
+				"description": "Broadcast when a daemon pairing secret is minted or deleted. No token bytes."
+			},
+			"AccountToolsEnvSecretsDeleteCommand": {
+				"type": "object",
+				"required": ["id", "type", "payload"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1
+					},
+					"type": {
+						"type": "string",
+						"const": "account.toolsEnvSecrets.delete"
+					},
+					"payload": {
+						"type": "object",
+						"required": ["secretId"],
+						"properties": {
+							"secretId": {
+								"type": "string",
+								"minLength": 1
+							}
+						},
+						"additionalProperties": false
+					}
+				},
+				"description": "Delete a daemon pairing secret, flag env rows that named it, and clear a default that points at one of them."
+			},
+			"AccountToolsEnvSecretsListCommand": {
+				"type": "object",
+				"required": ["id", "type"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1
+					},
+					"type": {
+						"type": "string",
+						"const": "account.toolsEnvSecrets.list"
+					},
+					"payload": {
+						"type": "object",
+						"properties": {},
+						"additionalProperties": false
+					}
+				},
+				"readOnly": true,
+				"description": "List daemon pairing secrets. Metadata only; the token is never returned."
+			},
+			"AccountToolsEnvSecretsSetCommand": {
+				"type": "object",
+				"required": ["id", "type"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1
+					},
+					"type": {
+						"type": "string",
+						"const": "account.toolsEnvSecrets.set"
+					},
+					"payload": {
+						"type": "object",
+						"properties": {
+							"label": {
+								"type": "string"
+							}
+						},
+						"additionalProperties": false
+					}
+				},
+				"description": "Mint a daemon pairing token (cadmus_dt_ + 64 hex). The token is returned once. A caller-supplied token is rejected."
+			},
+			"AccountToolsEnvsCreateCommand": {
+				"type": "object",
+				"required": ["id", "type", "payload"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1
+					},
+					"type": {
+						"type": "string",
+						"const": "account.toolsEnvs.create"
+					},
+					"payload": {
+						"type": "object",
+						"required": ["kind"],
+						"properties": {
+							"kind": {
+								"anyOf": [
+									{
+										"type": "string",
+										"const": "just-bash"
+									},
+									{
+										"type": "string",
+										"const": "local-daemon"
+									}
+								]
+							},
+							"label": {
+								"type": "string"
+							},
+							"persist": {
+								"type": "boolean"
+							},
+							"confineToWorkspace": {
+								"type": "boolean"
+							},
+							"sharedWorkspace": {
+								"type": "boolean"
+							},
+							"secretId": {
+								"type": "string",
+								"minLength": 1
+							},
+							"workspacePath": {
+								"type": "string",
+								"minLength": 1
+							}
+						},
+						"additionalProperties": false
+					}
+				},
+				"description": "Create a just-bash or local-daemon tools env definition. Daemon rows require secretId, workspacePath, and confineToWorkspace."
+			},
+			"AccountToolsEnvsDeleteCommand": {
+				"type": "object",
+				"required": ["id", "type", "payload"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1
+					},
+					"type": {
+						"type": "string",
+						"const": "account.toolsEnvs.delete"
+					},
+					"payload": {
+						"type": "object",
+						"required": ["envId"],
+						"properties": {
+							"envId": {
+								"type": "string",
+								"minLength": 1
+							}
+						},
+						"additionalProperties": false
+					}
+				},
+				"description": "Delete a tools env definition and its env DO data."
+			},
+			"AccountToolsEnvsListCommand": {
+				"type": "object",
+				"required": ["id", "type"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1
+					},
+					"type": {
+						"type": "string",
+						"const": "account.toolsEnvs.list"
+					},
+					"payload": {
+						"type": "object",
+						"properties": {},
+						"additionalProperties": false
+					}
+				},
+				"readOnly": true,
+				"description": "List account tools env definitions and the default binding."
+			},
+			"AccountToolsEnvsUpdateCommand": {
+				"type": "object",
+				"required": ["id", "type", "payload"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1
+					},
+					"type": {
+						"type": "string",
+						"const": "account.toolsEnvs.update"
+					},
+					"payload": {
+						"type": "object",
+						"required": ["envId"],
+						"properties": {
+							"envId": {
+								"type": "string",
+								"minLength": 1
+							},
+							"label": {
+								"type": "string"
+							},
+							"persist": {
+								"type": "boolean"
+							},
+							"confineToWorkspace": {
+								"type": "boolean"
+							},
+							"sharedWorkspace": {
+								"type": "boolean"
+							},
+							"secretId": {
+								"type": "string",
+								"minLength": 1
+							},
+							"workspacePath": {
+								"type": "string",
+								"minLength": 1
+							}
+						},
+						"additionalProperties": false
+					}
+				},
+				"description": "Update a tools env definition. Kind is immutable."
+			},
+			"AccountUpdateCommand": {
+				"type": "object",
+				"required": ["id", "type", "payload"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Non-empty unique correlation identifier for this command request."
+					},
+					"type": {
+						"type": "string",
+						"const": "account.update",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"properties": {
+							"name": {
+								"type": "string",
+								"minLength": 1,
+								"description": "Optional new display name for the account."
+							},
+							"timezone": {
+								"type": "string",
+								"minLength": 1,
+								"description": "Optional new default IANA timezone identifier for the account (e.g. 'UTC', 'America/New_York')."
+							},
+							"defaultToolsEnv": {
+								"anyOf": [
+									{
+										"$ref": "#/components/schemas/ToolsEnvBinding"
+									},
+									{
+										"type": "null"
+									}
+								],
+								"description": "Account default tools env binding, or null to clear it."
+							}
+						},
+						"description": "Account settings to update."
+					}
+				},
+				"description": "Update account-level configuration including display name and default timezone."
+			},
+			"BotCreateCommand": {
+				"type": "object",
+				"required": ["id", "type", "payload"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Non-empty unique correlation identifier for this command request."
+					},
+					"type": {
+						"type": "string",
+						"const": "bot.create",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"required": ["name"],
+						"properties": {
+							"slug": {
+								"type": "string",
+								"description": "Optional unique identifier / slug for the bot (generated from name if omitted)."
+							},
+							"name": {
+								"type": "string",
+								"minLength": 1,
+								"description": "Human-readable display name of the bot."
+							},
+							"model": {
+								"type": "string",
+								"description": "Default model identifier used for turns (e.g. 'anthropic/claude-3-7-sonnet')."
+							},
+							"thinking": {
+								"$ref": "#/components/schemas/ThinkingLevel"
+							},
+							"tools": {
+								"type": "array",
+								"items": {
+									"type": "string"
+								},
+								"description": "Allowlist of tool names. Omit it for the default set (Cadmus tools allowed, coding tools opt-in). An empty array allows no gated tools."
+							},
+							"soul": {
+								"type": "string",
+								"description": "Optional initial system prompt / personality instructions (SOUL.md content)."
+							},
+							"memory": {
+								"type": "string",
+								"description": "Optional initial long-term memory markdown content (MEMORY.md content)."
+							},
+							"toolsEnv": {
+								"$ref": "#/components/schemas/ToolsEnvSetting"
+							},
+							"knowledge": {
+								"type": "array",
+								"items": {
+									"type": "object",
+									"required": ["slug", "description", "body"],
+									"properties": {
+										"slug": {
+											"type": "string",
+											"description": "Unique document slug / filename without extension."
+										},
+										"description": {
+											"type": "string",
+											"description": "Document summary used by model tools to decide when to read this document."
+										},
+										"category": {
+											"type": "string",
+											"description": "Optional categorization tag."
+										},
+										"body": {
+											"type": "string",
+											"description": "Full markdown content body of the document."
+										}
+									},
+									"description": "Initial knowledge document entry."
+								},
+								"description": "Optional array of initial knowledge documents to create for this bot."
+							}
+						},
+						"description": "Parameters for creating a new bot persona."
+					}
+				},
+				"description": "Create a new bot persona with default model, thinking budget, tool access, and initial virtual workspace files."
+			},
+			"BotDeleteCommand": {
+				"type": "object",
+				"required": ["id", "type", "payload"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Non-empty unique correlation identifier for this command request."
+					},
+					"type": {
+						"type": "string",
+						"const": "bot.delete",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"required": ["botId"],
+						"properties": {
+							"botId": {
+								"type": "string",
+								"minLength": 1,
+								"description": "Identifier of the bot to permanently delete."
+							}
+						},
+						"description": "Parameters identifying the bot to delete."
+					}
+				},
+				"description": "Permanently delete a bot persona and cascade-delete its chat history, virtual files, and schedules."
+			},
+			"BotGetCommand": {
+				"type": "object",
+				"required": ["id", "type", "payload"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Non-empty unique correlation identifier for this command request."
+					},
+					"type": {
+						"type": "string",
+						"const": "bot.get",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"required": ["botId"],
+						"properties": {
+							"botId": {
+								"type": "string",
+								"minLength": 1,
+								"description": "Identifier of the bot to retrieve."
+							}
+						},
+						"description": "Parameters identifying the bot."
+					}
+				},
+				"readOnly": true,
+				"description": "Retrieve full bot configuration, system prompt (SOUL.md), memory state, and knowledge documents."
+			},
+			"BotListCommand": {
+				"type": "object",
+				"required": ["id", "type"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Non-empty unique correlation identifier for this command request."
+					},
+					"type": {
+						"type": "string",
+						"const": "bot.list",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"properties": {},
+						"description": "Empty parameter payload."
+					}
+				},
+				"readOnly": true,
+				"description": "List all bots configured within the current bot family."
+			},
+			"BotMessageEvent": {
+				"type": "object",
+				"required": ["type", "payload"],
+				"properties": {
+					"type": {
+						"type": "string",
+						"const": "bot.message",
+						"description": "Event type identifier for inter-bot messaging."
+					},
+					"payload": {
+						"type": "object",
+						"required": ["fromBotId", "toBotId", "chatKey", "text", "when"],
+						"properties": {
+							"fromBotId": {
+								"type": "string",
+								"description": "Identifier of the bot initiating the message."
+							},
+							"toBotId": {
+								"type": "string",
+								"description": "Identifier of the recipient bot."
+							},
+							"chatKey": {
+								"type": "string",
+								"description": "Chat session routing key where the exchange took place."
+							},
+							"text": {
+								"type": "string",
+								"description": "Prompt text sent to the recipient bot."
+							},
+							"reply": {
+								"type": "string",
+								"description": "Optional response text returned by the recipient bot."
+							},
+							"when": {
+								"type": "number",
+								"description": "Epoch timestamp in milliseconds when the message was dispatched."
+							}
+						},
+						"description": "Inter-bot message exchange payload."
+					}
+				},
+				"description": "Event notification dispatched when bots communicate autonomously within a bot family."
+			},
+			"BotUpdateCommand": {
+				"type": "object",
+				"required": ["id", "type", "payload"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Non-empty unique correlation identifier for this command request."
+					},
+					"type": {
+						"type": "string",
+						"const": "bot.update",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"required": ["botId"],
+						"properties": {
+							"botId": {
+								"type": "string",
+								"minLength": 1,
+								"description": "Identifier of the bot to update."
+							},
+							"name": {
+								"type": "string",
+								"description": "Optional updated display name."
+							},
+							"model": {
+								"type": "string",
+								"description": "Optional updated default model identifier string."
+							},
+							"thinking": {
+								"$ref": "#/components/schemas/ThinkingLevel"
+							},
+							"tools": {
+								"anyOf": [
+									{
+										"type": "array",
+										"items": {
+											"type": "string"
+										},
+										"description": "Replacement allowlist. An empty array allows no gated tools and does not offer coding tools."
+									},
+									{
+										"type": "null"
+									}
+								],
+								"description": "Missing or null leaves the stored allowlist unchanged. An array replaces it."
+							},
+							"soul": {
+								"type": "string",
+								"description": "Optional updated SOUL.md system prompt content."
+							},
+							"toolsEnv": {
+								"$ref": "#/components/schemas/ToolsEnvSetting"
+							}
+						},
+						"description": "Parameters for updating bot configuration."
+					}
+				},
+				"description": "Update an existing bot's model, thinking budget, tool access, display name, or soul."
+			},
+			"ChatCloseCommand": {
+				"type": "object",
+				"required": ["id", "type", "payload"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Non-empty unique correlation identifier for this command request."
+					},
+					"type": {
+						"type": "string",
+						"const": "chat.close",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"required": ["chatKey"],
+						"properties": {
+							"chatKey": {
+								"type": "string",
+								"minLength": 1,
+								"description": "Chat routing key to close."
+							}
+						},
+						"description": "Parameters identifying the chat session to close."
+					}
+				},
+				"description": "Close and archive a chat conversation session."
+			},
+			"ChatCreateCommand": {
+				"type": "object",
+				"required": ["id", "type", "payload"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Non-empty unique correlation identifier for this command request."
+					},
+					"type": {
+						"type": "string",
+						"const": "chat.create",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"required": ["botId"],
+						"properties": {
+							"botId": {
+								"type": "string",
+								"minLength": 1,
+								"description": "Identifier of the bot to converse with."
+							},
+							"key": {
+								"type": "string",
+								"description": "Optional custom chat routing key / slug. Generated if omitted."
+							},
+							"chatId": {
+								"type": "string",
+								"description": "Deprecated alias for key."
+							},
+							"title": {
+								"type": "string",
+								"description": "Optional title or topic label for the chat session."
+							},
+							"thinking": {
+								"$ref": "#/components/schemas/ThinkingLevel"
+							},
+							"toolsEnv": {
+								"$ref": "#/components/schemas/ToolsEnvSetting"
+							}
+						},
+						"description": "Parameters for creating a new chat session."
+					}
+				},
+				"description": "Create a new chat conversation thread with a bot, returning its unique routing key."
+			},
+			"ChatEntriesCommand": {
+				"type": "object",
+				"required": ["id", "type", "payload"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Non-empty unique correlation identifier for this command request."
+					},
+					"type": {
+						"type": "string",
+						"const": "chat.entries",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"required": ["chatKey"],
+						"properties": {
+							"chatKey": {
+								"type": "string",
+								"minLength": 1,
+								"description": "Chat routing key whose transcript entries to fetch."
+							}
+						},
+						"description": "Parameters identifying the chat session."
+					}
+				},
+				"readOnly": true,
+				"description": "Fetch the underlying durable transcript entries (including tool calls and state records) for a chat session."
+			},
+			"ChatGetCommand": {
+				"type": "object",
+				"required": ["id", "type", "payload"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Non-empty unique correlation identifier for this command request."
+					},
+					"type": {
+						"type": "string",
+						"const": "chat.get",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"required": ["chatKey"],
+						"properties": {
+							"chatKey": {
+								"type": "string",
+								"minLength": 1,
+								"description": "Unique routing key of the chat session to retrieve."
+							}
+						},
+						"description": "Parameters identifying the chat session."
+					}
+				},
+				"readOnly": true,
+				"description": "Retrieve chat session metadata, active busy flag, recent messages, entries, and harvest notes."
+			},
+			"ChatListCommand": {
+				"type": "object",
+				"required": ["id", "type"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Non-empty unique correlation identifier for this command request."
+					},
+					"type": {
+						"type": "string",
+						"const": "chat.list",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"properties": {
+							"botId": {
+								"type": "string",
+								"description": "Optional bot identifier to filter chat sessions."
+							}
+						},
+						"description": "Filters for listing chat sessions."
+					}
+				},
+				"readOnly": true,
+				"description": "List chat conversation sessions in this bot family, optionally filtered by botId."
+			},
+			"ChatMessagesCommand": {
+				"type": "object",
+				"required": ["id", "type", "payload"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Non-empty unique correlation identifier for this command request."
+					},
+					"type": {
+						"type": "string",
+						"const": "chat.messages",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"required": ["chatKey"],
+						"properties": {
+							"chatKey": {
+								"type": "string",
+								"minLength": 1,
+								"description": "Chat routing key whose messages to fetch."
+							}
+						},
+						"description": "Parameters identifying the chat session."
+					}
+				},
+				"readOnly": true,
+				"description": "Fetch the user and assistant message exchange history for a chat session."
+			},
+			"ChatRenameCommand": {
+				"type": "object",
+				"required": ["id", "type", "payload"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Non-empty unique correlation identifier for this command request."
+					},
+					"type": {
+						"type": "string",
+						"const": "chat.rename",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"required": ["chatKey", "title"],
+						"properties": {
+							"chatKey": {
+								"type": "string",
+								"minLength": 1,
+								"description": "Chat routing key to rename."
+							},
+							"title": {
+								"type": "string",
+								"description": "New title string for the conversation."
+							}
+						},
+						"description": "Parameters for renaming a chat session."
+					}
+				},
+				"description": "Rename the title or topic of an existing chat session."
+			},
+			"ChatResetCommand": {
+				"type": "object",
+				"required": ["id", "type", "payload"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Non-empty unique correlation identifier for this command request."
+					},
+					"type": {
+						"type": "string",
+						"const": "chat.reset",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"required": ["chatKey"],
+						"properties": {
+							"chatKey": {
+								"type": "string",
+								"minLength": 1,
+								"description": "Chat routing key to reset."
+							},
+							"handoff": {
+								"type": "string",
+								"description": "Optional summary context seeded into the reset conversation."
+							}
+						},
+						"description": "Parameters for resetting a chat conversation."
+					}
+				},
+				"description": "Reset conversation history for a chat session while preserving its key, optionally injecting handoff context."
+			},
+			"ChatStateEvent": {
+				"type": "object",
+				"required": ["type", "payload"],
+				"properties": {
+					"type": {
+						"type": "string",
+						"const": "chat.state",
+						"description": "Event type identifier for chat state changes."
+					},
+					"payload": {
+						"type": "object",
+						"required": ["chatKey", "botId", "conversationId", "busy"],
+						"properties": {
+							"chatKey": {
+								"type": "string",
+								"description": "Chat session routing key."
+							},
+							"botId": {
+								"type": "string",
+								"description": "Identifier of the participating bot."
+							},
+							"conversationId": {
+								"type": "number",
+								"description": "Internal durable conversation sequence ID backing this chat."
+							},
+							"busy": {
+								"type": "boolean",
+								"description": "True if a model turn or scheduled task is actively running, false when idle."
+							},
+							"model": {
+								"type": "string",
+								"description": "Active model identifier used in this chat."
+							},
+							"thinking": {
+								"type": "string",
+								"description": "Active thinking level override."
+							},
+							"usage": {
+								"type": "object",
+								"patternProperties": {
+									"^.*$": {}
+								},
+								"description": "Updated session usage metrics."
+							}
+						},
+						"description": "Updated chat session state."
+					}
+				},
+				"description": "Event emitted when a chat session transitions between busy and idle or updates configuration."
+			},
+			"ChatStatusCommand": {
+				"type": "object",
+				"required": ["id", "type", "payload"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Non-empty unique correlation identifier for this command request."
+					},
+					"type": {
+						"type": "string",
+						"const": "chat.status",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"required": ["chatKey"],
+						"properties": {
+							"chatKey": {
+								"type": "string",
+								"minLength": 1,
+								"description": "Chat routing key whose status to inspect."
+							}
+						},
+						"description": "Parameters identifying the chat session."
+					}
+				},
+				"readOnly": true,
+				"description": "Fetch out-of-band runtime execution status for a chat session without invoking the model or modifying history."
+			},
+			"ChatSubscribeCommand": {
+				"type": "object",
+				"required": ["id", "type", "payload"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Non-empty unique correlation identifier for this command request."
+					},
+					"type": {
+						"type": "string",
+						"const": "chat.subscribe",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"required": ["chatKey"],
+						"properties": {
+							"chatKey": {
+								"type": "string",
+								"minLength": 1,
+								"description": "Chat routing key to subscribe to."
+							}
+						},
+						"description": "Parameters identifying the chat session."
+					}
+				},
+				"description": "Subscribe the current connection (WebSocket or SSE) to real-time streaming deltas, tool calls, and state events for a chat."
+			},
+			"ChatUpdateCommand": {
+				"type": "object",
+				"required": ["id", "type", "payload"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1
+					},
+					"type": {
+						"type": "string",
+						"const": "chat.update"
+					},
+					"payload": {
+						"type": "object",
+						"required": ["chatKey", "toolsEnv"],
+						"properties": {
+							"chatKey": {
+								"type": "string",
+								"minLength": 1
+							},
+							"toolsEnv": {
+								"$ref": "#/components/schemas/ToolsEnvSetting"
+							}
+						},
+						"additionalProperties": false
+					}
+				},
+				"description": "Update a chat's tools env setting."
+			},
+			"ClientCommand": {
+				"anyOf": [
+					{
+						"$ref": "#/components/schemas/AccountGetCommand"
+					},
+					{
+						"$ref": "#/components/schemas/AccountUpdateCommand"
+					},
+					{
+						"$ref": "#/components/schemas/AccountMembersListCommand"
+					},
+					{
+						"$ref": "#/components/schemas/AccountMembersAddCommand"
+					},
+					{
+						"$ref": "#/components/schemas/AccountCredentialsListCommand"
+					},
+					{
+						"$ref": "#/components/schemas/AccountCredentialsSetCommand"
+					},
+					{
+						"$ref": "#/components/schemas/AccountCredentialsDeleteCommand"
+					},
+					{
+						"$ref": "#/components/schemas/AccountModelsListCommand"
+					},
+					{
+						"$ref": "#/components/schemas/AccountOAuthProvidersCommand"
+					},
+					{
+						"$ref": "#/components/schemas/AccountOAuthStartCommand"
+					},
+					{
+						"$ref": "#/components/schemas/AccountOAuthStatusCommand"
+					},
+					{
+						"$ref": "#/components/schemas/AccountOAuthSubmitCommand"
+					},
+					{
+						"$ref": "#/components/schemas/AccountOAuthCancelCommand"
+					},
+					{
+						"$ref": "#/components/schemas/FamilyListCommand"
+					},
+					{
+						"$ref": "#/components/schemas/FamilyCreateCommand"
+					},
+					{
+						"$ref": "#/components/schemas/FamilyGetCommand"
+					},
+					{
+						"$ref": "#/components/schemas/FamilyUpdateCommand"
+					},
+					{
+						"$ref": "#/components/schemas/FamilyDeleteCommand"
+					},
+					{
+						"$ref": "#/components/schemas/BotListCommand"
+					},
+					{
+						"$ref": "#/components/schemas/BotCreateCommand"
+					},
+					{
+						"$ref": "#/components/schemas/BotGetCommand"
+					},
+					{
+						"$ref": "#/components/schemas/BotUpdateCommand"
+					},
+					{
+						"$ref": "#/components/schemas/BotDeleteCommand"
+					},
+					{
+						"$ref": "#/components/schemas/ChatCreateCommand"
+					},
+					{
+						"$ref": "#/components/schemas/ChatListCommand"
+					},
+					{
+						"$ref": "#/components/schemas/ChatGetCommand"
+					},
+					{
+						"$ref": "#/components/schemas/ChatRenameCommand"
+					},
+					{
+						"$ref": "#/components/schemas/ChatCloseCommand"
+					},
+					{
+						"$ref": "#/components/schemas/ChatResetCommand"
+					},
+					{
+						"$ref": "#/components/schemas/ChatMessagesCommand"
+					},
+					{
+						"$ref": "#/components/schemas/ChatEntriesCommand"
+					},
+					{
+						"$ref": "#/components/schemas/ChatStatusCommand"
+					},
+					{
+						"$ref": "#/components/schemas/ChatSubscribeCommand"
+					},
+					{
+						"$ref": "#/components/schemas/TurnSubmitCommand"
+					},
+					{
+						"$ref": "#/components/schemas/TurnCommandCommand"
+					},
+					{
+						"$ref": "#/components/schemas/TurnSteerCommand"
+					},
+					{
+						"$ref": "#/components/schemas/TurnInterruptCommand"
+					},
+					{
+						"$ref": "#/components/schemas/TurnAbortCommand"
+					},
+					{
+						"$ref": "#/components/schemas/FileListCommand"
+					},
+					{
+						"$ref": "#/components/schemas/FileReadCommand"
+					},
+					{
+						"$ref": "#/components/schemas/FileWriteCommand"
+					},
+					{
+						"$ref": "#/components/schemas/FileDeleteCommand"
+					},
+					{
+						"$ref": "#/components/schemas/KnowledgeSearchCommand"
+					},
+					{
+						"$ref": "#/components/schemas/ScheduleCreateCommand"
+					},
+					{
+						"$ref": "#/components/schemas/ScheduleListCommand"
+					},
+					{
+						"$ref": "#/components/schemas/ScheduleUpdateCommand"
+					},
+					{
+						"$ref": "#/components/schemas/ScheduleDeleteCommand"
+					},
+					{
+						"$ref": "#/components/schemas/ChatUpdateCommand"
+					},
+					{
+						"$ref": "#/components/schemas/AccountToolsEnvsListCommand"
+					},
+					{
+						"$ref": "#/components/schemas/AccountToolsEnvsCreateCommand"
+					},
+					{
+						"$ref": "#/components/schemas/AccountToolsEnvsUpdateCommand"
+					},
+					{
+						"$ref": "#/components/schemas/AccountToolsEnvsDeleteCommand"
+					},
+					{
+						"$ref": "#/components/schemas/AccountToolsEnvSecretsListCommand"
+					},
+					{
+						"$ref": "#/components/schemas/AccountToolsEnvSecretsSetCommand"
+					},
+					{
+						"$ref": "#/components/schemas/AccountToolsEnvSecretsDeleteCommand"
+					}
+				],
+				"description": "Complete discriminated union of all client-to-server commands in the Cadmus protocol."
+			},
+			"CommandResultFrame": {
+				"type": "object",
+				"required": ["id", "type", "ok"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"description": "Correlation identifier matching the 'id' of the originating client command."
+					},
+					"type": {
+						"type": "string",
+						"const": "command.result",
+						"description": "Frame type identifier for command responses."
+					},
+					"command": {
+						"type": "string",
+						"description": "Type name of the command that produced this result (e.g. 'turn.submit', 'chat.get')."
+					},
+					"ok": {
+						"type": "boolean",
+						"description": "True if the command succeeded, or false if an error occurred."
+					},
+					"result": {
+						"description": "Success result payload matching the command's expected RPC contract (present when ok is true)."
+					},
+					"payload": {
+						"description": "Backward-compatible alias for the 'result' property."
+					},
+					"error": {
+						"$ref": "#/components/schemas/ProtocolError"
+					}
+				},
+				"description": "Standard response frame returned by the server for all client command invocations."
+			},
+			"CredentialInput": {
+				"anyOf": [
+					{
+						"type": "object",
+						"required": ["type", "apiKey"],
+						"properties": {
+							"type": {
+								"type": "string",
+								"const": "api_key",
+								"description": "Static API key credential type."
+							},
+							"apiKey": {
+								"type": "string",
+								"minLength": 1,
+								"description": "Provider API key secret token."
+							}
+						},
+						"description": "Static API key credential configuration."
+					},
+					{
+						"type": "object",
+						"required": ["type", "accessToken"],
+						"properties": {
+							"type": {
+								"type": "string",
+								"const": "oauth",
+								"description": "OAuth token set credential type."
+							},
+							"accessToken": {
+								"type": "string",
+								"minLength": 1,
+								"description": "Active OAuth access token."
+							},
+							"refreshToken": {
+								"type": "string",
+								"description": "Optional refresh token used to renew expired access tokens."
+							},
+							"expiresAt": {
+								"type": "number",
+								"description": "Optional epoch timestamp in milliseconds when the access token expires."
+							}
+						},
+						"description": "OAuth access and refresh token configuration."
+					}
+				],
+				"description": "Authentication credentials for an AI provider, supporting static API keys or refreshed OAuth tokens."
+			},
+			"CredentialSummary": {
+				"type": "object",
+				"required": ["providerId", "type", "updatedAt"],
+				"properties": {
+					"providerId": {
+						"type": "string",
+						"description": "Unique identifier of the AI provider (e.g. 'anthropic', 'openai', 'google', 'groq', 'deepseek', 'xai')."
+					},
+					"type": {
+						"anyOf": [
+							{
+								"type": "string",
+								"const": "api_key"
+							},
+							{
+								"type": "string",
+								"const": "oauth"
+							}
+						],
+						"description": "Authorization mechanism: static 'api_key' or refreshed 'oauth'."
+					},
+					"updatedAt": {
+						"type": "number",
+						"description": "Epoch timestamp in milliseconds when this credential was stored or last refreshed."
+					}
+				},
+				"description": "Sanitized metadata summarizing a configured AI provider credential without revealing secret values."
+			},
+			"FamilyCreateCommand": {
+				"type": "object",
+				"required": ["id", "type", "payload"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Non-empty unique correlation identifier for this command request."
+					},
+					"type": {
+						"type": "string",
+						"const": "family.create",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"required": ["name"],
+						"properties": {
+							"familyId": {
+								"type": "string",
+								"minLength": 1,
+								"description": "Optional custom identifier / slug for the new family. Generated if omitted."
+							},
+							"name": {
+								"type": "string",
+								"minLength": 1,
+								"description": "Human-readable display name for the bot family."
+							},
+							"timezone": {
+								"type": "string",
+								"description": "Optional default IANA timezone identifier for this family (defaults to account timezone)."
+							},
+							"harvestDelayMs": {
+								"type": "number",
+								"description": "Optional idle delay in milliseconds before running background memory harvesting (defaults to 60000ms)."
+							}
+						},
+						"description": "Configuration parameters for creating a new bot family."
+					}
+				},
+				"description": "Create a new bot family, initializing its partitioned Cloudflare Durable Object instance."
+			},
+			"FamilyDeleteCommand": {
+				"type": "object",
+				"required": ["id", "type", "payload"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Non-empty unique correlation identifier for this command request."
+					},
+					"type": {
+						"type": "string",
+						"const": "family.delete",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"required": ["familyId"],
+						"properties": {
+							"familyId": {
+								"type": "string",
+								"minLength": 1,
+								"description": "Identifier of the bot family to permanently delete."
+							}
+						},
+						"description": "Parameters identifying the bot family to delete."
+					}
+				},
+				"description": "Permanently delete a bot family and cascade-delete its Durable Object data."
+			},
+			"FamilyGetCommand": {
+				"type": "object",
+				"required": ["id", "type"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Non-empty unique correlation identifier for this command request."
+					},
+					"type": {
+						"type": "string",
+						"const": "family.get",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"properties": {
+							"familyId": {
+								"type": "string",
+								"description": "Optional family identifier. Defaults to the currently scoped family."
+							}
+						},
+						"description": "Parameters identifying the family to retrieve."
+					}
+				},
+				"readOnly": true,
+				"description": "Retrieve metadata for a specific bot family or the currently scoped family."
+			},
+			"FamilyListCommand": {
+				"type": "object",
+				"required": ["id", "type"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Non-empty unique correlation identifier for this command request."
+					},
+					"type": {
+						"type": "string",
+						"const": "family.list",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"properties": {},
+						"description": "Empty parameter payload."
+					}
+				},
+				"readOnly": true,
+				"description": "List all bot families (Durable Object clusters) registered to the account."
+			},
+			"FamilyUpdateCommand": {
+				"type": "object",
+				"required": ["id", "type", "payload"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Non-empty unique correlation identifier for this command request."
+					},
+					"type": {
+						"type": "string",
+						"const": "family.update",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"properties": {
+							"familyId": {
+								"type": "string",
+								"description": "Optional family identifier to update. Defaults to the scoped family."
+							},
+							"name": {
+								"type": "string",
+								"description": "Optional updated display name for the family."
+							},
+							"timezone": {
+								"type": "string",
+								"description": "Optional updated default IANA timezone identifier for this family."
+							},
+							"harvestDelayMs": {
+								"type": "number",
+								"description": "Optional updated idle harvest delay in milliseconds."
+							}
+						},
+						"description": "Parameters for updating bot family configuration."
+					}
+				},
+				"description": "Update bot family settings including display name, timezone, or idle harvest delay."
+			},
+			"FileDeleteCommand": {
+				"type": "object",
+				"required": ["id", "type", "payload"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Non-empty unique correlation identifier for this command request."
+					},
+					"type": {
+						"type": "string",
+						"const": "file.delete",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"required": ["botId", "path"],
+						"properties": {
+							"botId": {
+								"type": "string",
+								"minLength": 1,
+								"description": "Bot identifier owning the file."
+							},
+							"path": {
+								"type": "string",
+								"minLength": 1,
+								"description": "Virtual workspace file path to delete."
+							},
+							"expectedVersion": {
+								"type": "number",
+								"description": "Expected current version for optimistic concurrency control (CAS). Delete fails if version does not match."
+							},
+							"version": {
+								"type": "number",
+								"description": "Alias for expectedVersion."
+							}
+						},
+						"description": "Parameters identifying the file to delete."
+					}
+				},
+				"description": "Delete a virtual workspace file with optimistic concurrency version verification."
+			},
+			"FileListCommand": {
+				"type": "object",
+				"required": ["id", "type", "payload"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Non-empty unique correlation identifier for this command request."
+					},
+					"type": {
+						"type": "string",
+						"const": "file.list",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"required": ["botId"],
+						"properties": {
+							"botId": {
+								"type": "string",
+								"minLength": 1,
+								"description": "Bot identifier whose virtual files to list."
+							},
+							"category": {
+								"type": "string",
+								"description": "Optional category tag filter for knowledge documents."
+							}
+						},
+						"description": "Parameters for listing virtual workspace files."
+					}
+				},
+				"readOnly": true,
+				"description": "List virtual workspace files (SOUL.md, MEMORY.md, and knowledge documents) associated with a bot."
+			},
+			"FileReadCommand": {
+				"type": "object",
+				"required": ["id", "type", "payload"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Non-empty unique correlation identifier for this command request."
+					},
+					"type": {
+						"type": "string",
+						"const": "file.read",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"required": ["botId"],
+						"properties": {
+							"botId": {
+								"type": "string",
+								"minLength": 1,
+								"description": "Bot identifier whose file to read."
+							},
+							"path": {
+								"type": "string",
+								"description": "Virtual workspace file path to read (e.g. 'SOUL.md', 'MEMORY.md', 'knowledge/topic.md'). If omitted, lists all files."
+							}
+						},
+						"description": "Parameters identifying the file to read."
+					}
+				},
+				"readOnly": true,
+				"description": "Read a virtual workspace file's content and version metadata, or list files if path is omitted."
+			},
+			"FileWriteCommand": {
+				"type": "object",
+				"required": ["id", "type", "payload"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Non-empty unique correlation identifier for this command request."
+					},
+					"type": {
+						"type": "string",
+						"const": "file.write",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"required": ["botId", "path"],
+						"properties": {
+							"botId": {
+								"type": "string",
+								"minLength": 1,
+								"description": "Bot identifier owning the file."
+							},
+							"path": {
+								"type": "string",
+								"minLength": 1,
+								"description": "Virtual workspace file path (e.g. 'SOUL.md', 'MEMORY.md', 'knowledge/topic.md')."
+							},
+							"content": {
+								"type": "string",
+								"description": "File content string to write."
+							},
+							"text": {
+								"type": "string",
+								"description": "Alias for content."
+							},
+							"expectedVersion": {
+								"type": "number",
+								"description": "Expected current version for optimistic concurrency control (CAS). Write fails if version does not match."
+							},
+							"version": {
+								"type": "number",
+								"description": "Alias for expectedVersion."
+							},
+							"description": {
+								"type": "string",
+								"description": "Summary description for knowledge documents."
+							},
+							"category": {
+								"type": "string",
+								"description": "Optional category tag for knowledge documents."
+							},
+							"body": {
+								"type": "string",
+								"description": "Markdown body for knowledge documents."
+							},
+							"delete": {
+								"type": "boolean",
+								"description": "If true, deletes the virtual file instead of writing."
+							}
+						},
+						"description": "Parameters for writing or deleting a virtual file."
+					}
+				},
+				"description": "Create, update, or delete a virtual workspace file with optimistic concurrency version control (CAS)."
+			},
+			"HarvestFileDiff": {
+				"type": "object",
+				"required": ["path", "diff"],
+				"properties": {
+					"path": {
+						"type": "string",
+						"description": "Virtual workspace file path modified (e.g. 'MEMORY.md', 'knowledge/topic.md')."
+					},
+					"diff": {
+						"type": "string",
+						"description": "Unified diff representation showing modifications applied to the file."
+					}
+				},
+				"description": "Individual file modification diff recorded during an idle harvest run."
+			},
+			"HarvestNote": {
+				"type": "object",
+				"required": ["chatKey", "at", "files", "when"],
+				"properties": {
+					"chatKey": {
+						"type": "string",
+						"description": "Routing key of the chat session whose conversation was harvested."
+					},
+					"at": {
+						"type": "number",
+						"description": "Conversation entry sequence number / watermark up to which harvest was performed."
+					},
+					"files": {
+						"type": "array",
+						"items": {
+							"$ref": "#/components/schemas/HarvestFileDiff"
+						},
+						"description": "List of files modified during harvest with their unified diffs."
+					},
+					"when": {
+						"type": "number",
+						"description": "Epoch timestamp in milliseconds when the harvest execution occurred."
+					}
+				},
+				"description": "Audit note recording knowledge and memory extractions completed by background idle harvest tasks."
+			},
+			"HarvestNoteEvent": {
+				"type": "object",
+				"required": ["type", "payload"],
+				"properties": {
+					"type": {
+						"type": "string",
+						"const": "harvest.note",
+						"description": "Event type identifier for idle harvest notifications."
+					},
+					"payload": {
+						"$ref": "#/components/schemas/HarvestNote"
+					}
+				},
+				"description": "Event emitted when an idle conversation harvest run completes and saves memory or knowledge file diffs."
+			},
+			"KnowledgeSearchCommand": {
+				"type": "object",
+				"required": ["id", "type", "payload"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Non-empty unique correlation identifier for this command request."
+					},
+					"type": {
+						"type": "string",
+						"const": "knowledge.search",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"required": ["botId"],
+						"properties": {
+							"botId": {
+								"type": "string",
+								"minLength": 1,
+								"description": "Bot identifier whose knowledge documents to search."
+							},
+							"query": {
+								"type": "string",
+								"description": "Keyword or substring search query."
+							},
+							"category": {
+								"type": "string",
+								"description": "Optional category filter tag."
+							}
+						},
+						"description": "Parameters for searching knowledge documents."
+					}
+				},
+				"readOnly": true,
+				"description": "Search across knowledge base documents for a bot using keyword and category filters."
+			},
+			"OAuthFlowRecord": {
+				"type": "object",
+				"required": ["flowId", "providerId", "flowType", "status", "updatedAt"],
+				"properties": {
+					"flowId": {
+						"type": "string",
+						"description": "Unique identifier for this OAuth flow session."
+					},
+					"providerId": {
+						"type": "string",
+						"description": "Identifier of the provider being authenticated."
+					},
+					"flowType": {
+						"anyOf": [
+							{
+								"type": "string",
+								"const": "device_code"
+							},
+							{
+								"type": "string",
+								"const": "browser_code"
+							},
+							{
+								"type": "string",
+								"const": "interactive"
+							}
+						],
+						"description": "OAuth flow type used."
+					},
+					"status": {
+						"anyOf": [
+							{
+								"type": "string",
+								"const": "pending",
+								"description": "Flow is waiting for the user to navigate to verification URL."
+							},
+							{
+								"type": "string",
+								"const": "prompt",
+								"description": "Flow is awaiting interactive user input described by the prompt field."
+							},
+							{
+								"type": "string",
+								"const": "progress",
+								"description": "Authorization is actively polling or exchanging credentials."
+							},
+							{
+								"type": "string",
+								"const": "completed",
+								"description": "Authentication completed successfully; credentials have been saved."
+							},
+							{
+								"type": "string",
+								"const": "failed",
+								"description": "Authentication encountered an error and terminated."
+							},
+							{
+								"type": "string",
+								"const": "cancelled",
+								"description": "Authentication was explicitly cancelled by the client."
+							}
+						],
+						"description": "Current lifecycle state of the OAuth flow."
+					},
+					"userCode": {
+						"type": "string",
+						"description": "User verification code to display for device authorization flows."
+					},
+					"verificationUri": {
+						"type": "string",
+						"description": "Target URL where the user must navigate to approve the authorization."
+					},
+					"verificationUriComplete": {
+						"type": "string",
+						"description": "Pre-authenticated URL that automatically embeds the userCode for one-click approval."
+					},
+					"authorizationUrl": {
+						"type": "string",
+						"description": "Browser authorization URL used in browser-based redirect flows."
+					},
+					"intervalSeconds": {
+						"type": "number",
+						"description": "Recommended polling interval in seconds for device code status checking."
+					},
+					"expiresAt": {
+						"type": "number",
+						"description": "Epoch timestamp in milliseconds when this authorization flow will expire."
+					},
+					"prompt": {
+						"$ref": "#/components/schemas/OAuthPrompt"
+					},
+					"message": {
+						"type": "string",
+						"description": "Human-readable status or guidance message intended for display."
+					},
+					"credential": {
+						"$ref": "#/components/schemas/CredentialSummary"
+					},
+					"error": {
+						"$ref": "#/components/schemas/ProtocolError"
+					},
+					"updatedAt": {
+						"type": "number",
+						"description": "Epoch timestamp in milliseconds when this flow record was last updated."
+					}
+				},
+				"description": "Full state and progression metadata for an ongoing or finalized OAuth authentication flow."
+			},
+			"OAuthPrompt": {
+				"type": "object",
+				"required": ["type", "message"],
+				"properties": {
+					"type": {
+						"anyOf": [
+							{
+								"type": "string",
+								"const": "text",
+								"description": "Single-line plain text prompt."
+							},
+							{
+								"type": "string",
+								"const": "secret",
+								"description": "Masked confidential input prompt (e.g. password or secret)."
+							},
+							{
+								"type": "string",
+								"const": "select",
+								"description": "Selection list prompt requiring the user to choose an option."
+							},
+							{
+								"type": "string",
+								"const": "manual_code",
+								"description": "Manual authorization code entry copied from an external browser window."
+							}
+						],
+						"description": "Input prompt type: 'text', 'secret', 'select', or 'manual_code'."
+					},
+					"message": {
+						"type": "string",
+						"description": "Human-readable prompt instruction displayed to the user."
+					},
+					"placeholder": {
+						"type": "string",
+						"description": "Optional input placeholder text for client UI display."
+					},
+					"options": {
+						"type": "array",
+						"items": {
+							"type": "object",
+							"required": ["id", "label"],
+							"properties": {
+								"id": {
+									"type": "string",
+									"description": "Unique value identifier for this option choice."
+								},
+								"label": {
+									"type": "string",
+									"description": "Human-readable label for this option choice."
+								},
+								"description": {
+									"type": "string",
+									"description": "Optional secondary description for the option."
+								}
+							},
+							"description": "Selectable option entry."
+						},
+						"description": "Array of selectable choices when prompt type is 'select'."
+					}
+				},
+				"description": "Interactive user prompt descriptor requested during an ongoing OAuth authentication flow."
+			},
+			"ProtocolError": {
+				"type": "object",
+				"required": ["code", "message"],
+				"properties": {
+					"code": {
+						"type": "string",
+						"description": "Machine-readable error code identifying the failure category (e.g. 'invalid_command', 'not_found', 'unauthorized', 'conflict')."
+					},
+					"message": {
+						"type": "string",
+						"description": "Human-readable explanation of why the command failed or could not be processed."
+					}
+				},
+				"description": "Standard protocol error details included in rejected command results or error events."
+			},
+			"ProtocolErrorEvent": {
+				"type": "object",
+				"required": ["type", "payload"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"description": "Optional correlation ID matching the failed command request."
+					},
+					"type": {
+						"type": "string",
+						"const": "protocol.error",
+						"description": "Event type identifier for protocol errors."
+					},
+					"payload": {
+						"$ref": "#/components/schemas/ProtocolError"
+					}
+				},
+				"description": "Asynchronous error event emitted when a protocol-level violation occurs on the connection."
+			},
+			"ScheduleCreateCommand": {
+				"type": "object",
+				"required": ["id", "type", "payload"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Non-empty unique correlation identifier for this command request."
+					},
+					"type": {
+						"type": "string",
+						"const": "schedule.create",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"required": ["botId", "kind", "input", "text", "target"],
+						"properties": {
+							"id": {
+								"type": "string",
+								"description": "Optional custom identifier for the schedule. Generated if omitted."
+							},
+							"botId": {
+								"type": "string",
+								"minLength": 1,
+								"description": "Identifier of the bot that will execute the scheduled prompt."
+							},
+							"name": {
+								"type": "string",
+								"description": "Optional human-readable label or description for the schedule."
+							},
+							"kind": {
+								"anyOf": [
+									{
+										"type": "string",
+										"const": "relative",
+										"description": "One-shot schedule based on relative duration strictly from now (e.g. '10s', '5m', '1s4m', '4s 2m', '100ms', or plain number in seconds)."
+									},
+									{
+										"type": "string",
+										"const": "absolute",
+										"description": "One-shot schedule targeted at an absolute date and time (e.g. 'tomorrow at 5pm', ISO string '2026-10-18T22:30:00Z', or epoch timestamp)."
+									},
+									{
+										"type": "string",
+										"const": "cron",
+										"description": "Recurring schedule governed by a cron pattern expression or standard nickname (e.g. '0 9 * * *' or '@hourly')."
+									}
+								],
+								"description": "Schedule timing mode: 'relative', 'absolute', or 'cron'."
+							},
+							"input": {
+								"anyOf": [
+									{
+										"type": "string"
+									},
+									{
+										"type": "number"
+									}
+								],
+								"description": "Unified timing input interpreted according to kind: relative duration for 'relative' (e.g. '5s', '10m', 10), absolute date/time for 'absolute' (e.g. 'tomorrow at 5pm', ISO string, epoch ms), or cron pattern for 'cron' (e.g. '0 9 * * *', '@hourly')."
+							},
+							"text": {
+								"type": "string",
+								"minLength": 1,
+								"description": "Prompt text delivered to the bot when the schedule triggers."
+							},
+							"target": {
+								"$ref": "#/components/schemas/ScheduleTarget"
+							},
+							"thinking": {
+								"$ref": "#/components/schemas/ThinkingLevel"
+							},
+							"enabled": {
+								"type": "boolean",
+								"description": "Whether the schedule is initially active (defaults to true)."
+							}
+						},
+						"description": "Parameters for creating a scheduled task."
+					}
+				},
+				"description": "Create a scheduled task (recurring cron, relative delay timer, or absolute timestamp) for a bot."
+			},
+			"ScheduleDeleteCommand": {
+				"type": "object",
+				"required": ["id", "type", "payload"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Non-empty unique correlation identifier for this command request."
+					},
+					"type": {
+						"type": "string",
+						"const": "schedule.delete",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"required": ["id"],
+						"properties": {
+							"id": {
+								"type": "string",
+								"minLength": 1,
+								"description": "Identifier of the schedule to permanently delete."
+							}
+						},
+						"description": "Parameters identifying the schedule to delete."
+					}
+				},
+				"description": "Permanently delete a scheduled task by ID."
+			},
+			"ScheduleListCommand": {
+				"type": "object",
+				"required": ["id", "type"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Non-empty unique correlation identifier for this command request."
+					},
+					"type": {
+						"type": "string",
+						"const": "schedule.list",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"properties": {
+							"botId": {
+								"type": "string",
+								"description": "Optional bot identifier to filter schedules."
+							},
+							"includeInternal": {
+								"type": "boolean",
+								"description": "Whether to include system-internal schedules (such as idle harvest timers)."
+							}
+						},
+						"description": "Filters for listing schedules."
+					}
+				},
+				"readOnly": true,
+				"description": "List scheduled tasks for a bot, optionally including internal idle harvest schedules."
+			},
+			"ScheduleTarget": {
+				"anyOf": [
+					{
+						"type": "object",
+						"required": ["mode", "chatKey"],
+						"properties": {
+							"mode": {
+								"type": "string",
+								"const": "chat",
+								"description": "Deliver the scheduled prompt to an existing chat session."
+							},
+							"chatKey": {
+								"type": "string",
+								"minLength": 1,
+								"description": "Target chat session routing key."
+							}
+						},
+						"description": "Target an existing persistent chat session."
+					},
+					{
+						"type": "object",
+						"required": ["mode"],
+						"properties": {
+							"mode": {
+								"type": "string",
+								"const": "new-chat",
+								"description": "Create a brand new chat session for each scheduled trigger."
+							}
+						},
+						"description": "Spawn a new chat session per schedule execution."
+					},
+					{
+						"type": "object",
+						"required": ["mode", "chatKey"],
+						"properties": {
+							"mode": {
+								"type": "string",
+								"const": "fork",
+								"description": "Fork from an existing chat session at a given transcript entry watermark."
+							},
+							"chatKey": {
+								"type": "string",
+								"minLength": 1,
+								"description": "Source chat session routing key to fork from."
+							},
+							"at": {
+								"type": "number",
+								"description": "Optional transcript entry sequence number watermark up to which conversation is forked."
+							},
+							"harvest": {
+								"type": "boolean",
+								"description": "True if this fork is an internal idle harvest task inspecting conversation history."
+							}
+						},
+						"description": "Fork an existing chat at a specific watermark, typically for background memory/knowledge harvesting."
+					}
+				],
+				"description": "Target execution destination and mode for a scheduled task or idle harvest."
+			},
+			"ScheduleUpdateCommand": {
+				"type": "object",
+				"required": ["id", "type", "payload"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Non-empty unique correlation identifier for this command request."
+					},
+					"type": {
+						"type": "string",
+						"const": "schedule.update",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"required": ["id"],
+						"properties": {
+							"id": {
+								"type": "string",
+								"minLength": 1,
+								"description": "Identifier of the schedule to update."
+							},
+							"name": {
+								"type": "string",
+								"description": "Optional updated label or description."
+							},
+							"kind": {
+								"anyOf": [
+									{
+										"type": "string",
+										"const": "relative",
+										"description": "Update kind to relative duration strictly from now."
+									},
+									{
+										"type": "string",
+										"const": "absolute",
+										"description": "Update kind to absolute date and time."
+									},
+									{
+										"type": "string",
+										"const": "cron",
+										"description": "Update kind to recurring cron expression or nickname."
+									}
+								],
+								"description": "Optional updated schedule kind ('relative', 'absolute', 'cron')."
+							},
+							"input": {
+								"anyOf": [
+									{
+										"type": "string"
+									},
+									{
+										"type": "number"
+									}
+								],
+								"description": "Optional updated unified timing input interpreted according to kind."
+							},
+							"text": {
+								"type": "string",
+								"description": "Optional updated prompt text."
+							},
+							"target": {
+								"$ref": "#/components/schemas/ScheduleTarget"
+							},
+							"thinking": {
+								"$ref": "#/components/schemas/ThinkingLevel"
+							},
+							"enabled": {
+								"type": "boolean",
+								"description": "Optional boolean to enable (true) or pause (false) the schedule."
+							}
+						},
+						"description": "Parameters for updating a scheduled task."
+					}
+				},
+				"description": "Update an existing schedule's timing, prompt, destination chat, thinking budget, or enabled status."
+			},
+			"ServerEvent": {
+				"anyOf": [
+					{
+						"$ref": "#/components/schemas/TurnDeltaEvent"
+					},
+					{
+						"$ref": "#/components/schemas/TurnToolCallEvent"
+					},
+					{
+						"$ref": "#/components/schemas/TurnToolResultEvent"
+					},
+					{
+						"$ref": "#/components/schemas/TurnCompletedEvent"
+					},
+					{
+						"$ref": "#/components/schemas/ChatStateEvent"
+					},
+					{
+						"$ref": "#/components/schemas/HarvestNoteEvent"
+					},
+					{
+						"$ref": "#/components/schemas/BotMessageEvent"
+					},
+					{
+						"$ref": "#/components/schemas/AccountEvent"
+					},
+					{
+						"$ref": "#/components/schemas/AccountToolsEnvSecretEvent"
+					},
+					{
+						"$ref": "#/components/schemas/AccountOAuthEvent"
+					},
+					{
+						"$ref": "#/components/schemas/ProtocolErrorEvent"
+					}
+				],
+				"description": "Discriminated union of all asynchronous event frames sent from server to client."
+			},
+			"ServerFrame": {
+				"anyOf": [
+					{
+						"$ref": "#/components/schemas/CommandResultFrame"
+					},
+					{
+						"$ref": "#/components/schemas/ServerEvent"
+					}
+				],
+				"description": "Complete union of all possible frames sent from server to client over WebSocket, SSE, or RPC."
+			},
+			"ThinkingLevel": {
+				"anyOf": [
+					{
+						"type": "string",
+						"const": "off",
+						"description": "Disable extended thinking/reasoning."
+					},
+					{
+						"type": "string",
+						"const": "minimal",
+						"description": "Minimal thinking budget (fastest reasoning)."
+					},
+					{
+						"type": "string",
+						"const": "low",
+						"description": "Low thinking budget."
+					},
+					{
+						"type": "string",
+						"const": "medium",
+						"description": "Medium thinking budget (balanced)."
+					},
+					{
+						"type": "string",
+						"const": "high",
+						"description": "High thinking budget."
+					},
+					{
+						"type": "string",
+						"const": "xhigh",
+						"description": "Extra-high thinking budget."
+					},
+					{
+						"type": "string",
+						"const": "max",
+						"description": "Maximum supported thinking token budget."
+					}
+				],
+				"description": "Budget and intensity level for extended model reasoning / thinking tokens."
+			},
+			"ToolsEnvBinding": {
+				"type": "object",
+				"required": ["envId"],
+				"properties": {
+					"envId": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Account env definition id (for example 'jb_default')."
+					}
+				},
+				"additionalProperties": false,
+				"description": "Binding that names an account tools env by id."
+			},
+			"ToolsEnvSetting": {
+				"anyOf": [
+					{
+						"type": "object",
+						"required": ["enabled"],
+						"properties": {
+							"enabled": {
+								"type": "boolean",
+								"description": "Whether this level turns the tools env on."
+							},
+							"binding": {
+								"$ref": "#/components/schemas/ToolsEnvBinding"
+							}
+						},
+						"additionalProperties": false,
+						"description": "Explicit tools env setting at one level."
+					},
+					{
+						"type": "null"
+					}
+				],
+				"description": "Tools env setting: an explicit on/off value, or null to inherit."
+			},
+			"TurnAbortCommand": {
+				"type": "object",
+				"required": ["id", "type", "payload"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Non-empty unique correlation identifier for this command request."
+					},
+					"type": {
+						"type": "string",
+						"const": "turn.abort",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"required": ["chatKey"],
+						"properties": {
+							"chatKey": {
+								"type": "string",
+								"minLength": 1,
+								"description": "Chat session routing key where the turn should be aborted."
+							}
+						},
+						"description": "Parameters identifying the chat session to abort."
+					}
+				},
+				"description": "Abort and cancel an active turn on a chat session (synonym for turn.interrupt)."
+			},
+			"TurnBlock": {
+				"anyOf": [
+					{
+						"type": "object",
+						"required": ["type"],
+						"properties": {
+							"type": {
+								"type": "string",
+								"const": "thinking",
+								"description": "Extended model reasoning / thinking block."
+							}
+						},
+						"description": "Thinking block produced during model reasoning."
+					},
+					{
+						"type": "object",
+						"required": ["type", "toolName"],
+						"properties": {
+							"type": {
+								"type": "string",
+								"const": "tool_call",
+								"description": "Tool invocation block."
+							},
+							"toolName": {
+								"type": "string",
+								"description": "Name of the invoked agent tool."
+							}
+						},
+						"description": "Agent tool invocation block."
+					},
+					{
+						"type": "object",
+						"required": ["type"],
+						"properties": {
+							"type": {
+								"type": "string",
+								"const": "text",
+								"description": "Assistant text response block."
+							},
+							"text": {
+								"type": "string",
+								"description": "Text content of the assistant message chunk."
+							}
+						},
+						"description": "Assistant response text block."
+					}
+				],
+				"description": "Structured turn component block representing reasoning, tool call, or text output."
+			},
+			"TurnCommandCommand": {
+				"type": "object",
+				"required": ["id", "type", "payload"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Non-empty unique correlation identifier for this command request."
+					},
+					"type": {
+						"type": "string",
+						"const": "turn.command",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"required": ["chatKey", "command"],
+						"properties": {
+							"chatKey": {
+								"type": "string",
+								"minLength": 1,
+								"description": "Target chat session routing key."
+							},
+							"command": {
+								"type": "string",
+								"minLength": 1,
+								"description": "Slash command string (currently '/status' is supported out-of-band)."
+							}
+						},
+						"description": "Parameters for executing an out-of-band slash command."
+					}
+				},
+				"description": "Execute an out-of-band slash command on a chat session without invoking the LLM or polluting transcript history."
+			},
+			"TurnCompletedEvent": {
+				"type": "object",
+				"required": ["type", "payload"],
+				"properties": {
+					"type": {
+						"type": "string",
+						"const": "turn.completed",
+						"description": "Event type identifier for turn completion."
+					},
+					"payload": {
+						"type": "object",
+						"required": ["chatKey", "status"],
+						"properties": {
+							"chatKey": {
+								"type": "string",
+								"description": "Chat session routing key."
+							},
+							"entryId": {
+								"type": "number",
+								"description": "Transcript entry sequence number assigned to this turn."
+							},
+							"status": {
+								"anyOf": [
+									{
+										"type": "string",
+										"const": "done",
+										"description": "Turn completed successfully with a response."
+									},
+									{
+										"type": "string",
+										"const": "unanswered",
+										"description": "Turn terminated without producing an assistant reply."
+									},
+									{
+										"type": "string",
+										"const": "command",
+										"description": "Turn was handled out-of-band as a slash command."
+									}
+								],
+								"description": "Terminal status: 'done', 'unanswered', or 'command'."
+							},
+							"text": {
+								"type": "string",
+								"description": "Full final assistant text reply."
+							},
+							"reason": {
+								"type": "string",
+								"description": "Model completion finish reason (e.g. 'stop', 'length', 'tool_use', 'aborted')."
+							},
+							"blocks": {
+								"type": "array",
+								"items": {
+									"$ref": "#/components/schemas/TurnBlock"
+								},
+								"description": "Structured content blocks (thinking, tool calls, text) produced during the turn."
+							}
+						},
+						"description": "Completed turn details and final content."
+					}
+				},
+				"description": "Terminal event emitted when a conversation turn finishes all reasoning, tools, and response output."
+			},
+			"TurnDeltaEvent": {
+				"type": "object",
+				"required": ["type", "payload"],
+				"properties": {
+					"type": {
+						"type": "string",
+						"const": "turn.delta",
+						"description": "Event type identifier for streaming text or thinking chunks."
+					},
+					"payload": {
+						"type": "object",
+						"required": ["chatKey", "kind", "delta"],
+						"properties": {
+							"chatKey": {
+								"type": "string",
+								"description": "Routing key of the chat session where the turn is executing."
+							},
+							"kind": {
+								"anyOf": [
+									{
+										"type": "string",
+										"const": "text",
+										"description": "Incremental assistant response text."
+									},
+									{
+										"type": "string",
+										"const": "thinking",
+										"description": "Incremental extended reasoning / thinking tokens."
+									}
+								],
+								"description": "Chunk content kind: generated 'text' or internal 'thinking'."
+							},
+							"delta": {
+								"type": "string",
+								"description": "Incremental text fragment generated in this chunk."
+							}
+						},
+						"description": "Streaming chunk payload."
+					}
+				},
+				"description": "Real-time streaming event emitted as the model generates text or reasoning tokens."
+			},
+			"TurnInterruptCommand": {
+				"type": "object",
+				"required": ["id", "type", "payload"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Non-empty unique correlation identifier for this command request."
+					},
+					"type": {
+						"type": "string",
+						"const": "turn.interrupt",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"required": ["chatKey"],
+						"properties": {
+							"chatKey": {
+								"type": "string",
+								"minLength": 1,
+								"description": "Chat session routing key where the turn should be interrupted."
+							}
+						},
+						"description": "Parameters identifying the chat session to interrupt."
+					}
+				},
+				"description": "Interrupt and immediately abort the currently running model turn or tool call on a chat session."
+			},
+			"TurnSteerCommand": {
+				"type": "object",
+				"required": ["id", "type", "payload"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Non-empty unique correlation identifier for this command request."
+					},
+					"type": {
+						"type": "string",
+						"const": "turn.steer",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"required": ["chatKey", "text"],
+						"properties": {
+							"chatKey": {
+								"type": "string",
+								"minLength": 1,
+								"description": "Target chat session routing key."
+							},
+							"text": {
+								"type": "string",
+								"minLength": 1,
+								"description": "Steering instruction text injected into the actively running turn."
+							},
+							"requestId": {
+								"type": "string",
+								"description": "Optional client request correlation identifier."
+							},
+							"clientMsgId": {
+								"type": "string",
+								"description": "Optional client message identifier."
+							}
+						},
+						"description": "Parameters for steering an active turn."
+					}
+				},
+				"description": "Steer an active model turn by injecting guidance instructions into the running agent loop without cancelling it."
+			},
+			"TurnSubmitCommand": {
+				"type": "object",
+				"required": ["id", "type", "payload"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Non-empty unique correlation identifier for this command request."
+					},
+					"type": {
+						"type": "string",
+						"const": "turn.submit",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"required": ["chatKey", "text"],
+						"properties": {
+							"chatKey": {
+								"type": "string",
+								"minLength": 1,
+								"description": "Target chat session routing key."
+							},
+							"text": {
+								"type": "string",
+								"minLength": 1,
+								"description": "User message prompt text to submit."
+							},
+							"requestId": {
+								"type": "string",
+								"description": "Optional client request correlation identifier for deduplication."
+							},
+							"clientMsgId": {
+								"type": "string",
+								"description": "Optional client message identifier for idempotent replay tracking."
+							},
+							"whenBusy": {
+								"anyOf": [
+									{
+										"type": "string",
+										"const": "queue",
+										"description": "Buffer the turn and execute once the current turn completes."
+									},
+									{
+										"type": "string",
+										"const": "steer",
+										"description": "Inject this prompt as steering guidance into the active turn without waiting."
+									},
+									{
+										"type": "string",
+										"const": "reject",
+										"description": "Immediately fail this command with an error if the chat is busy."
+									}
+								],
+								"description": "Concurrency handling policy when the chat is busy: 'queue' (default), 'steer', or 'reject'."
+							}
+						},
+						"description": "Parameters for submitting a user message turn."
+					}
+				},
+				"description": "Submit a user message turn to a chat session, initiating model reasoning, tool calling, and response generation."
+			},
+			"TurnToolCallEvent": {
+				"type": "object",
+				"required": ["type", "payload"],
+				"properties": {
+					"type": {
+						"type": "string",
+						"const": "turn.tool_call",
+						"description": "Event type identifier for tool call requests."
+					},
+					"payload": {
+						"type": "object",
+						"required": ["chatKey", "toolCallId", "toolName", "args"],
+						"properties": {
+							"chatKey": {
+								"type": "string",
+								"description": "Chat session routing key."
+							},
+							"toolCallId": {
+								"type": "string",
+								"description": "Unique identifier for this tool call execution instance."
+							},
+							"toolName": {
+								"type": "string",
+								"description": "Name of the tool being called (e.g. 'knowledge_read', 'schedule_create', 'web.fetch')."
+							},
+							"args": {
+								"type": "object",
+								"patternProperties": {
+									"^.*$": {}
+								},
+								"description": "Dictionary of arguments passed to the tool."
+							}
+						},
+						"description": "Tool call invocation details."
+					}
+				},
+				"description": "Event notification that the model has requested execution of an agent tool."
+			},
+			"TurnToolResultEvent": {
+				"type": "object",
+				"required": ["type", "payload"],
+				"properties": {
+					"type": {
+						"type": "string",
+						"const": "turn.tool_result",
+						"description": "Event type identifier for tool call results."
+					},
+					"payload": {
+						"type": "object",
+						"required": [
+							"chatKey",
+							"toolCallId",
+							"toolName",
+							"content",
+							"isError"
+						],
+						"properties": {
+							"chatKey": {
+								"type": "string",
+								"description": "Chat session routing key."
+							},
+							"toolCallId": {
+								"type": "string",
+								"description": "Correlation identifier matching the originating toolCallId."
+							},
+							"toolName": {
+								"type": "string",
+								"description": "Name of the tool that finished executing."
+							},
+							"content": {
+								"type": "string",
+								"description": "Serialized string output or return value produced by the tool."
+							},
+							"isError": {
+								"type": "boolean",
+								"description": "True if the tool threw an error or failed execution."
+							}
+						},
+						"description": "Tool execution result details."
+					}
+				},
+				"description": "Event notification providing the result or error produced by an agent tool."
+			}
+		}
+	}
+}

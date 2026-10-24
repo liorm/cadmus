@@ -1,0 +1,6474 @@
+{
+	"openapi": "3.1.0",
+	"info": {
+		"title": "Cadmus HTTP API",
+		"version": "1.0.0",
+		"description": "REST translation of the Cadmus command protocol. Generated from @cadmus/contract. readOnly commands are GET and HEAD with query parameters; other commands are POST JSON. Authorization is a Bearer header. A token query parameter is rejected."
+	},
+	"servers": [
+		{
+			"url": "/"
+		}
+	],
+	"security": [
+		{
+			"bearerAuth": []
+		}
+	],
+	"paths": {
+		"/api/account/get": {
+			"get": {
+				"operationId": "account.get",
+				"summary": "Retrieve tenant account details including membership, configured bot families, and provider credentials.",
+				"parameters": [],
+				"responses": {
+					"200": {
+						"description": "Command result",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/AccountGetResult"
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"401": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"404": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"405": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"409": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"500": {
+						"$ref": "#/components/responses/ApiError"
+					}
+				}
+			},
+			"head": {
+				"operationId": "account.get.head",
+				"summary": "Retrieve tenant account details including membership, configured bot families, and provider credentials.",
+				"parameters": [],
+				"responses": {
+					"200": {
+						"description": "Same as GET with an empty body"
+					},
+					"400": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"401": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"404": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"405": {
+						"$ref": "#/components/responses/ApiError"
+					}
+				}
+			}
+		},
+		"/api/account/update": {
+			"post": {
+				"operationId": "account.update",
+				"summary": "Update account-level configuration including display name and default timezone.",
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"properties": {
+									"name": {
+										"type": "string",
+										"minLength": 1,
+										"description": "Optional new display name for the account."
+									},
+									"timezone": {
+										"type": "string",
+										"minLength": 1,
+										"description": "Optional new default IANA timezone identifier for the account (e.g. 'UTC', 'America/New_York')."
+									},
+									"defaultToolsEnv": {
+										"anyOf": [
+											{
+												"$ref": "#/components/schemas/ToolsEnvBinding"
+											},
+											{
+												"type": "null"
+											}
+										],
+										"description": "Account default tools env binding, or null to clear it."
+									}
+								},
+								"description": "Account settings to update."
+							}
+						}
+					}
+				},
+				"responses": {
+					"200": {
+						"description": "Command result",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/AccountUpdateResult"
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"401": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"404": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"405": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"409": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"500": {
+						"$ref": "#/components/responses/ApiError"
+					}
+				}
+			}
+		},
+		"/api/account/members/list": {
+			"get": {
+				"operationId": "account.members.list",
+				"summary": "List all user members and their roles associated with the tenant account.",
+				"parameters": [],
+				"responses": {
+					"200": {
+						"description": "Command result",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/AccountMembersListResult"
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"401": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"404": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"405": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"409": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"500": {
+						"$ref": "#/components/responses/ApiError"
+					}
+				}
+			},
+			"head": {
+				"operationId": "account.members.list.head",
+				"summary": "List all user members and their roles associated with the tenant account.",
+				"parameters": [],
+				"responses": {
+					"200": {
+						"description": "Same as GET with an empty body"
+					},
+					"400": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"401": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"404": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"405": {
+						"$ref": "#/components/responses/ApiError"
+					}
+				}
+			}
+		},
+		"/api/account/members/add": {
+			"post": {
+				"operationId": "account.members.add",
+				"summary": "Add or invite a user to the account with a specified access role and optional credentials.",
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"required": ["userId"],
+								"properties": {
+									"userId": {
+										"type": "string",
+										"minLength": 1,
+										"description": "Unique identifier of the user to grant access to."
+									},
+									"name": {
+										"type": "string",
+										"description": "Optional display name for the user."
+									},
+									"email": {
+										"type": "string",
+										"description": "Optional email address for the user."
+									},
+									"role": {
+										"anyOf": [
+											{
+												"type": "string",
+												"const": "owner"
+											},
+											{
+												"type": "string",
+												"const": "member"
+											}
+										],
+										"description": "Access role: 'owner' has full administrative rights; 'member' has standard access (defaults to 'member')."
+									},
+									"token": {
+										"type": "string",
+										"description": "Optional authentication token associated with this user."
+									}
+								},
+								"description": "Parameters for adding or inviting an account member."
+							}
+						}
+					}
+				},
+				"responses": {
+					"200": {
+						"description": "Command result",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/AccountMembersAddResult"
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"401": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"404": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"405": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"409": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"500": {
+						"$ref": "#/components/responses/ApiError"
+					}
+				}
+			}
+		},
+		"/api/account/credentials/list": {
+			"get": {
+				"operationId": "account.credentials.list",
+				"summary": "List configured AI provider credential summaries (excluding secret tokens).",
+				"parameters": [],
+				"responses": {
+					"200": {
+						"description": "Command result",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/AccountCredentialsListResult"
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"401": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"404": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"405": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"409": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"500": {
+						"$ref": "#/components/responses/ApiError"
+					}
+				}
+			},
+			"head": {
+				"operationId": "account.credentials.list.head",
+				"summary": "List configured AI provider credential summaries (excluding secret tokens).",
+				"parameters": [],
+				"responses": {
+					"200": {
+						"description": "Same as GET with an empty body"
+					},
+					"400": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"401": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"404": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"405": {
+						"$ref": "#/components/responses/ApiError"
+					}
+				}
+			}
+		},
+		"/api/account/credentials/set": {
+			"post": {
+				"operationId": "account.credentials.set",
+				"summary": "Store or update encrypted provider credentials (API key or OAuth token set) for the account.",
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"required": ["providerId", "credential"],
+								"properties": {
+									"providerId": {
+										"type": "string",
+										"minLength": 1,
+										"description": "AI provider identifier (e.g. 'anthropic', 'openai', 'google', 'groq', 'deepseek', 'xai')."
+									},
+									"credential": {
+										"$ref": "#/components/schemas/CredentialInput"
+									}
+								},
+								"description": "Parameters containing the provider credentials to store."
+							}
+						}
+					}
+				},
+				"responses": {
+					"200": {
+						"description": "Command result",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/AccountCredentialsSetResult"
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"401": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"404": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"405": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"409": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"500": {
+						"$ref": "#/components/responses/ApiError"
+					}
+				}
+			}
+		},
+		"/api/account/credentials/delete": {
+			"post": {
+				"operationId": "account.credentials.delete",
+				"summary": "Permanently delete configured credentials for a provider from the account.",
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"required": ["providerId"],
+								"properties": {
+									"providerId": {
+										"type": "string",
+										"minLength": 1,
+										"description": "Provider identifier whose credentials should be permanently deleted."
+									}
+								},
+								"description": "Parameters identifying the provider credential to delete."
+							}
+						}
+					}
+				},
+				"responses": {
+					"200": {
+						"description": "Command result",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/AccountCredentialsDeleteResult"
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"401": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"404": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"405": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"409": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"500": {
+						"$ref": "#/components/responses/ApiError"
+					}
+				}
+			}
+		},
+		"/api/account/models/list": {
+			"get": {
+				"operationId": "account.models.list",
+				"summary": "List supported LLM models and their capabilities, optionally filtered by provider or authentication status.",
+				"parameters": [
+					{
+						"name": "provider",
+						"in": "query",
+						"required": false,
+						"schema": {
+							"type": "string",
+							"description": "Optional provider identifier to filter models (e.g. 'anthropic')."
+						},
+						"description": "Optional provider identifier to filter models (e.g. 'anthropic')."
+					},
+					{
+						"name": "onlyAuthenticated",
+						"in": "query",
+						"required": false,
+						"schema": {
+							"type": "boolean",
+							"description": "If true, only returns models that have valid configured credentials."
+						},
+						"description": "If true, only returns models that have valid configured credentials."
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "Command result",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/AccountModelsListResult"
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"401": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"404": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"405": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"409": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"500": {
+						"$ref": "#/components/responses/ApiError"
+					}
+				}
+			},
+			"head": {
+				"operationId": "account.models.list.head",
+				"summary": "List supported LLM models and their capabilities, optionally filtered by provider or authentication status.",
+				"parameters": [
+					{
+						"name": "provider",
+						"in": "query",
+						"required": false,
+						"schema": {
+							"type": "string",
+							"description": "Optional provider identifier to filter models (e.g. 'anthropic')."
+						},
+						"description": "Optional provider identifier to filter models (e.g. 'anthropic')."
+					},
+					{
+						"name": "onlyAuthenticated",
+						"in": "query",
+						"required": false,
+						"schema": {
+							"type": "boolean",
+							"description": "If true, only returns models that have valid configured credentials."
+						},
+						"description": "If true, only returns models that have valid configured credentials."
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "Same as GET with an empty body"
+					},
+					"400": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"401": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"404": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"405": {
+						"$ref": "#/components/responses/ApiError"
+					}
+				}
+			}
+		},
+		"/api/account/oauth/providers": {
+			"get": {
+				"operationId": "account.oauth.providers",
+				"summary": "Command to list all supported OAuth providers and their authorization requirements.",
+				"parameters": [],
+				"responses": {
+					"200": {
+						"description": "Command result",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/AccountOAuthProvidersResult"
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"401": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"404": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"405": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"409": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"500": {
+						"$ref": "#/components/responses/ApiError"
+					}
+				}
+			},
+			"head": {
+				"operationId": "account.oauth.providers.head",
+				"summary": "Command to list all supported OAuth providers and their authorization requirements.",
+				"parameters": [],
+				"responses": {
+					"200": {
+						"description": "Same as GET with an empty body"
+					},
+					"400": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"401": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"404": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"405": {
+						"$ref": "#/components/responses/ApiError"
+					}
+				}
+			}
+		},
+		"/api/account/oauth/start": {
+			"post": {
+				"operationId": "account.oauth.start",
+				"summary": "Command to begin an OAuth authentication process for a provider, returning verification URLs and flowId.",
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"required": ["providerId"],
+								"properties": {
+									"providerId": {
+										"type": "string",
+										"minLength": 1,
+										"description": "Provider identifier to authenticate (e.g. 'anthropic', 'openai')."
+									},
+									"redirectUri": {
+										"type": "string",
+										"description": "Optional callback URL for redirect-based browser OAuth flows."
+									}
+								},
+								"description": "Parameters for starting the OAuth flow."
+							}
+						}
+					}
+				},
+				"responses": {
+					"200": {
+						"description": "Command result",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/AccountOAuthStartResult"
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"401": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"404": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"405": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"409": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"500": {
+						"$ref": "#/components/responses/ApiError"
+					}
+				}
+			}
+		},
+		"/api/account/oauth/status": {
+			"get": {
+				"operationId": "account.oauth.status",
+				"summary": "Command to query the current progress, prompt, or completion status of an active OAuth flow.",
+				"parameters": [
+					{
+						"name": "flowId",
+						"in": "query",
+						"required": true,
+						"schema": {
+							"type": "string",
+							"minLength": 1,
+							"description": "Unique flow identifier returned by account.oauth.start."
+						},
+						"description": "Unique flow identifier returned by account.oauth.start."
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "Command result",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/AccountOAuthStatusResult"
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"401": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"404": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"405": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"409": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"500": {
+						"$ref": "#/components/responses/ApiError"
+					}
+				}
+			},
+			"head": {
+				"operationId": "account.oauth.status.head",
+				"summary": "Command to query the current progress, prompt, or completion status of an active OAuth flow.",
+				"parameters": [
+					{
+						"name": "flowId",
+						"in": "query",
+						"required": true,
+						"schema": {
+							"type": "string",
+							"minLength": 1,
+							"description": "Unique flow identifier returned by account.oauth.start."
+						},
+						"description": "Unique flow identifier returned by account.oauth.start."
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "Same as GET with an empty body"
+					},
+					"400": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"401": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"404": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"405": {
+						"$ref": "#/components/responses/ApiError"
+					}
+				}
+			}
+		},
+		"/api/account/oauth/submit": {
+			"post": {
+				"operationId": "account.oauth.submit",
+				"summary": "Command to advance an interactive or code-submission OAuth step with user-supplied input.",
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"required": ["flowId", "input"],
+								"properties": {
+									"flowId": {
+										"type": "string",
+										"minLength": 1,
+										"description": "Unique flow identifier returned by account.oauth.start."
+									},
+									"input": {
+										"type": "string",
+										"minLength": 1,
+										"description": "User-provided input string, such as a copied authorization code or selected choice ID."
+									}
+								},
+								"description": "Parameters containing the user response for the active flow."
+							}
+						}
+					}
+				},
+				"responses": {
+					"200": {
+						"description": "Command result",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/AccountOAuthSubmitResult"
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"401": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"404": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"405": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"409": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"500": {
+						"$ref": "#/components/responses/ApiError"
+					}
+				}
+			}
+		},
+		"/api/account/oauth/cancel": {
+			"post": {
+				"operationId": "account.oauth.cancel",
+				"summary": "Command to immediately abort an active OAuth flow and release pending resources.",
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"required": ["flowId"],
+								"properties": {
+									"flowId": {
+										"type": "string",
+										"minLength": 1,
+										"description": "Unique flow identifier to cancel."
+									}
+								},
+								"description": "Parameters identifying the OAuth flow to cancel."
+							}
+						}
+					}
+				},
+				"responses": {
+					"200": {
+						"description": "Command result",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/AccountOAuthCancelResult"
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"401": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"404": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"405": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"409": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"500": {
+						"$ref": "#/components/responses/ApiError"
+					}
+				}
+			}
+		},
+		"/api/family/list": {
+			"get": {
+				"operationId": "family.list",
+				"summary": "List all bot families (Durable Object clusters) registered to the account.",
+				"parameters": [],
+				"responses": {
+					"200": {
+						"description": "Command result",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/FamilyListResult"
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"401": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"404": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"405": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"409": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"500": {
+						"$ref": "#/components/responses/ApiError"
+					}
+				}
+			},
+			"head": {
+				"operationId": "family.list.head",
+				"summary": "List all bot families (Durable Object clusters) registered to the account.",
+				"parameters": [],
+				"responses": {
+					"200": {
+						"description": "Same as GET with an empty body"
+					},
+					"400": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"401": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"404": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"405": {
+						"$ref": "#/components/responses/ApiError"
+					}
+				}
+			}
+		},
+		"/api/family/create": {
+			"post": {
+				"operationId": "family.create",
+				"summary": "Create a new bot family, initializing its partitioned Cloudflare Durable Object instance.",
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"required": ["name"],
+								"properties": {
+									"familyId": {
+										"type": "string",
+										"minLength": 1,
+										"description": "Optional custom identifier / slug for the new family. Generated if omitted."
+									},
+									"name": {
+										"type": "string",
+										"minLength": 1,
+										"description": "Human-readable display name for the bot family."
+									},
+									"timezone": {
+										"type": "string",
+										"description": "Optional default IANA timezone identifier for this family (defaults to account timezone)."
+									},
+									"harvestDelayMs": {
+										"type": "number",
+										"description": "Optional idle delay in milliseconds before running background memory harvesting (defaults to 60000ms)."
+									}
+								},
+								"description": "Configuration parameters for creating a new bot family."
+							}
+						}
+					}
+				},
+				"responses": {
+					"200": {
+						"description": "Command result",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/FamilyCreateResult"
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"401": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"404": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"405": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"409": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"500": {
+						"$ref": "#/components/responses/ApiError"
+					}
+				}
+			}
+		},
+		"/api/family/get": {
+			"get": {
+				"operationId": "family.get",
+				"summary": "Retrieve metadata for a specific bot family or the currently scoped family.",
+				"parameters": [
+					{
+						"name": "familyId",
+						"in": "query",
+						"required": false,
+						"schema": {
+							"type": "string",
+							"description": "Optional family identifier. Defaults to the currently scoped family."
+						},
+						"description": "Optional family identifier. Defaults to the currently scoped family."
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "Command result",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/FamilyGetResult"
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"401": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"404": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"405": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"409": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"500": {
+						"$ref": "#/components/responses/ApiError"
+					}
+				}
+			},
+			"head": {
+				"operationId": "family.get.head",
+				"summary": "Retrieve metadata for a specific bot family or the currently scoped family.",
+				"parameters": [
+					{
+						"name": "familyId",
+						"in": "query",
+						"required": false,
+						"schema": {
+							"type": "string",
+							"description": "Optional family identifier. Defaults to the currently scoped family."
+						},
+						"description": "Optional family identifier. Defaults to the currently scoped family."
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "Same as GET with an empty body"
+					},
+					"400": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"401": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"404": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"405": {
+						"$ref": "#/components/responses/ApiError"
+					}
+				}
+			}
+		},
+		"/api/family/update": {
+			"post": {
+				"operationId": "family.update",
+				"summary": "Update bot family settings including display name, timezone, or idle harvest delay.",
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"properties": {
+									"familyId": {
+										"type": "string",
+										"description": "Optional family identifier to update. Defaults to the scoped family."
+									},
+									"name": {
+										"type": "string",
+										"description": "Optional updated display name for the family."
+									},
+									"timezone": {
+										"type": "string",
+										"description": "Optional updated default IANA timezone identifier for this family."
+									},
+									"harvestDelayMs": {
+										"type": "number",
+										"description": "Optional updated idle harvest delay in milliseconds."
+									}
+								},
+								"description": "Parameters for updating bot family configuration."
+							}
+						}
+					}
+				},
+				"responses": {
+					"200": {
+						"description": "Command result",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/FamilyUpdateResult"
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"401": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"404": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"405": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"409": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"500": {
+						"$ref": "#/components/responses/ApiError"
+					}
+				}
+			}
+		},
+		"/api/family/delete": {
+			"post": {
+				"operationId": "family.delete",
+				"summary": "Permanently delete a bot family and cascade-delete its Durable Object data.",
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"required": ["familyId"],
+								"properties": {
+									"familyId": {
+										"type": "string",
+										"minLength": 1,
+										"description": "Identifier of the bot family to permanently delete."
+									}
+								},
+								"description": "Parameters identifying the bot family to delete."
+							}
+						}
+					}
+				},
+				"responses": {
+					"200": {
+						"description": "Command result",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/FamilyDeleteResult"
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"401": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"404": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"405": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"409": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"500": {
+						"$ref": "#/components/responses/ApiError"
+					}
+				}
+			}
+		},
+		"/api/bot/list": {
+			"get": {
+				"operationId": "bot.list",
+				"summary": "List all bots configured within the current bot family.",
+				"parameters": [],
+				"responses": {
+					"200": {
+						"description": "Command result",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/BotListResult"
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"401": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"404": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"405": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"409": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"500": {
+						"$ref": "#/components/responses/ApiError"
+					}
+				}
+			},
+			"head": {
+				"operationId": "bot.list.head",
+				"summary": "List all bots configured within the current bot family.",
+				"parameters": [],
+				"responses": {
+					"200": {
+						"description": "Same as GET with an empty body"
+					},
+					"400": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"401": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"404": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"405": {
+						"$ref": "#/components/responses/ApiError"
+					}
+				}
+			}
+		},
+		"/api/bot/create": {
+			"post": {
+				"operationId": "bot.create",
+				"summary": "Create a new bot persona with default model, thinking budget, tool access, and initial virtual workspace files.",
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"required": ["name"],
+								"properties": {
+									"slug": {
+										"type": "string",
+										"description": "Optional unique identifier / slug for the bot (generated from name if omitted)."
+									},
+									"name": {
+										"type": "string",
+										"minLength": 1,
+										"description": "Human-readable display name of the bot."
+									},
+									"model": {
+										"type": "string",
+										"description": "Default model identifier used for turns (e.g. 'anthropic/claude-3-7-sonnet')."
+									},
+									"thinking": {
+										"$ref": "#/components/schemas/ThinkingLevel"
+									},
+									"tools": {
+										"type": "array",
+										"items": {
+											"type": "string"
+										},
+										"description": "Allowlist of tool names. Omit it for the default set (Cadmus tools allowed, coding tools opt-in). An empty array allows no gated tools."
+									},
+									"soul": {
+										"type": "string",
+										"description": "Optional initial system prompt / personality instructions (SOUL.md content)."
+									},
+									"memory": {
+										"type": "string",
+										"description": "Optional initial long-term memory markdown content (MEMORY.md content)."
+									},
+									"toolsEnv": {
+										"$ref": "#/components/schemas/ToolsEnvSetting"
+									},
+									"knowledge": {
+										"type": "array",
+										"items": {
+											"type": "object",
+											"required": ["slug", "description", "body"],
+											"properties": {
+												"slug": {
+													"type": "string",
+													"description": "Unique document slug / filename without extension."
+												},
+												"description": {
+													"type": "string",
+													"description": "Document summary used by model tools to decide when to read this document."
+												},
+												"category": {
+													"type": "string",
+													"description": "Optional categorization tag."
+												},
+												"body": {
+													"type": "string",
+													"description": "Full markdown content body of the document."
+												}
+											},
+											"description": "Initial knowledge document entry."
+										},
+										"description": "Optional array of initial knowledge documents to create for this bot."
+									}
+								},
+								"description": "Parameters for creating a new bot persona."
+							}
+						}
+					}
+				},
+				"responses": {
+					"200": {
+						"description": "Command result",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/BotCreateResult"
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"401": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"404": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"405": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"409": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"500": {
+						"$ref": "#/components/responses/ApiError"
+					}
+				}
+			}
+		},
+		"/api/bot/get": {
+			"get": {
+				"operationId": "bot.get",
+				"summary": "Retrieve full bot configuration, system prompt (SOUL.md), memory state, and knowledge documents.",
+				"parameters": [
+					{
+						"name": "botId",
+						"in": "query",
+						"required": true,
+						"schema": {
+							"type": "string",
+							"minLength": 1,
+							"description": "Identifier of the bot to retrieve."
+						},
+						"description": "Identifier of the bot to retrieve."
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "Command result",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/BotGetResult"
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"401": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"404": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"405": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"409": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"500": {
+						"$ref": "#/components/responses/ApiError"
+					}
+				}
+			},
+			"head": {
+				"operationId": "bot.get.head",
+				"summary": "Retrieve full bot configuration, system prompt (SOUL.md), memory state, and knowledge documents.",
+				"parameters": [
+					{
+						"name": "botId",
+						"in": "query",
+						"required": true,
+						"schema": {
+							"type": "string",
+							"minLength": 1,
+							"description": "Identifier of the bot to retrieve."
+						},
+						"description": "Identifier of the bot to retrieve."
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "Same as GET with an empty body"
+					},
+					"400": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"401": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"404": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"405": {
+						"$ref": "#/components/responses/ApiError"
+					}
+				}
+			}
+		},
+		"/api/bot/update": {
+			"post": {
+				"operationId": "bot.update",
+				"summary": "Update an existing bot's model, thinking budget, tool access, display name, or soul.",
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"required": ["botId"],
+								"properties": {
+									"botId": {
+										"type": "string",
+										"minLength": 1,
+										"description": "Identifier of the bot to update."
+									},
+									"name": {
+										"type": "string",
+										"description": "Optional updated display name."
+									},
+									"model": {
+										"type": "string",
+										"description": "Optional updated default model identifier string."
+									},
+									"thinking": {
+										"$ref": "#/components/schemas/ThinkingLevel"
+									},
+									"tools": {
+										"anyOf": [
+											{
+												"type": "array",
+												"items": {
+													"type": "string"
+												},
+												"description": "Replacement allowlist. An empty array allows no gated tools and does not offer coding tools."
+											},
+											{
+												"type": "null"
+											}
+										],
+										"description": "Missing or null leaves the stored allowlist unchanged. An array replaces it."
+									},
+									"soul": {
+										"type": "string",
+										"description": "Optional updated SOUL.md system prompt content."
+									},
+									"toolsEnv": {
+										"$ref": "#/components/schemas/ToolsEnvSetting"
+									}
+								},
+								"description": "Parameters for updating bot configuration."
+							}
+						}
+					}
+				},
+				"responses": {
+					"200": {
+						"description": "Command result",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/BotUpdateResult"
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"401": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"404": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"405": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"409": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"500": {
+						"$ref": "#/components/responses/ApiError"
+					}
+				}
+			}
+		},
+		"/api/bot/delete": {
+			"post": {
+				"operationId": "bot.delete",
+				"summary": "Permanently delete a bot persona and cascade-delete its chat history, virtual files, and schedules.",
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"required": ["botId"],
+								"properties": {
+									"botId": {
+										"type": "string",
+										"minLength": 1,
+										"description": "Identifier of the bot to permanently delete."
+									}
+								},
+								"description": "Parameters identifying the bot to delete."
+							}
+						}
+					}
+				},
+				"responses": {
+					"200": {
+						"description": "Command result",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/BotDeleteResult"
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"401": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"404": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"405": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"409": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"500": {
+						"$ref": "#/components/responses/ApiError"
+					}
+				}
+			}
+		},
+		"/api/chat/create": {
+			"post": {
+				"operationId": "chat.create",
+				"summary": "Create a new chat conversation thread with a bot, returning its unique routing key.",
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"required": ["botId"],
+								"properties": {
+									"botId": {
+										"type": "string",
+										"minLength": 1,
+										"description": "Identifier of the bot to converse with."
+									},
+									"key": {
+										"type": "string",
+										"description": "Optional custom chat routing key / slug. Generated if omitted."
+									},
+									"chatId": {
+										"type": "string",
+										"description": "Deprecated alias for key."
+									},
+									"title": {
+										"type": "string",
+										"description": "Optional title or topic label for the chat session."
+									},
+									"thinking": {
+										"$ref": "#/components/schemas/ThinkingLevel"
+									},
+									"toolsEnv": {
+										"$ref": "#/components/schemas/ToolsEnvSetting"
+									}
+								},
+								"description": "Parameters for creating a new chat session."
+							}
+						}
+					}
+				},
+				"responses": {
+					"200": {
+						"description": "Command result",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ChatCreateResult"
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"401": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"404": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"405": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"409": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"500": {
+						"$ref": "#/components/responses/ApiError"
+					}
+				}
+			}
+		},
+		"/api/chat/list": {
+			"get": {
+				"operationId": "chat.list",
+				"summary": "List chat conversation sessions in this bot family, optionally filtered by botId.",
+				"parameters": [
+					{
+						"name": "botId",
+						"in": "query",
+						"required": false,
+						"schema": {
+							"type": "string",
+							"description": "Optional bot identifier to filter chat sessions."
+						},
+						"description": "Optional bot identifier to filter chat sessions."
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "Command result",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ChatListResult"
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"401": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"404": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"405": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"409": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"500": {
+						"$ref": "#/components/responses/ApiError"
+					}
+				}
+			},
+			"head": {
+				"operationId": "chat.list.head",
+				"summary": "List chat conversation sessions in this bot family, optionally filtered by botId.",
+				"parameters": [
+					{
+						"name": "botId",
+						"in": "query",
+						"required": false,
+						"schema": {
+							"type": "string",
+							"description": "Optional bot identifier to filter chat sessions."
+						},
+						"description": "Optional bot identifier to filter chat sessions."
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "Same as GET with an empty body"
+					},
+					"400": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"401": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"404": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"405": {
+						"$ref": "#/components/responses/ApiError"
+					}
+				}
+			}
+		},
+		"/api/chat/get": {
+			"get": {
+				"operationId": "chat.get",
+				"summary": "Retrieve chat session metadata, active busy flag, recent messages, entries, and harvest notes.",
+				"parameters": [
+					{
+						"name": "chatKey",
+						"in": "query",
+						"required": true,
+						"schema": {
+							"type": "string",
+							"minLength": 1,
+							"description": "Unique routing key of the chat session to retrieve."
+						},
+						"description": "Unique routing key of the chat session to retrieve."
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "Command result",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ChatGetResult"
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"401": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"404": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"405": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"409": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"500": {
+						"$ref": "#/components/responses/ApiError"
+					}
+				}
+			},
+			"head": {
+				"operationId": "chat.get.head",
+				"summary": "Retrieve chat session metadata, active busy flag, recent messages, entries, and harvest notes.",
+				"parameters": [
+					{
+						"name": "chatKey",
+						"in": "query",
+						"required": true,
+						"schema": {
+							"type": "string",
+							"minLength": 1,
+							"description": "Unique routing key of the chat session to retrieve."
+						},
+						"description": "Unique routing key of the chat session to retrieve."
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "Same as GET with an empty body"
+					},
+					"400": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"401": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"404": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"405": {
+						"$ref": "#/components/responses/ApiError"
+					}
+				}
+			}
+		},
+		"/api/chat/rename": {
+			"post": {
+				"operationId": "chat.rename",
+				"summary": "Rename the title or topic of an existing chat session.",
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"required": ["chatKey", "title"],
+								"properties": {
+									"chatKey": {
+										"type": "string",
+										"minLength": 1,
+										"description": "Chat routing key to rename."
+									},
+									"title": {
+										"type": "string",
+										"description": "New title string for the conversation."
+									}
+								},
+								"description": "Parameters for renaming a chat session."
+							}
+						}
+					}
+				},
+				"responses": {
+					"200": {
+						"description": "Command result",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ChatRenameResult"
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"401": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"404": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"405": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"409": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"500": {
+						"$ref": "#/components/responses/ApiError"
+					}
+				}
+			}
+		},
+		"/api/chat/close": {
+			"post": {
+				"operationId": "chat.close",
+				"summary": "Close and archive a chat conversation session.",
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"required": ["chatKey"],
+								"properties": {
+									"chatKey": {
+										"type": "string",
+										"minLength": 1,
+										"description": "Chat routing key to close."
+									}
+								},
+								"description": "Parameters identifying the chat session to close."
+							}
+						}
+					}
+				},
+				"responses": {
+					"200": {
+						"description": "Command result",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ChatCloseResult"
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"401": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"404": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"405": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"409": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"500": {
+						"$ref": "#/components/responses/ApiError"
+					}
+				}
+			}
+		},
+		"/api/chat/reset": {
+			"post": {
+				"operationId": "chat.reset",
+				"summary": "Reset conversation history for a chat session while preserving its key, optionally injecting handoff context.",
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"required": ["chatKey"],
+								"properties": {
+									"chatKey": {
+										"type": "string",
+										"minLength": 1,
+										"description": "Chat routing key to reset."
+									},
+									"handoff": {
+										"type": "string",
+										"description": "Optional summary context seeded into the reset conversation."
+									}
+								},
+								"description": "Parameters for resetting a chat conversation."
+							}
+						}
+					}
+				},
+				"responses": {
+					"200": {
+						"description": "Command result",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ChatResetResult"
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"401": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"404": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"405": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"409": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"500": {
+						"$ref": "#/components/responses/ApiError"
+					}
+				}
+			}
+		},
+		"/api/chat/messages": {
+			"get": {
+				"operationId": "chat.messages",
+				"summary": "Fetch the user and assistant message exchange history for a chat session.",
+				"parameters": [
+					{
+						"name": "chatKey",
+						"in": "query",
+						"required": true,
+						"schema": {
+							"type": "string",
+							"minLength": 1,
+							"description": "Chat routing key whose messages to fetch."
+						},
+						"description": "Chat routing key whose messages to fetch."
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "Command result",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ChatGetResult"
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"401": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"404": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"405": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"409": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"500": {
+						"$ref": "#/components/responses/ApiError"
+					}
+				}
+			},
+			"head": {
+				"operationId": "chat.messages.head",
+				"summary": "Fetch the user and assistant message exchange history for a chat session.",
+				"parameters": [
+					{
+						"name": "chatKey",
+						"in": "query",
+						"required": true,
+						"schema": {
+							"type": "string",
+							"minLength": 1,
+							"description": "Chat routing key whose messages to fetch."
+						},
+						"description": "Chat routing key whose messages to fetch."
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "Same as GET with an empty body"
+					},
+					"400": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"401": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"404": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"405": {
+						"$ref": "#/components/responses/ApiError"
+					}
+				}
+			}
+		},
+		"/api/chat/entries": {
+			"get": {
+				"operationId": "chat.entries",
+				"summary": "Fetch the underlying durable transcript entries (including tool calls and state records) for a chat session.",
+				"parameters": [
+					{
+						"name": "chatKey",
+						"in": "query",
+						"required": true,
+						"schema": {
+							"type": "string",
+							"minLength": 1,
+							"description": "Chat routing key whose transcript entries to fetch."
+						},
+						"description": "Chat routing key whose transcript entries to fetch."
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "Command result",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ChatGetResult"
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"401": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"404": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"405": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"409": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"500": {
+						"$ref": "#/components/responses/ApiError"
+					}
+				}
+			},
+			"head": {
+				"operationId": "chat.entries.head",
+				"summary": "Fetch the underlying durable transcript entries (including tool calls and state records) for a chat session.",
+				"parameters": [
+					{
+						"name": "chatKey",
+						"in": "query",
+						"required": true,
+						"schema": {
+							"type": "string",
+							"minLength": 1,
+							"description": "Chat routing key whose transcript entries to fetch."
+						},
+						"description": "Chat routing key whose transcript entries to fetch."
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "Same as GET with an empty body"
+					},
+					"400": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"401": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"404": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"405": {
+						"$ref": "#/components/responses/ApiError"
+					}
+				}
+			}
+		},
+		"/api/chat/status": {
+			"get": {
+				"operationId": "chat.status",
+				"summary": "Fetch out-of-band runtime execution status for a chat session without invoking the model or modifying history.",
+				"parameters": [
+					{
+						"name": "chatKey",
+						"in": "query",
+						"required": true,
+						"schema": {
+							"type": "string",
+							"minLength": 1,
+							"description": "Chat routing key whose status to inspect."
+						},
+						"description": "Chat routing key whose status to inspect."
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "Command result",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ChatStatusResult"
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"401": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"404": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"405": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"409": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"500": {
+						"$ref": "#/components/responses/ApiError"
+					}
+				}
+			},
+			"head": {
+				"operationId": "chat.status.head",
+				"summary": "Fetch out-of-band runtime execution status for a chat session without invoking the model or modifying history.",
+				"parameters": [
+					{
+						"name": "chatKey",
+						"in": "query",
+						"required": true,
+						"schema": {
+							"type": "string",
+							"minLength": 1,
+							"description": "Chat routing key whose status to inspect."
+						},
+						"description": "Chat routing key whose status to inspect."
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "Same as GET with an empty body"
+					},
+					"400": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"401": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"404": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"405": {
+						"$ref": "#/components/responses/ApiError"
+					}
+				}
+			}
+		},
+		"/api/chat/subscribe": {
+			"post": {
+				"operationId": "chat.subscribe",
+				"summary": "Subscribe the current connection (WebSocket or SSE) to real-time streaming deltas, tool calls, and state events for a chat.",
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"required": ["chatKey"],
+								"properties": {
+									"chatKey": {
+										"type": "string",
+										"minLength": 1,
+										"description": "Chat routing key to subscribe to."
+									}
+								},
+								"description": "Parameters identifying the chat session."
+							}
+						}
+					}
+				},
+				"responses": {
+					"200": {
+						"description": "Command result",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ChatGetResult"
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"401": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"404": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"405": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"409": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"500": {
+						"$ref": "#/components/responses/ApiError"
+					}
+				}
+			}
+		},
+		"/api/chat/update": {
+			"post": {
+				"operationId": "chat.update",
+				"summary": "Update a chat's tools env setting.",
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"required": ["chatKey", "toolsEnv"],
+								"properties": {
+									"chatKey": {
+										"type": "string",
+										"minLength": 1
+									},
+									"toolsEnv": {
+										"$ref": "#/components/schemas/ToolsEnvSetting"
+									}
+								},
+								"additionalProperties": false
+							}
+						}
+					}
+				},
+				"responses": {
+					"200": {
+						"description": "Command result",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ChatUpdateResult"
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"401": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"404": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"405": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"409": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"500": {
+						"$ref": "#/components/responses/ApiError"
+					}
+				}
+			}
+		},
+		"/api/turn/submit": {
+			"post": {
+				"operationId": "turn.submit",
+				"summary": "Submit a user message turn to a chat session, initiating model reasoning, tool calling, and response generation.",
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"required": ["chatKey", "text"],
+								"properties": {
+									"chatKey": {
+										"type": "string",
+										"minLength": 1,
+										"description": "Target chat session routing key."
+									},
+									"text": {
+										"type": "string",
+										"minLength": 1,
+										"description": "User message prompt text to submit."
+									},
+									"requestId": {
+										"type": "string",
+										"description": "Optional client request correlation identifier for deduplication."
+									},
+									"clientMsgId": {
+										"type": "string",
+										"description": "Optional client message identifier for idempotent replay tracking."
+									},
+									"whenBusy": {
+										"anyOf": [
+											{
+												"type": "string",
+												"const": "queue",
+												"description": "Buffer the turn and execute once the current turn completes."
+											},
+											{
+												"type": "string",
+												"const": "steer",
+												"description": "Inject this prompt as steering guidance into the active turn without waiting."
+											},
+											{
+												"type": "string",
+												"const": "reject",
+												"description": "Immediately fail this command with an error if the chat is busy."
+											}
+										],
+										"description": "Concurrency handling policy when the chat is busy: 'queue' (default), 'steer', or 'reject'."
+									}
+								},
+								"description": "Parameters for submitting a user message turn."
+							}
+						}
+					}
+				},
+				"responses": {
+					"200": {
+						"description": "Command result",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/TurnSubmitResult"
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"401": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"404": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"405": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"409": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"500": {
+						"$ref": "#/components/responses/ApiError"
+					}
+				}
+			}
+		},
+		"/api/turn/command": {
+			"post": {
+				"operationId": "turn.command",
+				"summary": "Execute an out-of-band slash command on a chat session without invoking the LLM or polluting transcript history.",
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"required": ["chatKey", "command"],
+								"properties": {
+									"chatKey": {
+										"type": "string",
+										"minLength": 1,
+										"description": "Target chat session routing key."
+									},
+									"command": {
+										"type": "string",
+										"minLength": 1,
+										"description": "Slash command string (currently '/status' is supported out-of-band)."
+									}
+								},
+								"description": "Parameters for executing an out-of-band slash command."
+							}
+						}
+					}
+				},
+				"responses": {
+					"200": {
+						"description": "Command result",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ChatStatusResult"
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"401": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"404": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"405": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"409": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"500": {
+						"$ref": "#/components/responses/ApiError"
+					}
+				}
+			}
+		},
+		"/api/turn/steer": {
+			"post": {
+				"operationId": "turn.steer",
+				"summary": "Steer an active model turn by injecting guidance instructions into the running agent loop without cancelling it.",
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"required": ["chatKey", "text"],
+								"properties": {
+									"chatKey": {
+										"type": "string",
+										"minLength": 1,
+										"description": "Target chat session routing key."
+									},
+									"text": {
+										"type": "string",
+										"minLength": 1,
+										"description": "Steering instruction text injected into the actively running turn."
+									},
+									"requestId": {
+										"type": "string",
+										"description": "Optional client request correlation identifier."
+									},
+									"clientMsgId": {
+										"type": "string",
+										"description": "Optional client message identifier."
+									}
+								},
+								"description": "Parameters for steering an active turn."
+							}
+						}
+					}
+				},
+				"responses": {
+					"200": {
+						"description": "Command result",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/TurnSettledResult"
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"401": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"404": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"405": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"409": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"500": {
+						"$ref": "#/components/responses/ApiError"
+					}
+				}
+			}
+		},
+		"/api/turn/interrupt": {
+			"post": {
+				"operationId": "turn.interrupt",
+				"summary": "Interrupt and immediately abort the currently running model turn or tool call on a chat session.",
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"required": ["chatKey"],
+								"properties": {
+									"chatKey": {
+										"type": "string",
+										"minLength": 1,
+										"description": "Chat session routing key where the turn should be interrupted."
+									}
+								},
+								"description": "Parameters identifying the chat session to interrupt."
+							}
+						}
+					}
+				},
+				"responses": {
+					"200": {
+						"description": "Command result",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/TurnInterruptResult"
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"401": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"404": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"405": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"409": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"500": {
+						"$ref": "#/components/responses/ApiError"
+					}
+				}
+			}
+		},
+		"/api/turn/abort": {
+			"post": {
+				"operationId": "turn.abort",
+				"summary": "Abort and cancel an active turn on a chat session (synonym for turn.interrupt).",
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"required": ["chatKey"],
+								"properties": {
+									"chatKey": {
+										"type": "string",
+										"minLength": 1,
+										"description": "Chat session routing key where the turn should be aborted."
+									}
+								},
+								"description": "Parameters identifying the chat session to abort."
+							}
+						}
+					}
+				},
+				"responses": {
+					"200": {
+						"description": "Command result",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/TurnInterruptResult"
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"401": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"404": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"405": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"409": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"500": {
+						"$ref": "#/components/responses/ApiError"
+					}
+				}
+			}
+		},
+		"/api/file/list": {
+			"get": {
+				"operationId": "file.list",
+				"summary": "List virtual workspace files (SOUL.md, MEMORY.md, and knowledge documents) associated with a bot.",
+				"parameters": [
+					{
+						"name": "botId",
+						"in": "query",
+						"required": true,
+						"schema": {
+							"type": "string",
+							"minLength": 1,
+							"description": "Bot identifier whose virtual files to list."
+						},
+						"description": "Bot identifier whose virtual files to list."
+					},
+					{
+						"name": "category",
+						"in": "query",
+						"required": false,
+						"schema": {
+							"type": "string",
+							"description": "Optional category tag filter for knowledge documents."
+						},
+						"description": "Optional category tag filter for knowledge documents."
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "Command result",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/FileListResult"
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"401": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"404": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"405": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"409": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"500": {
+						"$ref": "#/components/responses/ApiError"
+					}
+				}
+			},
+			"head": {
+				"operationId": "file.list.head",
+				"summary": "List virtual workspace files (SOUL.md, MEMORY.md, and knowledge documents) associated with a bot.",
+				"parameters": [
+					{
+						"name": "botId",
+						"in": "query",
+						"required": true,
+						"schema": {
+							"type": "string",
+							"minLength": 1,
+							"description": "Bot identifier whose virtual files to list."
+						},
+						"description": "Bot identifier whose virtual files to list."
+					},
+					{
+						"name": "category",
+						"in": "query",
+						"required": false,
+						"schema": {
+							"type": "string",
+							"description": "Optional category tag filter for knowledge documents."
+						},
+						"description": "Optional category tag filter for knowledge documents."
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "Same as GET with an empty body"
+					},
+					"400": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"401": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"404": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"405": {
+						"$ref": "#/components/responses/ApiError"
+					}
+				}
+			}
+		},
+		"/api/file/read": {
+			"get": {
+				"operationId": "file.read",
+				"summary": "Read a virtual workspace file's content and version metadata, or list files if path is omitted.",
+				"parameters": [
+					{
+						"name": "botId",
+						"in": "query",
+						"required": true,
+						"schema": {
+							"type": "string",
+							"minLength": 1,
+							"description": "Bot identifier whose file to read."
+						},
+						"description": "Bot identifier whose file to read."
+					},
+					{
+						"name": "path",
+						"in": "query",
+						"required": false,
+						"schema": {
+							"type": "string",
+							"description": "Virtual workspace file path to read (e.g. 'SOUL.md', 'MEMORY.md', 'knowledge/topic.md'). If omitted, lists all files."
+						},
+						"description": "Virtual workspace file path to read (e.g. 'SOUL.md', 'MEMORY.md', 'knowledge/topic.md'). If omitted, lists all files."
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "Command result",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/FileReadResult"
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"401": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"404": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"405": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"409": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"500": {
+						"$ref": "#/components/responses/ApiError"
+					}
+				}
+			},
+			"head": {
+				"operationId": "file.read.head",
+				"summary": "Read a virtual workspace file's content and version metadata, or list files if path is omitted.",
+				"parameters": [
+					{
+						"name": "botId",
+						"in": "query",
+						"required": true,
+						"schema": {
+							"type": "string",
+							"minLength": 1,
+							"description": "Bot identifier whose file to read."
+						},
+						"description": "Bot identifier whose file to read."
+					},
+					{
+						"name": "path",
+						"in": "query",
+						"required": false,
+						"schema": {
+							"type": "string",
+							"description": "Virtual workspace file path to read (e.g. 'SOUL.md', 'MEMORY.md', 'knowledge/topic.md'). If omitted, lists all files."
+						},
+						"description": "Virtual workspace file path to read (e.g. 'SOUL.md', 'MEMORY.md', 'knowledge/topic.md'). If omitted, lists all files."
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "Same as GET with an empty body"
+					},
+					"400": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"401": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"404": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"405": {
+						"$ref": "#/components/responses/ApiError"
+					}
+				}
+			}
+		},
+		"/api/file/write": {
+			"post": {
+				"operationId": "file.write",
+				"summary": "Create, update, or delete a virtual workspace file with optimistic concurrency version control (CAS).",
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"required": ["botId", "path"],
+								"properties": {
+									"botId": {
+										"type": "string",
+										"minLength": 1,
+										"description": "Bot identifier owning the file."
+									},
+									"path": {
+										"type": "string",
+										"minLength": 1,
+										"description": "Virtual workspace file path (e.g. 'SOUL.md', 'MEMORY.md', 'knowledge/topic.md')."
+									},
+									"content": {
+										"type": "string",
+										"description": "File content string to write."
+									},
+									"text": {
+										"type": "string",
+										"description": "Alias for content."
+									},
+									"expectedVersion": {
+										"type": "number",
+										"description": "Expected current version for optimistic concurrency control (CAS). Write fails if version does not match."
+									},
+									"version": {
+										"type": "number",
+										"description": "Alias for expectedVersion."
+									},
+									"description": {
+										"type": "string",
+										"description": "Summary description for knowledge documents."
+									},
+									"category": {
+										"type": "string",
+										"description": "Optional category tag for knowledge documents."
+									},
+									"body": {
+										"type": "string",
+										"description": "Markdown body for knowledge documents."
+									},
+									"delete": {
+										"type": "boolean",
+										"description": "If true, deletes the virtual file instead of writing."
+									}
+								},
+								"description": "Parameters for writing or deleting a virtual file."
+							}
+						}
+					}
+				},
+				"responses": {
+					"200": {
+						"description": "Command result",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/FileWriteResult"
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"401": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"404": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"405": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"409": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"500": {
+						"$ref": "#/components/responses/ApiError"
+					}
+				}
+			}
+		},
+		"/api/file/delete": {
+			"post": {
+				"operationId": "file.delete",
+				"summary": "Delete a virtual workspace file with optimistic concurrency version verification.",
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"required": ["botId", "path"],
+								"properties": {
+									"botId": {
+										"type": "string",
+										"minLength": 1,
+										"description": "Bot identifier owning the file."
+									},
+									"path": {
+										"type": "string",
+										"minLength": 1,
+										"description": "Virtual workspace file path to delete."
+									},
+									"expectedVersion": {
+										"type": "number",
+										"description": "Expected current version for optimistic concurrency control (CAS). Delete fails if version does not match."
+									},
+									"version": {
+										"type": "number",
+										"description": "Alias for expectedVersion."
+									}
+								},
+								"description": "Parameters identifying the file to delete."
+							}
+						}
+					}
+				},
+				"responses": {
+					"200": {
+						"description": "Command result",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/FileDeleteResult"
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"401": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"404": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"405": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"409": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"500": {
+						"$ref": "#/components/responses/ApiError"
+					}
+				}
+			}
+		},
+		"/api/knowledge/search": {
+			"get": {
+				"operationId": "knowledge.search",
+				"summary": "Search across knowledge base documents for a bot using keyword and category filters.",
+				"parameters": [
+					{
+						"name": "botId",
+						"in": "query",
+						"required": true,
+						"schema": {
+							"type": "string",
+							"minLength": 1,
+							"description": "Bot identifier whose knowledge documents to search."
+						},
+						"description": "Bot identifier whose knowledge documents to search."
+					},
+					{
+						"name": "query",
+						"in": "query",
+						"required": false,
+						"schema": {
+							"type": "string",
+							"description": "Keyword or substring search query."
+						},
+						"description": "Keyword or substring search query."
+					},
+					{
+						"name": "category",
+						"in": "query",
+						"required": false,
+						"schema": {
+							"type": "string",
+							"description": "Optional category filter tag."
+						},
+						"description": "Optional category filter tag."
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "Command result",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/KnowledgeSearchResults"
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"401": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"404": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"405": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"409": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"500": {
+						"$ref": "#/components/responses/ApiError"
+					}
+				}
+			},
+			"head": {
+				"operationId": "knowledge.search.head",
+				"summary": "Search across knowledge base documents for a bot using keyword and category filters.",
+				"parameters": [
+					{
+						"name": "botId",
+						"in": "query",
+						"required": true,
+						"schema": {
+							"type": "string",
+							"minLength": 1,
+							"description": "Bot identifier whose knowledge documents to search."
+						},
+						"description": "Bot identifier whose knowledge documents to search."
+					},
+					{
+						"name": "query",
+						"in": "query",
+						"required": false,
+						"schema": {
+							"type": "string",
+							"description": "Keyword or substring search query."
+						},
+						"description": "Keyword or substring search query."
+					},
+					{
+						"name": "category",
+						"in": "query",
+						"required": false,
+						"schema": {
+							"type": "string",
+							"description": "Optional category filter tag."
+						},
+						"description": "Optional category filter tag."
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "Same as GET with an empty body"
+					},
+					"400": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"401": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"404": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"405": {
+						"$ref": "#/components/responses/ApiError"
+					}
+				}
+			}
+		},
+		"/api/schedule/create": {
+			"post": {
+				"operationId": "schedule.create",
+				"summary": "Create a scheduled task (recurring cron, relative delay timer, or absolute timestamp) for a bot.",
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"required": ["botId", "kind", "input", "text", "target"],
+								"properties": {
+									"id": {
+										"type": "string",
+										"description": "Optional custom identifier for the schedule. Generated if omitted."
+									},
+									"botId": {
+										"type": "string",
+										"minLength": 1,
+										"description": "Identifier of the bot that will execute the scheduled prompt."
+									},
+									"name": {
+										"type": "string",
+										"description": "Optional human-readable label or description for the schedule."
+									},
+									"kind": {
+										"anyOf": [
+											{
+												"type": "string",
+												"const": "relative",
+												"description": "One-shot schedule based on relative duration strictly from now (e.g. '10s', '5m', '1s4m', '4s 2m', '100ms', or plain number in seconds)."
+											},
+											{
+												"type": "string",
+												"const": "absolute",
+												"description": "One-shot schedule targeted at an absolute date and time (e.g. 'tomorrow at 5pm', ISO string '2026-10-18T22:30:00Z', or epoch timestamp)."
+											},
+											{
+												"type": "string",
+												"const": "cron",
+												"description": "Recurring schedule governed by a cron pattern expression or standard nickname (e.g. '0 9 * * *' or '@hourly')."
+											}
+										],
+										"description": "Schedule timing mode: 'relative', 'absolute', or 'cron'."
+									},
+									"input": {
+										"anyOf": [
+											{
+												"type": "string"
+											},
+											{
+												"type": "number"
+											}
+										],
+										"description": "Unified timing input interpreted according to kind: relative duration for 'relative' (e.g. '5s', '10m', 10), absolute date/time for 'absolute' (e.g. 'tomorrow at 5pm', ISO string, epoch ms), or cron pattern for 'cron' (e.g. '0 9 * * *', '@hourly')."
+									},
+									"text": {
+										"type": "string",
+										"minLength": 1,
+										"description": "Prompt text delivered to the bot when the schedule triggers."
+									},
+									"target": {
+										"$ref": "#/components/schemas/ScheduleTarget"
+									},
+									"thinking": {
+										"$ref": "#/components/schemas/ThinkingLevel"
+									},
+									"enabled": {
+										"type": "boolean",
+										"description": "Whether the schedule is initially active (defaults to true)."
+									}
+								},
+								"description": "Parameters for creating a scheduled task."
+							}
+						}
+					}
+				},
+				"responses": {
+					"200": {
+						"description": "Command result",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ScheduleCreateResult"
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"401": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"404": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"405": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"409": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"500": {
+						"$ref": "#/components/responses/ApiError"
+					}
+				}
+			}
+		},
+		"/api/schedule/list": {
+			"get": {
+				"operationId": "schedule.list",
+				"summary": "List scheduled tasks for a bot, optionally including internal idle harvest schedules.",
+				"parameters": [
+					{
+						"name": "botId",
+						"in": "query",
+						"required": false,
+						"schema": {
+							"type": "string",
+							"description": "Optional bot identifier to filter schedules."
+						},
+						"description": "Optional bot identifier to filter schedules."
+					},
+					{
+						"name": "includeInternal",
+						"in": "query",
+						"required": false,
+						"schema": {
+							"type": "boolean",
+							"description": "Whether to include system-internal schedules (such as idle harvest timers)."
+						},
+						"description": "Whether to include system-internal schedules (such as idle harvest timers)."
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "Command result",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ScheduleListResult"
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"401": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"404": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"405": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"409": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"500": {
+						"$ref": "#/components/responses/ApiError"
+					}
+				}
+			},
+			"head": {
+				"operationId": "schedule.list.head",
+				"summary": "List scheduled tasks for a bot, optionally including internal idle harvest schedules.",
+				"parameters": [
+					{
+						"name": "botId",
+						"in": "query",
+						"required": false,
+						"schema": {
+							"type": "string",
+							"description": "Optional bot identifier to filter schedules."
+						},
+						"description": "Optional bot identifier to filter schedules."
+					},
+					{
+						"name": "includeInternal",
+						"in": "query",
+						"required": false,
+						"schema": {
+							"type": "boolean",
+							"description": "Whether to include system-internal schedules (such as idle harvest timers)."
+						},
+						"description": "Whether to include system-internal schedules (such as idle harvest timers)."
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "Same as GET with an empty body"
+					},
+					"400": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"401": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"404": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"405": {
+						"$ref": "#/components/responses/ApiError"
+					}
+				}
+			}
+		},
+		"/api/schedule/update": {
+			"post": {
+				"operationId": "schedule.update",
+				"summary": "Update an existing schedule's timing, prompt, destination chat, thinking budget, or enabled status.",
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"required": ["id"],
+								"properties": {
+									"id": {
+										"type": "string",
+										"minLength": 1,
+										"description": "Identifier of the schedule to update."
+									},
+									"name": {
+										"type": "string",
+										"description": "Optional updated label or description."
+									},
+									"kind": {
+										"anyOf": [
+											{
+												"type": "string",
+												"const": "relative",
+												"description": "Update kind to relative duration strictly from now."
+											},
+											{
+												"type": "string",
+												"const": "absolute",
+												"description": "Update kind to absolute date and time."
+											},
+											{
+												"type": "string",
+												"const": "cron",
+												"description": "Update kind to recurring cron expression or nickname."
+											}
+										],
+										"description": "Optional updated schedule kind ('relative', 'absolute', 'cron')."
+									},
+									"input": {
+										"anyOf": [
+											{
+												"type": "string"
+											},
+											{
+												"type": "number"
+											}
+										],
+										"description": "Optional updated unified timing input interpreted according to kind."
+									},
+									"text": {
+										"type": "string",
+										"description": "Optional updated prompt text."
+									},
+									"target": {
+										"$ref": "#/components/schemas/ScheduleTarget"
+									},
+									"thinking": {
+										"$ref": "#/components/schemas/ThinkingLevel"
+									},
+									"enabled": {
+										"type": "boolean",
+										"description": "Optional boolean to enable (true) or pause (false) the schedule."
+									}
+								},
+								"description": "Parameters for updating a scheduled task."
+							}
+						}
+					}
+				},
+				"responses": {
+					"200": {
+						"description": "Command result",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ScheduleUpdateResult"
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"401": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"404": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"405": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"409": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"500": {
+						"$ref": "#/components/responses/ApiError"
+					}
+				}
+			}
+		},
+		"/api/schedule/delete": {
+			"post": {
+				"operationId": "schedule.delete",
+				"summary": "Permanently delete a scheduled task by ID.",
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"required": ["id"],
+								"properties": {
+									"id": {
+										"type": "string",
+										"minLength": 1,
+										"description": "Identifier of the schedule to permanently delete."
+									}
+								},
+								"description": "Parameters identifying the schedule to delete."
+							}
+						}
+					}
+				},
+				"responses": {
+					"200": {
+						"description": "Command result",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ScheduleDeleteResult"
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"401": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"404": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"405": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"409": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"500": {
+						"$ref": "#/components/responses/ApiError"
+					}
+				}
+			}
+		},
+		"/api/account/toolsEnvs/list": {
+			"get": {
+				"operationId": "account.toolsEnvs.list",
+				"summary": "List account tools env definitions and the default binding.",
+				"parameters": [],
+				"responses": {
+					"200": {
+						"description": "Command result",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/AccountToolsEnvsListResult"
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"401": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"404": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"405": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"409": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"500": {
+						"$ref": "#/components/responses/ApiError"
+					}
+				}
+			},
+			"head": {
+				"operationId": "account.toolsEnvs.list.head",
+				"summary": "List account tools env definitions and the default binding.",
+				"parameters": [],
+				"responses": {
+					"200": {
+						"description": "Same as GET with an empty body"
+					},
+					"400": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"401": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"404": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"405": {
+						"$ref": "#/components/responses/ApiError"
+					}
+				}
+			}
+		},
+		"/api/account/toolsEnvs/create": {
+			"post": {
+				"operationId": "account.toolsEnvs.create",
+				"summary": "Create a just-bash or local-daemon tools env definition. Daemon rows require secretId, workspacePath, and confineToWorkspace.",
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"required": ["kind"],
+								"properties": {
+									"kind": {
+										"anyOf": [
+											{
+												"type": "string",
+												"const": "just-bash"
+											},
+											{
+												"type": "string",
+												"const": "local-daemon"
+											}
+										]
+									},
+									"label": {
+										"type": "string"
+									},
+									"persist": {
+										"type": "boolean"
+									},
+									"confineToWorkspace": {
+										"type": "boolean"
+									},
+									"sharedWorkspace": {
+										"type": "boolean"
+									},
+									"secretId": {
+										"type": "string",
+										"minLength": 1
+									},
+									"workspacePath": {
+										"type": "string",
+										"minLength": 1
+									}
+								},
+								"additionalProperties": false
+							}
+						}
+					}
+				},
+				"responses": {
+					"200": {
+						"description": "Command result",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/AccountToolsEnvsCreateResult"
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"401": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"404": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"405": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"409": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"500": {
+						"$ref": "#/components/responses/ApiError"
+					}
+				}
+			}
+		},
+		"/api/account/toolsEnvs/update": {
+			"post": {
+				"operationId": "account.toolsEnvs.update",
+				"summary": "Update a tools env definition. Kind is immutable.",
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"required": ["envId"],
+								"properties": {
+									"envId": {
+										"type": "string",
+										"minLength": 1
+									},
+									"label": {
+										"type": "string"
+									},
+									"persist": {
+										"type": "boolean"
+									},
+									"confineToWorkspace": {
+										"type": "boolean"
+									},
+									"sharedWorkspace": {
+										"type": "boolean"
+									},
+									"secretId": {
+										"type": "string",
+										"minLength": 1
+									},
+									"workspacePath": {
+										"type": "string",
+										"minLength": 1
+									}
+								},
+								"additionalProperties": false
+							}
+						}
+					}
+				},
+				"responses": {
+					"200": {
+						"description": "Command result",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/AccountToolsEnvsCreateResult"
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"401": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"404": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"405": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"409": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"500": {
+						"$ref": "#/components/responses/ApiError"
+					}
+				}
+			}
+		},
+		"/api/account/toolsEnvs/delete": {
+			"post": {
+				"operationId": "account.toolsEnvs.delete",
+				"summary": "Delete a tools env definition and its env DO data.",
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"required": ["envId"],
+								"properties": {
+									"envId": {
+										"type": "string",
+										"minLength": 1
+									}
+								},
+								"additionalProperties": false
+							}
+						}
+					}
+				},
+				"responses": {
+					"200": {
+						"description": "Command result",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/AccountToolsEnvSecretsDeleteResult"
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"401": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"404": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"405": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"409": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"500": {
+						"$ref": "#/components/responses/ApiError"
+					}
+				}
+			}
+		},
+		"/api/account/toolsEnvSecrets/list": {
+			"get": {
+				"operationId": "account.toolsEnvSecrets.list",
+				"summary": "List daemon pairing secrets. Metadata only; the token is never returned.",
+				"parameters": [],
+				"responses": {
+					"200": {
+						"description": "Command result",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/AccountToolsEnvSecretsListResult"
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"401": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"404": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"405": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"409": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"500": {
+						"$ref": "#/components/responses/ApiError"
+					}
+				}
+			},
+			"head": {
+				"operationId": "account.toolsEnvSecrets.list.head",
+				"summary": "List daemon pairing secrets. Metadata only; the token is never returned.",
+				"parameters": [],
+				"responses": {
+					"200": {
+						"description": "Same as GET with an empty body"
+					},
+					"400": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"401": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"404": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"405": {
+						"$ref": "#/components/responses/ApiError"
+					}
+				}
+			}
+		},
+		"/api/account/toolsEnvSecrets/set": {
+			"post": {
+				"operationId": "account.toolsEnvSecrets.set",
+				"summary": "Mint a daemon pairing token (cadmus_dt_ + 64 hex). The token is returned once. A caller-supplied token is rejected.",
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"properties": {
+									"label": {
+										"type": "string"
+									}
+								},
+								"additionalProperties": false
+							}
+						}
+					}
+				},
+				"responses": {
+					"200": {
+						"description": "Command result",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/AccountToolsEnvSecretsSetResult"
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"401": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"404": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"405": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"409": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"500": {
+						"$ref": "#/components/responses/ApiError"
+					}
+				}
+			}
+		},
+		"/api/account/toolsEnvSecrets/delete": {
+			"post": {
+				"operationId": "account.toolsEnvSecrets.delete",
+				"summary": "Delete a daemon pairing secret, flag env rows that named it, and clear a default that points at one of them.",
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"required": ["secretId"],
+								"properties": {
+									"secretId": {
+										"type": "string",
+										"minLength": 1
+									}
+								},
+								"additionalProperties": false
+							}
+						}
+					}
+				},
+				"responses": {
+					"200": {
+						"description": "Command result",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/AccountToolsEnvSecretsDeleteResult"
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"401": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"404": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"405": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"409": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"500": {
+						"$ref": "#/components/responses/ApiError"
+					}
+				}
+			}
+		}
+	},
+	"components": {
+		"securitySchemes": {
+			"bearerAuth": {
+				"type": "http",
+				"scheme": "bearer"
+			}
+		},
+		"responses": {
+			"ApiError": {
+				"description": "Error envelope",
+				"content": {
+					"application/json": {
+						"schema": {
+							"$ref": "#/components/schemas/ApiErrorEnvelope"
+						}
+					}
+				}
+			}
+		},
+		"schemas": {
+			"AccountCredentialsDeleteResult": {
+				"type": "object",
+				"required": ["deleted"],
+				"properties": {
+					"deleted": {
+						"type": "string",
+						"description": "Provider identifier whose credentials were deleted."
+					}
+				},
+				"description": "Result payload returned by account.credentials.delete confirming removal of provider credentials."
+			},
+			"AccountCredentialsListResult": {
+				"type": "object",
+				"required": ["credentials"],
+				"properties": {
+					"credentials": {
+						"type": "array",
+						"items": {
+							"$ref": "#/components/schemas/CredentialSummary"
+						},
+						"description": "List of configured provider credential summaries (excluding secret tokens)."
+					}
+				},
+				"description": "Result payload returned by account.credentials.list containing configured provider summaries."
+			},
+			"AccountCredentialsSetResult": {
+				"type": "object",
+				"required": ["credential"],
+				"properties": {
+					"credential": {
+						"$ref": "#/components/schemas/CredentialSummary"
+					}
+				},
+				"description": "Result payload returned by account.credentials.set containing the saved credential summary."
+			},
+			"AccountGetResult": {
+				"type": "object",
+				"required": ["account", "members", "families", "credentials"],
+				"properties": {
+					"account": {
+						"$ref": "#/components/schemas/AccountRecord"
+					},
+					"members": {
+						"type": "array",
+						"items": {
+							"$ref": "#/components/schemas/AccountMember"
+						},
+						"description": "List of user members and their roles in this account."
+					},
+					"families": {
+						"type": "array",
+						"items": {
+							"$ref": "#/components/schemas/FamilyRecord"
+						},
+						"description": "List of bot families belonging to this account."
+					},
+					"credentials": {
+						"type": "array",
+						"items": {
+							"$ref": "#/components/schemas/CredentialSummary"
+						},
+						"description": "Summaries of configured AI provider credentials (excluding secrets)."
+					}
+				},
+				"description": "Full account details including membership, configured bot families, and provider credentials."
+			},
+			"AccountMember": {
+				"type": "object",
+				"required": ["accountId", "userId", "role", "createdAt"],
+				"properties": {
+					"accountId": {
+						"type": "string",
+						"description": "Identifier of the account the user belongs to."
+					},
+					"userId": {
+						"type": "string",
+						"description": "Identifier of the user member."
+					},
+					"role": {
+						"anyOf": [
+							{
+								"type": "string",
+								"const": "owner"
+							},
+							{
+								"type": "string",
+								"const": "member"
+							}
+						],
+						"description": "Access role: 'owner' has full administrative rights (credentials, members, families); 'member' has standard access."
+					},
+					"createdAt": {
+						"type": "number",
+						"description": "Epoch timestamp in milliseconds when the membership was created."
+					}
+				},
+				"description": "Membership relation linking a user identity to a tenant account with an access role."
+			},
+			"AccountMembersAddResult": {
+				"type": "object",
+				"required": ["member"],
+				"properties": {
+					"member": {
+						"$ref": "#/components/schemas/AccountMember"
+					}
+				},
+				"description": "Result payload returned by account.members.add containing the created or updated membership."
+			},
+			"AccountMembersListResult": {
+				"type": "object",
+				"required": ["members"],
+				"properties": {
+					"members": {
+						"type": "array",
+						"items": {
+							"$ref": "#/components/schemas/AccountMember"
+						},
+						"description": "List of members belonging to this account."
+					}
+				},
+				"description": "Result payload returned by account.members.list containing the list of account members."
+			},
+			"AccountModelsListResult": {
+				"type": "object",
+				"required": ["models"],
+				"properties": {
+					"models": {
+						"type": "array",
+						"items": {
+							"$ref": "#/components/schemas/ModelInfo"
+						},
+						"description": "List of available AI models, their capabilities, and authentication status."
+					}
+				},
+				"description": "Result payload returned by account.models.list containing available AI models."
+			},
+			"AccountOAuthCancelResult": {
+				"type": "object",
+				"required": ["flow", "cancelled"],
+				"properties": {
+					"flow": {
+						"$ref": "#/components/schemas/OAuthFlowRecord"
+					},
+					"cancelled": {
+						"type": "boolean",
+						"description": "True if the flow was cancelled."
+					}
+				},
+				"description": "Result payload returned by account.oauth.cancel confirming cancellation of the flow."
+			},
+			"AccountOAuthProvidersResult": {
+				"type": "object",
+				"required": ["providers"],
+				"properties": {
+					"providers": {
+						"type": "array",
+						"items": {
+							"$ref": "#/components/schemas/OAuthProviderInfo"
+						},
+						"description": "List of supported OAuth providers and their flow mechanisms."
+					}
+				},
+				"description": "Result payload returned by account.oauth.providers containing available OAuth providers."
+			},
+			"AccountOAuthStartResult": {
+				"type": "object",
+				"required": ["flow"],
+				"properties": {
+					"flow": {
+						"$ref": "#/components/schemas/OAuthFlowRecord"
+					}
+				},
+				"description": "Result payload returned by account.oauth.start containing initial flow state and verification URLs."
+			},
+			"AccountOAuthStatusResult": {
+				"type": "object",
+				"required": ["flow"],
+				"properties": {
+					"flow": {
+						"$ref": "#/components/schemas/OAuthFlowRecord"
+					}
+				},
+				"description": "Result payload returned by account.oauth.status with current flow status."
+			},
+			"AccountOAuthSubmitResult": {
+				"type": "object",
+				"required": ["flow"],
+				"properties": {
+					"flow": {
+						"$ref": "#/components/schemas/OAuthFlowRecord"
+					}
+				},
+				"description": "Result payload returned by account.oauth.submit after processing user input."
+			},
+			"AccountRecord": {
+				"type": "object",
+				"required": ["id", "name", "timezone", "createdAt"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"description": "Unique tenant account identifier (e.g. 'acc_main')."
+					},
+					"name": {
+						"type": "string",
+						"description": "Human-readable display name of the account."
+					},
+					"timezone": {
+						"type": "string",
+						"description": "Default IANA timezone identifier for the account (e.g. 'UTC', 'America/New_York'). Inherited by families if unspecified."
+					},
+					"createdAt": {
+						"type": "number",
+						"description": "Epoch timestamp in milliseconds when the account was created."
+					},
+					"defaultToolsEnv": {
+						"anyOf": [
+							{
+								"$ref": "#/components/schemas/ToolsEnvBinding"
+							},
+							{
+								"type": "null"
+							}
+						],
+						"description": "Account default tools env binding, or null when cleared."
+					}
+				},
+				"description": "Tenant account record representing the administrative boundary for users, credentials, and bot families."
+			},
+			"AccountToolsEnvSecretsDeleteResult": {
+				"type": "object",
+				"required": ["deleted"],
+				"properties": {
+					"deleted": {
+						"type": "string"
+					}
+				}
+			},
+			"AccountToolsEnvSecretsListResult": {
+				"type": "object",
+				"required": ["secrets"],
+				"properties": {
+					"secrets": {
+						"type": "array",
+						"items": {
+							"$ref": "#/components/schemas/ToolsEnvSecretMeta"
+						}
+					}
+				}
+			},
+			"AccountToolsEnvSecretsSetResult": {
+				"type": "object",
+				"required": ["secret", "token"],
+				"properties": {
+					"secret": {
+						"$ref": "#/components/schemas/ToolsEnvSecretMeta"
+					},
+					"token": {
+						"type": "string"
+					}
+				}
+			},
+			"AccountToolsEnvsCreateResult": {
+				"type": "object",
+				"required": ["env"],
+				"properties": {
+					"env": {
+						"$ref": "#/components/schemas/ToolsEnvRecord"
+					}
+				}
+			},
+			"AccountToolsEnvsListResult": {
+				"type": "object",
+				"required": ["default", "envs"],
+				"properties": {
+					"default": {
+						"anyOf": [
+							{
+								"type": "object",
+								"required": ["envId"],
+								"properties": {
+									"envId": {
+										"type": "string"
+									}
+								},
+								"additionalProperties": false
+							},
+							{
+								"type": "null"
+							}
+						]
+					},
+					"envs": {
+						"type": "array",
+						"items": {
+							"$ref": "#/components/schemas/ToolsEnvRecord"
+						}
+					}
+				}
+			},
+			"AccountUpdateResult": {
+				"type": "object",
+				"required": ["account"],
+				"properties": {
+					"account": {
+						"$ref": "#/components/schemas/AccountRecord"
+					}
+				},
+				"description": "Result payload returned by account.update containing the modified account record."
+			},
+			"ApiErrorEnvelope": {
+				"type": "object",
+				"required": ["error"],
+				"properties": {
+					"error": {
+						"type": "object",
+						"required": ["code", "message"],
+						"properties": {
+							"code": {
+								"$ref": "#/components/schemas/ErrorCode"
+							},
+							"message": {
+								"type": "string",
+								"description": "Human-readable explanation of the failure."
+							}
+						},
+						"description": "Error object."
+					}
+				},
+				"description": "JSON error envelope returned by /api for auth failures, validation failures, missing paths, method mismatches, and failed commands."
+			},
+			"BotCreateResult": {
+				"type": "object",
+				"required": ["bot"],
+				"properties": {
+					"bot": {
+						"$ref": "#/components/schemas/BotRecord"
+					}
+				},
+				"description": "Result payload returned by bot.create containing the newly created bot record."
+			},
+			"BotDeleteResult": {
+				"type": "object",
+				"required": ["deleted"],
+				"properties": {
+					"deleted": {
+						"type": "string",
+						"description": "Identifier of the bot that was deleted."
+					}
+				},
+				"description": "Result payload returned by bot.delete confirming deletion of the bot."
+			},
+			"BotGetResult": {
+				"type": "object",
+				"required": ["bot", "soul", "memory", "knowledge"],
+				"properties": {
+					"bot": {
+						"$ref": "#/components/schemas/BotRecord"
+					},
+					"soul": {
+						"type": "string",
+						"description": "Raw system prompt and personality instructions loaded from SOUL.md."
+					},
+					"memory": {
+						"type": "object",
+						"required": ["content", "version"],
+						"properties": {
+							"content": {
+								"type": "string",
+								"description": "Current markdown content of MEMORY.md."
+							},
+							"version": {
+								"type": "number",
+								"description": "Current version sequence number of MEMORY.md for optimistic concurrency control."
+							}
+						},
+						"description": "Long-term memory file state and version."
+					},
+					"knowledge": {
+						"type": "array",
+						"items": {
+							"type": "object",
+							"required": ["slug", "description", "version", "body"],
+							"properties": {
+								"slug": {
+									"type": "string",
+									"description": "Unique document slug / filename without extension."
+								},
+								"description": {
+									"type": "string",
+									"description": "Document summary used by model tools to decide when to read this document."
+								},
+								"category": {
+									"type": "string",
+									"description": "Optional categorization tag."
+								},
+								"version": {
+									"type": "number",
+									"description": "Current version sequence number of the knowledge document."
+								},
+								"body": {
+									"type": "string",
+									"description": "Full markdown content body of the document."
+								}
+							},
+							"description": "Individual knowledge document record."
+						},
+						"description": "List of all knowledge documents associated with this bot."
+					},
+					"toolsEnvEnabled": {
+						"type": "boolean"
+					},
+					"toolsEnvEnabledSource": {
+						"type": "string"
+					},
+					"effectiveToolsEnv": {
+						"anyOf": [
+							{
+								"$ref": "#/components/schemas/EffectiveToolsEnv"
+							},
+							{
+								"type": "null"
+							}
+						]
+					},
+					"toolsEnvBindingSource": {
+						"type": "string"
+					},
+					"toolsEnvStatus": {
+						"type": "string"
+					},
+					"toolsEnvConnectedAt": {
+						"anyOf": [
+							{
+								"type": "number"
+							},
+							{
+								"type": "null"
+							}
+						]
+					},
+					"toolsEnvLastError": {
+						"anyOf": [
+							{
+								"type": "string"
+							},
+							{
+								"type": "null"
+							}
+						]
+					}
+				},
+				"description": "Comprehensive bot state including configuration, system prompt (SOUL.md), memory, and knowledge base."
+			},
+			"BotListResult": {
+				"type": "object",
+				"required": ["bots"],
+				"properties": {
+					"bots": {
+						"type": "array",
+						"items": {
+							"$ref": "#/components/schemas/BotRecord"
+						},
+						"description": "List of bots configured within this bot family."
+					}
+				},
+				"description": "Result payload returned by bot.list containing all bots in the family."
+			},
+			"BotRecord": {
+				"type": "object",
+				"required": [
+					"id",
+					"name",
+					"model",
+					"thinking",
+					"timezone",
+					"rootConversationId",
+					"createdAt"
+				],
+				"properties": {
+					"id": {
+						"type": "string",
+						"description": "Unique identifier / slug of the bot within the family (e.g. 'assistant', 'researcher')."
+					},
+					"name": {
+						"type": "string",
+						"description": "Human-readable display name of the bot."
+					},
+					"model": {
+						"type": "string",
+						"description": "Default model identifier string used for bot turns (e.g. 'anthropic/claude-3-7-sonnet')."
+					},
+					"thinking": {
+						"$ref": "#/components/schemas/ThinkingLevel"
+					},
+					"tools": {
+						"type": "array",
+						"items": {
+							"type": "string"
+						},
+						"description": "Allowlist of tool names. Omitted means the default set (Cadmus tools allowed, coding tools opt-in). An empty array allows no gated tools."
+					},
+					"timezone": {
+						"type": "string",
+						"description": "IANA timezone identifier for cron schedules and time context (e.g. 'UTC')."
+					},
+					"rootConversationId": {
+						"type": "number",
+						"description": "Internal numeric ID of the primary root conversation associated with the bot."
+					},
+					"createdAt": {
+						"type": "number",
+						"description": "Epoch timestamp in milliseconds when the bot was created."
+					},
+					"toolsEnv": {
+						"$ref": "#/components/schemas/ToolsEnvSetting"
+					}
+				},
+				"description": "Bot persona configuration defining default model, thinking budget, tool access, and timezone."
+			},
+			"BotUpdateResult": {
+				"type": "object",
+				"required": ["bot"],
+				"properties": {
+					"bot": {
+						"$ref": "#/components/schemas/BotRecord"
+					}
+				},
+				"description": "Result payload returned by bot.update containing the updated bot record."
+			},
+			"ChatCloseResult": {
+				"type": "object",
+				"required": ["chat"],
+				"properties": {
+					"chat": {
+						"$ref": "#/components/schemas/ChatRecord"
+					}
+				},
+				"description": "Result payload returned by chat.close containing the closed chat record."
+			},
+			"ChatCreateResult": {
+				"type": "object",
+				"required": ["chat"],
+				"properties": {
+					"chat": {
+						"$ref": "#/components/schemas/ChatRecord"
+					}
+				},
+				"description": "Result payload returned by chat.create containing the new chat session record."
+			},
+			"ChatGetResult": {
+				"type": "object",
+				"required": ["chat", "busy", "messages", "entries", "notes"],
+				"properties": {
+					"chat": {
+						"$ref": "#/components/schemas/ChatRecord"
+					},
+					"busy": {
+						"type": "boolean",
+						"description": "True if the chat is actively executing a model turn or scheduled task."
+					},
+					"messages": {
+						"type": "array",
+						"items": {
+							"$ref": "#/components/schemas/TranscriptMessageView"
+						},
+						"description": "Recent message exchange history for this chat session."
+					},
+					"entries": {
+						"type": "array",
+						"items": {
+							"$ref": "#/components/schemas/RawTranscriptEntry"
+						},
+						"description": "Raw transcript entries recorded for this conversation."
+					},
+					"notes": {
+						"type": "array",
+						"items": {
+							"$ref": "#/components/schemas/HarvestNote"
+						},
+						"description": "Historical harvest notes recording memory and knowledge updates from this chat."
+					},
+					"toolsEnvEnabled": {
+						"type": "boolean"
+					},
+					"toolsEnvEnabledSource": {
+						"type": "string"
+					},
+					"effectiveToolsEnv": {
+						"anyOf": [
+							{
+								"$ref": "#/components/schemas/EffectiveToolsEnv"
+							},
+							{
+								"type": "null"
+							}
+						]
+					},
+					"toolsEnvBindingSource": {
+						"type": "string"
+					},
+					"toolsEnvStatus": {
+						"type": "string"
+					},
+					"toolsEnvConnectedAt": {
+						"anyOf": [
+							{
+								"type": "number"
+							},
+							{
+								"type": "null"
+							}
+						]
+					},
+					"toolsEnvLastError": {
+						"anyOf": [
+							{
+								"type": "string"
+							},
+							{
+								"type": "null"
+							}
+						]
+					}
+				},
+				"description": "Full chat session state including recent messages, transcript entries, and harvest audit notes."
+			},
+			"ChatListResult": {
+				"type": "object",
+				"required": ["chats"],
+				"properties": {
+					"chats": {
+						"type": "array",
+						"items": {
+							"$ref": "#/components/schemas/ChatRecord"
+						},
+						"description": "List of chat sessions matching the query."
+					}
+				},
+				"description": "Result payload returned by chat.list containing chat sessions."
+			},
+			"ChatRecord": {
+				"type": "object",
+				"required": ["key", "botId", "conversationId", "createdAt"],
+				"properties": {
+					"key": {
+						"type": "string",
+						"description": "Unique conversation routing key / slug for this chat session (e.g. 'chat_default' or user-specified key)."
+					},
+					"botId": {
+						"type": "string",
+						"description": "Identifier of the bot participating in this chat session."
+					},
+					"conversationId": {
+						"type": "number",
+						"description": "Internal durable conversation sequence ID backing this chat."
+					},
+					"title": {
+						"type": "string",
+						"description": "Optional human-readable title or topic for the chat."
+					},
+					"thinking": {
+						"$ref": "#/components/schemas/ThinkingLevel"
+					},
+					"closed": {
+						"type": "boolean",
+						"description": "Whether this chat session has been closed or archived."
+					},
+					"createdAt": {
+						"type": "number",
+						"description": "Epoch timestamp in milliseconds when the chat session was created."
+					},
+					"toolsEnv": {
+						"$ref": "#/components/schemas/ToolsEnvSetting"
+					}
+				},
+				"description": "Chat session record tracking a conversation thread with a specific bot."
+			},
+			"ChatRenameResult": {
+				"type": "object",
+				"required": ["chat"],
+				"properties": {
+					"chat": {
+						"$ref": "#/components/schemas/ChatRecord"
+					}
+				},
+				"description": "Result payload returned by chat.rename containing the renamed chat record."
+			},
+			"ChatResetResult": {
+				"type": "object",
+				"required": ["chat", "reset"],
+				"properties": {
+					"chat": {
+						"$ref": "#/components/schemas/ChatRecord"
+					},
+					"reset": {
+						"type": "boolean",
+						"const": true,
+						"description": "Always true, confirming the conversation transcript was reset."
+					}
+				},
+				"description": "Result payload returned by chat.reset confirming conversation history reset."
+			},
+			"ChatStatusRecord": {
+				"type": "object",
+				"required": [
+					"chatKey",
+					"conversationId",
+					"botId",
+					"botName",
+					"model",
+					"thinking",
+					"tools",
+					"busy",
+					"entryCount",
+					"harvestWatermark",
+					"nextWakeAt",
+					"usage"
+				],
+				"properties": {
+					"chatKey": {
+						"type": "string",
+						"description": "Chat session routing key."
+					},
+					"conversationId": {
+						"type": "number",
+						"description": "Internal durable conversation sequence ID backing this chat."
+					},
+					"botId": {
+						"type": "string",
+						"description": "Identifier of the bot participating in this chat."
+					},
+					"botName": {
+						"type": "string",
+						"description": "Display name of the participating bot."
+					},
+					"model": {
+						"type": "string",
+						"description": "Active model identifier used for turns in this chat."
+					},
+					"thinking": {
+						"$ref": "#/components/schemas/ThinkingLevel"
+					},
+					"tools": {
+						"anyOf": [
+							{
+								"type": "array",
+								"items": {
+									"type": "string"
+								},
+								"description": "List of permitted tool names or patterns."
+							},
+							{
+								"type": "string",
+								"const": "all",
+								"description": "All registered tools are permitted."
+							}
+						],
+						"description": "Permitted tools for this chat. An array is the bot allowlist, and an empty array allows no gated tools. 'all' is the default when bot.tools is omitted."
+					},
+					"busy": {
+						"type": "boolean",
+						"description": "True if a model turn is currently in progress, false if idle."
+					},
+					"entryCount": {
+						"type": "number",
+						"description": "Total number of transcript entries recorded in this conversation."
+					},
+					"harvestWatermark": {
+						"type": "number",
+						"description": "Highest transcript entry sequence number harvested into long-term memory."
+					},
+					"nextWakeAt": {
+						"anyOf": [
+							{
+								"type": "number"
+							},
+							{
+								"type": "null"
+							}
+						],
+						"description": "Epoch timestamp in milliseconds of the next scheduled alarm wake, or null if no alarm is pending."
+					},
+					"usage": {
+						"type": "object",
+						"patternProperties": {
+							"^.*$": {}
+						},
+						"description": "Aggregated token and prompt usage statistics for this chat session."
+					},
+					"toolsEnv": {
+						"type": "object",
+						"required": ["enabled", "enabledSource"],
+						"properties": {
+							"enabled": {
+								"type": "boolean"
+							},
+							"enabledSource": {
+								"type": "string"
+							},
+							"kind": {
+								"type": "string"
+							},
+							"envId": {
+								"type": "string"
+							},
+							"bindingSource": {
+								"type": "string"
+							},
+							"status": {
+								"type": "string"
+							},
+							"connectedAt": {
+								"type": "number"
+							},
+							"lastError": {
+								"type": "string"
+							}
+						},
+						"additionalProperties": false
+					}
+				},
+				"description": "Live runtime execution status, active model configuration, and alarm scheduling for a chat session."
+			},
+			"ChatStatusResult": {
+				"type": "object",
+				"required": ["outOfBand", "command", "status", "text"],
+				"properties": {
+					"outOfBand": {
+						"type": "boolean",
+						"const": true,
+						"description": "Always true, confirming this result was evaluated out-of-band without invoking the model."
+					},
+					"command": {
+						"type": "string",
+						"const": "/status",
+						"description": "The out-of-band slash command executed ('/status')."
+					},
+					"status": {
+						"$ref": "#/components/schemas/ChatStatusRecord"
+					},
+					"text": {
+						"type": "string",
+						"description": "Pre-formatted, human-readable status text summarizing chat state, model, thinking, tools, and alarms."
+					}
+				},
+				"description": "Out-of-band status result produced by /status without appending to the conversation transcript."
+			},
+			"ChatUpdateResult": {
+				"type": "object",
+				"required": ["chat"],
+				"properties": {
+					"chat": {
+						"$ref": "#/components/schemas/ChatRecord"
+					}
+				}
+			},
+			"CredentialInput": {
+				"anyOf": [
+					{
+						"type": "object",
+						"required": ["type", "apiKey"],
+						"properties": {
+							"type": {
+								"type": "string",
+								"const": "api_key",
+								"description": "Static API key credential type."
+							},
+							"apiKey": {
+								"type": "string",
+								"minLength": 1,
+								"description": "Provider API key secret token."
+							}
+						},
+						"description": "Static API key credential configuration."
+					},
+					{
+						"type": "object",
+						"required": ["type", "accessToken"],
+						"properties": {
+							"type": {
+								"type": "string",
+								"const": "oauth",
+								"description": "OAuth token set credential type."
+							},
+							"accessToken": {
+								"type": "string",
+								"minLength": 1,
+								"description": "Active OAuth access token."
+							},
+							"refreshToken": {
+								"type": "string",
+								"description": "Optional refresh token used to renew expired access tokens."
+							},
+							"expiresAt": {
+								"type": "number",
+								"description": "Optional epoch timestamp in milliseconds when the access token expires."
+							}
+						},
+						"description": "OAuth access and refresh token configuration."
+					}
+				],
+				"description": "Authentication credentials for an AI provider, supporting static API keys or refreshed OAuth tokens."
+			},
+			"CredentialSummary": {
+				"type": "object",
+				"required": ["providerId", "type", "updatedAt"],
+				"properties": {
+					"providerId": {
+						"type": "string",
+						"description": "Unique identifier of the AI provider (e.g. 'anthropic', 'openai', 'google', 'groq', 'deepseek', 'xai')."
+					},
+					"type": {
+						"anyOf": [
+							{
+								"type": "string",
+								"const": "api_key"
+							},
+							{
+								"type": "string",
+								"const": "oauth"
+							}
+						],
+						"description": "Authorization mechanism: static 'api_key' or refreshed 'oauth'."
+					},
+					"updatedAt": {
+						"type": "number",
+						"description": "Epoch timestamp in milliseconds when this credential was stored or last refreshed."
+					}
+				},
+				"description": "Sanitized metadata summarizing a configured AI provider credential without revealing secret values."
+			},
+			"EffectiveToolsEnv": {
+				"type": "object",
+				"required": [
+					"envId",
+					"kind",
+					"persist",
+					"confineToWorkspace",
+					"sharedWorkspace",
+					"root"
+				],
+				"properties": {
+					"envId": {
+						"type": "string"
+					},
+					"kind": {
+						"anyOf": [
+							{
+								"type": "string",
+								"const": "just-bash"
+							},
+							{
+								"type": "string",
+								"const": "local-daemon"
+							}
+						]
+					},
+					"persist": {
+						"type": "boolean"
+					},
+					"confineToWorkspace": {
+						"type": "boolean"
+					},
+					"sharedWorkspace": {
+						"type": "boolean"
+					},
+					"workspacePath": {
+						"type": "string"
+					},
+					"root": {
+						"type": "string"
+					}
+				},
+				"additionalProperties": false,
+				"description": "Resolved tools env definition used for a bot or chat."
+			},
+			"ErrorCode": {
+				"anyOf": [
+					{
+						"type": "string",
+						"const": "unauthorized"
+					},
+					{
+						"type": "string",
+						"const": "query_token_not_allowed"
+					},
+					{
+						"type": "string",
+						"const": "header_required"
+					},
+					{
+						"type": "string",
+						"const": "forbidden"
+					},
+					{
+						"type": "string",
+						"const": "not_found"
+					},
+					{
+						"type": "string",
+						"const": "family_not_found"
+					},
+					{
+						"type": "string",
+						"const": "cas_conflict"
+					},
+					{
+						"type": "string",
+						"const": "conflict"
+					},
+					{
+						"type": "string",
+						"const": "command_failed"
+					},
+					{
+						"type": "string",
+						"const": "invalid_command"
+					},
+					{
+						"type": "string",
+						"const": "invalid_json"
+					},
+					{
+						"type": "string",
+						"const": "invalid_frame"
+					},
+					{
+						"type": "string",
+						"const": "frame_too_large"
+					},
+					{
+						"type": "string",
+						"const": "method_not_allowed"
+					},
+					{
+						"type": "string",
+						"const": "unsupported_command"
+					},
+					{
+						"type": "string",
+						"const": "unsupported_kind"
+					},
+					{
+						"type": "string",
+						"const": "oauth_failed"
+					},
+					{
+						"type": "string",
+						"const": "invalid_tools_env"
+					},
+					{
+						"type": "string",
+						"const": "confinement_required"
+					},
+					{
+						"type": "string",
+						"const": "tools_env_on_without_config"
+					}
+				],
+				"description": "Machine-readable protocol error code. CAS conflicts use cas_conflict (HTTP 409). /api auth failures use unauthorized, query_token_not_allowed, or header_required (HTTP 401)."
+			},
+			"FamilyCreateResult": {
+				"type": "object",
+				"required": ["family"],
+				"properties": {
+					"family": {
+						"$ref": "#/components/schemas/FamilyRecord"
+					}
+				},
+				"description": "Result payload returned by family.create containing the newly registered family record."
+			},
+			"FamilyDeleteResult": {
+				"type": "object",
+				"required": ["deleted"],
+				"properties": {
+					"deleted": {
+						"type": "string",
+						"description": "Identifier of the bot family that was deleted."
+					}
+				},
+				"description": "Result payload returned by family.delete confirming deletion of the bot family."
+			},
+			"FamilyGetResult": {
+				"type": "object",
+				"required": ["family"],
+				"properties": {
+					"family": {
+						"$ref": "#/components/schemas/FamilyRecord"
+					}
+				},
+				"description": "Result payload returned by family.get containing family metadata."
+			},
+			"FamilyListResult": {
+				"type": "object",
+				"required": ["families"],
+				"properties": {
+					"families": {
+						"type": "array",
+						"items": {
+							"$ref": "#/components/schemas/FamilyRecord"
+						},
+						"description": "List of bot families registered to the account."
+					}
+				},
+				"description": "Result payload returned by family.list containing all bot families in the account."
+			},
+			"FamilyRecord": {
+				"type": "object",
+				"required": [
+					"accountId",
+					"familyId",
+					"name",
+					"doName",
+					"timezone",
+					"harvestDelayMs",
+					"createdAt"
+				],
+				"properties": {
+					"accountId": {
+						"type": "string",
+						"description": "Identifier of the owning tenant account."
+					},
+					"familyId": {
+						"type": "string",
+						"description": "Unique slug or identifier of the bot family within the account."
+					},
+					"name": {
+						"type": "string",
+						"description": "Human-readable display name of the bot family."
+					},
+					"doName": {
+						"type": "string",
+						"description": "Deterministic Cloudflare Durable Object instance name backing this family ('cadmus:{accountId}:{familyId}')."
+					},
+					"timezone": {
+						"type": "string",
+						"description": "Default IANA timezone identifier for this family (e.g. 'America/Los_Angeles')."
+					},
+					"harvestDelayMs": {
+						"type": "number",
+						"description": "Idle delay in milliseconds after conversation activity before running background memory/knowledge harvesting."
+					},
+					"createdAt": {
+						"type": "number",
+						"description": "Epoch timestamp in milliseconds when the family was created."
+					}
+				},
+				"description": "Bot family metadata representing a partitioned Durable Object runtime instance."
+			},
+			"FamilyUpdateResult": {
+				"type": "object",
+				"required": ["family"],
+				"properties": {
+					"family": {
+						"$ref": "#/components/schemas/FamilyRecord"
+					}
+				},
+				"description": "Result payload returned by family.update containing updated family settings."
+			},
+			"FileDeleteResult": {
+				"type": "object",
+				"required": ["deleted"],
+				"properties": {
+					"deleted": {
+						"type": "string",
+						"description": "Virtual workspace file path that was deleted."
+					}
+				},
+				"description": "Result payload returned by file.delete confirming deletion of the file."
+			},
+			"FileListItem": {
+				"type": "object",
+				"required": ["path", "kind", "size"],
+				"properties": {
+					"path": {
+						"type": "string",
+						"description": "Virtual workspace file path (e.g. 'SOUL.md', 'MEMORY.md', 'knowledge/topic.md')."
+					},
+					"kind": {
+						"anyOf": [
+							{
+								"type": "string",
+								"const": "soul",
+								"description": "Bot system prompt / personality instructions file."
+							},
+							{
+								"type": "string",
+								"const": "memory",
+								"description": "Bot long-term memory file."
+							},
+							{
+								"type": "string",
+								"const": "knowledge",
+								"description": "Topic-specific knowledge base document."
+							}
+						],
+						"description": "File classification: 'soul' (SOUL.md), 'memory' (MEMORY.md), or 'knowledge' (knowledge doc)."
+					},
+					"size": {
+						"type": "number",
+						"description": "File content size in bytes."
+					},
+					"version": {
+						"type": "number",
+						"description": "Version sequence number for optimistic concurrency control (CAS)."
+					},
+					"slug": {
+						"type": "string",
+						"description": "Document slug / identifier (for knowledge documents)."
+					},
+					"description": {
+						"type": "string",
+						"description": "Document summary description (for knowledge documents)."
+					},
+					"category": {
+						"type": "string",
+						"description": "Optional categorization tag (for knowledge documents)."
+					}
+				},
+				"description": "Summary descriptor of a virtual workspace file belonging to a bot."
+			},
+			"FileListResult": {
+				"type": "object",
+				"required": ["files"],
+				"properties": {
+					"files": {
+						"type": "array",
+						"items": {
+							"$ref": "#/components/schemas/FileListItem"
+						},
+						"description": "List of virtual workspace files (SOUL.md, MEMORY.md, knowledge documents)."
+					}
+				},
+				"description": "Result payload returned by file.list containing virtual workspace files."
+			},
+			"FileReadDocResult": {
+				"type": "object",
+				"required": ["path", "content", "text", "version"],
+				"properties": {
+					"path": {
+						"type": "string",
+						"description": "Virtual workspace file path."
+					},
+					"content": {
+						"type": "string",
+						"description": "Full raw file content string."
+					},
+					"text": {
+						"type": "string",
+						"description": "Text content of the file (alias for content)."
+					},
+					"version": {
+						"type": "number",
+						"description": "Current version sequence number for optimistic concurrency control."
+					},
+					"slug": {
+						"type": "string",
+						"description": "Document slug / identifier (for knowledge documents)."
+					},
+					"description": {
+						"type": "string",
+						"description": "Document summary description (for knowledge documents)."
+					},
+					"category": {
+						"type": "string",
+						"description": "Optional categorization tag (for knowledge documents)."
+					},
+					"body": {
+						"type": "string",
+						"description": "Document markdown body without header metadata (for knowledge documents)."
+					}
+				},
+				"description": "Content and version metadata of a single virtual workspace file."
+			},
+			"FileReadResult": {
+				"anyOf": [
+					{
+						"$ref": "#/components/schemas/FileListResult"
+					},
+					{
+						"$ref": "#/components/schemas/FileReadDocResult"
+					}
+				],
+				"description": "Result payload returned by file.read: document content or file listing."
+			},
+			"FileWriteResult": {
+				"anyOf": [
+					{
+						"type": "object",
+						"required": ["deleted"],
+						"properties": {
+							"deleted": {
+								"type": "string",
+								"description": "Virtual file path that was deleted."
+							}
+						},
+						"description": "Confirmation of file deletion."
+					},
+					{
+						"type": "object",
+						"required": ["path", "version"],
+						"properties": {
+							"path": {
+								"type": "string",
+								"description": "Virtual workspace file path that was written."
+							},
+							"version": {
+								"type": "number",
+								"description": "New version sequence number assigned after the write."
+							},
+							"content": {
+								"type": "string",
+								"description": "Written file content string."
+							},
+							"slug": {
+								"type": "string",
+								"description": "Document slug / identifier (for knowledge documents)."
+							},
+							"description": {
+								"type": "string",
+								"description": "Document summary description (for knowledge documents)."
+							},
+							"category": {
+								"type": "string",
+								"description": "Optional categorization tag (for knowledge documents)."
+							},
+							"body": {
+								"type": "string",
+								"description": "Document markdown body (for knowledge documents)."
+							}
+						},
+						"description": "Metadata and new version of written file."
+					}
+				],
+				"description": "Result payload returned by file.write confirming file write or deletion."
+			},
+			"HarvestFileDiff": {
+				"type": "object",
+				"required": ["path", "diff"],
+				"properties": {
+					"path": {
+						"type": "string",
+						"description": "Virtual workspace file path modified (e.g. 'MEMORY.md', 'knowledge/topic.md')."
+					},
+					"diff": {
+						"type": "string",
+						"description": "Unified diff representation showing modifications applied to the file."
+					}
+				},
+				"description": "Individual file modification diff recorded during an idle harvest run."
+			},
+			"HarvestNote": {
+				"type": "object",
+				"required": ["chatKey", "at", "files", "when"],
+				"properties": {
+					"chatKey": {
+						"type": "string",
+						"description": "Routing key of the chat session whose conversation was harvested."
+					},
+					"at": {
+						"type": "number",
+						"description": "Conversation entry sequence number / watermark up to which harvest was performed."
+					},
+					"files": {
+						"type": "array",
+						"items": {
+							"$ref": "#/components/schemas/HarvestFileDiff"
+						},
+						"description": "List of files modified during harvest with their unified diffs."
+					},
+					"when": {
+						"type": "number",
+						"description": "Epoch timestamp in milliseconds when the harvest execution occurred."
+					}
+				},
+				"description": "Audit note recording knowledge and memory extractions completed by background idle harvest tasks."
+			},
+			"KnowledgeSearchResult": {
+				"type": "object",
+				"required": ["slug", "description", "version", "snippet"],
+				"properties": {
+					"slug": {
+						"type": "string",
+						"description": "Knowledge document slug / identifier."
+					},
+					"description": {
+						"type": "string",
+						"description": "Document summary description."
+					},
+					"category": {
+						"type": "string",
+						"description": "Optional categorization tag."
+					},
+					"version": {
+						"type": "number",
+						"description": "Current version sequence number of the document."
+					},
+					"snippet": {
+						"type": "string",
+						"description": "Matching text excerpt from the document body or description."
+					}
+				},
+				"description": "Individual knowledge document search match with snippet excerpt."
+			},
+			"KnowledgeSearchResults": {
+				"type": "object",
+				"required": ["results"],
+				"properties": {
+					"results": {
+						"type": "array",
+						"items": {
+							"$ref": "#/components/schemas/KnowledgeSearchResult"
+						},
+						"description": "List of matching knowledge document excerpts."
+					}
+				},
+				"description": "Result payload returned by knowledge.search containing search matches."
+			},
+			"ModelInfo": {
+				"type": "object",
+				"required": [
+					"id",
+					"provider",
+					"name",
+					"authenticated",
+					"credentialConfigured"
+				],
+				"properties": {
+					"id": {
+						"type": "string",
+						"description": "Full model identifier string (e.g. 'anthropic/claude-3-7-sonnet', 'openai/gpt-4o')."
+					},
+					"provider": {
+						"type": "string",
+						"description": "Identifier of the provider hosting the model (e.g. 'anthropic', 'openai')."
+					},
+					"name": {
+						"type": "string",
+						"description": "Human-readable display name of the model."
+					},
+					"contextWindow": {
+						"type": "number",
+						"description": "Maximum context window size in tokens, if known."
+					},
+					"maxTokens": {
+						"type": "number",
+						"description": "Maximum completion / generation token limit supported, if known."
+					},
+					"reasoning": {
+						"type": "boolean",
+						"description": "True if the model supports extended reasoning / thinking tokens."
+					},
+					"thinkingLevels": {
+						"type": "array",
+						"items": {
+							"$ref": "#/components/schemas/ThinkingLevel"
+						},
+						"description": "List of discrete thinking levels supported by this model."
+					},
+					"input": {
+						"type": "array",
+						"items": {
+							"type": "string"
+						},
+						"description": "Supported input modalities (e.g. ['text', 'image'])."
+					},
+					"authenticated": {
+						"type": "boolean",
+						"description": "True if valid credentials currently exist to invoke this model."
+					},
+					"credentialConfigured": {
+						"type": "boolean",
+						"description": "True if an account-level or environment credential has been configured for the model's provider."
+					}
+				},
+				"description": "Capability descriptor and credential availability status for an LLM model."
+			},
+			"OAuthFlowRecord": {
+				"type": "object",
+				"required": ["flowId", "providerId", "flowType", "status", "updatedAt"],
+				"properties": {
+					"flowId": {
+						"type": "string",
+						"description": "Unique identifier for this OAuth flow session."
+					},
+					"providerId": {
+						"type": "string",
+						"description": "Identifier of the provider being authenticated."
+					},
+					"flowType": {
+						"anyOf": [
+							{
+								"type": "string",
+								"const": "device_code"
+							},
+							{
+								"type": "string",
+								"const": "browser_code"
+							},
+							{
+								"type": "string",
+								"const": "interactive"
+							}
+						],
+						"description": "OAuth flow type used."
+					},
+					"status": {
+						"anyOf": [
+							{
+								"type": "string",
+								"const": "pending",
+								"description": "Flow is waiting for the user to navigate to verification URL."
+							},
+							{
+								"type": "string",
+								"const": "prompt",
+								"description": "Flow is awaiting interactive user input described by the prompt field."
+							},
+							{
+								"type": "string",
+								"const": "progress",
+								"description": "Authorization is actively polling or exchanging credentials."
+							},
+							{
+								"type": "string",
+								"const": "completed",
+								"description": "Authentication completed successfully; credentials have been saved."
+							},
+							{
+								"type": "string",
+								"const": "failed",
+								"description": "Authentication encountered an error and terminated."
+							},
+							{
+								"type": "string",
+								"const": "cancelled",
+								"description": "Authentication was explicitly cancelled by the client."
+							}
+						],
+						"description": "Current lifecycle state of the OAuth flow."
+					},
+					"userCode": {
+						"type": "string",
+						"description": "User verification code to display for device authorization flows."
+					},
+					"verificationUri": {
+						"type": "string",
+						"description": "Target URL where the user must navigate to approve the authorization."
+					},
+					"verificationUriComplete": {
+						"type": "string",
+						"description": "Pre-authenticated URL that automatically embeds the userCode for one-click approval."
+					},
+					"authorizationUrl": {
+						"type": "string",
+						"description": "Browser authorization URL used in browser-based redirect flows."
+					},
+					"intervalSeconds": {
+						"type": "number",
+						"description": "Recommended polling interval in seconds for device code status checking."
+					},
+					"expiresAt": {
+						"type": "number",
+						"description": "Epoch timestamp in milliseconds when this authorization flow will expire."
+					},
+					"prompt": {
+						"$ref": "#/components/schemas/OAuthPrompt"
+					},
+					"message": {
+						"type": "string",
+						"description": "Human-readable status or guidance message intended for display."
+					},
+					"credential": {
+						"$ref": "#/components/schemas/CredentialSummary"
+					},
+					"error": {
+						"$ref": "#/components/schemas/ProtocolError"
+					},
+					"updatedAt": {
+						"type": "number",
+						"description": "Epoch timestamp in milliseconds when this flow record was last updated."
+					}
+				},
+				"description": "Full state and progression metadata for an ongoing or finalized OAuth authentication flow."
+			},
+			"OAuthPrompt": {
+				"type": "object",
+				"required": ["type", "message"],
+				"properties": {
+					"type": {
+						"anyOf": [
+							{
+								"type": "string",
+								"const": "text",
+								"description": "Single-line plain text prompt."
+							},
+							{
+								"type": "string",
+								"const": "secret",
+								"description": "Masked confidential input prompt (e.g. password or secret)."
+							},
+							{
+								"type": "string",
+								"const": "select",
+								"description": "Selection list prompt requiring the user to choose an option."
+							},
+							{
+								"type": "string",
+								"const": "manual_code",
+								"description": "Manual authorization code entry copied from an external browser window."
+							}
+						],
+						"description": "Input prompt type: 'text', 'secret', 'select', or 'manual_code'."
+					},
+					"message": {
+						"type": "string",
+						"description": "Human-readable prompt instruction displayed to the user."
+					},
+					"placeholder": {
+						"type": "string",
+						"description": "Optional input placeholder text for client UI display."
+					},
+					"options": {
+						"type": "array",
+						"items": {
+							"type": "object",
+							"required": ["id", "label"],
+							"properties": {
+								"id": {
+									"type": "string",
+									"description": "Unique value identifier for this option choice."
+								},
+								"label": {
+									"type": "string",
+									"description": "Human-readable label for this option choice."
+								},
+								"description": {
+									"type": "string",
+									"description": "Optional secondary description for the option."
+								}
+							},
+							"description": "Selectable option entry."
+						},
+						"description": "Array of selectable choices when prompt type is 'select'."
+					}
+				},
+				"description": "Interactive user prompt descriptor requested during an ongoing OAuth authentication flow."
+			},
+			"OAuthProviderInfo": {
+				"type": "object",
+				"required": ["providerId", "name", "flowType"],
+				"properties": {
+					"providerId": {
+						"type": "string",
+						"description": "Unique identifier of the AI provider (e.g. 'anthropic', 'openai', 'github')."
+					},
+					"name": {
+						"type": "string",
+						"description": "Human-readable display name of the provider."
+					},
+					"flowType": {
+						"anyOf": [
+							{
+								"type": "string",
+								"const": "device_code",
+								"description": "RFC 8628 OAuth 2.0 Device Authorization Grant (user navigates to URL and enters code)."
+							},
+							{
+								"type": "string",
+								"const": "browser_code",
+								"description": "Browser redirection flow with authorization code exchange."
+							},
+							{
+								"type": "string",
+								"const": "interactive",
+								"description": "Multi-step interactive CLI prompt flow driven by server-sent prompts."
+							}
+						],
+						"description": "OAuth flow mechanism supported: 'device_code', 'browser_code', or 'interactive'."
+					},
+					"loginLabel": {
+						"type": "string",
+						"description": "Optional button or action label for starting authentication (e.g. 'Log in with Claude Pro/Max')."
+					},
+					"isSubscription": {
+						"type": "boolean",
+						"description": "True if authentication links an active model subscription rather than token billing."
+					}
+				},
+				"description": "Provider capability descriptor detailing supported OAuth authorization flows."
+			},
+			"ProtocolError": {
+				"type": "object",
+				"required": ["code", "message"],
+				"properties": {
+					"code": {
+						"type": "string",
+						"description": "Machine-readable error code identifying the failure category (e.g. 'invalid_command', 'not_found', 'unauthorized', 'conflict')."
+					},
+					"message": {
+						"type": "string",
+						"description": "Human-readable explanation of why the command failed or could not be processed."
+					}
+				},
+				"description": "Standard protocol error details included in rejected command results or error events."
+			},
+			"RawTranscriptEntry": {
+				"type": "object",
+				"required": ["id", "conversationId", "kind"],
+				"properties": {
+					"id": {
+						"type": "number",
+						"description": "Durable transcript entry sequence ID."
+					},
+					"conversationId": {
+						"type": "number",
+						"description": "Owning conversation sequence ID."
+					},
+					"kind": {
+						"type": "string",
+						"description": "Entry kind discriminator (e.g. 'user', 'assistant', 'system', 'toolResult', 'reset', 'compaction')."
+					},
+					"model": {
+						"type": "array",
+						"items": {},
+						"description": "Underlying pi-ai model messages with inner content blocks."
+					},
+					"data": {
+						"description": "Optional entry metadata/diagnostics payload."
+					},
+					"head": {
+						"type": "number",
+						"description": "Optional context head entry ID."
+					},
+					"edits": {
+						"type": "array",
+						"items": {}
+					},
+					"byTaskId": {
+						"type": "number",
+						"description": "Task ID that appended this entry."
+					}
+				}
+			},
+			"ScheduleCreateResult": {
+				"type": "object",
+				"required": ["schedule"],
+				"properties": {
+					"schedule": {
+						"$ref": "#/components/schemas/ScheduleRecord"
+					}
+				},
+				"description": "Result payload returned by schedule.create containing the newly registered schedule record."
+			},
+			"ScheduleDeleteResult": {
+				"type": "object",
+				"required": ["deleted"],
+				"properties": {
+					"deleted": {
+						"type": "string",
+						"description": "Identifier of the schedule that was deleted."
+					}
+				},
+				"description": "Result payload returned by schedule.delete confirming deletion of the schedule."
+			},
+			"ScheduleListResult": {
+				"type": "object",
+				"required": ["schedules"],
+				"properties": {
+					"schedules": {
+						"type": "array",
+						"items": {
+							"$ref": "#/components/schemas/ScheduleRecord"
+						},
+						"description": "List of scheduled tasks."
+					}
+				},
+				"description": "Result payload returned by schedule.list containing scheduled tasks."
+			},
+			"ScheduleRecord": {
+				"type": "object",
+				"required": [
+					"id",
+					"botId",
+					"kind",
+					"input",
+					"nextRun",
+					"text",
+					"target",
+					"enabled"
+				],
+				"properties": {
+					"id": {
+						"type": "string",
+						"description": "Unique identifier of the schedule."
+					},
+					"botId": {
+						"type": "string",
+						"description": "Identifier of the bot executing the scheduled prompt."
+					},
+					"name": {
+						"type": "string",
+						"description": "Optional human-readable label or description for the schedule."
+					},
+					"kind": {
+						"anyOf": [
+							{
+								"type": "string",
+								"const": "relative",
+								"description": "One-shot schedule based on relative duration strictly from now (e.g. '10s', '5m', '1s4m', '4s 2m', '100ms', or plain number in seconds)."
+							},
+							{
+								"type": "string",
+								"const": "absolute",
+								"description": "One-shot schedule targeted at an absolute date and time (e.g. 'tomorrow at 5pm', ISO string '2026-10-18T22:30:00Z', or epoch timestamp)."
+							},
+							{
+								"type": "string",
+								"const": "cron",
+								"description": "Recurring schedule governed by a cron pattern expression or standard nickname (e.g. '0 9 * * *' or '@hourly')."
+							}
+						],
+						"description": "Schedule timing mechanism: 'relative' for relative delay from now, 'absolute' for absolute date and time, or 'cron' for recurring cron jobs."
+					},
+					"input": {
+						"anyOf": [
+							{
+								"type": "string"
+							},
+							{
+								"type": "number"
+							}
+						],
+						"description": "Unified timing expression interpreted according to kind: relative duration for 'relative' (e.g. '5s', '10m', 10), absolute date/time for 'absolute' (e.g. 'tomorrow at 5pm', ISO string, epoch ms), or cron expression for 'cron' (e.g. '0 9 * * *', '@hourly')."
+					},
+					"nextRun": {
+						"type": "number",
+						"description": "Epoch timestamp in milliseconds when the schedule will next execute."
+					},
+					"inSeconds": {
+						"type": "number",
+						"description": "Remaining relative time from now until nextRun execution in seconds, reported for convenience regardless of scheduling method."
+					},
+					"recurring": {
+						"type": "boolean",
+						"description": "Whether the schedule repeats periodically (true for recurring cron schedules, false for one-shot relative or absolute timers)."
+					},
+					"text": {
+						"type": "string",
+						"description": "Prompt text delivered to the bot when the schedule triggers."
+					},
+					"target": {
+						"$ref": "#/components/schemas/ScheduleTarget"
+					},
+					"thinking": {
+						"$ref": "#/components/schemas/ThinkingLevel"
+					},
+					"enabled": {
+						"type": "boolean",
+						"description": "Whether the schedule is active. Disabled schedules are skipped during alarm checks."
+					},
+					"internal": {
+						"type": "boolean",
+						"description": "True if this schedule was generated internally by the system (e.g. idle harvest timer)."
+					}
+				},
+				"description": "Scheduled task record defining execution cadence, target chat mode, prompt, and next run timestamp."
+			},
+			"ScheduleTarget": {
+				"anyOf": [
+					{
+						"type": "object",
+						"required": ["mode", "chatKey"],
+						"properties": {
+							"mode": {
+								"type": "string",
+								"const": "chat",
+								"description": "Deliver the scheduled prompt to an existing chat session."
+							},
+							"chatKey": {
+								"type": "string",
+								"minLength": 1,
+								"description": "Target chat session routing key."
+							}
+						},
+						"description": "Target an existing persistent chat session."
+					},
+					{
+						"type": "object",
+						"required": ["mode"],
+						"properties": {
+							"mode": {
+								"type": "string",
+								"const": "new-chat",
+								"description": "Create a brand new chat session for each scheduled trigger."
+							}
+						},
+						"description": "Spawn a new chat session per schedule execution."
+					},
+					{
+						"type": "object",
+						"required": ["mode", "chatKey"],
+						"properties": {
+							"mode": {
+								"type": "string",
+								"const": "fork",
+								"description": "Fork from an existing chat session at a given transcript entry watermark."
+							},
+							"chatKey": {
+								"type": "string",
+								"minLength": 1,
+								"description": "Source chat session routing key to fork from."
+							},
+							"at": {
+								"type": "number",
+								"description": "Optional transcript entry sequence number watermark up to which conversation is forked."
+							},
+							"harvest": {
+								"type": "boolean",
+								"description": "True if this fork is an internal idle harvest task inspecting conversation history."
+							}
+						},
+						"description": "Fork an existing chat at a specific watermark, typically for background memory/knowledge harvesting."
+					}
+				],
+				"description": "Target execution destination and mode for a scheduled task or idle harvest."
+			},
+			"ScheduleUpdateResult": {
+				"type": "object",
+				"required": ["schedule"],
+				"properties": {
+					"schedule": {
+						"$ref": "#/components/schemas/ScheduleRecord"
+					}
+				},
+				"description": "Result payload returned by schedule.update containing updated schedule settings."
+			},
+			"ThinkingLevel": {
+				"anyOf": [
+					{
+						"type": "string",
+						"const": "off",
+						"description": "Disable extended thinking/reasoning."
+					},
+					{
+						"type": "string",
+						"const": "minimal",
+						"description": "Minimal thinking budget (fastest reasoning)."
+					},
+					{
+						"type": "string",
+						"const": "low",
+						"description": "Low thinking budget."
+					},
+					{
+						"type": "string",
+						"const": "medium",
+						"description": "Medium thinking budget (balanced)."
+					},
+					{
+						"type": "string",
+						"const": "high",
+						"description": "High thinking budget."
+					},
+					{
+						"type": "string",
+						"const": "xhigh",
+						"description": "Extra-high thinking budget."
+					},
+					{
+						"type": "string",
+						"const": "max",
+						"description": "Maximum supported thinking token budget."
+					}
+				],
+				"description": "Budget and intensity level for extended model reasoning / thinking tokens."
+			},
+			"ToolCallResultSummary": {
+				"type": "object",
+				"required": ["content", "isError"],
+				"properties": {
+					"content": {
+						"type": "string",
+						"description": "Serialized output or return value produced by the tool."
+					},
+					"isError": {
+						"type": "boolean",
+						"description": "True if the tool execution failed with an error."
+					},
+					"durationMs": {
+						"type": "number",
+						"description": "Execution duration in milliseconds, if recorded."
+					}
+				}
+			},
+			"ToolsEnvBinding": {
+				"type": "object",
+				"required": ["envId"],
+				"properties": {
+					"envId": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Account env definition id (for example 'jb_default')."
+					}
+				},
+				"additionalProperties": false,
+				"description": "Binding that names an account tools env by id."
+			},
+			"ToolsEnvRecord": {
+				"type": "object",
+				"required": [
+					"envId",
+					"kind",
+					"persist",
+					"confineToWorkspace",
+					"updatedAt",
+					"supportsConfinement"
+				],
+				"properties": {
+					"envId": {
+						"type": "string"
+					},
+					"kind": {
+						"anyOf": [
+							{
+								"type": "string",
+								"const": "just-bash"
+							},
+							{
+								"type": "string",
+								"const": "local-daemon"
+							}
+						]
+					},
+					"label": {
+						"type": "string"
+					},
+					"persist": {
+						"type": "boolean"
+					},
+					"confineToWorkspace": {
+						"type": "boolean"
+					},
+					"sharedWorkspace": {
+						"type": "boolean"
+					},
+					"workspacePath": {
+						"type": "string"
+					},
+					"secretId": {
+						"type": "string"
+					},
+					"secretMissing": {
+						"type": "boolean"
+					},
+					"updatedAt": {
+						"type": "number"
+					},
+					"supportsConfinement": {
+						"type": "boolean"
+					},
+					"connection": {
+						"type": "object",
+						"required": ["status"],
+						"properties": {
+							"status": {
+								"anyOf": [
+									{
+										"type": "string",
+										"const": "connected"
+									},
+									{
+										"type": "string",
+										"const": "disconnected"
+									}
+								]
+							},
+							"connectedAt": {
+								"type": "number"
+							},
+							"lastError": {
+								"type": "string"
+							}
+						},
+						"additionalProperties": false
+					}
+				}
+			},
+			"ToolsEnvSecretMeta": {
+				"type": "object",
+				"required": ["secretId", "kind", "updatedAt"],
+				"properties": {
+					"secretId": {
+						"type": "string"
+					},
+					"label": {
+						"type": "string"
+					},
+					"kind": {
+						"type": "string",
+						"const": "daemon_token"
+					},
+					"updatedAt": {
+						"type": "number"
+					}
+				},
+				"additionalProperties": false
+			},
+			"ToolsEnvSetting": {
+				"anyOf": [
+					{
+						"type": "object",
+						"required": ["enabled"],
+						"properties": {
+							"enabled": {
+								"type": "boolean",
+								"description": "Whether this level turns the tools env on."
+							},
+							"binding": {
+								"$ref": "#/components/schemas/ToolsEnvBinding"
+							}
+						},
+						"additionalProperties": false,
+						"description": "Explicit tools env setting at one level."
+					},
+					{
+						"type": "null"
+					}
+				],
+				"description": "Tools env setting: an explicit on/off value, or null to inherit."
+			},
+			"TranscriptContentBlock": {
+				"anyOf": [
+					{
+						"type": "object",
+						"required": ["type", "text"],
+						"properties": {
+							"type": {
+								"type": "string",
+								"const": "text"
+							},
+							"text": {
+								"type": "string",
+								"description": "Text content."
+							}
+						},
+						"description": "Plain text content block."
+					},
+					{
+						"type": "object",
+						"required": ["type", "thinking"],
+						"properties": {
+							"type": {
+								"type": "string",
+								"const": "thinking"
+							},
+							"thinking": {
+								"type": "string",
+								"description": "Model reasoning / thinking text."
+							},
+							"redacted": {
+								"type": "boolean",
+								"description": "True if the thinking block was redacted by provider safety."
+							}
+						},
+						"description": "Extended model reasoning / thinking block."
+					},
+					{
+						"type": "object",
+						"required": ["type", "id", "name", "arguments"],
+						"properties": {
+							"type": {
+								"type": "string",
+								"const": "toolCall"
+							},
+							"id": {
+								"type": "string",
+								"description": "Unique tool call identifier."
+							},
+							"name": {
+								"type": "string",
+								"description": "Name of the invoked tool."
+							},
+							"arguments": {
+								"description": "Arguments object passed to the tool."
+							},
+							"result": {
+								"$ref": "#/components/schemas/ToolCallResultSummary"
+							}
+						},
+						"description": "Tool invocation block with optional server-bound result summary."
+					},
+					{
+						"type": "object",
+						"required": ["type", "mimeType", "data"],
+						"properties": {
+							"type": {
+								"type": "string",
+								"const": "image"
+							},
+							"mimeType": {
+								"type": "string",
+								"description": "MIME type of the image."
+							},
+							"data": {
+								"type": "string",
+								"description": "Base64 data or URI of the image."
+							}
+						},
+						"description": "Image content block."
+					}
+				],
+				"description": "Content block within a transcript message."
+			},
+			"TranscriptMessageView": {
+				"type": "object",
+				"required": ["id", "role", "text"],
+				"properties": {
+					"id": {
+						"type": "number",
+						"description": "Transcript entry sequence number."
+					},
+					"role": {
+						"anyOf": [
+							{
+								"type": "string",
+								"const": "user"
+							},
+							{
+								"type": "string",
+								"const": "assistant"
+							},
+							{
+								"type": "string",
+								"const": "system"
+							},
+							{
+								"type": "string",
+								"const": "toolResult"
+							}
+						]
+					},
+					"text": {
+						"type": "string",
+						"description": "Rendered plain text content of the message."
+					},
+					"replyToEntryId": {
+						"type": "number",
+						"description": "Server-bound entry ID of the user request that this message responds to."
+					},
+					"thinking": {
+						"type": "string",
+						"description": "Combined extended reasoning/thinking text, if any."
+					},
+					"toolCalls": {
+						"type": "array",
+						"items": {
+							"$ref": "#/components/schemas/TranscriptToolCallView"
+						}
+					},
+					"blocks": {
+						"type": "array",
+						"items": {
+							"$ref": "#/components/schemas/TranscriptContentBlock"
+						}
+					},
+					"toolCallId": {
+						"type": "string",
+						"description": "Tool call ID for toolResult messages."
+					},
+					"toolName": {
+						"type": "string",
+						"description": "Tool name for toolResult messages."
+					},
+					"isError": {
+						"type": "boolean",
+						"description": "Error flag for toolResult messages."
+					},
+					"model": {
+						"type": "string",
+						"description": "Model identifier for assistant messages."
+					},
+					"provider": {
+						"type": "string",
+						"description": "Provider identifier for assistant messages."
+					},
+					"stopReason": {
+						"type": "string",
+						"description": "Stop reason for assistant messages."
+					},
+					"usage": {
+						"type": "object",
+						"patternProperties": {
+							"^.*$": {}
+						}
+					},
+					"timestamp": {
+						"type": "number"
+					},
+					"durationMs": {
+						"type": "number"
+					}
+				}
+			},
+			"TranscriptToolCallView": {
+				"type": "object",
+				"required": ["id", "name", "arguments"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"description": "Unique tool call identifier."
+					},
+					"name": {
+						"type": "string",
+						"description": "Name of the invoked tool."
+					},
+					"arguments": {
+						"description": "Arguments object passed to the tool."
+					},
+					"result": {
+						"$ref": "#/components/schemas/ToolCallResultSummary"
+					}
+				}
+			},
+			"TurnBlock": {
+				"anyOf": [
+					{
+						"type": "object",
+						"required": ["type"],
+						"properties": {
+							"type": {
+								"type": "string",
+								"const": "thinking",
+								"description": "Extended model reasoning / thinking block."
+							}
+						},
+						"description": "Thinking block produced during model reasoning."
+					},
+					{
+						"type": "object",
+						"required": ["type", "toolName"],
+						"properties": {
+							"type": {
+								"type": "string",
+								"const": "tool_call",
+								"description": "Tool invocation block."
+							},
+							"toolName": {
+								"type": "string",
+								"description": "Name of the invoked agent tool."
+							}
+						},
+						"description": "Agent tool invocation block."
+					},
+					{
+						"type": "object",
+						"required": ["type"],
+						"properties": {
+							"type": {
+								"type": "string",
+								"const": "text",
+								"description": "Assistant text response block."
+							},
+							"text": {
+								"type": "string",
+								"description": "Text content of the assistant message chunk."
+							}
+						},
+						"description": "Assistant response text block."
+					}
+				],
+				"description": "Structured turn component block representing reasoning, tool call, or text output."
+			},
+			"TurnInterruptResult": {
+				"type": "object",
+				"required": ["aborted", "chatKey"],
+				"properties": {
+					"aborted": {
+						"type": "boolean",
+						"const": true,
+						"description": "Always true, confirming the in-progress turn was interrupted and aborted."
+					},
+					"chatKey": {
+						"type": "string",
+						"description": "Chat session routing key where the turn was aborted."
+					}
+				},
+				"description": "Result payload returned by turn.interrupt or turn.abort confirming cancellation."
+			},
+			"TurnSettledResult": {
+				"type": "object",
+				"required": ["chatKey", "conversationId", "reply"],
+				"properties": {
+					"chatKey": {
+						"type": "string",
+						"description": "Target chat session routing key."
+					},
+					"conversationId": {
+						"type": "number",
+						"description": "Internal durable conversation sequence ID backing this chat."
+					},
+					"reply": {
+						"type": "string",
+						"description": "Final assistant text response message."
+					},
+					"entryId": {
+						"type": "number",
+						"description": "Transcript entry sequence number assigned to this completed turn."
+					},
+					"blocks": {
+						"type": "array",
+						"items": {
+							"$ref": "#/components/schemas/TurnBlock"
+						},
+						"description": "Structured content blocks (thinking, tool calls, text) produced during the turn."
+					}
+				},
+				"description": "Result payload returned upon synchronous completion of a model turn."
+			},
+			"TurnSubmitResult": {
+				"anyOf": [
+					{
+						"$ref": "#/components/schemas/TurnSettledResult"
+					},
+					{
+						"$ref": "#/components/schemas/ChatStatusResult"
+					}
+				],
+				"description": "Result payload returned by turn.submit: standard model turn reply or out-of-band command status."
+			}
+		}
+	},
+	"x-cadmus-rest-rule": {
+		"pathPrefix": "/api/",
+		"pathPattern": "/api/<group>/<cmd>",
+		"readOnly": {
+			"methods": ["GET", "HEAD"],
+			"payload": "query"
+		},
+		"mutating": {
+			"methods": ["POST"],
+			"payload": "json-body"
+		},
+		"queryEncoding": {
+			"omitUndefined": true,
+			"string": "raw",
+			"number": "decimal-text",
+			"boolean": "true-or-false",
+			"arrayOfPrimitives": "repeated-keys",
+			"arrayOfObjects": "json",
+			"object": "json"
+		}
+	},
+	"x-cadmus-error-status": {
+		"unauthorized": 401,
+		"query_token_not_allowed": 401,
+		"header_required": 401,
+		"forbidden": 403,
+		"not_found": 404,
+		"family_not_found": 404,
+		"cas_conflict": 409,
+		"conflict": 409,
+		"command_failed": 500
+	}
+}

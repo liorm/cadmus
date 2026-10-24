@@ -1,5 +1,5 @@
+import type { FamilyRecord } from "@cadmus/contract/types";
 import { useState } from "react";
-import type { FamilyRecord } from "../../../src/protocol.js";
 import {
 	type ActiveTab,
 	type DevAuthConfig,
