@@ -42,15 +42,50 @@ export function toolGateExtension() {
 									call.name,
 								)
 							: false;
-						if (allowed) return;
-						getLogger().warn("tool call blocked by tool-gate", {
-							bot: botId,
-							tool: call.name,
-							session: api.conversationId,
-						});
-						return {
-							block: `Tool '${call.name}' is disabled for bot '${botId}'.`,
-						};
+						if (!allowed) {
+							getLogger().warn("tool call blocked by tool-gate", {
+								bot: botId,
+								tool: call.name,
+								session: api.conversationId,
+							});
+							return {
+								block: `Tool '${call.name}' is disabled for bot '${botId}'.`,
+							};
+						}
+
+						if (
+							call.name === "write" ||
+							call.name === "edit" ||
+							call.name === "read"
+						) {
+							const path =
+								typeof (call.arguments as { path?: unknown })?.path === "string"
+									? (call.arguments as { path: string }).path.trim()
+									: "";
+							const normalized = path
+								.toLowerCase()
+								.replace(/\\/g, "/")
+								.replace(/^\/workspace\//, "")
+								.replace(/^\.\//, "");
+							if (
+								normalized === "memory.md" ||
+								normalized.endsWith("/memory.md") ||
+								normalized === "soul.md" ||
+								normalized.endsWith("/soul.md") ||
+								normalized.startsWith("knowledge/")
+							) {
+								getLogger().warn("coding tool call blocked on virtual entity", {
+									bot: botId,
+									tool: call.name,
+									path,
+									session: api.conversationId,
+								});
+								return {
+									block: `'${path}' is a virtual entity in the bot database, not a workspace file. Do not use '${call.name}' on it. Use dedicated tools: 'memory_read'/'memory_update' for MEMORY.md, and 'knowledge_read'/'knowledge_update'/'knowledge_delete' for knowledge.`,
+								};
+							}
+						}
+						return;
 					}
 					if (!bot || bot.tools === undefined) return;
 					if (bot.tools.includes(call.name)) return;

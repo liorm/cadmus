@@ -1663,4 +1663,64 @@ describe("just-bash tools env through the bot", () => {
 			ws.close();
 		}
 	});
+
+	it("blocks coding tools from writing, editing, or reading virtual files like memory.md", async () => {
+		const options = scope("virtual-block");
+		await sendRpc("family.update", { harvestDelayMs: 0 }, options);
+		await sendRpc(
+			"account.toolsEnvs.update",
+			{ envId: "jb_default", enabled: true },
+			options,
+		);
+		await sendRpc(
+			"bot.create",
+			{
+				slug: "assistant",
+				name: "Assistant",
+				model: "faux/echo",
+				tools: [...CODING_TOOLS, "memory_update", "memory_read"],
+				toolsEnv: { enabled: true, binding: { envId: "jb_default" } },
+			},
+			options,
+		);
+		await sendRpc("chat.create", { botId: "assistant", key: "main" }, options);
+
+		const ws = await connectTestWs(options);
+		try {
+			const turn = async (text: string) => {
+				ws.events.length = 0;
+				const submitted = await ws.send<{ reply?: string }>("turn.submit", {
+					chatKey: "main",
+					text,
+				});
+				expect(submitted.ok).toBe(true);
+				const payload = toolResults(ws.events)[0]?.payload as
+					| { isError?: boolean; content?: string }
+					| undefined;
+				return payload;
+			};
+
+			const blockedWrite = await turn(
+				'Save this [tool:write {"path":"memory.md","content":"hello"}]',
+			);
+			expect(blockedWrite?.isError).toBe(true);
+			expect(blockedWrite?.content ?? "").toContain("virtual entity");
+			expect(blockedWrite?.content ?? "").toContain("memory_update");
+
+			const blockedEdit = await turn(
+				'Edit this [tool:edit {"path":"MEMORY.md","edits":[{"oldText":"a","newText":"b"}]}]',
+			);
+			expect(blockedEdit?.isError).toBe(true);
+			expect(blockedEdit?.content ?? "").toContain("virtual entity");
+
+			const blockedKnowledge = await turn(
+				'Edit knowledge [tool:write {"path":"knowledge/test.md","content":"body"}]',
+			);
+			expect(blockedKnowledge?.isError).toBe(true);
+			expect(blockedKnowledge?.content ?? "").toContain("virtual entity");
+			expect(blockedKnowledge?.content ?? "").toContain("knowledge_update");
+		} finally {
+			ws.close();
+		}
+	});
 });

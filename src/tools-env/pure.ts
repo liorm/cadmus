@@ -285,7 +285,7 @@ export function chooseToolsEnvIdentity(
 				: "";
 		return {
 			name: "tools-env",
-			text: `Tools env: ${input.kind ?? "just-bash"} (${input.envId ?? ""}), ${pin}, ${persist} workspace at ${root}. Enabled by ${input.enabledSource}, binding from ${input.bindingSource}. The namespace is ${scope}. ${shared} ${confine} ${botDefault}Use bash, read, write, and edit for this workspace. code.execute, when enabled, runs in an isolated provider sandbox with no access to workspace files. Durable facts go through knowledge_* and memory_*.`,
+			text: `Tools env: ${input.kind ?? "just-bash"} (${input.envId ?? ""}), ${pin}, ${persist} workspace at ${root}. Enabled by ${input.enabledSource}, binding from ${input.bindingSource}. The namespace is ${scope}. ${shared} ${confine} ${botDefault}Use bash, read, write, and edit for this workspace. code.execute, when enabled, runs in an isolated provider sandbox with no access to workspace files. Durable facts go through knowledge_* and memory_*. MEMORY.md, SOUL.md, and knowledge/<slug>.md are virtual database entities, NOT workspace files—never use read, write, edit, or bash on them; manage them exclusively with memory_* and knowledge_* tools.`,
 		};
 	}
 	const source =
