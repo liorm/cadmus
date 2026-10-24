@@ -38,6 +38,12 @@
 			"preview_database_id": "5c25c5bf-879d-4a5b-a31f-ba6d8a3c85a8"
 		}
 	],
+	"kv_namespaces": [
+		{
+			"binding": "CADMUS_CACHE_KV",
+			"id": "d5fde8e98af64220a78c70cddd4eed16"
+		}
+	],
 	"migrations": [
 		{
 			"tag": "v1",
@@ -61,6 +67,12 @@
 				"binding": "CADMUS_ADMIN_DB",
 				"database_name": "cadmus-admin-staging",
 				"database_id": "5c25c5bf-879d-4a5b-a31f-ba6d8a3c85a8"
+			}
+		],
+		"kv_namespaces": [
+			{
+				"binding": "CADMUS_CACHE_KV",
+				"id": "730ad07f537b4d4cb64f31587c9f0946"
 			}
 		],
 		"durable_objects": {
