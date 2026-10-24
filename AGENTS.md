@@ -11,6 +11,7 @@ This document contains everything an autonomous coding agent needs to understand
      - Durable Object class: `CadmusBotFamilyDO` (`CADMUS_BOT_FAMILY` binding)
      - Deterministic DO instance name: `cadmus:${accountId}:${familyId}`
      - Global D1 binding: `CADMUS_ADMIN_DB` (`cadmus-admin`)
+     - Optional KV cache binding: `CADMUS_CACHE_KV` (`cadmus-cache`, keys prefixed `cadmus:v1:${envTag}:...`)
      - All D1 tables and DO SQLite tables use the `cadmus_` prefix (`cadmus_pi_` for `pi-durable` internal tables).
 
 2. **Two-Tier Storage Boundary (No `pi-durable` Session `Doc`s for Domain Entities)**:
@@ -68,6 +69,7 @@ This document contains everything an autonomous coding agent needs to understand
 │   ├── protocol.ts              # TypeBox schemas & types for all commands and server frames
 │   ├── shim.ts                  # ProtocolShim interface & defaultJsonShim
 │   ├── auth.ts                  # Edge request authentication (Bearer, cookie, D1 member tokens)
+│   ├── edge-cache.ts            # Two-tier Edge Cache (L1 LRU memory + optional L2 Workers KV)
 │   ├── context.ts               # CadmusServices Chord context binding
 │   ├── models.ts                # pi-ai Models, AccountCredentialStore, xAI native tools, faux/echo
 │   ├── cron.ts                  # 5-field cron parser and nextCron calculator

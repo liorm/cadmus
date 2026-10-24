@@ -54,10 +54,92 @@ Provider API keys (`anthropic`, `openai`, `google`, `xai`) set via `account.cred
 
 ---
 
-## Authentication Modes (`src/auth.ts`)
+## Authentication Modes & Edge Caching (`src/auth.ts`, `src/edge-cache.ts`)
 
 Every incoming HTTP/WebSocket request is authenticated by the Worker entrypoint (`src/index.ts`) before forwarding to `CadmusBotFamilyDO`:
 
 1. **`CADMUS_AUTH_MODE="cf-access"`**: Verifies Cloudflare Access headers (`Cf-Access-Authenticated-User-Email` / JWT) and resolves the member's `accountId` in `D1AdminStore`.
-2. **`CADMUS_AUTH_MODE="token"`**: Verifies `Authorization: Bearer <token>` (or `?token=<token>` on WebSocket upgrades) against either `CADMUS_DEV_TOKEN` or SHA-256 `token_hash` in `cadmus_account_members`.
+2. **`CADMUS_AUTH_MODE="token"`**: Verifies `Authorization: Bearer <token>` (or `?token=<token>` on WebSocket upgrades) against either `CADMUS_DEV_TOKEN` or SHA-256 `token_hash` in `cadmus_auth_tokens` / `cadmus_account_members`.
 3. **`CADMUS_AUTH_MODE="none"`**: Local development/test mode; accepts `X-Cadmus-Account` and `X-Cadmus-Family` headers (defaulting to `default-account` / `default`).
+
+---
+
+## Two-Tier Edge Cache (`EdgeCache` in `src/edge-cache.ts`)
+
+To avoid querying D1 on every single `/rpc` request, Cadmus implements a two-tier edge cache for token resolution and Bot Family DO routing info:
+
+1. **L1: In-Memory Isolate LRU Cache (Always On)**:
+   - High-performance, zero-latency per-isolate cache (`LruCache<T>`).
+   - Default TTL: **60 seconds**.
+   - Bounded capacity (1,000 items) with LRU eviction.
+2. **L2: Cloudflare Workers KV Cache (Optional Binding `CADMUS_CACHE_KV`)**:
+   - Cross-isolate distributed cache.
+   - When configured, L1 misses read through to L2 KV and warm L1.
+   - Default TTL: **60 seconds** (Cloudflare KV minimum expiration TTL).
+
+### Cache Keys & Security Invariants
+- **No Raw Tokens**: Raw tokens and secrets are **never** stored in cache keys, cache values, or logs. All token cache keys are derived using **SHA-256** via Web Crypto:
+  - Token key format: `cadmus:v1:${envTag}:token:${tokenHash}`
+  - Family routing key format: `cadmus:v1:${envTag}:family:${accountId}:${familyId}`
+- **Environment Isolation (`envTag`)**:
+  - Production uses `prod` (`cadmus:v1:prod:...`).
+  - Preview deployments (`IS_PREVIEW="true"`) use `preview` (`cadmus:v1:preview:...`).
+  - Ensures preview environments and production never collide, even if sharing a KV namespace.
+- **No Negative Caching for Tokens**: Missing or invalid tokens are never cached, ensuring newly minted tokens take effect immediately without lockouts.
+
+### Master Secret Fast-Path
+- The master secret check (`rawToken === CADMUS_AUTH_SECRET` or scoped `<accountId>:<userId>:<CADMUS_AUTH_SECRET>`) runs **before** D1 queries using constant-time comparison (`timingSafeEqualSha256` / `matchMasterSecret`) to prevent timing side-channels.
+- Initial requests perform `ensureAccountAndUser` (batch upsert into `cadmus_accounts`, `cadmus_users`, `cadmus_account_members`).
+- Subsequent requests for the same `(accountId, userId)` in that isolate are memoized in an in-memory isolate set (TTL 300s), skipping D1 upserts entirely.
+
+### Verification Per Access Layer
+- **RPC (`/rpc`)**: Each HTTP POST frame authenticates via cache lookup (zero D1 queries after warming).
+- **WebSocket (`/ws`)**: Authenticated once during HTTP upgrade / handshake. Individual frames over the open WebSocket bypass edge verification and stream directly to the DO.
+- **SSE (`/events`)**: Authenticated once upon stream establishment.
+
+### Invalidation Paths & Cross-Isolate Staleness Bounds
+- **Token Revocation (`adminStore.revokeToken` / `revokeTokenByHash`)**: Invalidates L1 in the executing isolate and deletes from L2 KV (when bound).
+- **Member Updates (`account.members.add`)**: Invalidates previous cached token on token rotation after committing to D1.
+- **Family Settings Updates (`family.update` / `updateAccount`)**: Invalidates cached family DO routing info (`doName`, `timezone`, `harvestDelayMs`).
+- **Family Deletions (`family.delete`)**: Deletes cached family routing info.
+
+#### Isolate Boundaries & Consistency Model
+- **Local L1 Scope**: Edge requests and Durable Object mutations execute within distinct Cloudflare isolates. An in-memory L1 cache invalidation (e.g. from an RPC or WebSocket mutation running inside `CadmusBotFamilyDO`) clears L1 memory *only* within that executing isolate.
+- **With L2 Workers KV (`CADMUS_CACHE_KV`)**: Invalidation deletes the key from L2 KV immediately. Any isolate experiencing a subsequent cache miss fetches fresh data from D1. However, existing warmed L1 cache entries across other Worker isolates bypass L2 until their local 60-second L1 TTL expires.
+- **Without L2 Workers KV (L1 Only)**: Without KV, isolates do not share memory. Other Edge Worker isolates continue serving their local L1 entries until their 60-second TTL expires.
+- **Convergence Guarantee**: Cadmus does not provide instantaneous global edge revocation without Workers KV, but guarantees convergence across all edge isolates within the bounded 60-second TTL window.
+
+---
+
+## Provisioning KV Cache in Production / Previews
+
+The `CADMUS_CACHE_KV` binding is completely optional. If absent, Cadmus falls back seamlessly to the in-memory L1 LRU cache.
+
+To provision distributed Workers KV caching on your Cloudflare account:
+
+```bash
+# 1. Create the production KV namespace
+wrangler kv namespace create cadmus-cache
+
+# 2. Create the preview KV namespace
+wrangler kv namespace create cadmus-cache-preview
+```
+
+Then add the `kv_namespaces` configuration to `wrangler.jsonc`:
+
+```jsonc
+  "kv_namespaces": [
+    {
+      "binding": "CADMUS_CACHE_KV",
+      "id": "<PRODUCTION_KV_NAMESPACE_ID>"
+    }
+  ],
+  "previews": {
+    "kv_namespaces": [
+      {
+        "binding": "CADMUS_CACHE_KV",
+        "id": "<PREVIEW_KV_NAMESPACE_ID>"
+      }
+    ]
+  }
+```

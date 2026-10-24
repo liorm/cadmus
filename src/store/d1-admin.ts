@@ -1,4 +1,5 @@
 import type { Credential } from "@earendil-works/pi-ai";
+import { type EdgeCache, sha256Hex } from "../edge-cache.js";
 import { getLogger } from "../log.js";
 import type {
 	AccountMember,
@@ -23,12 +24,7 @@ export function toDoName(accountId: string, familyId: string): string {
 	return `cadmus:${accountId}:${familyId}`;
 }
 
-export async function sha256Hex(input: string): Promise<string> {
-	const digest = await crypto.subtle.digest("SHA-256", encoder.encode(input));
-	return Array.from(new Uint8Array(digest))
-		.map((b) => b.toString(16).padStart(2, "0"))
-		.join("");
-}
+export { sha256Hex };
 
 const aesKeyCache = new Map<string, CryptoKey>();
 
@@ -555,20 +551,24 @@ function wrapPreparedStatement(
 	});
 }
 
+export interface D1AdminStoreOptions {
+	db: D1Database;
+	encryptionKey?: string;
+	defaultTimezone?: string;
+	defaultHarvestDelayMs?: number;
+	edgeCache?: EdgeCache;
+}
+
 export class D1AdminStore implements AdminStore {
 	readonly #rawDb: D1Database;
 	readonly #db: D1Database;
 	readonly #encryptionKey: string;
 	readonly #defaultTimezone: string;
 	readonly #defaultHarvestDelayMs: number;
+	readonly #edgeCache?: EdgeCache;
 	#initialized = false;
 
-	constructor(options: {
-		db: D1Database;
-		encryptionKey?: string;
-		defaultTimezone?: string;
-		defaultHarvestDelayMs?: number;
-	}) {
+	constructor(options: D1AdminStoreOptions) {
 		this.#rawDb = options.db;
 		this.#db = wrapD1WithSchemaFallback(
 			options.db,
@@ -582,6 +582,7 @@ export class D1AdminStore implements AdminStore {
 			options.encryptionKey || "default-cadmus-encryption-key-32b";
 		this.#defaultTimezone = options.defaultTimezone || "UTC";
 		this.#defaultHarvestDelayMs = options.defaultHarvestDelayMs ?? 60_000;
+		this.#edgeCache = options.edgeCache;
 	}
 
 	async initialize(options: { force?: boolean } = {}): Promise<void> {
@@ -625,6 +626,25 @@ export class D1AdminStore implements AdminStore {
 			accountId: row.account_id,
 			role: row.role,
 		};
+	}
+
+	async revokeToken(rawToken: string): Promise<boolean> {
+		await this.initialize();
+		const tokenHash = await sha256Hex(rawToken);
+		return this.revokeTokenByHash(tokenHash);
+	}
+
+	async revokeTokenByHash(tokenHash: string): Promise<boolean> {
+		await this.initialize();
+		const res = await this.#db
+			.prepare(`DELETE FROM cadmus_auth_tokens WHERE token_hash = ?1`)
+			.bind(tokenHash)
+			.run();
+		const deleted = (res.meta?.changes ?? 0) > 0;
+		if (this.#edgeCache) {
+			await this.#edgeCache.invalidateToken(tokenHash, true);
+		}
+		return deleted;
 	}
 
 	async ensureAccountAndUser(input: {
@@ -753,6 +773,12 @@ export class D1AdminStore implements AdminStore {
 				)
 				.bind(nextTz, accountId)
 				.run();
+			if (this.#edgeCache) {
+				await Promise.all([
+					this.#edgeCache.invalidateFamily(accountId, "default"),
+					this.#edgeCache.invalidateFamily(accountId, "default-family"),
+				]);
+			}
 		}
 
 		return {
@@ -820,8 +846,9 @@ export class D1AdminStore implements AdminStore {
 				.bind(input.accountId, input.userId, role, now),
 		];
 
+		let tokenHash: string | undefined;
 		if (input.rawToken) {
-			const tokenHash = await sha256Hex(input.rawToken);
+			tokenHash = await sha256Hex(input.rawToken);
 			statements.push(
 				this.#db
 					.prepare(
@@ -833,6 +860,10 @@ export class D1AdminStore implements AdminStore {
 		}
 
 		await this.#db.batch(statements);
+
+		if (tokenHash && this.#edgeCache) {
+			await this.#edgeCache.invalidateToken(tokenHash, true);
+		}
 		return {
 			accountId: input.accountId,
 			userId: input.userId,
@@ -1084,7 +1115,7 @@ export class D1AdminStore implements AdminStore {
 				now,
 			)
 			.run();
-		return {
+		const result: FamilyRecord = {
 			accountId,
 			familyId,
 			name: input.name.trim(),
@@ -1093,6 +1124,10 @@ export class D1AdminStore implements AdminStore {
 			harvestDelayMs,
 			createdAt: now,
 		};
+		if (this.#edgeCache) {
+			await this.#edgeCache.setFamily(accountId, familyId, result);
+		}
+		return result;
 	}
 
 	async updateFamily(
@@ -1119,6 +1154,9 @@ export class D1AdminStore implements AdminStore {
 			)
 			.bind(nextName, nextTz, nextDelay, accountId, familyId)
 			.run();
+		if (this.#edgeCache) {
+			await this.#edgeCache.invalidateFamily(accountId, familyId);
+		}
 		return {
 			...existing,
 			name: nextName,
@@ -1137,6 +1175,9 @@ export class D1AdminStore implements AdminStore {
 			)
 			.bind(accountId, familyId)
 			.run();
+		if (this.#edgeCache) {
+			await this.#edgeCache.invalidateFamily(accountId, familyId);
+		}
 		return true;
 	}
 

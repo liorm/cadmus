@@ -1,4 +1,5 @@
 import { authenticateRequest } from "./auth.js";
+import { type EdgeCache, getEdgeCache } from "./edge-cache.js";
 import { CadmusBotFamilyDO } from "./family-do.js";
 import { ensureLogger, getLogger } from "./log.js";
 import {
@@ -44,12 +45,14 @@ export default {
 
 		const defaultTimezone = env.CADMUS_DEFAULT_TIMEZONE ?? "UTC";
 		const defaultHarvestDelayMs = Number(env.CADMUS_HARVEST_DELAY_MS ?? 60_000);
+		const edgeCache = getEdgeCache(env);
 
 		const adminStore = new D1AdminStore({
 			db: env.CADMUS_ADMIN_DB,
 			encryptionKey: env.CADMUS_ENCRYPTION_KEY,
 			defaultTimezone,
 			defaultHarvestDelayMs,
+			edgeCache,
 		});
 		await adminStore.initialize();
 
@@ -57,7 +60,12 @@ export default {
 			return handleToolsEnvWebsocket(request, env, adminStore, url);
 		}
 
-		const scope = await authenticateRequest(request, env, adminStore);
+		const scope = await authenticateRequest(
+			request,
+			env,
+			adminStore,
+			edgeCache,
+		);
 		if (!scope) {
 			log.warn("edge request unauthorized", {
 				method: request.method,
@@ -83,6 +91,7 @@ export default {
 
 		if (url.pathname === "/ws") {
 			const family = await resolveOrEnsureFamily(
+				edgeCache,
 				adminStore,
 				accountId,
 				requestedFamilyId,
@@ -110,6 +119,7 @@ export default {
 
 		if (url.pathname === "/events" && request.method === "GET") {
 			const family = await resolveOrEnsureFamily(
+				edgeCache,
 				adminStore,
 				accountId,
 				requestedFamilyId,
@@ -208,6 +218,7 @@ export default {
 			}
 
 			const family = await resolveOrEnsureFamily(
+				edgeCache,
 				adminStore,
 				accountId,
 				payloadFamilyId,
@@ -243,19 +254,28 @@ export default {
 } satisfies ExportedHandler<Env>;
 
 async function resolveOrEnsureFamily(
+	edgeCache: EdgeCache,
 	adminStore: D1AdminStore,
 	accountId: string,
 	familyId: string,
 	_defaultTimezone: string,
 	defaultHarvestDelayMs: number,
 ) {
+	const cached = await edgeCache.getFamily(accountId, familyId);
+	if (cached) return cached;
+
 	const existing = await adminStore.getFamily(accountId, familyId);
-	if (existing) return existing;
+	if (existing) {
+		await edgeCache.setFamily(accountId, familyId, existing);
+		return existing;
+	}
 	if (familyId === "default" || familyId === "default-family") {
-		return adminStore.ensureFamily(accountId, familyId, {
+		const ensured = await adminStore.ensureFamily(accountId, familyId, {
 			name: "Default Family",
 			harvestDelayMs: defaultHarvestDelayMs,
 		});
+		await edgeCache.setFamily(accountId, familyId, ensured);
+		return ensured;
 	}
 	return undefined;
 }

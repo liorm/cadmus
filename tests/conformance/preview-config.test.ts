@@ -75,4 +75,24 @@ describe("wrangler preview config", () => {
 		);
 		expect(pkg.scripts["deploy:preview"]).toBe("wrangler preview");
 	});
+
+	it("ensures KV namespace bindings (if defined) have isolated preview namespaces", () => {
+		const topLevelKv = (config.kv_namespaces ?? []) as Array<{
+			binding: string;
+			id: string;
+		}>;
+		const previewKv = (config.previews?.kv_namespaces ?? []) as Array<{
+			binding: string;
+			id: string;
+		}>;
+		const cacheKv = topLevelKv.find((kv) => kv.binding === "CADMUS_CACHE_KV");
+		if (cacheKv) {
+			const previewCacheKv = previewKv.find(
+				(kv) => kv.binding === "CADMUS_CACHE_KV",
+			);
+			expect(previewCacheKv).toBeDefined();
+			expect(previewCacheKv?.id).toBeDefined();
+			expect(previewCacheKv?.id).not.toBe(cacheKv.id);
+		}
+	});
 });

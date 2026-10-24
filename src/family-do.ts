@@ -32,6 +32,7 @@ import {
 	parseAbsoluteTime,
 	parseRelativeDuration,
 } from "./cron.js";
+import { getEdgeCache } from "./edge-cache.js";
 import { createCadmusCodingTools } from "./extensions/coding-tools.js";
 import { DEFAULT_SOUL, identityExtension } from "./extensions/identity.js";
 import { internalToolsExtension } from "./extensions/internal-tools.js";
@@ -165,6 +166,7 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 		this.familyStore = new SqliteFamilyStore(ctx.storage.sql);
 		this.familyStore.ensureSchema();
 		this.ensureMetaTable();
+		const edgeCache = getEdgeCache(env);
 		this.adminStore = new D1AdminStore({
 			db: env.CADMUS_ADMIN_DB,
 			encryptionKey: env.CADMUS_ENCRYPTION_KEY,
@@ -172,6 +174,7 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 			defaultHarvestDelayMs: env.CADMUS_HARVEST_DELAY_MS
 				? Number(env.CADMUS_HARVEST_DELAY_MS)
 				: 60_000,
+			edgeCache,
 		});
 		this.credentialStore = new AccountCredentialStore(
 			this.adminStore,

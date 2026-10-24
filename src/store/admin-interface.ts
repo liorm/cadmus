@@ -60,6 +60,8 @@ export interface AdminStore {
 
 	// Auth & Accounts
 	resolveToken(rawToken: string): Promise<AuthenticatedIdentity | undefined>;
+	revokeToken(rawToken: string): Promise<boolean>;
+	revokeTokenByHash(tokenHash: string): Promise<boolean>;
 	ensureAccountAndUser(input: {
 		accountId: string;
 		userId: string;

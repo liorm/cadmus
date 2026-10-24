@@ -1,3 +1,10 @@
+import {
+	type EdgeCache,
+	getEdgeCache,
+	isMasterUserEnsured,
+	markMasterUserEnsured,
+	sha256Hex,
+} from "./edge-cache.js";
 import { getLogger } from "./log.js";
 import type {
 	AdminStore,
@@ -30,7 +37,10 @@ export function extractRawToken(request: Request): string | undefined {
 	return undefined;
 }
 
-async function timingSafeEqualSha256(a: string, b: string): Promise<boolean> {
+export async function timingSafeEqualSha256(
+	a: string,
+	b: string,
+): Promise<boolean> {
 	const enc = new TextEncoder();
 	const [digestA, digestB] = await Promise.all([
 		crypto.subtle.digest("SHA-256", enc.encode(a)),
@@ -86,14 +96,14 @@ export async function matchMasterSecret(
  * Anonymous requests are rejected with undefined (401 Unauthorized).
  *
  * Supported token formats:
- * 1. Stored token in D1 `cadmus_auth_tokens` (resolved via `adminStore.resolveToken`).
- * 2. Scoped master token: `<accountId>:<userId>:<CADMUS_AUTH_SECRET>` or `<accountId>:<CADMUS_AUTH_SECRET>`.
- * 3. Direct master secret (`<CADMUS_AUTH_SECRET>`) with optional `x-account-id` / `x-user-id` headers.
+ * 1. Direct or scoped master secret (<CADMUS_AUTH_SECRET>) with constant-time check & isolate fast-path.
+ * 2. Stored token in D1 `cadmus_auth_tokens` with L1 (memory) and optional L2 (KV) caching.
  */
 export async function authenticateRequest(
 	request: Request,
 	env: Env,
 	adminStore: AdminStore,
+	edgeCache: EdgeCache = getEdgeCache(env),
 ): Promise<ResolvedRequestScope | undefined> {
 	const rawToken = extractRawToken(request);
 	if (!rawToken) {
@@ -108,9 +118,63 @@ export async function authenticateRequest(
 		url.searchParams.get("familyId")?.trim() ||
 		"default";
 
-	// 1. Check stored token in D1 AdminStore
+	// 1. Master Secret Fast-Path: check before D1 queries using constant-time comparison
+	const masterSecret = env.CADMUS_AUTH_SECRET || "dev-cadmus-secret";
+	const masterMatch = await matchMasterSecret(rawToken, masterSecret);
+
+	if (masterMatch.matched) {
+		const accountId =
+			masterMatch.accountId ||
+			request.headers.get("x-account-id")?.trim() ||
+			url.searchParams.get("accountId")?.trim() ||
+			"default-account";
+		const userId =
+			masterMatch.userId ||
+			request.headers.get("x-user-id")?.trim() ||
+			url.searchParams.get("userId")?.trim() ||
+			`user:${accountId}`;
+
+		if (!isMasterUserEnsured(accountId, userId)) {
+			await adminStore.ensureAccountAndUser({
+				accountId,
+				userId,
+				role: "owner",
+			});
+			markMasterUserEnsured(accountId, userId);
+		}
+		edgeCache.recordMasterFastPath();
+		getLogger().debug("authenticated via master secret (fast-path)", {
+			account: accountId,
+			user: userId,
+			family: requestedFamilyId,
+		});
+		return {
+			accountId,
+			userId,
+			role: "owner",
+			familyId: requestedFamilyId,
+		};
+	}
+
+	// 2. Check Edge Cache (L1 in-memory LRU + optional L2 KV) by token hash
+	const tokenHash = await sha256Hex(rawToken);
+	const cached = await edgeCache.getToken(tokenHash);
+	if (cached) {
+		getLogger().debug("authenticated via cached member token", {
+			account: cached.accountId,
+			user: cached.userId,
+			family: requestedFamilyId,
+		});
+		return {
+			...cached,
+			familyId: requestedFamilyId,
+		};
+	}
+
+	// 3. Cache miss: check stored token in D1 AdminStore
 	const stored = await adminStore.resolveToken(rawToken);
 	if (stored) {
+		await edgeCache.setToken(tokenHash, stored);
 		getLogger().debug("authenticated via D1 member token", {
 			account: stored.accountId,
 			user: stored.userId,
@@ -122,41 +186,7 @@ export async function authenticateRequest(
 		};
 	}
 
-	// 2. Check against CADMUS_AUTH_SECRET
-	const masterSecret = env.CADMUS_AUTH_SECRET || "dev-cadmus-secret";
-	const masterMatch = await matchMasterSecret(rawToken, masterSecret);
-	if (!masterMatch.matched) {
-		getLogger().warn("auth failed: invalid bearer token");
-		return undefined;
-	}
-
-	const accountId =
-		masterMatch.accountId ||
-		request.headers.get("x-account-id")?.trim() ||
-		url.searchParams.get("accountId")?.trim() ||
-		"default-account";
-	const userId =
-		masterMatch.userId ||
-		request.headers.get("x-user-id")?.trim() ||
-		url.searchParams.get("userId")?.trim() ||
-		`user:${accountId}`;
-
-	await adminStore.ensureAccountAndUser({
-		accountId,
-		userId,
-		role: "owner",
-	});
-
-	getLogger().debug("authenticated via master secret", {
-		account: accountId,
-		user: userId,
-		family: requestedFamilyId,
-	});
-
-	return {
-		accountId,
-		userId,
-		role: "owner",
-		familyId: requestedFamilyId,
-	};
+	// Auth failed: invalid token (negative results are NOT cached)
+	getLogger().warn("auth failed: invalid bearer token");
+	return undefined;
 }

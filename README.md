@@ -90,6 +90,38 @@ bun run deploy
 > [!IMPORTANT]
 > **No External SQL Migrations**: Database tables in both D1 (`CADMUS_ADMIN_DB`) and DO SQLite (`CadmusBotFamilyDO`) are self-initializing and self-migrating via code on first access. Never create `migrations/*.sql` files or run `wrangler d1 migrations` commands.
 
+### 6. Edge Caching & Optional Workers KV (`CADMUS_CACHE_KV`)
+
+Cadmus includes an edge caching layer (`src/edge-cache.ts`) for token resolution and Bot Family DO routing info:
+- **L1 (In-Memory)**: Always enabled, zero latency, 60s TTL, bounded LRU cache per isolate.
+- **L2 (Workers KV)**: Optional distributed cache via `CADMUS_CACHE_KV` binding.
+- **Master Secret Fast-Path**: Constant-time comparison on raw token; skips repeat D1 `ensureAccountAndUser` upserts within the isolate.
+
+To enable L2 distributed KV caching across isolates:
+```bash
+# Create production and preview KV namespaces
+wrangler kv namespace create cadmus-cache
+wrangler kv namespace create cadmus-cache-preview
+```
+
+Then bind them in `wrangler.jsonc`:
+```jsonc
+  "kv_namespaces": [
+    {
+      "binding": "CADMUS_CACHE_KV",
+      "id": "<PRODUCTION_KV_ID>"
+    }
+  ],
+  "previews": {
+    "kv_namespaces": [
+      {
+        "binding": "CADMUS_CACHE_KV",
+        "id": "<PREVIEW_KV_ID>"
+      }
+    ]
+  }
+```
+
 ---
 
 ## All-In-One Self-Hosted Deployment (Docker + `celld`)
