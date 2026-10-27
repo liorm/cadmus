@@ -1,0 +1,31 @@
+import type { Extension } from "@earendil-works/pi-durable";
+import { scheduleExtension } from "../schedules.js";
+import { identityExtension } from "./identity.js";
+import { internalToolsExtension } from "./internal-tools.js";
+import { knowledgeExtension } from "./knowledge-tools.js";
+import { schedulesToolsExtension } from "./schedules-tools.js";
+import { toolGateExtension } from "./tool-gate.js";
+import { webToolsExtension } from "./web-tools.js";
+
+/**
+ * Cadmus extensions installed on every family harness. Coding tools are
+ * installed separately and offered only when `bot.tools` lists them.
+ */
+export function cadmusDefaultExtensions(): Extension[] {
+	return [
+		identityExtension(),
+		knowledgeExtension(),
+		schedulesToolsExtension(),
+		internalToolsExtension(),
+		toolGateExtension(),
+		webToolsExtension(),
+		scheduleExtension(),
+	];
+}
+
+/** Tool names offered when `bot.tools` is omitted. */
+export function defaultCadmusToolNames(): string[] {
+	return cadmusDefaultExtensions().flatMap(
+		(ext) => ext.tools?.map((tool) => tool.name) ?? [],
+	);
+}

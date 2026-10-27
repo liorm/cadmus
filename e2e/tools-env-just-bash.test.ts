@@ -1055,9 +1055,16 @@ describe("just-bash tools env through the bot", () => {
 			expect(
 				grainRows.reduce((sum, row) => sum + row.bytesWritten, 0),
 			).toBeGreaterThan(0);
+			const execRows = grainRows.filter((row) => row.opKind === "exec");
+			expect(execRows.reduce((sum, row) => sum + row.ops, 0)).toBeGreaterThan(
+				0,
+			);
+			// just-bash exec is in-memory. workerd Date.now() only advances across
+			// I/O and has millisecond granularity, so a fast `echo` can record 0 ms.
+			// That is a correct measurement; exec ops already count the command.
 			expect(
-				grainRows.reduce((sum, row) => sum + row.bashRuntimeMs, 0),
-			).toBeGreaterThan(0);
+				execRows.reduce((sum, row) => sum + row.bashRuntimeMs, 0),
+			).toBeGreaterThanOrEqual(0);
 			expect(
 				grainRows.reduce((sum, row) => sum + row.errors, 0),
 			).toBeGreaterThan(0);
@@ -1532,7 +1539,7 @@ describe("just-bash tools env through the bot", () => {
 		});
 	});
 
-	it("leaves bot.tools unchanged on null or omitted update, and replaces them with a list or []", async () => {
+	it("clears bot.tools on null, leaves them unchanged when omitted, and replaces them with a list or []", async () => {
 		const options = scope("tools-update");
 		const allowlist = ["memory_read", "memory_update", ...CODING_TOOLS];
 		await sendRpc("family.update", { harvestDelayMs: 0 }, options);
@@ -1599,23 +1606,33 @@ describe("just-bash tools env through the bot", () => {
 				options,
 			);
 			expect(nulled.frame.ok).toBe(true);
-			expect(nulled.frame.result?.bot.tools).toEqual(allowlist);
+			expect(nulled.frame.result?.bot.tools).toBeUndefined();
 			const afterNull = await sendRpc<{ bot: { tools?: string[] } }>(
 				"bot.get",
 				{ botId: "assistant" },
 				options,
 			);
-			expect(afterNull.frame.result?.bot.tools).toEqual(allowlist);
+			expect(afterNull.frame.result?.bot.tools).toBeUndefined();
+			const defaultStatus = await sendRpc<{
+				status: { tools: string[] | "all" };
+			}>("chat.status", { chatKey: "main" }, options);
+			expect(defaultStatus.frame.result?.status.tools).toBe("all");
 			expect((await turn("main", "[tool:memory_read {}]"))?.isError).toBe(
 				false,
 			);
+			const restoredKnowledge = await turn(
+				"main",
+				'[tool:knowledge_update {"slug":"restored","description":"back","body":"default","expectedVersion":0}]',
+			);
+			expect(restoredKnowledge?.isError).toBe(false);
+			expectBlocked(await turn("main", '[tool:bash {"command":"echo no"}]'));
 
 			const renamed = await sendRpc<{
 				bot: { name: string; tools?: string[] };
 			}>("bot.update", { botId: "assistant", name: "Renamed" }, options);
 			expect(renamed.frame.ok).toBe(true);
 			expect(renamed.frame.result?.bot.name).toBe("Renamed");
-			expect(renamed.frame.result?.bot.tools).toEqual(allowlist);
+			expect(renamed.frame.result?.bot.tools).toBeUndefined();
 
 			const replaced = await sendRpc<{ bot: { tools?: string[] } }>(
 				"bot.update",

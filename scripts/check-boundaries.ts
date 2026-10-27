@@ -2,9 +2,10 @@
  * Fails when a client imports backend source, or when the contract package
  * imports anything other than `typebox`.
  *
- * web/ and tui/ may import `@cadmus/contract/types` and `@cadmus/contract/routes`.
- * They may not import the bare package, `@cadmus/contract/schemas`, the
- * generated OpenAPI or AsyncAPI documents, `src/`, or `daemon/`.
+ * web/ and tui/ may import `@cadmus/contract/types`, `@cadmus/contract/routes`,
+ * and `@cadmus/contract/tools`. They may not import the bare package,
+ * `@cadmus/contract/schemas`, the generated OpenAPI or AsyncAPI documents,
+ * `src/`, or `daemon/`.
  * `import()` and `require()` template literals that interpolate are rejected
  * as a non-static specifier. packages/contract may import `typebox` and
  * relative files inside the package.

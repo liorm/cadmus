@@ -21,6 +21,7 @@ export type FoundSpecifier = {
 const ALLOWED_CLIENT_CONTRACT = new Set([
 	"@cadmus/contract/types",
 	"@cadmus/contract/routes",
+	"@cadmus/contract/tools",
 ]);
 
 export function isAllowedClientContractSpecifier(specifier: string): boolean {
@@ -55,7 +56,7 @@ export function clientImportReason(
 		specifier.startsWith("@cadmus/contract/") ||
 		specifier.startsWith("@cadmus/")
 	) {
-		return "clients may import only @cadmus/contract/types and @cadmus/contract/routes";
+		return "clients may import only @cadmus/contract/types, @cadmus/contract/routes, and @cadmus/contract/tools";
 	}
 	const normalized = specifier.replaceAll("\\", "/");
 	if (/(^|\/)(src|worker|daemon)(\/|$)/.test(normalized)) {

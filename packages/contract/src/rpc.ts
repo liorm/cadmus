@@ -234,7 +234,7 @@ export type BotCreateRpc = Rpc<BotCreateCommand, BotCreateResult>;
 /** RPC contract for `bot.get`: retrieves bot metadata, SOUL.md prompt, memory, and knowledge base. */
 export type BotGetRpc = Rpc<BotGetCommand, BotGetResult>;
 
-/** RPC contract for `bot.update`: updates bot configuration, model, thinking budget, tools, or soul. Missing or null `tools` is unchanged; an array, including `[]`, replaces the allowlist. */
+/** RPC contract for `bot.update`: updates bot configuration, model, thinking budget, tools, or soul. Omitted `tools` is unchanged. `null` clears the allowlist back to the default set. An array, including `[]`, replaces the allowlist. */
 export type BotUpdateRpc = Rpc<BotUpdateCommand, BotUpdateResult>;
 
 /** RPC contract for `bot.delete`: deletes a bot persona. */

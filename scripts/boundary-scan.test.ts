@@ -223,11 +223,14 @@ describe("findImportSpecifiers", () => {
 });
 
 describe("client contract specifiers", () => {
-	it("allows only types and routes", () => {
+	it("allows only types, routes, and tools", () => {
 		expect(isAllowedClientContractSpecifier("@cadmus/contract/types")).toBe(
 			true,
 		);
 		expect(isAllowedClientContractSpecifier("@cadmus/contract/routes")).toBe(
+			true,
+		);
+		expect(isAllowedClientContractSpecifier("@cadmus/contract/tools")).toBe(
 			true,
 		);
 		for (const specifier of [

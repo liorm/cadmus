@@ -37,13 +37,9 @@ import {
 	parseRelativeDuration,
 } from "./cron.js";
 import { getEdgeCache } from "./edge-cache.js";
+import { cadmusDefaultExtensions } from "./extensions/cadmus-tools.js";
 import { createCadmusCodingTools } from "./extensions/coding-tools.js";
-import { DEFAULT_SOUL, identityExtension } from "./extensions/identity.js";
-import { internalToolsExtension } from "./extensions/internal-tools.js";
-import { knowledgeExtension } from "./extensions/knowledge-tools.js";
-import { schedulesToolsExtension } from "./extensions/schedules-tools.js";
-import { toolGateExtension } from "./extensions/tool-gate.js";
-import { webToolsExtension } from "./extensions/web-tools.js";
+import { DEFAULT_SOUL } from "./extensions/identity.js";
 import {
 	chatFields,
 	ensureLogger,
@@ -87,7 +83,6 @@ import {
 	DEFAULT_HARVEST_PROMPT,
 	harvestScheduleId,
 	ScheduleTask,
-	scheduleExtension,
 } from "./schedules.js";
 import { defaultJsonShim, type ProtocolShim } from "./shim.js";
 import { D1AdminStore, toDoName } from "./store/d1-admin.js";
@@ -477,15 +472,7 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 		const models = this.ensureModels();
 
 		const registry = createRegistry();
-		const extensions = [
-			identityExtension(),
-			knowledgeExtension(),
-			schedulesToolsExtension(),
-			internalToolsExtension(),
-			toolGateExtension(),
-			webToolsExtension(),
-			scheduleExtension(),
-		];
+		const extensions = cadmusDefaultExtensions();
 		registry.install(this.codingTools);
 		for (const ext of extensions) {
 			registry.install(ext);
@@ -1382,15 +1369,23 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 					model: modelStr,
 					thinking: thinkingStr,
 				};
-				// Missing or null leaves the allowlist unchanged. An array replaces it.
-				// [] is an explicit allowlist of zero tools (configure must not see null:
-				// pi-durable deletes the filter on null, which offers every tool).
-				if (Array.isArray(command.payload.tools)) {
+				// Omitted leaves the allowlist unchanged. null clears it (default set).
+				// An array, including [], replaces it. pi-durable treats configure
+				// tools: null as "delete the filter" (every registered tool). That is
+				// the default set: coding tools are a separate extension and are not
+				// offered unless bot.tools lists them. [] must stay an array so the
+				// filter is empty instead of deleted.
+				if (command.payload.tools === null) {
+					delete updated.tools;
+				} else if (Array.isArray(command.payload.tools)) {
 					updated.tools = command.payload.tools;
 				}
-				const agentTools = Array.isArray(command.payload.tools)
-					? { tools: toToolRegs(command.payload.tools) }
-					: {};
+				const agentTools =
+					command.payload.tools === null
+						? { tools: null }
+						: Array.isArray(command.payload.tools)
+							? { tools: toToolRegs(command.payload.tools) }
+							: {};
 				if (Object.hasOwn(command.payload, "toolsEnv")) {
 					const next = command.payload.toolsEnv ?? null;
 					await this.toolsEnvController.assertSetting(next, "bot");

@@ -683,7 +683,7 @@ export const BotUpdateCommandSchema = Type.Object(
 						],
 						{
 							description:
-								"Missing or null leaves the stored allowlist unchanged. An array replaces it.",
+								"Omit to leave the stored allowlist unchanged. Null clears it back to the default set (Cadmus tools allowed, coding tools opt-in). An array replaces it. An empty array allows no gated tools.",
 						},
 					),
 				),

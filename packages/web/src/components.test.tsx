@@ -1,4 +1,8 @@
 import { describe, expect, it } from "bun:test";
+import {
+	CODING_TOOL_NAMES,
+	DEFAULT_CADMUS_TOOL_NAMES,
+} from "@cadmus/contract/tools";
 import type {
 	BotRecord,
 	ChatRecord,
@@ -15,7 +19,11 @@ import type {
 import { renderToString } from "react-dom/server";
 import { App } from "./App.js";
 import { CadmusClient, type FetchFunction } from "./client.js";
-import { BotDirectory } from "./components/BotDirectory.js";
+import {
+	BotDirectory,
+	BotModal,
+	botToolSummary,
+} from "./components/BotDirectory.js";
 import { ChatRawView } from "./components/ChatRawView.js";
 import { ChatRenderedView } from "./components/ChatRenderedView.js";
 import { ChatWorkspace } from "./components/ChatWorkspace.js";
@@ -39,10 +47,12 @@ import {
 } from "./read-api-request.js";
 import {
 	buildToolsEnvSetting,
+	EMPTY_TOOLS_ALLOWLIST_HINT,
 	formatToolsEnvSummary,
 	hasToolsEnvChanged,
 	toolsFormBaseline,
 	toolsPayload,
+	toolsPayloadForEdit,
 } from "./tools-env-form.js";
 
 const TEST_FAMILY: FamilyRecord = {
@@ -1155,9 +1165,11 @@ describe("Web UI Components", () => {
 
 	it("15. Edit sends tools only when the tools field or coding checkbox changed", () => {
 		const unchangedDefault = toolsFormBaseline(undefined);
+		expect(unchangedDefault).toEqual({ toolsText: "", includeCoding: false });
 		expect(toolsPayload("", false, "edit", unchangedDefault)).toBeUndefined();
 
 		const explicit = toolsFormBaseline(["memory_read", "knowledge_read"]);
+		expect(explicit.toolsText).toBe("memory_read, knowledge_read");
 		expect(
 			toolsPayload(
 				explicit.toolsText,
@@ -1182,16 +1194,11 @@ describe("Web UI Components", () => {
 		});
 		expect(renamed.tools).not.toBeNull();
 
-		const codingOnly = toolsFormBaseline(["bash", "read", "write", "edit"]);
-		expect(codingOnly.includeCoding).toBe(true);
-		expect(
-			toolsPayload(codingOnly.toolsText, false, "edit", codingOnly),
-		).toEqual([]);
-
 		const listed = toolsFormBaseline(["memory_read"]);
 		expect(
 			toolsPayload("memory_read, knowledge_read", false, "edit", listed),
 		).toEqual(["memory_read", "knowledge_read"]);
+		expect(toolsPayload("", false, "edit", listed)).toBeNull();
 
 		expect(toolsPayload("", false, "create")).toBeUndefined();
 		const create = {
@@ -1199,12 +1206,121 @@ describe("Web UI Components", () => {
 			tools: toolsPayload("", false, "create"),
 		};
 		expect(JSON.parse(JSON.stringify(create))).toEqual({ name: "Assistant" });
-		const cleared = {
-			botId: "assistant",
-			tools: toolsPayload(codingOnly.toolsText, false, "edit", codingOnly),
-		};
-		expect(JSON.parse(JSON.stringify(cleared)).tools).toEqual([]);
-		expect(cleared.tools).not.toBeNull();
+	});
+
+	it("15b. Empty tools field plus coding round-trips to the default set", () => {
+		const created = toolsPayload("", true, "create");
+		expect(created).toEqual([
+			...DEFAULT_CADMUS_TOOL_NAMES,
+			...CODING_TOOL_NAMES,
+		]);
+
+		const defaultBot = toolsFormBaseline(undefined);
+		expect(defaultBot.toolsText).toBe("");
+		expect(defaultBot.includeCoding).toBe(false);
+		const edited = toolsPayload("", true, "edit", defaultBot);
+		expect(edited).toEqual(created);
+		expect(
+			JSON.parse(
+				JSON.stringify({
+					botId: "assistant",
+					tools: toolsPayload("", true, "edit", defaultBot),
+				}),
+			).tools,
+		).toEqual(created);
+
+		const stored = [...DEFAULT_CADMUS_TOOL_NAMES, ...CODING_TOOL_NAMES];
+		const reopened = toolsFormBaseline([...stored].reverse());
+		expect(reopened).toEqual({ toolsText: "", includeCoding: true });
+		expect(toolsPayload("", true, "edit", reopened)).toBeUndefined();
+
+		const backToDefault = toolsPayload("", false, "edit", reopened);
+		expect(backToDefault).toBeNull();
+		expect(
+			JSON.parse(
+				JSON.stringify({
+					botId: "assistant",
+					tools: backToDefault,
+				}),
+			).tools,
+		).toBeNull();
+
+		const codingOnly = toolsFormBaseline(["bash", "read", "write", "edit"]);
+		expect(codingOnly).toEqual({ toolsText: "", includeCoding: true });
+		expect(toolsPayload("", false, "edit", codingOnly)).toBeNull();
+		expect(toolsPayload("", false, "create")).toBeUndefined();
+		expect(toolsPayload("memory_read", true, "edit", defaultBot)).toEqual([
+			"memory_read",
+			...CODING_TOOL_NAMES,
+		]);
+	});
+
+	it("15c. Partial coding tools stay in the field, and an empty allowlist stays empty until edited", () => {
+		const partial = [...DEFAULT_CADMUS_TOOL_NAMES, "bash"];
+		const baseline = toolsFormBaseline(partial);
+		expect(baseline.includeCoding).toBe(false);
+		expect(baseline.toolsText).toBe(partial.join(", "));
+		expect(
+			toolsPayload(baseline.toolsText, false, "edit", baseline),
+		).toBeUndefined();
+		expect(
+			toolsPayload(
+				`${baseline.toolsText}, custom_tool`,
+				false,
+				"edit",
+				baseline,
+			),
+		).toEqual([...partial, "custom_tool"]);
+
+		const empty = toolsFormBaseline([]);
+		expect(empty).toEqual({ toolsText: "", includeCoding: false });
+		expect(toolsPayload("", false, "edit", empty)).toBeUndefined();
+		expect(toolsPayloadForEdit("", false, empty, [], false)).toBeUndefined();
+		expect(
+			JSON.parse(
+				JSON.stringify({
+					botId: "assistant",
+					name: "Renamed",
+					tools: toolsPayloadForEdit("", false, empty, [], false),
+				}),
+			),
+		).toEqual({ botId: "assistant", name: "Renamed" });
+		expect(toolsPayloadForEdit("", false, empty, [], true)).toBeNull();
+		expect(toolsPayloadForEdit(" ", false, empty, [], true)).toBeNull();
+		expect(toolsPayloadForEdit("", true, empty, [], true)).toEqual([
+			...DEFAULT_CADMUS_TOOL_NAMES,
+			...CODING_TOOL_NAMES,
+		]);
+
+		expect(botToolSummary(undefined)).toBe("All tools permitted");
+		expect(botToolSummary([])).toBe("No tools permitted");
+		expect(botToolSummary(["bash", "read", "write", "edit"])).toBe(
+			"4 tools: bash, read, write...",
+		);
+
+		const client = createMockClient();
+		const emptyBot: BotRecord = { ...TEST_BOT, id: "locked", tools: [] };
+		const emptyHtml = renderToString(
+			<CadmusProvider clientOverride={client}>
+				<BotModal isOpen mode="edit" bot={emptyBot} onClose={() => undefined} />
+			</CadmusProvider>,
+		);
+		expect(emptyHtml).toContain(EMPTY_TOOLS_ALLOWLIST_HINT);
+		expect(emptyHtml).not.toContain("Leave blank to allow all tools");
+
+		const defaultBotRecord: BotRecord = { ...TEST_BOT, tools: undefined };
+		const defaultHtml = renderToString(
+			<CadmusProvider clientOverride={client}>
+				<BotModal
+					isOpen
+					mode="edit"
+					bot={defaultBotRecord}
+					onClose={() => undefined}
+				/>
+			</CadmusProvider>,
+		);
+		expect(defaultHtml).toContain("Leave blank to allow all tools");
+		expect(defaultHtml).not.toContain("currently permits no tools");
 	});
 
 	it("16. Chat autoscroll logic and useAutoScroll hook maintain bottom anchor when at bottom and preserve position when scrolled up", () => {

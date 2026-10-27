@@ -16,6 +16,7 @@ import { requireCadmusServices } from "../context.js";
 import { getLogger } from "../log.js";
 import { parseThinkingLevel } from "../models.js";
 import { ThinkingLevelSchema, ToolsEnvSettingSchema } from "../protocol.js";
+import { expandCodingOnlyAllowlist } from "./coding-allowlist.js";
 import { resolveBotScope, toolError, toolText } from "./knowledge-tools.js";
 
 export type SearchBotInput = {
@@ -312,7 +313,7 @@ export function internalToolsExtension() {
 							name: args.name,
 							model: args.model ?? callerBot?.model ?? "faux/echo",
 							thinking: args.thinking ?? callerBot?.thinking ?? "off",
-							tools: args.tools,
+							tools: expandCodingOnlyAllowlist(args.tools),
 							soul: args.soul,
 							memory: args.memory,
 							toolsEnv: args.toolsEnv,

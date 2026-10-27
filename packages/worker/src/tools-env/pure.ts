@@ -1,10 +1,12 @@
+import { CODING_TOOL_NAMES, type CodingToolName } from "@cadmus/contract/tools";
 import type { ToolsEnvBinding, ToolsEnvSetting } from "@cadmus/contract/types";
 import { ProtocolValidationError } from "../protocol/validate.js";
 
+export type { CodingToolName };
+export { CODING_TOOL_NAMES };
+
 export const WORKSPACE_ROOT = "/workspace";
 export const NAMESPACE_BYTE_CAP = 8 * 1024 * 1024;
-export const CODING_TOOL_NAMES = ["bash", "read", "write", "edit"] as const;
-export type CodingToolName = (typeof CODING_TOOL_NAMES)[number];
 
 export function isCodingTool(name: string): name is CodingToolName {
 	return (CODING_TOOL_NAMES as readonly string[]).includes(name);

@@ -81,7 +81,7 @@
 											"../../../../daemon",
 											"../../../../daemon/**"
 										],
-										"message": "Clients import @cadmus/contract/types and @cadmus/contract/routes only. Backend source is off limits."
+										"message": "Clients import @cadmus/contract/types, @cadmus/contract/routes, and @cadmus/contract/tools only. Backend source is off limits."
 									},
 									{
 										"group": [
@@ -92,9 +92,10 @@
 											"@cadmus/contract/asyncapi.json",
 											"@cadmus/contract/**",
 											"!@cadmus/contract/types",
-											"!@cadmus/contract/routes"
+											"!@cadmus/contract/routes",
+											"!@cadmus/contract/tools"
 										],
-										"message": "Clients may import only @cadmus/contract/types and @cadmus/contract/routes."
+										"message": "Clients may import only @cadmus/contract/types, @cadmus/contract/routes, and @cadmus/contract/tools."
 									}
 								]
 							}

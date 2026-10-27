@@ -3,11 +3,13 @@ import { useEffect, useMemo, useState } from "react";
 import { useCadmus } from "../context/CadmusContext.js";
 import {
 	buildToolsEnvSetting,
+	EMPTY_TOOLS_ALLOWLIST_HINT,
 	formatToolsEnvSummary,
 	type ToolsEnvCatalogChoice,
 	type ToolsEnvChoice,
 	toolsFormBaseline,
 	toolsPayload,
+	toolsPayloadForEdit,
 } from "../tools-env-form.js";
 import { ToolsEnvPinFields } from "./ToolsEnvPinFields.js";
 
@@ -28,7 +30,13 @@ interface BotModalProps {
 	onClose: () => void;
 }
 
-function BotModal({ isOpen, mode, bot, onClose }: BotModalProps) {
+export function botToolSummary(tools: readonly string[] | undefined): string {
+	if (tools === undefined) return "All tools permitted";
+	if (tools.length === 0) return "No tools permitted";
+	return `${tools.length} tools: ${tools.slice(0, 3).join(", ")}${tools.length > 3 ? "..." : ""}`;
+}
+
+export function BotModal({ isOpen, mode, bot, onClose }: BotModalProps) {
 	const { client, refreshBots, selectBot, models, openCredentials } =
 		useCadmus();
 
@@ -42,6 +50,7 @@ function BotModal({ isOpen, mode, bot, onClose }: BotModalProps) {
 	const [tools, setTools] = useState(initialTools.toolsText);
 	const [soul, setSoul] = useState("");
 	const [codingTools, setCodingTools] = useState(initialTools.includeCoding);
+	const [toolsTouched, setToolsTouched] = useState(false);
 	const [toolsEnvChoice, setToolsEnvChoice] = useState<ToolsEnvChoice>(
 		bot?.toolsEnv == null ? "inherit" : bot.toolsEnv.enabled ? "on" : "off",
 	);
@@ -54,6 +63,7 @@ function BotModal({ isOpen, mode, bot, onClose }: BotModalProps) {
 	const [error, setError] = useState<string | null>(null);
 
 	useEffect(() => {
+		setToolsTouched(false);
 		if (!isOpen) return;
 		let cancelled = false;
 		void (async () => {
@@ -144,7 +154,13 @@ function BotModal({ isOpen, mode, bot, onClose }: BotModalProps) {
 					name: name.trim() || undefined,
 					model: model.trim() || undefined,
 					thinking,
-					tools: toolsPayload(tools, codingTools, "edit", initialTools),
+					tools: toolsPayloadForEdit(
+						tools,
+						codingTools,
+						initialTools,
+						bot.tools,
+						toolsTouched,
+					),
 					soul: soul.trim() || undefined,
 					toolsEnv,
 				});
@@ -346,11 +362,15 @@ function BotModal({ isOpen, mode, bot, onClose }: BotModalProps) {
 								type="text"
 								placeholder="e.g. knowledge_read, memory_update (blank for all)"
 								value={tools}
-								onChange={(e) => setTools(e.target.value)}
+								onChange={(e) => {
+									setToolsTouched(true);
+									setTools(e.target.value);
+								}}
 							/>
 							<span className="form-hint">
-								Optional list of tool names allowed for this bot. Leave blank to
-								allow all tools. Coding tools stay opt-in.
+								{mode === "edit" && bot?.tools?.length === 0
+									? EMPTY_TOOLS_ALLOWLIST_HINT
+									: "Optional list of tool names allowed for this bot. Leave blank to allow all tools. Coding tools stay opt-in."}
 							</span>
 						</div>
 
@@ -360,7 +380,10 @@ function BotModal({ isOpen, mode, bot, onClose }: BotModalProps) {
 									id="bot-coding-tools"
 									type="checkbox"
 									checked={codingTools}
-									onChange={(event) => setCodingTools(event.target.checked)}
+									onChange={(event) => {
+										setToolsTouched(true);
+										setCodingTools(event.target.checked);
+									}}
 								/>{" "}
 								Coding tools (bash, read, write, edit)
 							</label>
@@ -575,10 +598,7 @@ export function BotDirectory() {
 				) : (
 					bots.map((bot) => {
 						const isSelected = selectedBot?.id === bot.id;
-						const toolSummary =
-							bot.tools && bot.tools.length > 0
-								? `${bot.tools.length} tools: ${bot.tools.slice(0, 3).join(", ")}${bot.tools.length > 3 ? "..." : ""}`
-								: "All tools permitted";
+						const toolSummary = botToolSummary(bot.tools);
 
 						return (
 							<div
