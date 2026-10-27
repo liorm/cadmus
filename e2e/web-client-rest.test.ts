@@ -1,7 +1,7 @@
 import { SELF } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import { CadmusClient } from "../packages/web/src/client.js";
-import { sendRpc, TEST_TOKEN } from "./helpers.js";
+import { sendRpc, TEST_TOKEN, uniqueAccountId } from "./helpers.js";
 
 function webClient(
 	accountId: string,
@@ -21,7 +21,7 @@ function webClient(
 
 describe("Web UI client over /api", () => {
 	it("round-trips readonly queries and mutations through CadmusClient", async () => {
-		const accountId = "acct-web-client";
+		const accountId = uniqueAccountId("web-client");
 		const client = webClient(accountId);
 
 		const created = await client.callRpc("family.create", {

@@ -15,7 +15,7 @@
 		"web:dev": "bun run --cwd packages/web dev",
 		"web:build": "bun run --cwd packages/web build",
 		"web:test": "bun run --cwd packages/web test",
-		"typecheck": "bun check && bunx tsc -p packages/contract/tsconfig.json --noEmit && bun run --cwd packages/tui typecheck && bun run --cwd packages/web typecheck && bunx tsc -p packages/daemon/tsconfig.json --noEmit && bunx tsc -p packages/worker/tsconfig.json --noEmit",
+		"typecheck": "bun scripts/typecheck.ts",
 		"lint": "biome check",
 		"format": "biome check --write",
 		"format:check": "biome format",
@@ -25,7 +25,7 @@
 		"contract:gen": "bun scripts/generate-contract.ts",
 		"contract:check": "bun scripts/generate-contract.ts --check",
 		"boundaries": "bun scripts/check-boundaries.ts",
-		"test:conformance": "bun test tests/conformance && vitest run --config vitest.conformance.config.ts",
+		"test:conformance": "bun test tests/conformance && vitest run e2e/contract-conformance.test.ts",
 		"test:daemon": "bun test packages/daemon/tests",
 		"daemon": "bun packages/daemon/src/cli.ts",
 		"daemon:build:darwin-arm64": "mkdir -p packages/daemon/dist && bun build --compile --target=bun-darwin-arm64 packages/daemon/src/cli.ts --outfile packages/daemon/dist/cadmus-daemon-darwin-arm64",
@@ -38,7 +38,7 @@
 		"daemon:build:all": "bun run daemon:build:linux && bun run daemon:build:darwin",
 		"daemon:build": "bun run daemon:build:all",
 		"test:unit": "bun test scripts",
-		"check:all": "bun run boundaries && bun run contract:check && bun run test:unit && bun run web:test && bun run web:build && bun run format:check && biome check && bun run typecheck && bun run test:daemon && bun run test:conformance && bun run test"
+		"check:all": "bun scripts/check-all.ts"
 	},
 	"dependencies": {
 		"@cadmus/contract": "workspace:*",

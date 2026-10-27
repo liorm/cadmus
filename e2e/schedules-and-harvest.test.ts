@@ -5,11 +5,11 @@ import type {
 	HarvestNote,
 	ScheduleRecord,
 } from "../packages/worker/src/protocol.js";
-import { sendRpc } from "./helpers.js";
+import { sendRpc, uniqueAccountId } from "./helpers.js";
 
 describe("Unified ScheduleTask (Cron, When & Idle Harvest Forks) & DO Alarm Driver", () => {
 	it("schedules a one-time 'when' schedule and fires it when the DO alarm triggers", async () => {
-		const accountId = "acct-sched";
+		const accountId = uniqueAccountId("sched");
 		const familyId = "default";
 		const scope = { accountId, familyId };
 
@@ -47,7 +47,7 @@ describe("Unified ScheduleTask (Cron, When & Idle Harvest Forks) & DO Alarm Driv
 		expect(schedRes.frame.result?.schedule.inSeconds).toBe(0);
 		expect(schedRes.frame.result?.schedule.recurring).toBe(false);
 
-		// Trigger the Durable Object alarm on `cadmus:acct-sched:default`
+		// Trigger the Durable Object alarm on `cadmus:${accountId}:${familyId}`
 		const doId = env.CADMUS_BOT_FAMILY.idFromName(
 			`cadmus:${accountId}:${familyId}`,
 		);
@@ -173,7 +173,7 @@ describe("Unified ScheduleTask (Cron, When & Idle Harvest Forks) & DO Alarm Driv
 	});
 
 	it("arms idle harvest via unified ScheduleTask (`harvest:<chatKey>`), forks the conversation on alarm, extracts knowledge/memory diffs, and advances watermark", async () => {
-		const accountId = "acct-harvest";
+		const accountId = uniqueAccountId("harvest");
 		const familyId = "default";
 		const scope = { accountId, familyId };
 

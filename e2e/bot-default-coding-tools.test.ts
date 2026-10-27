@@ -4,12 +4,17 @@ import {
 } from "@cadmus/contract/tools";
 import { describe, expect, it } from "vitest";
 import type { ServerEvent } from "../packages/worker/src/protocol.js";
-import { connectTestWs, type RpcOptions, sendRpc } from "./helpers.js";
+import {
+	connectTestWs,
+	type RpcOptions,
+	sendRpc,
+	uniqueAccountId,
+} from "./helpers.js";
 
 function scope(
 	label: string,
 ): RpcOptions & { accountId: string; familyId: string } {
-	const accountId = `default-coding-${label}-${crypto.randomUUID().slice(0, 8)}`;
+	const accountId = uniqueAccountId(`default-coding-${label}`);
 	return { accountId, familyId: "default" };
 }
 

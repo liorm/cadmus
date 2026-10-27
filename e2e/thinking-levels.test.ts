@@ -8,11 +8,14 @@ import type {
 	ScheduleCreateResult,
 	ScheduleUpdateResult,
 } from "../packages/worker/src/protocol.js";
-import { sendRpc } from "./helpers.js";
+import { sendRpc, uniqueAccountId } from "./helpers.js";
 
 describe("Thinking Levels in Models, Bots, Chats, and Schedules", () => {
 	it("reports supported thinkingLevels in account.models.list for reasoning models", async () => {
-		const scope = { accountId: "acct-thinking-models", familyId: "default" };
+		const scope = {
+			accountId: uniqueAccountId("thinking-models"),
+			familyId: "default",
+		};
 
 		const res = await sendRpc<AccountModelsListResult>(
 			"account.models.list",
@@ -46,7 +49,10 @@ describe("Thinking Levels in Models, Bots, Chats, and Schedules", () => {
 	});
 
 	it("validates thinking type on bot.create and bot.update", async () => {
-		const scope = { accountId: "acct-thinking-bot", familyId: "default" };
+		const scope = {
+			accountId: uniqueAccountId("thinking-bot"),
+			familyId: "default",
+		};
 
 		// 1. Reject invalid thinking level
 		const invalidRes = await sendRpc(
@@ -89,7 +95,10 @@ describe("Thinking Levels in Models, Bots, Chats, and Schedules", () => {
 	});
 
 	it("supports optional thinking on chat.create and defaults to bot thinking", async () => {
-		const scope = { accountId: "acct-thinking-chat", familyId: "default" };
+		const scope = {
+			accountId: uniqueAccountId("thinking-chat"),
+			familyId: "default",
+		};
 
 		// Create bot with default thinking "low"
 		await sendRpc(
@@ -158,7 +167,10 @@ describe("Thinking Levels in Models, Bots, Chats, and Schedules", () => {
 	});
 
 	it("supports optional thinking on schedule.create and schedule.update", async () => {
-		const scope = { accountId: "acct-thinking-sched", familyId: "default" };
+		const scope = {
+			accountId: uniqueAccountId("thinking-sched"),
+			familyId: "default",
+		};
 
 		await sendRpc(
 			"bot.create",

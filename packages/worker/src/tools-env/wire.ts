@@ -4,8 +4,31 @@
  */
 
 export const MAX_FRAME_BYTES = 6 * 1024 * 1024;
+/** Idle-call heartbeat interval when `CADMUS_HEARTBEAT_MS` is unset. */
 export const HEARTBEAT_MS = 30_000;
+/** Clamp for a numeric `CADMUS_HEARTBEAT_MS`. A smaller value would spin the isolate. */
+export const MIN_HEARTBEAT_MS = 50;
+/** Clamp for a numeric `CADMUS_HEARTBEAT_MS`. */
+export const MAX_HEARTBEAT_MS = 120_000;
 export const FILE_CALL_TIMEOUT_MS = 2_000;
+
+/**
+ * Heartbeat interval for the env DO. Missing or non-numeric values stay at
+ * `HEARTBEAT_MS`. Finite numbers are rounded and clamped to
+ * `[MIN_HEARTBEAT_MS, MAX_HEARTBEAT_MS]`. Tests set the binding; production
+ * leaves it unset.
+ */
+export function resolveHeartbeatMs(raw: string | undefined): number {
+	if (raw === undefined) return HEARTBEAT_MS;
+	const trimmed = raw.trim();
+	if (trimmed === "") return HEARTBEAT_MS;
+	const value = Number(trimmed);
+	if (!Number.isFinite(value)) return HEARTBEAT_MS;
+	const rounded = Math.round(value);
+	if (rounded < MIN_HEARTBEAT_MS) return MIN_HEARTBEAT_MS;
+	if (rounded > MAX_HEARTBEAT_MS) return MAX_HEARTBEAT_MS;
+	return rounded;
+}
 export const TRANSPORT_PREFIX = "tools-env transport:";
 export const TRANSPORT_DISCONNECTED = `${TRANSPORT_PREFIX} env disconnected`;
 

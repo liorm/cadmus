@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { BotRecord } from "../packages/worker/src/protocol.js";
-import { connectTestWs, sendRpc } from "./helpers.js";
+import { connectTestWs, sendRpc, uniqueAccountId } from "./helpers.js";
 
 describe("Inter-Bot Co-Location Tools (create_bot, search_bot, message_bot)", () => {
 	it("creates peer bots via create_bot, discovers them with search_bot, and messages them in-memory with message_bot", async () => {
-		const scope = { accountId: "acct-interbot", familyId: "default" };
+		const scope = {
+			accountId: uniqueAccountId("interbot"),
+			familyId: "default",
+		};
 		const wsClient = await connectTestWs(scope);
 
 		try {

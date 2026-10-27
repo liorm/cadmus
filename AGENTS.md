@@ -101,7 +101,7 @@ bun run test:conformance
 bun run contract:gen
 bun run contract:check
 
-# Typecheck both root Worker and standalone TUI (fast native check via bun check)
+# Typecheck root, contract, tui, web, daemon, and worker (two projects at a time)
 bun run typecheck
 bun check
 
@@ -109,6 +109,8 @@ bun check
 bun run lint
 bun run format
 bun run format:check
+
+# Static stages share two processes, then e2e runs alone. Same stages as before.
 bun run check:all
 ```
 
@@ -116,11 +118,21 @@ bun run check:all
 
 1. Place E2E tests under `e2e/*.test.ts`.
 2. Use [`sendRpc`](e2e/helpers.ts) (for `POST /rpc`) and [`connectTestWs`](e2e/helpers.ts) (for `GET /ws` WebSocket) over `SELF.fetch` from `cloudflare:test`.
-3. Use unique `accountId` / `familyId` scopes per test to isolate D1 and Durable Object state cleanly.
+3. Provision a fresh Cadmus account per test with [`uniqueAccountId`](e2e/helpers.ts) (`crypto.randomUUID()`). Do not hardcode a shared account id (`acct-1`, `acct`, `default-account`, and the like). A Vitest worker reuses one workerd, so D1 rows, KV keys, Durable Object names (`cadmus:${accountId}:${familyId}`, `env:${accountId}:${envId}`), auth-token hashes, and isolate memo keys collide when two tests reuse an id. Compare assertions to the generated id. A tenant-isolation test uses two ids from the helper. Omitting `accountId` on a master-secret call authenticates as `default-account`; do not do that for a test that writes. Family and bot slugs stay scoped under that account.
+   Parallel-safety for the rest of the shared worker state:
+   - Restore global stubs before the test returns: `globalThis.fetch`, `env.CADMUS_ADMIN_DB.prepare` / `batch`, and `setupLogger` (back to `{ type: "silent" }`). `afterEach` alone is not enough when a test replaces the stub mid-body.
+   - Auth tokens stored in D1 are unique by hash for the whole database. Generate the token (`crypto.randomUUID()`). Do not reuse a literal member token.
+   - Tests that drop D1 tables or rewrite `cadmus_schema_meta` restore the schema before the test returns. The version row is database-global.
+   - `clearEnsuredMasterUsers`, `EdgeCache.clearAllMemory`, and `clearAllEdgeCaches` wipe isolate-wide caches. Call them only around the assertion that needs a cold cache, and clear again in `finally` if the test marked entries.
+   - Do not install fake timers. Do not bind a fixed port. Egress stays on the in-worker mocks; there is no live network.
 4. Use the deterministic offline model `faux/echo`:
    - Standard user text `"Hello"` replies with `"echo(<visibleUserMessages>): Hello"`.
    - Embed `[tool:<toolName> <jsonArgs>]` in a user prompt to trigger a real tool call through `pi-durable`'s tool execution pipeline during a turn.
    - Embed `[remember: <fact>]` or `[learn:<slug> <body>]` in a user prompt and trigger `await runDurableObjectAlarm(stub)` from `cloudflare:test` to test the full idle harvest fork -> tool call -> file diff -> `HarvestNote` pipeline.
+
+### Test timing
+
+Do not sleep for a fixed multi-second gap in e2e. Wait until the event or condition you care about, with a bounded deadline. A check that something did **not** happen still has to wait, and that wait must be several times the interval so a late timer on a 2-vCPU runner is not a false pass. Timing knobs are Worker bindings (`CADMUS_HARVEST_DELAY_MS`, `CADMUS_HEARTBEAT_MS` in `vitest.config.ts`). Leave the binding unset in production so the code default stays in force. Parse overrides in one place: non-numeric values use the default, and numbers are clamped. `bun run test` includes `e2e/contract-conformance.test.ts` and runs files in parallel with `maxWorkers: 2` (one miniflare per worker). `bun run test:conformance` still runs the bun conformance tests and that file by itself. `check:all` runs the bun conformance tests as their own stage and the vitest file only inside `bun run test`, after the static stages, so the web build does not share the CPUs with workerd.
 
 ---
 

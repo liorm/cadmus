@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { ChatRecord } from "../packages/worker/src/protocol.js";
-import { sendRpc } from "./helpers.js";
+import { sendRpc, uniqueAccountId } from "./helpers.js";
 
 describe("Bots, Virtual Files (SOUL.md, MEMORY.md, knowledge/<slug>.md), CAS & Tool Gate", () => {
 	it("manages bot lifecycle and enforces CAS, size limits, and frontmatter rules on MEMORY.md and knowledge/<slug>.md", async () => {
-		const scope = { accountId: "acct-files", familyId: "default" };
+		const scope = { accountId: uniqueAccountId("files"), familyId: "default" };
 
 		// 1. Create bot with initial soul, memory, and knowledge
 		const createRes = await sendRpc(
@@ -160,7 +160,10 @@ describe("Bots, Virtual Files (SOUL.md, MEMORY.md, knowledge/<slug>.md), CAS & T
 	});
 
 	it("executes knowledge and memory tools during a turn and enforces per-bot tool-gate policy", async () => {
-		const scope = { accountId: "acct-toolgate", familyId: "default" };
+		const scope = {
+			accountId: uniqueAccountId("toolgate"),
+			familyId: "default",
+		};
 
 		// Create a bot restricted to ONLY `memory_read` (disallowing `memory_update`)
 		await sendRpc(

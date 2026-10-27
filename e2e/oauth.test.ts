@@ -5,7 +5,7 @@ import type {
 	OAuthFlowRecord,
 	OAuthProviderInfo,
 } from "../packages/worker/src/protocol.js";
-import { connectTestWs, sendRpc } from "./helpers.js";
+import { connectTestWs, sendRpc, uniqueAccountId } from "./helpers.js";
 
 describe("Generic OAuth Protocol & xAI Device Code Flow", () => {
 	const originalFetch = globalThis.fetch;
@@ -93,7 +93,7 @@ describe("Generic OAuth Protocol & xAI Device Code Flow", () => {
 		const res = await sendRpc<{ providers: OAuthProviderInfo[] }>(
 			"account.oauth.providers",
 			{},
-			{ accountId: "acct-oauth-discover" },
+			{ accountId: uniqueAccountId("oauth-discover") },
 		);
 
 		expect(res.status).toBe(200);
@@ -113,7 +113,7 @@ describe("Generic OAuth Protocol & xAI Device Code Flow", () => {
 	});
 
 	it("runs the xAI device-code flow, stores encrypted OAuth credentials in D1, and updates account", async () => {
-		const accountId = "acct-oauth-flow-1";
+		const accountId = uniqueAccountId("oauth-flow");
 
 		// 1. Start OAuth flow
 		const startRes = await sendRpc<{ flow: OAuthFlowRecord }>(
@@ -188,7 +188,7 @@ describe("Generic OAuth Protocol & xAI Device Code Flow", () => {
 	});
 
 	it("broadcasts account.oauth.event and account.event frames over WebSocket", async () => {
-		const accountId = "acct-oauth-ws";
+		const accountId = uniqueAccountId("oauth-ws");
 		const testWs = await connectTestWs({ accountId });
 
 		try {
@@ -237,9 +237,11 @@ describe("Generic OAuth Protocol & xAI Device Code Flow", () => {
 	});
 
 	it("cancels an in-flight OAuth flow when requested", async () => {
-		const accountId = "acct-oauth-cancel";
+		const accountId = uniqueAccountId("oauth-cancel");
 
-		// Set up endpoint that hangs (does not return token immediately)
+		// Set up endpoint that hangs (does not return token immediately).
+		// Restored before the test returns so the file-level stub cannot leak
+		// into a later file on this workerd.
 		globalThis.fetch = async (
 			input: string | URL | Request,
 			init?: RequestInit,
@@ -267,42 +269,46 @@ describe("Generic OAuth Protocol & xAI Device Code Flow", () => {
 			return originalFetch(input, init);
 		};
 
-		const startRes = await sendRpc<{ flow: OAuthFlowRecord }>(
-			"account.oauth.start",
-			{ providerId: "xai" },
-			{ accountId },
-		);
+		try {
+			const startRes = await sendRpc<{ flow: OAuthFlowRecord }>(
+				"account.oauth.start",
+				{ providerId: "xai" },
+				{ accountId },
+			);
 
-		expect(startRes.frame.ok).toBe(true);
-		expect(startRes.frame.result).toBeDefined();
-		if (!startRes.frame.result) throw new Error("expected start result");
-		const flowId = startRes.frame.result.flow.flowId;
+			expect(startRes.frame.ok).toBe(true);
+			expect(startRes.frame.result).toBeDefined();
+			if (!startRes.frame.result) throw new Error("expected start result");
+			const flowId = startRes.frame.result.flow.flowId;
 
-		// Cancel the flow
-		const cancelRes = await sendRpc<{
-			flow: OAuthFlowRecord;
-			cancelled: boolean;
-		}>("account.oauth.cancel", { flowId }, { accountId });
+			// Cancel the flow
+			const cancelRes = await sendRpc<{
+				flow: OAuthFlowRecord;
+				cancelled: boolean;
+			}>("account.oauth.cancel", { flowId }, { accountId });
 
-		expect(cancelRes.status).toBe(200);
-		expect(cancelRes.frame.ok).toBe(true);
-		expect(cancelRes.frame.result?.cancelled).toBe(true);
-		expect(cancelRes.frame.result?.flow.status).toBe("cancelled");
+			expect(cancelRes.status).toBe(200);
+			expect(cancelRes.frame.ok).toBe(true);
+			expect(cancelRes.frame.result?.cancelled).toBe(true);
+			expect(cancelRes.frame.result?.flow.status).toBe("cancelled");
 
-		// Status query also shows cancelled
-		const statusRes = await sendRpc<{ flow: OAuthFlowRecord }>(
-			"account.oauth.status",
-			{ flowId },
-			{ accountId },
-		);
-		expect(statusRes.frame.result?.flow.status).toBe("cancelled");
+			// Status query also shows cancelled
+			const statusRes = await sendRpc<{ flow: OAuthFlowRecord }>(
+				"account.oauth.status",
+				{ flowId },
+				{ accountId },
+			);
+			expect(statusRes.frame.result?.flow.status).toBe("cancelled");
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
 	});
 
 	it("rejects unknown OAuth providers cleanly with an error frame", async () => {
 		const res = await sendRpc<{ flow: OAuthFlowRecord }>(
 			"account.oauth.start",
 			{ providerId: "unknown-provider-xyz" },
-			{ accountId: "acct-oauth-err" },
+			{ accountId: uniqueAccountId("oauth-err") },
 		);
 
 		expect(res.status).toBe(400);

@@ -11,11 +11,16 @@ import type {
 	ChatRecord,
 	TurnBlock,
 } from "../packages/worker/src/protocol.js";
-import { connectTestWs, sendRpc, TEST_TOKEN } from "./helpers.js";
+import {
+	connectTestWs,
+	sendRpc,
+	TEST_TOKEN,
+	uniqueAccountId,
+} from "./helpers.js";
 
 describe("Turns, Streaming Protocol Events & Out-of-Band /status", () => {
 	it("streams turn.delta, turn.tool_call, turn.tool_result, chat.state, and turn.completed over WebSocket", async () => {
-		const scope = { accountId: "acct-turns", familyId: "default" };
+		const scope = { accountId: uniqueAccountId("turns"), familyId: "default" };
 		const wsClient = await connectTestWs(scope);
 
 		try {
@@ -53,7 +58,7 @@ describe("Turns, Streaming Protocol Events & Out-of-Band /status", () => {
 	});
 
 	it("handles /status strictly out-of-band without polluting conversation history or calling the LLM", async () => {
-		const scope = { accountId: "acct-status", familyId: "default" };
+		const scope = { accountId: uniqueAccountId("status"), familyId: "default" };
 
 		await sendRpc(
 			"bot.create",
@@ -129,7 +134,10 @@ describe("Turns, Streaming Protocol Events & Out-of-Band /status", () => {
 	});
 
 	it("recreates 'what can you do?' conversation: complete streaming deltas and no duplicate output", async () => {
-		const scope = { accountId: "acct-what-can-you-do", familyId: "default" };
+		const scope = {
+			accountId: uniqueAccountId("what-can-you-do"),
+			familyId: "default",
+		};
 		const wsClient = await connectTestWs(scope);
 
 		try {
@@ -203,7 +211,7 @@ describe("Turns, Streaming Protocol Events & Out-of-Band /status", () => {
 	});
 
 	it("broadcasts blocks in turn.completed, returns blocks in turn.submit, and renders TUI chips for thinking and tools", async () => {
-		const scope = { accountId: "acct-chips", familyId: "default" };
+		const scope = { accountId: uniqueAccountId("chips"), familyId: "default" };
 		const wsClient = await connectTestWs(scope);
 
 		try {
@@ -283,7 +291,7 @@ describe("Turns, Streaming Protocol Events & Out-of-Band /status", () => {
 
 	it("enriches transcript messages and entries with server-side binding over synchronous RPC", async () => {
 		const scope = {
-			accountId: "acct-transcript-enrich",
+			accountId: uniqueAccountId("transcript-enrich"),
 			familyId: "default",
 		};
 

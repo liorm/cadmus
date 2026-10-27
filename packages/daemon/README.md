@@ -123,4 +123,4 @@ A refused dial, a connect timeout, and any completed response other than `101`, 
 
 The TCP connect budget is 10s (`DAEMON_CONNECT_TIMEOUT_MS`). A timeout uses the same backoff as a refused connection.
 
-Heartbeats are not sent by the daemon on a timer. The env DO sends `{ method: "heartbeat" }` only while tool calls to that socket are in flight. The daemon replies `{ ok: true }`. An idle socket has no heartbeat.
+Heartbeats are not sent by the daemon on a timer. The env DO sends `{ method: "heartbeat" }` only while tool calls to that socket are in flight. The daemon replies `{ ok: true }`. An idle socket has no heartbeat. The interval is 30 seconds unless `CADMUS_HEARTBEAT_MS` is set (see the root README). Production leaves that variable unset.

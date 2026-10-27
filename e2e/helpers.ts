@@ -13,6 +13,14 @@ setupLogger({ type: "silent" });
 
 export const TEST_TOKEN = "test-cadmus-secret";
 
+/**
+ * Fresh Cadmus account id. A Vitest worker reuses one workerd, so D1, KV,
+ * Durable Object names, and isolate memo keys collide when tests reuse an id.
+ */
+export function uniqueAccountId(prefix = "acct"): string {
+	return `${prefix}-${crypto.randomUUID()}`;
+}
+
 export interface RpcOptions {
 	token?: string;
 	cookie?: string;

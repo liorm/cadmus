@@ -8,11 +8,11 @@ import {
 	clearAesKeyCache,
 	toDoName,
 } from "../packages/worker/src/store/d1-admin.js";
-import { sendRpc } from "./helpers.js";
+import { sendRpc, uniqueAccountId } from "./helpers.js";
 
 describe("Credential In-Memory Caching & Cross-DO Cache Busting", () => {
 	it("caches decrypted credentials in DO memory and serves subsequent reads from cache", async () => {
-		const accountId = "acct-cache-test-1";
+		const accountId = uniqueAccountId("cred-cache");
 		const familyId = "default";
 		const rawKey = "sk-initial-secret-12345";
 
@@ -71,7 +71,7 @@ describe("Credential In-Memory Caching & Cross-DO Cache Busting", () => {
 	});
 
 	it("busts credential cache across all family DOs in the account when credentials change", async () => {
-		const accountId = "acct-cross-do-cache-1";
+		const accountId = uniqueAccountId("cred-cross-do");
 
 		// 1. Create two families in the same account
 		const resAlpha = await sendRpc<{ family: FamilyRecord }>(

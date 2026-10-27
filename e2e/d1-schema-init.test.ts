@@ -13,14 +13,19 @@ import {
 	runD1SchemaMigrations,
 	wrapD1WithSchemaFallback,
 } from "../packages/worker/src/store/d1-admin.js";
-import { sendRpc } from "./helpers.js";
+import { sendRpc, uniqueAccountId } from "./helpers.js";
+
+async function restoreAdminSchema(): Promise<void> {
+	resetD1InitializationCache(env.CADMUS_ADMIN_DB);
+	await ensureD1Schema(env.CADMUS_ADMIN_DB, { force: true });
+}
 
 describe("D1 Schema Initialization & Isolate Caching (Issue #18)", () => {
 	it("(a) fresh D1 self-initializes transparently on the first request", async () => {
 		resetEdgeD1InitCache();
 		resetD1InitStats();
 
-		const acctId = `fresh-${crypto.randomUUID().slice(0, 8)}`;
+		const acctId = uniqueAccountId("fresh");
 		const res = await sendRpc(
 			"bot.list",
 			{},
@@ -54,7 +59,8 @@ describe("D1 Schema Initialization & Isolate Caching (Issue #18)", () => {
 	});
 
 	it("(b) repeated requests in the same isolate do zero initialization round-trips", async () => {
-		// Isolate is already initialized from previous request
+		// Warm this isolate here so the zero-round-trip proof does not depend on (a).
+		await ensureD1Schema(env.CADMUS_ADMIN_DB);
 		expect(isD1DatabaseInitialized(env.CADMUS_ADMIN_DB)).toBe(true);
 
 		resetD1InitStats();
@@ -78,7 +84,7 @@ describe("D1 Schema Initialization & Isolate Caching (Issue #18)", () => {
 		};
 
 		try {
-			const acct1 = `warm-1-${crypto.randomUUID().slice(0, 8)}`;
+			const acct1 = uniqueAccountId("warm-1");
 			const res1 = await sendRpc(
 				"bot.list",
 				{},
@@ -86,7 +92,7 @@ describe("D1 Schema Initialization & Isolate Caching (Issue #18)", () => {
 			);
 			expect(res1.status).toBe(200);
 
-			const acct2 = `warm-2-${crypto.randomUUID().slice(0, 8)}`;
+			const acct2 = uniqueAccountId("warm-2");
 			const res2 = await sendRpc(
 				"bot.list",
 				{},
@@ -132,92 +138,105 @@ describe("D1 Schema Initialization & Isolate Caching (Issue #18)", () => {
 	});
 
 	it("(e) version-marker upgrade path migrates older schema and updates version", async () => {
-		// Set the stored version marker to an older version (0)
-		await env.CADMUS_ADMIN_DB.prepare(
-			"UPDATE cadmus_schema_meta SET value = '0' WHERE key = 'version'",
-		).run();
+		try {
+			// Set the stored version marker to an older version (0)
+			await env.CADMUS_ADMIN_DB.prepare(
+				"UPDATE cadmus_schema_meta SET value = '0' WHERE key = 'version'",
+			).run();
 
-		// Invalidate isolate cache so ensureD1Schema will re-check
-		resetD1InitializationCache(env.CADMUS_ADMIN_DB);
-		resetD1InitStats();
+			// Invalidate isolate cache so ensureD1Schema will re-check
+			resetD1InitializationCache(env.CADMUS_ADMIN_DB);
+			resetD1InitStats();
 
-		const versionBefore = await readSchemaVersion(env.CADMUS_ADMIN_DB);
-		expect(versionBefore).toBe(0);
+			const versionBefore = await readSchemaVersion(env.CADMUS_ADMIN_DB);
+			expect(versionBefore).toBe(0);
 
-		// Running ensureD1Schema must detect version < CADMUS_SCHEMA_VERSION, run migration, and update version
-		await ensureD1Schema(env.CADMUS_ADMIN_DB);
+			// Running ensureD1Schema must detect version < CADMUS_SCHEMA_VERSION, run migration, and update version
+			await ensureD1Schema(env.CADMUS_ADMIN_DB);
 
-		const stats = getD1InitStats();
-		expect(stats.migrationsRun).toBe(1);
+			const stats = getD1InitStats();
+			expect(stats.migrationsRun).toBe(1);
 
-		const versionAfter = await readSchemaVersion(env.CADMUS_ADMIN_DB);
-		expect(versionAfter).toBe(CADMUS_SCHEMA_VERSION);
+			const versionAfter = await readSchemaVersion(env.CADMUS_ADMIN_DB);
+			expect(versionAfter).toBe(CADMUS_SCHEMA_VERSION);
+		} finally {
+			await restoreAdminSchema();
+		}
 	});
 
 	it("(f) missing table/column fallback transparently recovers and retries operation", async () => {
 		const adminStore = new D1AdminStore({ db: env.CADMUS_ADMIN_DB });
+		const missingAccountId = uniqueAccountId("missing-fallback");
 
-		// Drop cadmus_accounts to simulate a missing table at runtime
-		await env.CADMUS_ADMIN_DB.prepare(
-			"DROP TABLE IF EXISTS cadmus_accounts",
-		).run();
+		try {
+			// Drop cadmus_accounts to simulate a missing table at runtime
+			await env.CADMUS_ADMIN_DB.prepare(
+				"DROP TABLE IF EXISTS cadmus_accounts",
+			).run();
 
-		// Calling getAccount on adminStore should intercept 'no such table: cadmus_accounts',
-		// trigger ensureD1Schema({ force: true }), re-create tables, and retry successfully
-		const account = await adminStore.getAccount("test-missing-fallback");
-		expect(account).toBeUndefined();
+			// Calling getAccount on adminStore should intercept 'no such table: cadmus_accounts',
+			// trigger ensureD1Schema({ force: true }), re-create tables, and retry successfully
+			const account = await adminStore.getAccount(missingAccountId);
+			expect(account).toBeUndefined();
 
-		// Table must now exist again
-		const tableCheck = await env.CADMUS_ADMIN_DB.prepare(
-			"SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'cadmus_accounts'",
-		).first<{ name: string }>();
-		expect(tableCheck?.name).toBe("cadmus_accounts");
+			// Table must now exist again
+			const tableCheck = await env.CADMUS_ADMIN_DB.prepare(
+				"SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'cadmus_accounts'",
+			).first<{ name: string }>();
+			expect(tableCheck?.name).toBe("cadmus_accounts");
+		} finally {
+			await restoreAdminSchema();
+		}
 	});
 
 	it("(g) concurrent cold-start requests share a single in-flight init", async () => {
-		// Drop cadmus_schema_meta to simulate a cold start on an uninitialized/fresh DB
-		await env.CADMUS_ADMIN_DB.prepare(
-			"DROP TABLE IF EXISTS cadmus_schema_meta",
-		).run();
+		try {
+			// Drop cadmus_schema_meta to simulate a cold start on an uninitialized/fresh DB
+			await env.CADMUS_ADMIN_DB.prepare(
+				"DROP TABLE IF EXISTS cadmus_schema_meta",
+			).run();
 
-		resetEdgeD1InitCache();
-		resetD1InitStats();
+			resetEdgeD1InitCache();
+			resetD1InitStats();
 
-		const acct1 = `cold-concur-1-${crypto.randomUUID().slice(0, 8)}`;
-		const acct2 = `cold-concur-2-${crypto.randomUUID().slice(0, 8)}`;
+			const acct1 = uniqueAccountId("cold-concur-1");
+			const acct2 = uniqueAccountId("cold-concur-2");
 
-		const [res1, res2] = await Promise.all([
-			sendRpc("bot.list", {}, { accountId: acct1, userId: `user:${acct1}` }),
-			sendRpc("bot.list", {}, { accountId: acct2, userId: `user:${acct2}` }),
-		]);
+			const [res1, res2] = await Promise.all([
+				sendRpc("bot.list", {}, { accountId: acct1, userId: `user:${acct1}` }),
+				sendRpc("bot.list", {}, { accountId: acct2, userId: `user:${acct2}` }),
+			]);
 
-		expect(res1.status).toBe(200);
-		expect(res2.status).toBe(200);
-		expect(res1.frame.ok).toBe(true);
-		expect(res2.frame.ok).toBe(true);
+			expect(res1.status).toBe(200);
+			expect(res2.status).toBe(200);
+			expect(res1.frame.ok).toBe(true);
+			expect(res2.frame.ok).toBe(true);
 
-		const stats = getD1InitStats();
-		expect(stats.migrationsRun).toBe(1);
-		expect(stats.schemaChecks).toBe(1);
+			const stats = getD1InitStats();
+			expect(stats.migrationsRun).toBe(1);
+			expect(stats.schemaChecks).toBe(1);
 
-		// Also verify subsequent cold-start with up-to-date schema shares single check and does 0 migrations
-		resetEdgeD1InitCache();
-		resetD1InitStats();
+			// Also verify subsequent cold-start with up-to-date schema shares single check and does 0 migrations
+			resetEdgeD1InitCache();
+			resetD1InitStats();
 
-		const acct3 = `cold-concur-3-${crypto.randomUUID().slice(0, 8)}`;
-		const acct4 = `cold-concur-4-${crypto.randomUUID().slice(0, 8)}`;
+			const acct3 = uniqueAccountId("cold-concur-3");
+			const acct4 = uniqueAccountId("cold-concur-4");
 
-		const [res3, res4] = await Promise.all([
-			sendRpc("bot.list", {}, { accountId: acct3, userId: `user:${acct3}` }),
-			sendRpc("bot.list", {}, { accountId: acct4, userId: `user:${acct4}` }),
-		]);
+			const [res3, res4] = await Promise.all([
+				sendRpc("bot.list", {}, { accountId: acct3, userId: `user:${acct3}` }),
+				sendRpc("bot.list", {}, { accountId: acct4, userId: `user:${acct4}` }),
+			]);
 
-		expect(res3.status).toBe(200);
-		expect(res4.status).toBe(200);
+			expect(res3.status).toBe(200);
+			expect(res4.status).toBe(200);
 
-		const stats2 = getD1InitStats();
-		expect(stats2.migrationsRun).toBe(0);
-		expect(stats2.schemaChecks).toBe(1);
+			const stats2 = getD1InitStats();
+			expect(stats2.migrationsRun).toBe(0);
+			expect(stats2.schemaChecks).toBe(1);
+		} finally {
+			await restoreAdminSchema();
+		}
 	});
 
 	it("(h) concurrent forced migrations do not fail with duplicate column error", async () => {
@@ -252,73 +271,85 @@ describe("D1 Schema Initialization & Isolate Caching (Issue #18)", () => {
 			},
 		);
 
-		// Drop cadmus_accounts to simulate missing schema
-		await env.CADMUS_ADMIN_DB.prepare(
-			"DROP TABLE IF EXISTS cadmus_accounts",
-		).run();
+		try {
+			// Drop cadmus_accounts to simulate missing schema
+			await env.CADMUS_ADMIN_DB.prepare(
+				"DROP TABLE IF EXISTS cadmus_accounts",
+			).run();
 
-		// Statement raw() should trigger missing-schema fallback, recover, and succeed
-		const rawRows = await wrapped
-			.prepare("SELECT count(*) as count FROM cadmus_accounts")
-			.raw();
-		expect(rawRows).toBeDefined();
-		expect(cacheInvalidated).toBe(true);
+			// Statement raw() should trigger missing-schema fallback, recover, and succeed
+			const rawRows = await wrapped
+				.prepare("SELECT count(*) as count FROM cadmus_accounts")
+				.raw();
+			expect(rawRows).toBeDefined();
+			expect(cacheInvalidated).toBe(true);
 
-		// Drop cadmus_accounts again, but simulate migration failure during retry
-		await env.CADMUS_ADMIN_DB.prepare(
-			"DROP TABLE IF EXISTS cadmus_accounts",
-		).run();
+			// Drop cadmus_accounts again, but simulate migration failure during retry
+			await env.CADMUS_ADMIN_DB.prepare(
+				"DROP TABLE IF EXISTS cadmus_accounts",
+			).run();
 
-		let migrationFailed = false;
-		const failingDb = new Proxy(env.CADMUS_ADMIN_DB, {
-			get(target, prop, receiver) {
-				if (prop === "batch") {
-					return async () => {
-						migrationFailed = true;
-						throw new Error("Simulated D1 migration error during fallback");
-					};
-				}
-				return Reflect.get(target, prop, receiver);
-			},
-		});
+			let migrationFailed = false;
+			const failingDb = new Proxy(env.CADMUS_ADMIN_DB, {
+				get(target, prop, receiver) {
+					if (prop === "batch") {
+						return async () => {
+							migrationFailed = true;
+							throw new Error("Simulated D1 migration error during fallback");
+						};
+					}
+					return Reflect.get(target, prop, receiver);
+				},
+			});
 
-		const failingStore = new D1AdminStore({ db: failingDb });
-		await expect(failingStore.getAccount("test-account")).rejects.toThrow(
-			"Simulated D1 migration error during fallback",
-		);
-		expect(migrationFailed).toBe(true);
+			const failingStore = new D1AdminStore({ db: failingDb });
+			await expect(
+				failingStore.getAccount(uniqueAccountId("fallback-fail")),
+			).rejects.toThrow("Simulated D1 migration error during fallback");
+			expect(migrationFailed).toBe(true);
 
-		// Isolate cache must NOT retain failingDb as initialized
-		expect(isD1DatabaseInitialized(failingDb)).toBe(false);
+			// Isolate cache must NOT retain failingDb as initialized
+			expect(isD1DatabaseInitialized(failingDb)).toBe(false);
+		} finally {
+			await restoreAdminSchema();
+		}
 	});
 
 	it("(k) multiple forced inits arriving during unforced cold boot serialize and de-duplicate", async () => {
-		resetEdgeD1InitCache();
-		resetD1InitStats();
+		try {
+			resetEdgeD1InitCache();
+			resetD1InitStats();
 
-		// Ensure schema is up to date first
-		await ensureD1Schema(env.CADMUS_ADMIN_DB);
+			// Ensure schema is up to date first
+			await ensureD1Schema(env.CADMUS_ADMIN_DB);
 
-		// Now reset cache so next ensureD1Schema is a cold-start check
-		resetD1InitializationCache(env.CADMUS_ADMIN_DB);
-		resetD1InitStats();
+			// Now reset cache so next ensureD1Schema is a cold-start check
+			resetD1InitializationCache(env.CADMUS_ADMIN_DB);
+			resetD1InitStats();
 
-		// Start unforced init (cold boot, version check)
-		const unforcedPromise = ensureD1Schema(env.CADMUS_ADMIN_DB);
+			// Start unforced init (cold boot, version check)
+			const unforcedPromise = ensureD1Schema(env.CADMUS_ADMIN_DB);
 
-		// Concurrently invoke multiple forced inits while unforced is in flight
-		const forcedPromise1 = ensureD1Schema(env.CADMUS_ADMIN_DB, { force: true });
-		const forcedPromise2 = ensureD1Schema(env.CADMUS_ADMIN_DB, { force: true });
+			// Concurrently invoke multiple forced inits while unforced is in flight
+			const forcedPromise1 = ensureD1Schema(env.CADMUS_ADMIN_DB, {
+				force: true,
+			});
+			const forcedPromise2 = ensureD1Schema(env.CADMUS_ADMIN_DB, {
+				force: true,
+			});
 
-		await Promise.all([unforcedPromise, forcedPromise1, forcedPromise2]);
+			await Promise.all([unforcedPromise, forcedPromise1, forcedPromise2]);
 
-		// Unforced init ran 0 migrations (1 version check); the two forced inits serialized and shared exactly 1 migration
-		const stats = getD1InitStats();
-		expect(stats.migrationsRun).toBe(1);
-		expect(isD1DatabaseInitialized(env.CADMUS_ADMIN_DB)).toBe(true);
+			// Unforced init ran 0 migrations (1 version check); the two forced inits serialized and shared exactly 1 migration
+			const stats = getD1InitStats();
+			expect(stats.migrationsRun).toBe(1);
+			expect(isD1DatabaseInitialized(env.CADMUS_ADMIN_DB)).toBe(true);
 
-		// Verify resetD1InitializationCache(db) resets initialized state cleanly
-		resetD1InitializationCache(env.CADMUS_ADMIN_DB);
-		expect(isD1DatabaseInitialized(env.CADMUS_ADMIN_DB)).toBe(false);
+			// Verify resetD1InitializationCache(db) resets initialized state cleanly
+			resetD1InitializationCache(env.CADMUS_ADMIN_DB);
+			expect(isD1DatabaseInitialized(env.CADMUS_ADMIN_DB)).toBe(false);
+		} finally {
+			await restoreAdminSchema();
+		}
 	});
 });

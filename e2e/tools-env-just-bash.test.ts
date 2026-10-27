@@ -1,14 +1,19 @@
 import { env, runDurableObjectAlarm } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import type { ServerEvent } from "../packages/worker/src/protocol.js";
-import { connectTestWs, type RpcOptions, sendRpc } from "./helpers.js";
+import {
+	connectTestWs,
+	type RpcOptions,
+	sendRpc,
+	uniqueAccountId,
+} from "./helpers.js";
 
 const CODING_TOOLS = ["bash", "read", "write", "edit"];
 
 function scope(
 	label: string,
 ): RpcOptions & { accountId: string; familyId: string } {
-	const accountId = `env-${label}-${crypto.randomUUID().slice(0, 8)}`;
+	const accountId = uniqueAccountId(`env-${label}`);
 	return { accountId, familyId: "default" };
 }
 
@@ -815,7 +820,7 @@ describe("just-bash tools env through the bot", () => {
 	});
 
 	it("isolates families until sharedWorkspace is set, including the byte cap", async () => {
-		const accountId = `env-share-${crypto.randomUUID().slice(0, 8)}`;
+		const accountId = uniqueAccountId("env-share");
 		const alpha = { accountId, familyId: "default" };
 		await sendRpc("family.update", { harvestDelayMs: 0 }, alpha);
 		const createdFamily = await sendRpc(
@@ -1002,7 +1007,7 @@ describe("just-bash tools env through the bot", () => {
 	}, 60_000);
 
 	it("counts usage per family and records application errors without disconnecting", async () => {
-		const accountId = `env-usage-${crypto.randomUUID().slice(0, 8)}`;
+		const accountId = uniqueAccountId("env-usage");
 		const alpha = { accountId, familyId: "default" };
 		await sendRpc("family.update", { harvestDelayMs: 0 }, alpha);
 		await sendRpc("family.create", { familyId: "beta", name: "Beta" }, alpha);

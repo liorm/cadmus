@@ -5,8 +5,9 @@ import { registerEnvConformance } from "@earendil-works/pi-durable/testing";
 import { describe, expect, it } from "vitest";
 import { createProxyExecutionEnv } from "../packages/worker/src/tools-env/proxy-env.js";
 import { NAMESPACE_BYTE_CAP } from "../packages/worker/src/tools-env/pure.js";
+import { uniqueAccountId } from "./helpers.js";
 
-const accountId = "env-conformance";
+const accountId = uniqueAccountId("env-conformance");
 const envId = "jb_conf";
 const familyId = "conf-family";
 

@@ -17,6 +17,7 @@ import {
 	sha256Hex,
 } from "../packages/worker/src/edge-cache.js";
 import { sha256Hex as d1Sha256Hex } from "../packages/worker/src/store/d1-admin.js";
+import { uniqueAccountId } from "./helpers.js";
 
 describe("EdgeCache Pure Unit Helpers & L1 LRU Cache", () => {
 	beforeEach(() => {
@@ -71,38 +72,46 @@ describe("EdgeCache Pure Unit Helpers & L1 LRU Cache", () => {
 		});
 
 		it("matches 2-part account-scoped secret", async () => {
+			const accountId = uniqueAccountId("acc");
 			const res = await matchMasterSecret(
-				`acc_123:${masterSecret}`,
+				`${accountId}:${masterSecret}`,
 				masterSecret,
 			);
-			expect(res).toEqual({ matched: true, accountId: "acc_123" });
+			expect(res).toEqual({ matched: true, accountId });
 		});
 
 		it("matches 3-part account-and-user-scoped secret", async () => {
+			const accountId = uniqueAccountId("acc");
+			const userId = uniqueAccountId("user");
 			const res = await matchMasterSecret(
-				`acc_123:user_456:${masterSecret}`,
+				`${accountId}:${userId}:${masterSecret}`,
 				masterSecret,
 			);
 			expect(res).toEqual({
 				matched: true,
-				accountId: "acc_123",
-				userId: "user_456",
+				accountId,
+				userId,
 			});
 		});
 
 		it("rejects mismatched secrets", async () => {
+			const accountId = uniqueAccountId("acc");
+			const userId = uniqueAccountId("user");
 			expect(await matchMasterSecret("wrong-secret", masterSecret)).toEqual({
 				matched: false,
 			});
-			expect(await matchMasterSecret(`acc_123:wrong`, masterSecret)).toEqual({
+			expect(
+				await matchMasterSecret(`${accountId}:wrong`, masterSecret),
+			).toEqual({
 				matched: false,
 			});
 			expect(
-				await matchMasterSecret(`acc_123:user_456:wrong`, masterSecret),
+				await matchMasterSecret(`${accountId}:${userId}:wrong`, masterSecret),
 			).toEqual({ matched: false });
 		});
 
 		it("rejects empty parts and unsupported formats", async () => {
+			const accountId = uniqueAccountId("acc");
 			expect(await matchMasterSecret("", masterSecret)).toEqual({
 				matched: false,
 			});
@@ -110,7 +119,7 @@ describe("EdgeCache Pure Unit Helpers & L1 LRU Cache", () => {
 				{ matched: false },
 			);
 			expect(
-				await matchMasterSecret(`acc_123::${masterSecret}`, masterSecret),
+				await matchMasterSecret(`${accountId}::${masterSecret}`, masterSecret),
 			).toEqual({ matched: false });
 			expect(
 				await matchMasterSecret(`a:b:c:${masterSecret}`, masterSecret),
@@ -166,13 +175,14 @@ describe("EdgeCache Pure Unit Helpers & L1 LRU Cache", () => {
 		});
 
 		it("builds versioned, environment-namespaced family cache keys", () => {
-			const prodKey = makeFamilyCacheKey("acct-1", "default", {});
-			expect(prodKey).toBe("cadmus:v1:prod:family:acct-1:default");
+			const accountId = uniqueAccountId("acct");
+			const prodKey = makeFamilyCacheKey(accountId, "default", {});
+			expect(prodKey).toBe(`cadmus:v1:prod:family:${accountId}:default`);
 
-			const previewKey = makeFamilyCacheKey("acct-1", "default", {
+			const previewKey = makeFamilyCacheKey(accountId, "default", {
 				IS_PREVIEW: "true",
 			});
-			expect(previewKey).toBe("cadmus:v1:preview:family:acct-1:default");
+			expect(previewKey).toBe(`cadmus:v1:preview:family:${accountId}:default`);
 			expect(previewKey).not.toBe(prodKey);
 		});
 	});
@@ -243,21 +253,31 @@ describe("EdgeCache Pure Unit Helpers & L1 LRU Cache", () => {
 
 	describe("Master user isolate memoization", () => {
 		it("remembers ensured master users and clears correctly", () => {
-			expect(isMasterUserEnsured("acct-1", "user-1")).toBe(false);
-			markMasterUserEnsured("acct-1", "user-1");
-			expect(isMasterUserEnsured("acct-1", "user-1")).toBe(true);
-			expect(isMasterUserEnsured("acct-1", "user-2")).toBe(false);
-			expect(isMasterUserEnsured("acct-2", "user-1")).toBe(false);
+			const accountA = uniqueAccountId("acct");
+			const accountB = uniqueAccountId("acct");
+			const userA = uniqueAccountId("user");
+			const userB = uniqueAccountId("user");
+			try {
+				expect(isMasterUserEnsured(accountA, userA)).toBe(false);
+				markMasterUserEnsured(accountA, userA);
+				expect(isMasterUserEnsured(accountA, userA)).toBe(true);
+				expect(isMasterUserEnsured(accountA, userB)).toBe(false);
+				expect(isMasterUserEnsured(accountB, userA)).toBe(false);
 
-			clearEnsuredMasterUsers();
-			expect(isMasterUserEnsured("acct-1", "user-1")).toBe(false);
+				clearEnsuredMasterUsers();
+				expect(isMasterUserEnsured(accountA, userA)).toBe(false);
+			} finally {
+				clearEnsuredMasterUsers();
+			}
 		});
 	});
 
 	describe("EdgeCache L1 (in-memory only, no KV)", () => {
 		it("caches tokens in L1 and tracks hits/misses", async () => {
 			const cache = new EdgeCache({});
-			const tokenHash = await sha256Hex("member-token-123");
+			const accountId = uniqueAccountId("acct");
+			const rawToken = crypto.randomUUID();
+			const tokenHash = await sha256Hex(rawToken);
 
 			expect(await cache.getToken(tokenHash)).toBeUndefined();
 			expect(cache.getMetrics().tokenMisses).toBe(1);
@@ -265,44 +285,45 @@ describe("EdgeCache Pure Unit Helpers & L1 LRU Cache", () => {
 
 			await cache.setToken(tokenHash, {
 				userId: "user-alice",
-				accountId: "acct-1",
+				accountId,
 				role: "member",
 			});
 
 			const cached = await cache.getToken(tokenHash);
 			expect(cached).toEqual({
 				userId: "user-alice",
-				accountId: "acct-1",
+				accountId,
 				role: "member",
 			});
 			expect(cache.getMetrics().tokenL1Hits).toBe(1);
 
 			// Invalidate token
-			await cache.invalidateToken("member-token-123");
+			await cache.invalidateToken(rawToken);
 			expect(await cache.getToken(tokenHash)).toBeUndefined();
 			expect(cache.getMetrics().tokenMisses).toBe(2);
 		});
 
 		it("caches family routing in L1 and tracks hits/misses", async () => {
 			const cache = new EdgeCache({});
-			expect(await cache.getFamily("acct-1", "default")).toBeUndefined();
+			const accountId = uniqueAccountId("acct");
+			expect(await cache.getFamily(accountId, "default")).toBeUndefined();
 			expect(cache.getMetrics().familyMisses).toBe(1);
 
-			await cache.setFamily("acct-1", "default", {
-				accountId: "acct-1",
+			await cache.setFamily(accountId, "default", {
+				accountId,
 				familyId: "default",
 				name: "Default Family",
-				doName: "cadmus:acct-1:default",
+				doName: `cadmus:${accountId}:default`,
 				timezone: "UTC",
 				harvestDelayMs: 60_000,
 			});
 
-			const family = await cache.getFamily("acct-1", "default");
-			expect(family?.doName).toBe("cadmus:acct-1:default");
+			const family = await cache.getFamily(accountId, "default");
+			expect(family?.doName).toBe(`cadmus:${accountId}:default`);
 			expect(cache.getMetrics().familyL1Hits).toBe(1);
 
-			await cache.invalidateFamily("acct-1", "default");
-			expect(await cache.getFamily("acct-1", "default")).toBeUndefined();
+			await cache.invalidateFamily(accountId, "default");
+			expect(await cache.getFamily(accountId, "default")).toBeUndefined();
 			expect(cache.getMetrics().familyMisses).toBe(2);
 		});
 	});
@@ -329,7 +350,9 @@ describe("EdgeCache Pure Unit Helpers & L1 LRU Cache", () => {
 			} as unknown as KVNamespace;
 
 			const cache = new EdgeCache({ CADMUS_CACHE_KV: mockKv });
-			const tokenHash = await sha256Hex("kv-token-abc");
+			const accountId = uniqueAccountId("acct");
+			const rawToken = crypto.randomUUID();
+			const tokenHash = await sha256Hex(rawToken);
 
 			// 1. Initial lookup is a miss in both L1 and L2
 			expect(await cache.getToken(tokenHash)).toBeUndefined();
@@ -338,7 +361,7 @@ describe("EdgeCache Pure Unit Helpers & L1 LRU Cache", () => {
 			// 2. Set token writes to both L1 and KV
 			await cache.setToken(tokenHash, {
 				userId: "bob",
-				accountId: "acct-2",
+				accountId,
 				role: "owner",
 			});
 			const expectedKey = makeTokenCacheKey(tokenHash, {});
@@ -368,11 +391,14 @@ describe("EdgeCache Pure Unit Helpers & L1 LRU Cache", () => {
 		it("maintains isolated in-memory L1 caches across instances", async () => {
 			const cache1 = new EdgeCache({});
 			const cache2 = new EdgeCache({});
-			const tokenHash = await sha256Hex("isolated-token-1");
+			const accountA = uniqueAccountId("acct");
+			const accountB = uniqueAccountId("acct");
+			const rawToken = crypto.randomUUID();
+			const tokenHash = await sha256Hex(rawToken);
 
 			await cache1.setToken(tokenHash, {
 				userId: "user-1",
-				accountId: "acct-1",
+				accountId: accountA,
 				role: "member",
 			});
 
@@ -385,21 +411,21 @@ describe("EdgeCache Pure Unit Helpers & L1 LRU Cache", () => {
 			expect(fromC2).toBeUndefined();
 
 			// Instance clearMemory clears only cache1
-			await cache2.setFamily("acct-2", "fam-2", {
-				accountId: "acct-2",
+			await cache2.setFamily(accountB, "fam-2", {
+				accountId: accountB,
 				familyId: "fam-2",
 				name: "Family 2",
-				doName: "cadmus:acct-2:fam-2",
+				doName: `cadmus:${accountB}:fam-2`,
 				timezone: "UTC",
 				harvestDelayMs: 60_000,
 			});
 			cache1.clearMemory();
 			expect(await cache1.getToken(tokenHash)).toBeUndefined();
-			expect(await cache2.getFamily("acct-2", "fam-2")).toBeDefined();
+			expect(await cache2.getFamily(accountB, "fam-2")).toBeDefined();
 
 			// clearAllEdgeCaches clears all instances
 			clearAllEdgeCaches();
-			expect(await cache2.getFamily("acct-2", "fam-2")).toBeUndefined();
+			expect(await cache2.getFamily(accountB, "fam-2")).toBeUndefined();
 		});
 
 		it("reuses singleton instance for distinct empty env objects in getEdgeCache", () => {

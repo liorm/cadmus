@@ -17,15 +17,20 @@ import {
 	writeOpLockPaths,
 } from "../packages/worker/src/tools-env/pure.js";
 import {
+	HEARTBEAT_MS,
 	isDaemonBearerToken,
 	isTransportMessage,
 	MAX_FRAME_BYTES,
+	MAX_HEARTBEAT_MS,
+	MIN_HEARTBEAT_MS,
 	parseDaemonFrame,
 	parseWireRequest,
 	peerErrorMessage,
+	resolveHeartbeatMs,
 	TRANSPORT_DISCONNECTED,
 	transportFailure,
 } from "../packages/worker/src/tools-env/wire.js";
+import { uniqueAccountId } from "./helpers.js";
 
 describe("resolveToolsEnv", () => {
 	const account = { envId: "jb_default" };
@@ -91,32 +96,35 @@ describe("resolveToolsEnv", () => {
 
 describe("tools env ids and writes", () => {
 	it("formats scopes and execution env ids without splitting on colon", () => {
+		const accountId = uniqueAccountId("acct");
 		expect(scopeString("chat", "assistant:room")).toBe("chat:assistant:room");
 		expect(scopeString("bot", "assistant")).toBe("bot:assistant");
 		expect(storageFamilyId(true, "family-a")).toBe("");
 		expect(storageFamilyId(false, "family-a")).toBe("family-a");
-		expect(envDoName("acct", "jb_default")).toBe("env:acct:jb_default");
+		expect(envDoName(accountId, "jb_default")).toBe(
+			`env:${accountId}:jb_default`,
+		);
 		expect(
 			executionEnvId({
 				kind: "just-bash",
-				accountId: "acct",
+				accountId,
 				envId: "jb_default",
 				familyId: "fam",
 				scope: "chat:assistant:room",
 			}),
-		).toBe("just-bash:acct:jb_default:fam:chat:assistant:room");
+		).toBe(`just-bash:${accountId}:jb_default:fam:chat:assistant:room`);
 		expect(
 			executionEnvId({
 				kind: "just-bash",
-				accountId: "acct",
+				accountId,
 				envId: "jb_default",
 				sharedWorkspace: true,
 				scope: "bot:assistant",
 			}),
-		).toBe("just-bash:acct:jb_default:shared:bot:assistant");
-		expect(
-			executionEnvId({ kind: "daemon", accountId: "acct", envId: "edge" }),
-		).toBe("daemon:acct:edge");
+		).toBe(`just-bash:${accountId}:jb_default:shared:bot:assistant`);
+		expect(executionEnvId({ kind: "daemon", accountId, envId: "edge" })).toBe(
+			`daemon:${accountId}:edge`,
+		);
 	});
 
 	it("normalizes aliased write paths onto one lock key", () => {
@@ -382,5 +390,25 @@ describe("chooseToolsEnvIdentity", () => {
 				harvest: true,
 			}),
 		).toBeUndefined();
+	});
+});
+
+describe("resolveHeartbeatMs", () => {
+	it("keeps the 30s default when the binding is missing or not a number", () => {
+		expect(HEARTBEAT_MS).toBe(30_000);
+		expect(resolveHeartbeatMs(undefined)).toBe(HEARTBEAT_MS);
+		expect(resolveHeartbeatMs("")).toBe(HEARTBEAT_MS);
+		expect(resolveHeartbeatMs("  ")).toBe(HEARTBEAT_MS);
+		expect(resolveHeartbeatMs("nope")).toBe(HEARTBEAT_MS);
+		expect(resolveHeartbeatMs("NaN")).toBe(HEARTBEAT_MS);
+	});
+
+	it("clamps a finite override", () => {
+		expect(resolveHeartbeatMs("200")).toBe(200);
+		expect(resolveHeartbeatMs(" 250 ")).toBe(250);
+		expect(resolveHeartbeatMs("200.4")).toBe(200);
+		expect(resolveHeartbeatMs("1")).toBe(MIN_HEARTBEAT_MS);
+		expect(resolveHeartbeatMs("-5")).toBe(MIN_HEARTBEAT_MS);
+		expect(resolveHeartbeatMs("999999")).toBe(MAX_HEARTBEAT_MS);
 	});
 });

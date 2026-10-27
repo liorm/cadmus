@@ -8,7 +8,11 @@ import {
 	type WatchEvent,
 } from "./namespace.js";
 import { daemonLockPaths, writeOpLockPaths } from "./pure.js";
-import { frameByteLength, MAX_FRAME_BYTES } from "./wire.js";
+import {
+	frameByteLength,
+	MAX_FRAME_BYTES,
+	resolveHeartbeatMs,
+} from "./wire.js";
 import { type ConnectionSnapshot, WsRemoteBackend } from "./ws-backend.js";
 
 export interface NamespaceCall {
@@ -61,8 +65,10 @@ export class CadmusEnvDO extends DurableObject<Env> {
 
 	constructor(ctx: DurableObjectState, env: Env) {
 		super(ctx, env);
-		this.ws = new WsRemoteBackend(ctx.storage.sql, () =>
-			ctx.getWebSockets("tools-env-daemon"),
+		this.ws = new WsRemoteBackend(
+			ctx.storage.sql,
+			() => ctx.getWebSockets("tools-env-daemon"),
+			resolveHeartbeatMs(env.CADMUS_HEARTBEAT_MS),
 		);
 		this.schemaReady = ctx.blockConcurrencyWhile(async () => {
 			this.ensureSchema();

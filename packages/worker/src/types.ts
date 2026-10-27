@@ -10,6 +10,11 @@ export interface Env {
 	CADMUS_ENCRYPTION_KEY?: string;
 	CADMUS_DEFAULT_TIMEZONE?: string;
 	CADMUS_HARVEST_DELAY_MS?: string;
+	/**
+	 * Daemon heartbeat interval in milliseconds. Unset means 30000.
+	 * See `resolveHeartbeatMs`.
+	 */
+	CADMUS_HEARTBEAT_MS?: string;
 	CADMUS_LOG_LEVEL?: string;
 	LOG_LEVEL?: string;
 	IS_PREVIEW?: string;

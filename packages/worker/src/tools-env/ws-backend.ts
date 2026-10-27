@@ -83,6 +83,7 @@ export class WsRemoteBackend {
 	constructor(
 		private readonly sql: SqlStorage,
 		private readonly sockets: () => WebSocket[],
+		private readonly heartbeatMs = HEARTBEAT_MS,
 	) {
 		this.caller = new WireCaller((text) => this.sendRaw(text));
 	}
@@ -474,7 +475,7 @@ export class WsRemoteBackend {
 
 	private arm(): void {
 		if (this.timer !== null || this.inFlight <= 0) return;
-		this.timer = setTimeout(() => this.tick(), HEARTBEAT_MS);
+		this.timer = setTimeout(() => this.tick(), this.heartbeatMs);
 	}
 
 	private tick(): void {

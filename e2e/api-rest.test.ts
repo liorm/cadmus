@@ -16,7 +16,7 @@ import {
 	isCommandReadOnly,
 	listCommandTypes,
 } from "../packages/worker/src/protocol.js";
-import { sendRpc, TEST_TOKEN } from "./helpers.js";
+import { sendRpc, TEST_TOKEN, uniqueAccountId } from "./helpers.js";
 
 const PRIVATE_API_CACHE = "private, no-store";
 const PRIVATE_API_VARY = "Authorization, Cookie, X-Cadmus-Family-Id";
@@ -233,7 +233,7 @@ describe("REST /api command translation", () => {
 	});
 
 	it("reads and writes files over /api and matches /rpc results and error codes", async () => {
-		const accountId = "acct-api-files";
+		const accountId = uniqueAccountId("api-files");
 		const headers = authHeaders(accountId, "default");
 
 		const created = await sendRpc(
@@ -389,7 +389,7 @@ describe("REST /api command translation", () => {
 	});
 
 	it("returns 404 for unknown paths and preserves family routing", async () => {
-		const accountId = "acct-api-route";
+		const accountId = uniqueAccountId("api-route");
 		const unknown = await SELF.fetch("http://example.com/api/no/such", {
 			headers: authHeaders(accountId),
 		});
@@ -492,7 +492,7 @@ describe("REST /api command translation", () => {
 	});
 
 	it("accepts Authorization Bearer on GET and POST /api and rejects query tokens and cookies", async () => {
-		const accountId = "acct-api-bearer";
+		const accountId = uniqueAccountId("api-bearer");
 		const headers = authHeaders(accountId);
 
 		const listed = await SELF.fetch("http://example.com/api/bot/list", {
@@ -513,7 +513,13 @@ describe("REST /api command translation", () => {
 			family: { familyId: "bearer-fam", name: "Bearer" },
 		});
 
-		const querySecret = "qtok-9f3a7c2e-do-not-log";
+		const queryAccountId = uniqueAccountId("api-query");
+		const cookieAccountId = uniqueAccountId("api-cookie");
+		const otherAccountId = uniqueAccountId("api-other");
+		const rpcQueryAccountId = uniqueAccountId("rpc-query");
+		const rpcCookieAccountId = uniqueAccountId("rpc-cookie");
+		const eventsAccountId = uniqueAccountId("events-query");
+		const querySecret = `qtok-${crypto.randomUUID()}`;
 		const captured: {
 			level: string;
 			message: string;
@@ -573,7 +579,7 @@ describe("REST /api command translation", () => {
 		try {
 			setupLogger({ type: "custom", logger: makeCustom() });
 			await expectQueryTokenRejected(
-				`http://example.com/api/bot/list?token=${encodeURIComponent(querySecret)}&accountId=acct-api-query`,
+				`http://example.com/api/bot/list?token=${encodeURIComponent(querySecret)}&accountId=${encodeURIComponent(queryAccountId)}`,
 			);
 			await expectQueryTokenRejected(
 				`http://example.com/api/bot/list?token=${encodeURIComponent(querySecret)}`,
@@ -617,7 +623,7 @@ describe("REST /api command translation", () => {
 
 		const viaCookie = await SELF.fetch("http://example.com/api/bot/list", {
 			headers: {
-				Cookie: `cadmus_session=${encodeURIComponent(`acct-api-cookie:owner:${TEST_TOKEN}`)}`,
+				Cookie: `cadmus_session=${encodeURIComponent(`${cookieAccountId}:owner:${TEST_TOKEN}`)}`,
 			},
 		});
 		expect(viaCookie.status).toBe(401);
@@ -633,7 +639,7 @@ describe("REST /api command translation", () => {
 		const headCookie = await SELF.fetch("http://example.com/api/bot/list", {
 			method: "HEAD",
 			headers: {
-				Cookie: `cadmus_session=${encodeURIComponent(`acct-api-cookie:owner:${TEST_TOKEN}`)}`,
+				Cookie: `cadmus_session=${encodeURIComponent(`${cookieAccountId}:owner:${TEST_TOKEN}`)}`,
 			},
 		});
 		expect(headCookie.status).toBe(401);
@@ -646,14 +652,14 @@ describe("REST /api command translation", () => {
 		const cookieIgnored = await SELF.fetch("http://example.com/api/bot/list", {
 			headers: {
 				...headers,
-				Cookie: `cadmus_session=${encodeURIComponent("acct-other:owner:not-the-header-token")}`,
+				Cookie: `cadmus_session=${encodeURIComponent(`${otherAccountId}:owner:not-the-header-token`)}`,
 			},
 		});
 		expect(cookieIgnored.status).toBe(200);
 		expect(await cookieIgnored.json()).toMatchObject({ bots: [] });
 
 		const rpcQuery = await SELF.fetch(
-			`http://example.com/rpc?token=${encodeURIComponent(TEST_TOKEN)}&accountId=acct-rpc-query&userId=rpc-query-user`,
+			`http://example.com/rpc?token=${encodeURIComponent(TEST_TOKEN)}&accountId=${encodeURIComponent(rpcQueryAccountId)}&userId=rpc-query-user`,
 			{
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
@@ -671,14 +677,14 @@ describe("REST /api command translation", () => {
 			{},
 			{
 				token: "",
-				cookie: `cadmus_session=${encodeURIComponent(`acct-rpc-cookie:owner:${TEST_TOKEN}`)}`,
+				cookie: `cadmus_session=${encodeURIComponent(`${rpcCookieAccountId}:owner:${TEST_TOKEN}`)}`,
 			},
 		);
 		expect(rpcCookie.status).toBe(200);
 		expect(rpcCookie.frame.ok).toBe(true);
 
 		const eventsQuery = await SELF.fetch(
-			`http://example.com/events?token=${encodeURIComponent(TEST_TOKEN)}&accountId=acct-events-query`,
+			`http://example.com/events?token=${encodeURIComponent(TEST_TOKEN)}&accountId=${encodeURIComponent(eventsAccountId)}`,
 		);
 		expect(eventsQuery.status).toBe(200);
 		expect(eventsQuery.headers.get("content-type")).toContain(
@@ -692,9 +698,10 @@ describe("API document routes", () => {
 	const specs = ["/api/openapi.json", "/api/asyncapi.json"] as const;
 
 	it("treats OpenAPI and AsyncAPI paths as unknown /api commands", async () => {
+		const accountId = uniqueAccountId("docs");
 		for (const path of specs) {
 			const res = await SELF.fetch(`http://example.com${path}`, {
-				headers: { Authorization: `Bearer ${TEST_TOKEN}` },
+				headers: authHeaders(accountId),
 			});
 			expect(res.status).toBe(404);
 			expectPrivateApiCache(res);
@@ -704,7 +711,7 @@ describe("API document routes", () => {
 
 			const head = await SELF.fetch(`http://example.com${path}`, {
 				method: "HEAD",
-				headers: { Authorization: `Bearer ${TEST_TOKEN}` },
+				headers: authHeaders(accountId),
 			});
 			expect(head.status).toBe(404);
 			expect(await head.text()).toBe("");
@@ -713,6 +720,7 @@ describe("API document routes", () => {
 	});
 
 	it("authenticates those paths as /api before 404", async () => {
+		const accountId = uniqueAccountId("docs-auth");
 		for (const path of specs) {
 			const anon = await SELF.fetch(`http://example.com${path}`);
 			expect(anon.status).toBe(401);
@@ -724,7 +732,7 @@ describe("API document routes", () => {
 
 			const query = await SELF.fetch(
 				`http://example.com${path}?token=${encodeURIComponent(TEST_TOKEN)}`,
-				{ headers: { Authorization: `Bearer ${TEST_TOKEN}` } },
+				{ headers: authHeaders(accountId) },
 			);
 			expect(query.status).toBe(401);
 			expectPrivateApiCache(query);
@@ -737,7 +745,7 @@ describe("API document routes", () => {
 
 			const headQuery = await SELF.fetch(
 				`http://example.com${path}?token=${encodeURIComponent(TEST_TOKEN)}`,
-				{ method: "HEAD", headers: { Authorization: `Bearer ${TEST_TOKEN}` } },
+				{ method: "HEAD", headers: authHeaders(accountId) },
 			);
 			expect(headQuery.status).toBe(401);
 			expect(await headQuery.text()).toBe("");
@@ -745,7 +753,7 @@ describe("API document routes", () => {
 
 			const cookie = await SELF.fetch(`http://example.com${path}`, {
 				headers: {
-					Cookie: `cadmus_session=${encodeURIComponent(`acct-docs:owner:${TEST_TOKEN}`)}`,
+					Cookie: `cadmus_session=${encodeURIComponent(`${uniqueAccountId("docs")}:owner:${TEST_TOKEN}`)}`,
 				},
 			});
 			expect(cookie.status).toBe(401);

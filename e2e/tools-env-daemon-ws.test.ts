@@ -1,11 +1,13 @@
 import { env, runDurableObjectAlarm } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import type { ServerEvent } from "../packages/worker/src/protocol.js";
+import { resolveHeartbeatMs } from "../packages/worker/src/tools-env/wire.js";
 import {
 	connectTestWs,
 	type RpcOptions,
 	sendRpc,
 	TEST_TOKEN,
+	uniqueAccountId,
 } from "./helpers.js";
 import { type DaemonRequest, ScriptedDaemon } from "./scripted-daemon.js";
 
@@ -24,7 +26,7 @@ function scope(
 	familyId = "default",
 ): RpcOptions & { accountId: string; familyId: string } {
 	return {
-		accountId: `ws-${label}-${crypto.randomUUID().slice(0, 8)}`,
+		accountId: uniqueAccountId(`ws-${label}`),
 		familyId,
 	};
 }
@@ -118,6 +120,27 @@ async function toolTurn(
 async function connection(accountId: string, envId: string) {
 	return envStub(accountId, envId).getConnection("local-daemon");
 }
+
+async function waitFor(
+	check: () => boolean | Promise<boolean>,
+	timeoutMs: number,
+): Promise<boolean> {
+	const deadline = Date.now() + timeoutMs;
+	while (Date.now() < deadline) {
+		if (await check()) return true;
+		await new Promise((resolve) => setTimeout(resolve, 20));
+	}
+	return check();
+}
+
+const HEARTBEAT_MS_UNDER_TEST = resolveHeartbeatMs(env.CADMUS_HEARTBEAT_MS);
+/**
+ * Proves a heartbeat did not fire. Long enough that a late timer on a loaded
+ * runner still would have run.
+ */
+const HEARTBEAT_QUIET_MS = Math.max(2_000, HEARTBEAT_MS_UNDER_TEST * 4);
+const HEARTBEAT_TEST_BUDGET_MS =
+	HEARTBEAT_QUIET_MS * 2 + HEARTBEAT_MS_UNDER_TEST * 8 + 20_000;
 
 describe("daemon websocket tools env", () => {
 	it("serves bash, read, write, and edit through one scripted peer", async () => {
@@ -239,7 +262,11 @@ describe("daemon websocket tools env", () => {
 			envId,
 		});
 		expect(unknown.status).toBe(401);
-		const user = await ScriptedDaemon.upgrade({ token: TEST_TOKEN, envId });
+		const user = await ScriptedDaemon.upgrade({
+			token: TEST_TOKEN,
+			envId,
+			headers: { "x-account-id": options.accountId },
+		});
 		expect(user.status).toBe(401);
 		const notWs = await ScriptedDaemon.upgrade({
 			token: secret.token,
@@ -318,8 +345,7 @@ describe("daemon websocket tools env", () => {
 		};
 		const first = toolTurn(alpha, "main", "bash", { command: "echo a" });
 		const second = toolTurn(beta, "main", "bash", { command: "echo b" });
-		await new Promise((resolve) => setTimeout(resolve, 200));
-		expect(started).toBe(2);
+		expect(await waitFor(() => started === 2, 5_000)).toBe(true);
 		peer.close();
 		release();
 		const [left, right] = await Promise.all([first, second]);
@@ -415,15 +441,18 @@ describe("daemon websocket tools env", () => {
 		const peer = live.peer;
 		if (!peer || !kept.peer) throw new Error("missing peer");
 		let release: () => void = () => {};
+		let holding = false;
 		peer.onFrame = async (request) => {
-			if (request.method === "exec")
+			if (request.method === "exec") {
+				holding = true;
 				await new Promise<void>((resolve) => {
 					release = resolve;
 				});
+			}
 			return "default";
 		};
 		const running = toolTurn(options, "main", "bash", { command: "echo hold" });
-		await new Promise((resolve) => setTimeout(resolve, 150));
+		expect(await waitFor(() => holding, 5_000)).toBe(true);
 		const removed = await sendRpc(
 			"account.toolsEnvSecrets.delete",
 			{ secretId: secret.secretId },
@@ -518,10 +547,17 @@ describe("daemon websocket tools env", () => {
 		});
 		expect(plan.payload?.isError).toBe(false);
 		peer.close();
-		await peer.closed;
-		expect((await connection(options.accountId, envId)).status).toBe(
-			"disconnected",
-		);
+		// The DO marks the row disconnected in webSocketClose. The peer close
+		// event waits out workerd's handshake (~10s) because the DO does not
+		// answer a client close with its own close frame.
+		expect(
+			await waitFor(
+				async () =>
+					(await connection(options.accountId, envId)).status ===
+					"disconnected",
+				5_000,
+			),
+		).toBe(true);
 		const before = peer.requests.length;
 		const offline = await toolTurn(options, "main", "bash", {
 			command: "echo later",
@@ -558,8 +594,10 @@ describe("daemon websocket tools env", () => {
 		const older = first.peer;
 		if (!older) throw new Error("missing peer");
 		let release: () => void = () => {};
+		let holding = false;
 		older.onFrame = async (request) => {
 			if (request.method === "exec") {
+				holding = true;
 				await new Promise<void>((resolve) => {
 					release = resolve;
 				});
@@ -567,7 +605,7 @@ describe("daemon websocket tools env", () => {
 			return "default";
 		};
 		const running = toolTurn(options, "main", "bash", { command: "echo old" });
-		await new Promise((resolve) => setTimeout(resolve, 150));
+		expect(await waitFor(() => holding, 5_000)).toBe(true);
 		const second = await ScriptedDaemon.upgrade({ token: secret.token, envId });
 		const newer = second.peer;
 		if (!newer) throw new Error("missing peer");
@@ -661,8 +699,7 @@ describe("daemon websocket tools env", () => {
 			if (request.method !== "exec") return "default";
 			execs.push(request);
 			if (execs.length === 1) {
-				await new Promise((resolve) => setTimeout(resolve, 300));
-				overlapped = execs.length >= 2;
+				overlapped = await waitFor(() => execs.length >= 2, 5_000);
 			}
 			return "default";
 		};
@@ -821,7 +858,7 @@ describe("daemon websocket tools env", () => {
 			return "default";
 		};
 		const running = toolTurn(alpha, "main", "bash", { command: "echo hold" });
-		await new Promise((resolve) => setTimeout(resolve, 150));
+		expect(await waitFor(() => heldExec, 5_000)).toBe(true);
 		await sendRpc(
 			"bot.update",
 			{ botId: "assistant", toolsEnv: { enabled: false } },
@@ -1192,77 +1229,92 @@ describe("daemon websocket tools env", () => {
 		peer.close();
 	});
 
-	it("heartbeats only while a daemon call is in flight", async () => {
-		const options = scope("beat");
-		await sendRpc("family.update", { harvestDelayMs: 0 }, options);
-		const secret = await mintSecret(options);
-		const envId = await createDaemon(options, { secretId: secret.secretId });
-		await sendRpc(
-			"bot.create",
-			{
-				slug: "assistant",
-				name: "Assistant",
-				model: "faux/echo",
-				tools: ["bash"],
-				toolsEnv: { enabled: true, binding: { envId } },
-			},
-			options,
-		);
-		await sendRpc("chat.create", { botId: "assistant", key: "main" }, options);
-		await sendRpc(
-			"chat.create",
-			{
-				botId: "assistant",
-				key: "plan",
-				toolsEnv: { enabled: true, binding: { envId: "jb_default" } },
-			},
-			options,
-		);
-		const upgraded = await ScriptedDaemon.upgrade({
-			token: secret.token,
-			envId,
-		});
-		const peer = upgraded.peer;
-		if (!peer) throw new Error("missing peer");
-		const plan = await toolTurn(options, "plan", "bash", {
-			command: "echo plan",
-		});
-		expect(plan.payload?.isError).toBe(false);
-		expect(peer.heartbeats).toHaveLength(0);
-		await new Promise((resolve) => setTimeout(resolve, 31_000));
-		expect(peer.heartbeats).toHaveLength(0);
-		expect(await envStub(options.accountId, envId).readAlarm()).toBeNull();
-		let release: () => void = () => {};
-		peer.onFrame = async (request) => {
-			if (request.method !== "exec") return "default";
-			await new Promise<void>((resolve) => {
-				release = resolve;
+	it(
+		"heartbeats only while a daemon call is in flight",
+		async () => {
+			const options = scope("beat");
+			await sendRpc("family.update", { harvestDelayMs: 0 }, options);
+			const secret = await mintSecret(options);
+			const envId = await createDaemon(options, { secretId: secret.secretId });
+			await sendRpc(
+				"bot.create",
+				{
+					slug: "assistant",
+					name: "Assistant",
+					model: "faux/echo",
+					tools: ["bash"],
+					toolsEnv: { enabled: true, binding: { envId } },
+				},
+				options,
+			);
+			await sendRpc(
+				"chat.create",
+				{ botId: "assistant", key: "main" },
+				options,
+			);
+			await sendRpc(
+				"chat.create",
+				{
+					botId: "assistant",
+					key: "plan",
+					toolsEnv: { enabled: true, binding: { envId: "jb_default" } },
+				},
+				options,
+			);
+			const upgraded = await ScriptedDaemon.upgrade({
+				token: secret.token,
+				envId,
 			});
-			return "default";
-		};
-		const running = toolTurn(options, "main", "bash", { command: "echo slow" });
-		await new Promise((resolve) => setTimeout(resolve, 31_000));
-		expect(peer.heartbeats.length).toBeGreaterThan(0);
-		const seen = peer.heartbeats.length;
-		release();
-		const done = await running;
-		expect(done.payload?.isError).toBe(false);
-		await new Promise((resolve) => setTimeout(resolve, 31_000));
-		expect(peer.heartbeats.length).toBe(seen);
-		expect(await envStub(options.accountId, envId).readAlarm()).toBeNull();
-		peer.ignoreHeartbeat = true;
-		peer.onFrame = async () => "manual";
-		const missed = toolTurn(options, "main", "bash", { command: "echo miss" });
-		const failed = await missed;
-		expect(failed.payload?.content ?? "").toContain(
-			"tools-env transport: env disconnected",
-		);
-		const snap = await connection(options.accountId, envId);
-		expect(snap.status).toBe("disconnected");
-		expect(snap.lastError).toBe("heartbeat_timeout");
-		const planAfter = await toolTurn(options, "plan", "bash", {
-			command: "echo still",
-		});
-		expect(planAfter.payload?.isError).toBe(false);
-	}, 200_000);
+			const peer = upgraded.peer;
+			if (!peer) throw new Error("missing peer");
+			const plan = await toolTurn(options, "plan", "bash", {
+				command: "echo plan",
+			});
+			expect(plan.payload?.isError).toBe(false);
+			expect(peer.heartbeats).toHaveLength(0);
+			await new Promise((resolve) => setTimeout(resolve, HEARTBEAT_QUIET_MS));
+			expect(peer.heartbeats).toHaveLength(0);
+			expect(await envStub(options.accountId, envId).readAlarm()).toBeNull();
+			let release: () => void = () => {};
+			peer.onFrame = async (request) => {
+				if (request.method !== "exec") return "default";
+				await new Promise<void>((resolve) => {
+					release = resolve;
+				});
+				return "default";
+			};
+			const running = toolTurn(options, "main", "bash", {
+				command: "echo slow",
+			});
+			const sawBeat = await waitFor(
+				() => peer.heartbeats.length > 0,
+				HEARTBEAT_MS_UNDER_TEST * 8 + 5_000,
+			);
+			release();
+			const done = await running;
+			expect(sawBeat).toBe(true);
+			expect(done.payload?.isError).toBe(false);
+			const seen = peer.heartbeats.length;
+			await new Promise((resolve) => setTimeout(resolve, HEARTBEAT_QUIET_MS));
+			expect(peer.heartbeats.length).toBe(seen);
+			expect(await envStub(options.accountId, envId).readAlarm()).toBeNull();
+			peer.ignoreHeartbeat = true;
+			peer.onFrame = async () => "manual";
+			const missed = toolTurn(options, "main", "bash", {
+				command: "echo miss",
+			});
+			const failed = await missed;
+			expect(failed.payload?.content ?? "").toContain(
+				"tools-env transport: env disconnected",
+			);
+			const snap = await connection(options.accountId, envId);
+			expect(snap.status).toBe("disconnected");
+			expect(snap.lastError).toBe("heartbeat_timeout");
+			const planAfter = await toolTurn(options, "plan", "bash", {
+				command: "echo still",
+			});
+			expect(planAfter.payload?.isError).toBe(false);
+		},
+		HEARTBEAT_TEST_BUDGET_MS,
+	);
 });

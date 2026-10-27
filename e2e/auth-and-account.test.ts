@@ -8,7 +8,7 @@ import type {
 	FamilyRecord,
 	ModelInfo,
 } from "../packages/worker/src/protocol.js";
-import { sendRpc, TEST_TOKEN } from "./helpers.js";
+import { sendRpc, TEST_TOKEN, uniqueAccountId } from "./helpers.js";
 
 describe("Authentication, Accounts, Encrypted BYOK Credentials & Multi-Family Catalog", () => {
 	it("serves GET /health and GET /protocol/schema without auth", async () => {
@@ -42,11 +42,14 @@ describe("Authentication, Accounts, Encrypted BYOK Credentials & Multi-Family Ca
 		expect(bad.status).toBe(401);
 		expect(bad.frame.ok).toBe(false);
 
+		const accountId = uniqueAccountId("auth");
+		const userId = "owner-1";
+
 		// 3. Valid Bearer token accepted
 		const valid = await sendRpc<{ bots: BotRecord[] }>(
 			"bot.list",
 			{},
-			{ accountId: "acct-auth-1", userId: "owner-1" },
+			{ accountId, userId },
 		);
 		expect(valid.status).toBe(200);
 		expect(valid.frame.ok).toBe(true);
@@ -57,14 +60,14 @@ describe("Authentication, Accounts, Encrypted BYOK Credentials & Multi-Family Ca
 			{},
 			{
 				token: "",
-				cookie: `cadmus_session=${encodeURIComponent(`acct-auth-1:owner-1:${TEST_TOKEN}`)}`,
+				cookie: `cadmus_session=${encodeURIComponent(`${accountId}:${userId}:${TEST_TOKEN}`)}`,
 			},
 		);
 		expect(viaCookie.status).toBe(200);
 		expect(viaCookie.frame.ok).toBe(true);
 
 		// 5. Add a member with a D1 stored token and authenticate using that token
-		const customToken = "cadmus-member-token-xyz-987";
+		const customToken = crypto.randomUUID();
 		const addMember = await sendRpc<{ member: AccountMember }>(
 			"account.members.add",
 			{
@@ -74,7 +77,7 @@ describe("Authentication, Accounts, Encrypted BYOK Credentials & Multi-Family Ca
 				role: "member",
 				token: customToken,
 			},
-			{ accountId: "acct-auth-1", userId: "owner-1" },
+			{ accountId, userId },
 		);
 		expect(addMember.status).toBe(200);
 		expect(addMember.frame.result?.member.userId).toBe("alice");
@@ -93,7 +96,7 @@ describe("Authentication, Accounts, Encrypted BYOK Credentials & Multi-Family Ca
 		const devRes = await sendRpc<{ members: AccountMember[] }>(
 			"account.get",
 			{},
-			{ accountId: "acct-auth-dev", userId: "dev" },
+			{ accountId: uniqueAccountId("auth-dev"), userId: "dev" },
 		);
 		expect(devRes.status).toBe(200);
 		expect(devRes.frame.ok).toBe(true);
@@ -103,7 +106,7 @@ describe("Authentication, Accounts, Encrypted BYOK Credentials & Multi-Family Ca
 	});
 
 	it("encrypts account BYOK credentials in D1 (never storing plaintext) and shares them across families in the account", async () => {
-		const accountId = "acct-byok-1";
+		const accountId = uniqueAccountId("byok");
 		const rawSecretKey = "xai-super-secret-key-do-not-leak-12345";
 
 		const setRes = await sendRpc<{ credential: CredentialSummary }>(
@@ -152,7 +155,7 @@ describe("Authentication, Accounts, Encrypted BYOK Credentials & Multi-Family Ca
 	});
 
 	it("lists supported models with authentication status via account.models.list", async () => {
-		const accountId = "acct-models-test";
+		const accountId = uniqueAccountId("models");
 
 		// 1. List all models: faux is authenticated/offline, anthropic is not
 		const allModelsRes = await sendRpc<{ models: ModelInfo[] }>(
@@ -223,7 +226,7 @@ describe("Authentication, Accounts, Encrypted BYOK Credentials & Multi-Family Ca
 	});
 
 	it("isolates Bot Families in separate CadmusBotFamilyDO instances within the same account", async () => {
-		const accountId = "acct-families-1";
+		const accountId = uniqueAccountId("families");
 
 		const createAlpha = await sendRpc<{ family: FamilyRecord }>(
 			"family.create",
@@ -280,7 +283,7 @@ describe("Authentication, Accounts, Encrypted BYOK Credentials & Multi-Family Ca
 	});
 
 	it("updates account timezone and display name, and new bots inherit account timezone", async () => {
-		const accountId = "acct-tz-test";
+		const accountId = uniqueAccountId("tz");
 		const scope = { accountId, familyId: "default" };
 
 		// Initial account check (defaults to UTC)

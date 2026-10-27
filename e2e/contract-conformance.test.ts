@@ -18,7 +18,7 @@ import {
 	type CommandType,
 	coerceSearchParamsToPayload,
 } from "../packages/worker/src/protocol.js";
-import { connectTestWs, TEST_TOKEN } from "./helpers.js";
+import { connectTestWs, TEST_TOKEN, uniqueAccountId } from "./helpers.js";
 
 const MAY_FAIL_OFFLINE = new Set<CommandType>([
 	"account.oauth.start",
@@ -131,8 +131,8 @@ async function callApi(
 
 describe("contract conformance", () => {
 	it("drives every command through /api and checks the contract schema", async () => {
-		const suffix = crypto.randomUUID().slice(0, 8);
-		const accountId = `acct-contract-${suffix}`;
+		const suffix = crypto.randomUUID();
+		const accountId = uniqueAccountId("contract");
 		const familyId = `fam-${suffix}`;
 		const extraFamilyId = `extra-${suffix}`;
 		const covered = new Set<string>();
@@ -278,8 +278,8 @@ describe("contract conformance", () => {
 	});
 
 	it("validates a WebSocket command result and an invalid frame", async () => {
-		const suffix = crypto.randomUUID().slice(0, 8);
-		const accountId = `acct-ws-contract-${suffix}`;
+		const suffix = crypto.randomUUID();
+		const accountId = uniqueAccountId("ws-contract");
 		const familyId = `fam-ws-${suffix}`;
 		await callApi(accountId, familyId, "family.create", {
 			familyId,
@@ -317,8 +317,8 @@ describe("contract conformance", () => {
 	});
 
 	it("validates an SSE data frame as a server event", async () => {
-		const suffix = crypto.randomUUID().slice(0, 8);
-		const accountId = `acct-sse-contract-${suffix}`;
+		const suffix = crypto.randomUUID();
+		const accountId = uniqueAccountId("sse-contract");
 		const familyId = `fam-sse-${suffix}`;
 		await callApi(accountId, familyId, "family.create", {
 			familyId,

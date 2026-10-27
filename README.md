@@ -187,6 +187,7 @@ docker exec -it cadmus bun run tui -- --url http://localhost:8787 --token your-s
 | `CADMUS_ENCRYPTION_KEY` | `dev-cadmus-encryption-key-32bytes!` | Master key for AES-GCM 256-bit BYOK credential encryption |
 | `CADMUS_DEFAULT_TIMEZONE` | `UTC` | Default timezone for scheduled cron expressions |
 | `CADMUS_HARVEST_DELAY_MS` | `60000` | Inactivity threshold before idle conversation harvest runs |
+| `CADMUS_HEARTBEAT_MS` | `30000` | Daemon heartbeat interval while a tool call is in flight. Unset or non-numeric keeps 30000. A number is rounded and clamped to 50–120000. Tests set `200` in `vitest.config.ts`. Production leaves this unset. |
 | `CADMUS_LOG_LEVEL` | `debug` | Logging verbosity (`debug`, `info`, `warn`, `error`) |
 | `ANTHROPIC_API_KEY` | *(optional)* | Anthropic API key |
 | `OPENAI_API_KEY` | *(optional)* | OpenAI API key |

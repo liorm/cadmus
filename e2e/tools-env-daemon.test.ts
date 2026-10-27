@@ -2,7 +2,12 @@ import { env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import type { ServerEvent } from "../packages/worker/src/protocol.js";
 import { sha256Hex } from "../packages/worker/src/store/d1-admin.js";
-import { connectTestWs, type RpcOptions, sendRpc } from "./helpers.js";
+import {
+	connectTestWs,
+	type RpcOptions,
+	sendRpc,
+	uniqueAccountId,
+} from "./helpers.js";
 
 const CODING_TOOLS = ["bash", "read", "write", "edit"];
 
@@ -13,7 +18,7 @@ function scope(
 	accountId: string;
 	familyId: string;
 } {
-	const accountId = `daemon-${label}-${crypto.randomUUID().slice(0, 8)}`;
+	const accountId = uniqueAccountId(`daemon-${label}`);
 	return { accountId, familyId };
 }
 
@@ -417,7 +422,7 @@ describe("local-daemon tools env through the bot", () => {
 	});
 
 	it("fans a default change to a second family without arming an alarm or rewriting bot rows", async () => {
-		const accountId = `daemon-fan-${crypto.randomUUID().slice(0, 8)}`;
+		const accountId = uniqueAccountId("daemon-fan");
 		const alpha = { accountId, familyId: "alpha" };
 		const beta = { accountId, familyId: "beta" };
 		expect(

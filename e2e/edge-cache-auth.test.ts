@@ -12,7 +12,12 @@ import type {
 	FamilyRecord,
 } from "../packages/worker/src/protocol.js";
 import { D1AdminStore } from "../packages/worker/src/store/d1-admin.js";
-import { connectTestWs, sendRpc, TEST_TOKEN } from "./helpers.js";
+import {
+	connectTestWs,
+	sendRpc,
+	TEST_TOKEN,
+	uniqueAccountId,
+} from "./helpers.js";
 
 describe("Edge Caching for Tokens and Family DO Routing (Issue #19)", () => {
 	beforeEach(() => {
@@ -23,8 +28,8 @@ describe("Edge Caching for Tokens and Family DO Routing (Issue #19)", () => {
 	});
 
 	it("repeated /rpc with a member token hits D1 auth tokens only once within TTL", async () => {
-		const accountId = "acct-cache-test-1";
-		const customToken = "cadmus-member-token-cache-e2e-123";
+		const accountId = uniqueAccountId("cache");
+		const customToken = crypto.randomUUID();
 
 		// 1. Add member with a token
 		const addRes = await sendRpc<{ member: AccountMember }>(
@@ -96,8 +101,8 @@ describe("Edge Caching for Tokens and Family DO Routing (Issue #19)", () => {
 	});
 
 	it("revoked token is rejected immediately after revocation", async () => {
-		const accountId = "acct-revoke-test-1";
-		const customToken = "cadmus-token-to-revoke-xyz";
+		const accountId = uniqueAccountId("revoke");
+		const customToken = crypto.randomUUID();
 
 		// 1. Add member with token
 		await sendRpc<{ member: AccountMember }>(
@@ -141,7 +146,7 @@ describe("Edge Caching for Tokens and Family DO Routing (Issue #19)", () => {
 	});
 
 	it("master secret fast-path avoids re-upserting account and user in the same isolate", async () => {
-		const accountId = "acct-master-fastpath-1";
+		const accountId = uniqueAccountId("master-fastpath");
 		const userId = "master-user-1";
 		const edgeCache = getEdgeCache(env);
 
@@ -200,7 +205,7 @@ describe("Edge Caching for Tokens and Family DO Routing (Issue #19)", () => {
 	});
 
 	it("family DO routing cache avoids querying cadmus_families on every RPC call and invalidates on update", async () => {
-		const accountId = "acct-fam-cache-1";
+		const accountId = uniqueAccountId("fam-cache");
 		const edgeCache = getEdgeCache(env);
 
 		// First call ensures/fetches the default family and caches routing info
@@ -262,8 +267,8 @@ describe("Edge Caching for Tokens and Family DO Routing (Issue #19)", () => {
 	});
 
 	it("WebSocket verifies auth only during handshake and frames need no re-verification", async () => {
-		const accountId = "acct-ws-auth-1";
-		const customToken = "cadmus-member-token-ws-e2e-1";
+		const accountId = uniqueAccountId("ws-auth");
+		const customToken = crypto.randomUUID();
 
 		await sendRpc<{ member: AccountMember }>(
 			"account.members.add",
@@ -298,8 +303,8 @@ describe("Edge Caching for Tokens and Family DO Routing (Issue #19)", () => {
 	});
 
 	it("SSE (/events) verifies authentication at stream establishment", async () => {
-		const accountId = "acct-sse-auth-1";
-		const customToken = "cadmus-member-token-sse-e2e-1";
+		const accountId = uniqueAccountId("sse-auth");
+		const customToken = crypto.randomUUID();
 
 		await sendRpc<{ member: AccountMember }>(
 			"account.members.add",
@@ -331,8 +336,10 @@ describe("Edge Caching for Tokens and Family DO Routing (Issue #19)", () => {
 	});
 
 	it("preserves multi-tenant isolation with edge caching", async () => {
-		const tokenA = "cadmus-token-tenant-a-12345";
-		const tokenB = "cadmus-token-tenant-b-67890";
+		const accountA = uniqueAccountId("tenant-a");
+		const accountB = uniqueAccountId("tenant-b");
+		const tokenA = crypto.randomUUID();
+		const tokenB = crypto.randomUUID();
 
 		await sendRpc<{ member: AccountMember }>(
 			"account.members.add",
@@ -342,7 +349,7 @@ describe("Edge Caching for Tokens and Family DO Routing (Issue #19)", () => {
 				role: "member",
 				token: tokenA,
 			},
-			{ accountId: "acct-tenant-a", userId: "owner-a" },
+			{ accountId: accountA, userId: "owner-a" },
 		);
 
 		await sendRpc<{ member: AccountMember }>(
@@ -353,14 +360,14 @@ describe("Edge Caching for Tokens and Family DO Routing (Issue #19)", () => {
 				role: "member",
 				token: tokenB,
 			},
-			{ accountId: "acct-tenant-b", userId: "owner-b" },
+			{ accountId: accountB, userId: "owner-b" },
 		);
 
 		// Token A resolves only to Account A
 		const listA = await sendRpc<{ members: AccountMember[] }>(
 			"account.members.list",
 			{},
-			{ token: tokenA, accountId: "acct-tenant-a" },
+			{ token: tokenA, accountId: accountA },
 		);
 		expect(listA.status).toBe(200);
 		expect(listA.frame.result?.members.some((m) => m.userId === "user-a")).toBe(
@@ -374,7 +381,7 @@ describe("Edge Caching for Tokens and Family DO Routing (Issue #19)", () => {
 		const listB = await sendRpc<{ members: AccountMember[] }>(
 			"account.members.list",
 			{},
-			{ token: tokenB, accountId: "acct-tenant-b" },
+			{ token: tokenB, accountId: accountB },
 		);
 		expect(listB.status).toBe(200);
 		expect(listB.frame.result?.members.some((m) => m.userId === "user-b")).toBe(
@@ -406,13 +413,14 @@ describe("Edge Caching for Tokens and Family DO Routing (Issue #19)", () => {
 		} as unknown as KVNamespace;
 
 		const edgeCache = new EdgeCache({ CADMUS_CACHE_KV: mockKv });
-		const token = "cadmus-kv-bound-test-token-999";
+		const token = crypto.randomUUID();
+		const accountId = uniqueAccountId("kv");
 		const tokenHash = await sha256Hex(token);
 
 		// Populate cache
 		await edgeCache.setToken(tokenHash, {
 			userId: "kv-user",
-			accountId: "acct-kv",
+			accountId,
 			role: "owner",
 		});
 
@@ -434,7 +442,7 @@ describe("Edge Caching for Tokens and Family DO Routing (Issue #19)", () => {
 	});
 
 	it("invalidates default families in edge cache when account timezone is updated via updateAccount", async () => {
-		const accountId = "acct-tz-inval-test";
+		const accountId = uniqueAccountId("tz-inval");
 		const edgeCache = getEdgeCache(env);
 		const adminStore = new D1AdminStore({
 			db: env.CADMUS_ADMIN_DB,
@@ -494,7 +502,7 @@ describe("Edge Caching for Tokens and Family DO Routing (Issue #19)", () => {
 	});
 
 	it("primes edge cache when createFamily is called on D1AdminStore", async () => {
-		const accountId = "acct-prime-family-test";
+		const accountId = uniqueAccountId("prime-family");
 		const edgeCache = getEdgeCache(env);
 		edgeCache.resetMetrics();
 
@@ -526,8 +534,8 @@ describe("Edge Caching for Tokens and Family DO Routing (Issue #19)", () => {
 	});
 
 	it("addMember invalidates cached token only after successful batch write", async () => {
-		const accountId = "acct-member-batch-test";
-		const rawToken = "cadmus-token-to-rotate-123";
+		const accountId = uniqueAccountId("member-batch");
+		const rawToken = crypto.randomUUID();
 		const tokenHash = await sha256Hex(rawToken);
 		const edgeCache = getEdgeCache(env);
 

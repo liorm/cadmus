@@ -9,7 +9,7 @@ import {
 	parseLogLevel,
 	setupLogger,
 } from "../packages/worker/src/log.js";
-import { sendRpc } from "./helpers.js";
+import { sendRpc, uniqueAccountId } from "./helpers.js";
 
 describe("Structured Logging System (`src/log.ts`)", () => {
 	it("pretty-prints structured logs to the configured stream, supports colors, and supports child bindings", () => {
@@ -20,47 +20,52 @@ describe("Structured Logging System (`src/log.ts`)", () => {
 				callback();
 			},
 		});
-		setupLogger({ type: "console", level: "info", stream, colors: false });
-		const log = getLogger();
-		log.debug("hidden");
-		log.info("started", { model: "xai/grok-4.7", home: "/data/bot home" });
-		log.error("shutdown failed", { error: new Error("boom") });
-		expect(lines.some((line) => line.includes("hidden"))).toBe(false);
-		expect(lines[0]).toMatch(
-			/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3} INFO {2}started model=xai\/grok-4\.7 home="\/data\/bot home"\n$/,
-		);
-		expect(lines[1]).toContain("ERROR shutdown failed error=boom");
-		expect(lines[1]).toContain("Error: boom");
+		const accountId = uniqueAccountId("log-child");
+		const coloredAccountId = uniqueAccountId("log-color");
+		try {
+			setupLogger({ type: "console", level: "info", stream, colors: false });
+			const log = getLogger();
+			log.debug("hidden");
+			log.info("started", { model: "xai/grok-4.7", home: "/data/bot home" });
+			log.error("shutdown failed", { error: new Error("boom") });
+			expect(lines.some((line) => line.includes("hidden"))).toBe(false);
+			expect(lines[0]).toMatch(
+				/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3} INFO {2}started model=xai\/grok-4\.7 home="\/data\/bot home"\n$/,
+			);
+			expect(lines[1]).toContain("ERROR shutdown failed error=boom");
+			expect(lines[1]).toContain("Error: boom");
 
-		// Colored output
-		lines.length = 0;
-		setupLogger({ type: "console", level: "info", stream, colors: true });
-		getLogger().info("colored line", { account: "default-account" });
-		expect(lines[0]).toContain("\x1b[36mINFO \x1b[0m colored line");
-		expect(lines[0]).toContain("account=");
-		expect(lines[0]).toContain("default-account");
+			// Colored output
+			lines.length = 0;
+			setupLogger({ type: "console", level: "info", stream, colors: true });
+			getLogger().info("colored line", { account: coloredAccountId });
+			expect(lines[0]).toContain("\x1b[36mINFO \x1b[0m colored line");
+			expect(lines[0]).toContain("account=");
+			expect(lines[0]).toContain(coloredAccountId);
 
-		// Child logger binding
-		lines.length = 0;
-		setupLogger({ type: "console", level: "debug", stream, colors: false });
-		expect(parseLogLevel("DEBUG")).toBe("debug");
-		expect(parseLogLevel("bogus")).toBe("debug");
-		expect(parseLogLevel(undefined)).toBe("debug");
-		getLogger()
-			.child(familyFields({ accountId: "acct-1", familyId: "fam-1" }))
-			.child(
-				chatFields({ key: "default:web:1", conversationId: 42, botId: "b1" }),
-			)
-			.debug("chat input admitted", { requestId: "web:1", chars: 12 });
+			// Child logger binding
+			lines.length = 0;
+			setupLogger({ type: "console", level: "debug", stream, colors: false });
+			expect(parseLogLevel("DEBUG")).toBe("debug");
+			expect(parseLogLevel("bogus")).toBe("debug");
+			expect(parseLogLevel(undefined)).toBe("debug");
+			getLogger()
+				.child(familyFields({ accountId, familyId: "fam-1" }))
+				.child(
+					chatFields({ key: "default:web:1", conversationId: 42, botId: "b1" }),
+				)
+				.debug("chat input admitted", { requestId: "web:1", chars: 12 });
 
-		expect(lines[0]).toMatch(/ DEBUG chat input admitted /);
-		expect(lines[0]).toContain("account=acct-1");
-		expect(lines[0]).toContain("family=fam-1");
-		expect(lines[0]).toContain("chat=default:web:1");
-		expect(lines[0]).toContain("session=42");
-		expect(lines[0]).toContain("bot=b1");
-		expect(lines[0]).toContain("requestId=web:1");
-		setupLogger({ type: "silent" });
+			expect(lines[0]).toMatch(/ DEBUG chat input admitted /);
+			expect(lines[0]).toContain(`account=${accountId}`);
+			expect(lines[0]).toContain("family=fam-1");
+			expect(lines[0]).toContain("chat=default:web:1");
+			expect(lines[0]).toContain("session=42");
+			expect(lines[0]).toContain("bot=b1");
+			expect(lines[0]).toContain("requestId=web:1");
+		} finally {
+			setupLogger({ type: "silent" });
+		}
 	});
 
 	it("supports plugging in a custom logger implementation via setupLogger({ type: 'custom', logger })", () => {
@@ -97,18 +102,21 @@ describe("Structured Logging System (`src/log.ts`)", () => {
 			child: (fields) => makeCustom({ ...bound, ...fields }),
 		});
 
-		setupLogger({ type: "custom", logger: makeCustom() });
-		getLogger()
-			.child({ service: "cadmus" })
-			.info("custom sink active", { ok: true });
-		expect(captured).toEqual([
-			{
-				level: "info",
-				message: "custom sink active",
-				fields: { service: "cadmus", ok: true },
-			},
-		]);
-		setupLogger({ type: "silent" });
+		try {
+			setupLogger({ type: "custom", logger: makeCustom() });
+			getLogger()
+				.child({ service: "cadmus" })
+				.info("custom sink active", { ok: true });
+			expect(captured).toEqual([
+				{
+					level: "info",
+					message: "custom sink active",
+					fields: { service: "cadmus", ok: true },
+				},
+			]);
+		} finally {
+			setupLogger({ type: "silent" });
+		}
 	});
 
 	it("emits structured logs across Worker routing, CadmusBotFamilyDO turns, out-of-band /status, and idle harvest", async () => {
@@ -123,7 +131,7 @@ describe("Structured Logging System (`src/log.ts`)", () => {
 
 		try {
 			const scope = {
-				accountId: `acct-logs-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+				accountId: uniqueAccountId("logs"),
 				familyId: "default",
 			};
 

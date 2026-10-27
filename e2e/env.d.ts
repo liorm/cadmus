@@ -11,6 +11,7 @@ declare global {
 			CADMUS_ENCRYPTION_KEY?: string;
 			CADMUS_DEFAULT_TIMEZONE?: string;
 			CADMUS_HARVEST_DELAY_MS?: string;
+			CADMUS_HEARTBEAT_MS?: string;
 		}
 	}
 }
