@@ -154,7 +154,10 @@ function slugifyId(text: string): string {
 	);
 }
 
-export const CADMUS_SCHEMA_VERSION = 1;
+export const CADMUS_SCHEMA_VERSION = 2;
+
+/** Minimum gap between last-used writes for one pairing secret. */
+const TOOLS_ENV_SECRET_LAST_USED_INTERVAL_MS = 60_000;
 
 export function isMissingSchemaError(error: unknown): boolean {
 	if (!error) return false;
@@ -327,6 +330,8 @@ export async function runD1SchemaMigrations(db: D1Database): Promise<void> {
           iv_hex TEXT NOT NULL,
           cipher_hex TEXT NOT NULL,
           updated_at INTEGER NOT NULL,
+          created_at INTEGER,
+          last_used_at INTEGER,
           PRIMARY KEY (account_id, secret_id)
         )
       `),
@@ -354,6 +359,19 @@ export async function runD1SchemaMigrations(db: D1Database): Promise<void> {
 		"cadmus_tools_envs",
 		"secret_missing",
 		"INTEGER NOT NULL DEFAULT 0",
+	);
+
+	await addColumnIfNotExists(
+		db,
+		"cadmus_tools_env_secrets",
+		"created_at",
+		"INTEGER",
+	);
+	await addColumnIfNotExists(
+		db,
+		"cadmus_tools_env_secrets",
+		"last_used_at",
+		"INTEGER",
 	);
 
 	const addedDefaultToolsEnv = await addColumnIfNotExists(
@@ -1335,7 +1353,7 @@ export class D1AdminStore implements AdminStore {
 		await this.initialize();
 		const { results } = await this.#db
 			.prepare(
-				`SELECT secret_id, label, kind, updated_at
+				`SELECT secret_id, label, kind, updated_at, created_at, last_used_at
          FROM cadmus_tools_env_secrets
          WHERE account_id = ?1
          ORDER BY updated_at ASC, secret_id ASC`,
@@ -1352,7 +1370,7 @@ export class D1AdminStore implements AdminStore {
 		await this.initialize();
 		const row = await this.#db
 			.prepare(
-				`SELECT secret_id, label, kind, updated_at
+				`SELECT secret_id, label, kind, updated_at, created_at, last_used_at
          FROM cadmus_tools_env_secrets
          WHERE account_id = ?1 AND secret_id = ?2`,
 			)
@@ -1379,8 +1397,8 @@ export class D1AdminStore implements AdminStore {
 		await this.#db
 			.prepare(
 				`INSERT INTO cadmus_tools_env_secrets (
-          account_id, secret_id, label, kind, token_hash, iv_hex, cipher_hex, updated_at
-        ) VALUES (?1, ?2, ?3, 'daemon_token', ?4, ?5, ?6, ?7)`,
+          account_id, secret_id, label, kind, token_hash, iv_hex, cipher_hex, updated_at, created_at
+        ) VALUES (?1, ?2, ?3, 'daemon_token', ?4, ?5, ?6, ?7, ?7)`,
 			)
 			.bind(accountId, secretId, label, tokenHash, ivHex, cipherHex, now)
 			.run();
@@ -1485,6 +1503,24 @@ export class D1AdminStore implements AdminStore {
 		if (!row) return undefined;
 		return { accountId: row.account_id, secretId: row.secret_id };
 	}
+
+	async noteToolsEnvSecretUse(
+		accountId: string,
+		secretId: string,
+	): Promise<void> {
+		await this.initialize();
+		const now = Date.now();
+		const cutoff = now - TOOLS_ENV_SECRET_LAST_USED_INTERVAL_MS;
+		await this.#db
+			.prepare(
+				`UPDATE cadmus_tools_env_secrets
+         SET last_used_at = ?1
+         WHERE account_id = ?2 AND secret_id = ?3
+           AND (last_used_at IS NULL OR last_used_at <= ?4)`,
+			)
+			.bind(now, accountId, secretId, cutoff)
+			.run();
+	}
 }
 
 function mintDaemonToken(): string {
@@ -1542,6 +1578,8 @@ interface ToolsEnvSecretSqlRow {
 	label: string | null;
 	kind: string;
 	updated_at: number;
+	created_at: number | null;
+	last_used_at: number | null;
 }
 
 function mapToolsEnvSecret(row: ToolsEnvSecretSqlRow): ToolsEnvSecretMeta {
@@ -1551,6 +1589,8 @@ function mapToolsEnvSecret(row: ToolsEnvSecretSqlRow): ToolsEnvSecretMeta {
 		updatedAt: Number(row.updated_at),
 	};
 	if (row.label) record.label = row.label;
+	if (row.created_at != null) record.createdAt = Number(row.created_at);
+	if (row.last_used_at != null) record.lastUsedAt = Number(row.last_used_at);
 	return record;
 }
 

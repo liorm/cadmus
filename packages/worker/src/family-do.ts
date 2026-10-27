@@ -25,6 +25,13 @@ import {
 import { openDurableObjectSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/cloudflare";
 import { syncDurableObjectAlarm } from "./alarms.js";
 import {
+	CALLER_ROLE_HEADER,
+	type CallerMeta,
+	callerMetaFromAttachment,
+	callerMetaFromHeader,
+	requireOwner,
+} from "./authz.js";
+import {
 	type CommandHandlerMap,
 	callCommandHandler,
 } from "./command-handlers.js";
@@ -632,7 +639,11 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 			const pair = new WebSocketPair();
 			const client = pair[0];
 			const server = pair[1];
+			const caller = callerMetaFromHeader(
+				request.headers.get(CALLER_ROLE_HEADER),
+			);
 			this.ctx.acceptWebSocket(server);
+			server.serializeAttachment(caller);
 			await this.ensureHarness();
 			this.log().debug("websocket client connected");
 			return new Response(null, { status: 101, webSocket: client });
@@ -646,7 +657,10 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 
 		if (url.pathname === "/rpc" && request.method === "POST") {
 			const raw = await request.text();
-			return this.handleRpcRequest(raw);
+			const caller = callerMetaFromHeader(
+				request.headers.get(CALLER_ROLE_HEADER),
+			);
+			return this.handleRpcRequest(raw, caller);
 		}
 
 		return Response.json(
@@ -665,7 +679,8 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 					? message
 					: new TextDecoder().decode(message);
 			const command = this.shim.decodeCommand(raw);
-			const response = await this.executeCommand(command);
+			const caller = callerMetaFromAttachment(ws.deserializeAttachment());
+			const response = await this.executeCommand(command, caller);
 			ws.send(this.shim.encodeFrame(response));
 		} catch (error) {
 			this.log().warn("websocket protocol error", { error });
@@ -759,7 +774,10 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 
 	// ─── RPC & Streaming Event Helpers ─────────────────────────────────────────
 
-	private async handleRpcRequest(raw: string): Promise<Response> {
+	private async handleRpcRequest(
+		raw: string,
+		caller: CallerMeta,
+	): Promise<Response> {
 		let command: ClientCommand;
 		try {
 			command = this.shim.decodeCommand(raw);
@@ -781,7 +799,7 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 			});
 		}
 
-		const resultFrame = await this.executeCommand(command);
+		const resultFrame = await this.executeCommand(command, caller);
 		const status = resultFrame.ok ? 200 : 400;
 		return new Response(this.shim.encodeFrame(resultFrame), {
 			status,
@@ -859,7 +877,10 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 
 	// ─── Command Dispatcher ────────────────────────────────────────────────────
 
-	async executeCommand(command: ClientCommand): Promise<CommandResultFrame> {
+	async executeCommand(
+		command: ClientCommand,
+		caller: CallerMeta,
+	): Promise<CommandResultFrame> {
 		const cmdLog = this.log().child({
 			commandId: command.id,
 			command: command.type,
@@ -867,7 +888,7 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 		try {
 			await this.ensureHarness();
 			cmdLog.debug("dispatching protocol command");
-			const result = await this.dispatchCommand(command);
+			const result = await this.dispatchCommand(command, caller);
 			return {
 				id: command.id,
 				type: "command.result",
@@ -899,11 +920,12 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 
 	private async dispatchCommand(
 		command: ClientCommand,
+		caller: CallerMeta,
 	): Promise<RpcResult<CommandType>> {
-		return callCommandHandler(this.commandHandlers(), command);
+		return callCommandHandler(this.commandHandlers(caller), command);
 	}
 
-	private commandHandlers(): CommandHandlerMap {
+	private commandHandlers(caller: CallerMeta): CommandHandlerMap {
 		const meta = this.getFamilyMeta();
 		const readChatSnapshot = async (
 			command: Extract<
@@ -1095,6 +1117,7 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 				return created;
 			},
 			"account.toolsEnvSecrets.delete": async (command) => {
+				requireOwner(caller);
 				const outcome = await this.adminStore.deleteToolsEnvSecret(
 					meta.accountId,
 					command.payload.secretId,

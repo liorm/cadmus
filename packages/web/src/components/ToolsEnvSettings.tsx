@@ -1,5 +1,8 @@
-import type { ToolsEnvRecord } from "@cadmus/contract/types";
-import { useEffect, useState } from "react";
+import type {
+	ToolsEnvRecord,
+	ToolsEnvSecretMetaRecord,
+} from "@cadmus/contract/types";
+import { useCallback, useEffect, useState } from "react";
 import { useCadmus } from "../context/CadmusContext.js";
 
 interface ToolsEnvSettingsProps {
@@ -7,11 +10,44 @@ interface ToolsEnvSettingsProps {
 	onClose: () => void;
 }
 
-interface SecretMeta {
-	secretId: string;
-	label?: string;
-	kind: string;
-	updatedAt: number;
+function formatTimestamp(ms: number): string {
+	return new Date(ms).toISOString();
+}
+
+function daemonEnvsUsingSecret(
+	envs: ToolsEnvRecord[],
+	secretId: string,
+): ToolsEnvRecord[] {
+	return envs.filter(
+		(env) => env.kind === "local-daemon" && env.secretId === secretId,
+	);
+}
+
+function envUsageLabel(env: ToolsEnvRecord): string {
+	return env.label ? `${env.label} (${env.envId})` : env.envId;
+}
+
+function revokeConfirmMessage(
+	secret: ToolsEnvSecretMetaRecord,
+	users: ToolsEnvRecord[],
+): string {
+	const name = secret.label ?? secret.secretId;
+	const envList =
+		users.length === 0
+			? "No local-daemon envs use this secret."
+			: `Daemon envs that will disconnect: ${users.map(envUsageLabel).join(", ")}.`;
+	return `Revoke pairing secret ${name} (${secret.secretId})? The token stops working immediately. ${envList}`;
+}
+
+const OWNER_REVOKE_HINT = "Only account owners can revoke";
+const OWNER_REVOKE_ERROR = "Only account owners can revoke pairing secrets";
+
+function revokeFailureMessage(error: {
+	code?: string;
+	message?: string;
+}): string {
+	if (error.code === "forbidden") return OWNER_REVOKE_ERROR;
+	return error.message ?? "Failed to revoke pairing secret";
 }
 
 function daemonConnectionLabel(env: ToolsEnvRecord): string {
@@ -30,7 +66,8 @@ export function ToolsEnvSettings({ isOpen, onClose }: ToolsEnvSettingsProps) {
 	const { client } = useCadmus();
 	const [envs, setEnvs] = useState<ToolsEnvRecord[]>([]);
 	const [defaultEnvId, setDefaultEnvId] = useState("");
-	const [secrets, setSecrets] = useState<SecretMeta[]>([]);
+	const [secrets, setSecrets] = useState<ToolsEnvSecretMetaRecord[]>([]);
+	const [canRevoke, setCanRevoke] = useState<boolean | null>(null);
 	const [mintedToken, setMintedToken] = useState<string | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const [busy, setBusy] = useState(false);
@@ -45,34 +82,11 @@ export function ToolsEnvSettings({ isOpen, onClose }: ToolsEnvSettingsProps) {
 	const [daemonConfine, setDaemonConfine] = useState(true);
 	const [daemonSecretId, setDaemonSecretId] = useState("");
 
-	useEffect(() => {
-		if (!isOpen) return;
-		let cancelled = false;
-		void (async () => {
-			const [listed, secretList] = await Promise.all([
-				client.callRpc("account.toolsEnvs.list"),
-				client.callRpc("account.toolsEnvSecrets.list"),
-			]);
-			if (cancelled) return;
-			if (listed.ok && listed.result) {
-				setEnvs(listed.result.envs);
-				setDefaultEnvId(listed.result.default?.envId ?? "");
-			}
-			if (secretList.ok && secretList.result) {
-				setSecrets(secretList.result.secrets);
-			}
-		})();
-		return () => {
-			cancelled = true;
-		};
-	}, [isOpen, client]);
-
-	if (!isOpen) return null;
-
-	const reload = async () => {
-		const [listed, secretList] = await Promise.all([
+	const reload = useCallback(async () => {
+		const [listed, secretList, memberList] = await Promise.all([
 			client.callRpc("account.toolsEnvs.list"),
 			client.callRpc("account.toolsEnvSecrets.list"),
+			client.callRpc("account.members.list"),
 		]);
 		if (listed.ok && listed.result) {
 			setEnvs(listed.result.envs);
@@ -81,7 +95,27 @@ export function ToolsEnvSettings({ isOpen, onClose }: ToolsEnvSettingsProps) {
 		if (secretList.ok && secretList.result) {
 			setSecrets(secretList.result.secrets);
 		}
-	};
+		if (memberList.ok && memberList.result) {
+			const me = memberList.result.members.find(
+				(member) => member.userId === client.getUserId(),
+			);
+			setCanRevoke(me ? me.role === "owner" : null);
+		} else {
+			setCanRevoke(null);
+		}
+	}, [client]);
+
+	useEffect(() => {
+		if (!isOpen) return;
+		void reload();
+		return client.subscribe((event) => {
+			if (event.type === "account.tools_env_secret") {
+				void reload();
+			}
+		});
+	}, [isOpen, client, reload]);
+
+	if (!isOpen) return null;
 
 	const saveDefault = async (event: React.FormEvent) => {
 		event.preventDefault();
@@ -135,6 +169,35 @@ export function ToolsEnvSettings({ isOpen, onClose }: ToolsEnvSettingsProps) {
 			}
 			setMintedToken(res.result.token);
 			setDaemonSecretId(res.result.secret.secretId);
+			await reload();
+		} finally {
+			setBusy(false);
+		}
+	};
+
+	const revokeSecret = async (secret: ToolsEnvSecretMetaRecord) => {
+		if (canRevoke === false) return;
+		const users = daemonEnvsUsingSecret(envs, secret.secretId);
+		if (
+			typeof window === "undefined" ||
+			!window.confirm(revokeConfirmMessage(secret, users))
+		) {
+			return;
+		}
+		setBusy(true);
+		setError(null);
+		try {
+			const res = await client.callRpc("account.toolsEnvSecrets.delete", {
+				secretId: secret.secretId,
+			});
+			if (!res.ok) {
+				setError(
+					revokeFailureMessage(
+						res.error ?? { message: "Failed to revoke pairing secret" },
+					),
+				);
+				return;
+			}
 			await reload();
 		} finally {
 			setBusy(false);
@@ -252,6 +315,56 @@ export function ToolsEnvSettings({ isOpen, onClose }: ToolsEnvSettingsProps) {
 							</li>
 						))}
 					</ul>
+
+					<section aria-label="Pairing secrets" style={{ marginTop: 16 }}>
+						<h4>Pairing secrets</h4>
+						{canRevoke === false ? (
+							<p className="form-hint">{OWNER_REVOKE_HINT}</p>
+						) : null}
+						{secrets.length === 0 ? (
+							<p className="form-hint">No pairing secrets.</p>
+						) : (
+							<ul style={{ margin: "8px 0 0", paddingLeft: 18 }}>
+								{secrets.map((secret) => {
+									const users = daemonEnvsUsingSecret(envs, secret.secretId);
+									return (
+										<li key={secret.secretId} style={{ marginBottom: 10 }}>
+											<div>
+												<strong>{secret.label ?? secret.secretId}</strong>
+												{" · "}
+												<code>{secret.secretId}</code>
+											</div>
+											<div className="form-hint">
+												created{" "}
+												{secret.createdAt
+													? formatTimestamp(secret.createdAt)
+													: "unknown"}
+												{" · "}
+												last used{" "}
+												{secret.lastUsedAt
+													? formatTimestamp(secret.lastUsedAt)
+													: "never"}
+											</div>
+											<div className="form-hint">
+												{users.length === 0
+													? "No local-daemon envs use this secret."
+													: `Daemon envs: ${users.map(envUsageLabel).join(", ")}`}
+											</div>
+											<button
+												type="button"
+												className="btn btn-danger btn-sm"
+												aria-label={`Revoke pairing secret ${secret.secretId}`}
+												onClick={() => void revokeSecret(secret)}
+												disabled={busy || canRevoke === false}
+											>
+												Revoke
+											</button>
+										</li>
+									);
+								})}
+							</ul>
+						)}
+					</section>
 
 					<form onSubmit={createJustBash}>
 						<h4>Create just-bash env</h4>

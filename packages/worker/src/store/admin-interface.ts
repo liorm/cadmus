@@ -41,6 +41,10 @@ export interface ToolsEnvSecretMeta {
 	label?: string;
 	kind: "daemon_token";
 	updatedAt: number;
+	/** Set on mint. Absent for rows created before the column existed. */
+	createdAt?: number;
+	/** Set when a daemon authenticates. Absent until the first successful use. */
+	lastUsedAt?: number;
 }
 
 export interface FamilySettingsPatch {
@@ -171,6 +175,11 @@ export interface AdminStore {
 	resolveToolsEnvDaemonToken(
 		tokenHash: string,
 	): Promise<{ accountId: string; secretId: string } | undefined>;
+	/**
+	 * Record a successful daemon authentication. Writes at most once per
+	 * minute. Callers must not let a failure here fail the auth path.
+	 */
+	noteToolsEnvSecretUse(accountId: string, secretId: string): Promise<void>;
 
 	// Bot Families Registry
 	listFamilies(accountId: string): Promise<FamilyRecord[]>;

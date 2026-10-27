@@ -1061,6 +1061,18 @@ export const ToolsEnvSecretMetaSchema = Type.Object(
 		label: Type.Optional(Type.String()),
 		kind: Type.Literal("daemon_token"),
 		updatedAt: Type.Number(),
+		createdAt: Type.Optional(
+			Type.Number({
+				description:
+					"Unix epoch milliseconds when the secret was minted. Absent for rows created before this field existed.",
+			}),
+		),
+		lastUsedAt: Type.Optional(
+			Type.Number({
+				description:
+					"Unix epoch milliseconds when a daemon last authenticated with this token. Absent until the first successful authentication.",
+			}),
+		),
 	},
 	{ additionalProperties: false },
 );

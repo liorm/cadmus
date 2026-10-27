@@ -3935,7 +3935,7 @@
 		"/api/account/toolsEnvSecrets/delete": {
 			"post": {
 				"operationId": "account.toolsEnvSecrets.delete",
-				"summary": "Delete a daemon pairing secret, flag env rows that named it, and clear a default that points at one of them.",
+				"summary": "Delete a daemon pairing secret. Owner-only. Flags env rows that named it and clears a default that points at one of them.",
 				"requestBody": {
 					"required": true,
 					"content": {
@@ -6111,6 +6111,14 @@
 					},
 					"updatedAt": {
 						"type": "number"
+					},
+					"createdAt": {
+						"type": "number",
+						"description": "Unix epoch milliseconds when the secret was minted. Absent for rows created before this field existed."
+					},
+					"lastUsedAt": {
+						"type": "number",
+						"description": "Unix epoch milliseconds when a daemon last authenticated with this token. Absent until the first successful authentication."
 					}
 				},
 				"additionalProperties": false

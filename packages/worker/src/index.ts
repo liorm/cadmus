@@ -5,6 +5,7 @@ import {
 	withPrivateApiCache,
 } from "./api-adapter.js";
 import { authenticateRequest } from "./auth.js";
+import { CALLER_ROLE_HEADER, type CallerMeta } from "./authz.js";
 import { type EdgeCache, getEdgeCache } from "./edge-cache.js";
 import { CadmusBotFamilyDO } from "./family-do.js";
 import { ensureLogger, getLogger, type Logger } from "./log.js";
@@ -31,7 +32,7 @@ export default {
 	async fetch(
 		request: Request,
 		env: Env,
-		_ctx: ExecutionContext,
+		ctx: ExecutionContext,
 	): Promise<Response> {
 		ensureLogger(env.CADMUS_LOG_LEVEL ?? env.LOG_LEVEL);
 		const log = getLogger();
@@ -63,7 +64,7 @@ export default {
 		await adminStore.initialize();
 
 		if (url.pathname === "/tools-env/ws") {
-			return handleToolsEnvWebsocket(request, env, adminStore, url);
+			return handleToolsEnvWebsocket(request, env, adminStore, url, ctx);
 		}
 
 		const apiRequest = isApiPath(url.pathname);
@@ -145,7 +146,7 @@ export default {
 			reqLog.debug("forwarding websocket upgrade to family DO", {
 				doName: family.doName,
 			});
-			return forwardToFamilyDO(env, family, request, "/ws");
+			return forwardToFamilyDO(env, family, scope.role, request, "/ws");
 		}
 
 		if (url.pathname === "/events" && request.method === "GET") {
@@ -173,7 +174,7 @@ export default {
 			reqLog.debug("forwarding sse stream to family DO", {
 				doName: family.doName,
 			});
-			return forwardToFamilyDO(env, family, request, "/events");
+			return forwardToFamilyDO(env, family, scope.role, request, "/events");
 		}
 
 		if (url.pathname === "/rpc" && request.method === "POST") {
@@ -211,6 +212,7 @@ export default {
 				reqLog,
 				defaultTimezone,
 				defaultHarvestDelayMs,
+				scope.role,
 			);
 		}
 
@@ -233,6 +235,7 @@ export default {
 				reqLog,
 				defaultTimezone,
 				defaultHarvestDelayMs,
+				scope.role,
 				true,
 			);
 			return withPrivateApiCache(
@@ -256,6 +259,7 @@ async function dispatchDecodedCommand(
 	reqLog: Logger,
 	defaultTimezone: string,
 	defaultHarvestDelayMs: number,
+	callerRole: CallerMeta["role"],
 	ensureJsonContentType = false,
 ): Promise<Response> {
 	const payloadFamilyId =
@@ -337,6 +341,7 @@ async function dispatchDecodedCommand(
 	return forwardToFamilyDO(
 		env,
 		family,
+		callerRole,
 		request,
 		"/rpc",
 		raw,
@@ -382,6 +387,7 @@ async function forwardToFamilyDO(
 		timezone: string;
 		harvestDelayMs: number;
 	},
+	callerRole: CallerMeta["role"],
 	originalRequest: Request,
 	pathname: string,
 	bodyOverride?: string,
@@ -397,6 +403,9 @@ async function forwardToFamilyDO(
 	headers.set("X-Cadmus-Family-Id", family.familyId);
 	headers.set("X-Cadmus-Timezone", family.timezone);
 	headers.set("X-Cadmus-Harvest-Delay-Ms", String(family.harvestDelayMs));
+	// Drop any client-supplied role, then set the membership role authentication resolved.
+	headers.delete(CALLER_ROLE_HEADER);
+	if (callerRole) headers.set(CALLER_ROLE_HEADER, callerRole);
 	if (ensureJsonContentType && !headers.has("content-type")) {
 		headers.set("content-type", "application/json");
 	}

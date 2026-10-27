@@ -1003,7 +1003,7 @@ export const AccountToolsEnvSecretsDeleteCommandSchema = Type.Object(
 	},
 	{
 		description:
-			"Delete a daemon pairing secret, flag env rows that named it, and clear a default that points at one of them.",
+			"Delete a daemon pairing secret. Owner-only. Flags env rows that named it and clears a default that points at one of them.",
 	},
 );
 export type AccountToolsEnvSecretsDeleteCommand = Static<
