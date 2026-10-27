@@ -287,7 +287,7 @@ export function chooseToolsEnvIdentity(
 				: "";
 		return {
 			name: "tools-env",
-			text: `Tools env: ${input.kind ?? "just-bash"} (${input.envId ?? ""}), ${pin}, ${persist} workspace at ${root}. Enabled by ${input.enabledSource}, binding from ${input.bindingSource}. The namespace is ${scope}. ${shared} ${confine} ${botDefault}Use bash, read, write, and edit for this workspace. code.execute, when enabled, runs in an isolated provider sandbox with no access to workspace files. Durable facts go through knowledge_* and memory_*. MEMORY.md, SOUL.md, and knowledge/<slug>.md are virtual database entities, NOT workspace files—never use read, write, edit, or bash on them; manage them exclusively with memory_* and knowledge_* tools.`,
+			text: `Tools env: ${input.kind ?? "just-bash"} (${input.envId ?? ""}), ${pin}, ${persist} workspace at ${root}. Enabled by ${input.enabledSource}, binding from ${input.bindingSource}. The namespace is ${scope}. ${shared} ${confine} ${botDefault}Use bash, read, write, and edit for this workspace. Code runs in the workspace via bash, and code.execute is disabled. Durable facts go through knowledge_* and memory_*. MEMORY.md, SOUL.md, and knowledge/<slug>.md are virtual database entities, NOT workspace files—never use read, write, edit, or bash on them; manage them exclusively with memory_* and knowledge_* tools.`,
 		};
 	}
 	const source =
@@ -298,7 +298,7 @@ export function chooseToolsEnvIdentity(
 				: "account default";
 	return {
 		name: "tools-env-unavailable",
-		text: `The workspace tools env for this chat is unavailable (${input.kind ?? "unknown"}, ${source}). It cannot run commands or touch files. code.execute, if enabled, remains an independent stateless sandbox with no workspace file access. The environment reconnects on its own. Do not try to use the workspace. Keep chatting. Memory, knowledge, and schedules still work.`,
+		text: `The workspace tools env for this chat is unavailable (${input.kind ?? "unknown"}, ${source}). It cannot run commands or touch files. Workspace coding tools stay offered, so code.execute is disabled. The environment reconnects on its own. Do not try to use the workspace. Keep chatting. Memory, knowledge, and schedules still work.`,
 	};
 }
 

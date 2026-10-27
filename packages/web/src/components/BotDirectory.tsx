@@ -3,8 +3,11 @@ import { useEffect, useMemo, useState } from "react";
 import { useCadmus } from "../context/CadmusContext.js";
 import {
 	buildToolsEnvSetting,
+	CODE_EXECUTE_BASH_ENV_HINT,
+	codeExecuteDisabledHint,
 	EMPTY_TOOLS_ALLOWLIST_HINT,
 	formatToolsEnvSummary,
+	mergeCodingTools,
 	type ToolsEnvCatalogChoice,
 	type ToolsEnvChoice,
 	toolsFormBaseline,
@@ -28,6 +31,10 @@ interface BotModalProps {
 	mode: "create" | "edit";
 	bot?: BotRecord | null;
 	onClose: () => void;
+	initialToolsEnvCatalog?: {
+		envs: ToolsEnvCatalogChoice[];
+		defaultEnvId?: string | null;
+	};
 }
 
 export function botToolSummary(tools: readonly string[] | undefined): string {
@@ -36,7 +43,13 @@ export function botToolSummary(tools: readonly string[] | undefined): string {
 	return `${tools.length} tools: ${tools.slice(0, 3).join(", ")}${tools.length > 3 ? "..." : ""}`;
 }
 
-export function BotModal({ isOpen, mode, bot, onClose }: BotModalProps) {
+export function BotModal({
+	isOpen,
+	mode,
+	bot,
+	onClose,
+	initialToolsEnvCatalog,
+}: BotModalProps) {
 	const { client, refreshBots, selectBot, models, openCredentials } =
 		useCadmus();
 
@@ -57,7 +70,12 @@ export function BotModal({ isOpen, mode, bot, onClose }: BotModalProps) {
 	const [toolsEnvId, setToolsEnvId] = useState(
 		bot?.toolsEnv?.binding?.envId ?? "",
 	);
-	const [envChoices, setEnvChoices] = useState<ToolsEnvCatalogChoice[]>([]);
+	const [envChoices, setEnvChoices] = useState<ToolsEnvCatalogChoice[]>(
+		initialToolsEnvCatalog?.envs ?? [],
+	);
+	const [accountDefaultEnvId, setAccountDefaultEnvId] = useState<string | null>(
+		initialToolsEnvCatalog?.defaultEnvId ?? null,
+	);
 	const [effectiveSummary, setEffectiveSummary] = useState<string | null>(null);
 	const [isSubmitting, setIsSubmitting] = useState(false);
 	const [error, setError] = useState<string | null>(null);
@@ -76,6 +94,7 @@ export function BotModal({ isOpen, mode, bot, onClose }: BotModalProps) {
 						...(env.label ? { label: env.label } : {}),
 					})),
 				);
+				setAccountDefaultEnvId(listed.result.default?.envId ?? null);
 			}
 			if (!bot) return;
 			const view = await client.callRpc("bot.get", { botId: bot.id });
@@ -113,6 +132,14 @@ export function BotModal({ isOpen, mode, bot, onClose }: BotModalProps) {
 	}, [models, bot?.model]);
 
 	if (!isOpen) return null;
+
+	const showCodeExecuteHint = codeExecuteDisabledHint({
+		tools: mergeCodingTools(tools, codingTools),
+		choice: toolsEnvChoice,
+		envId: toolsEnvId,
+		envs: envChoices,
+		unpinnedEnvId: accountDefaultEnvId,
+	});
 
 	const handleSubmit = async (e: React.FormEvent) => {
 		e.preventDefault();
@@ -391,6 +418,9 @@ export function BotModal({ isOpen, mode, bot, onClose }: BotModalProps) {
 								Off by default. Env Off still hides these tools on inheriting
 								chats.
 							</span>
+							{showCodeExecuteHint ? (
+								<span className="form-hint">{CODE_EXECUTE_BASH_ENV_HINT}</span>
+							) : null}
 						</div>
 
 						<ToolsEnvPinFields

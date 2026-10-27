@@ -1,4 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
+import { effectiveToolNames } from "@cadmus/contract/tools";
 import type { Context } from "@earendil-works/chord/context";
 import type {
 	AssistantMessage,
@@ -499,6 +500,8 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 			broadcast: (event) => this.broadcastEvent(event),
 			prepareCodingTools: (conversationId) =>
 				this.prepareCodingTools(conversationId),
+			codingToolsOffered: (conversationId, botId) =>
+				this.codingToolsOffered(conversationId, botId),
 			codingToolAllowed: (conversationId, botId, toolName) =>
 				this.codingToolAllowed(conversationId, botId, toolName),
 			describeToolsEnv: (input) => this.describeToolsEnv(input),
@@ -2158,6 +2161,15 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 		);
 	}
 
+	private async codingToolsOffered(
+		conversationId: number,
+		botId: string,
+	): Promise<boolean> {
+		const bot = this.familyStore.bots.getBot(botId);
+		if (!bot) return false;
+		return this.toolsEnvController.offerCodingTools(conversationId, bot);
+	}
+
 	private async codingToolAllowed(
 		conversationId: number,
 		botId: string,
@@ -2260,6 +2272,13 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 		}
 
 		const effectiveThinking = chat.thinking ?? bot.thinking;
+		const codingToolsOffered = await this.toolsEnvController.offerCodingTools(
+			chat.conversationId,
+			bot,
+		);
+		const effectiveTools = effectiveToolNames(bot.tools, {
+			codingToolsOffered,
+		});
 		const toolsEnvNest = await this.toolsEnvController.statusForChat(chat.key);
 		const toolsEnv = toolsEnvNest.enabled
 			? {
@@ -2293,7 +2312,7 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 			botName: bot.name,
 			model: bot.model,
 			thinking: effectiveThinking,
-			tools: bot.tools ?? ("all" as const),
+			tools: effectiveTools ? [...effectiveTools] : ("all" as const),
 			busy: Boolean(live?.run),
 			entryCount,
 			harvestWatermark: watermark,

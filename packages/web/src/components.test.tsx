@@ -47,6 +47,7 @@ import {
 } from "./read-api-request.js";
 import {
 	buildToolsEnvSetting,
+	CODE_EXECUTE_BASH_ENV_HINT,
 	EMPTY_TOOLS_ALLOWLIST_HINT,
 	formatToolsEnvSummary,
 	hasToolsEnvChanged,
@@ -1321,6 +1322,54 @@ describe("Web UI Components", () => {
 		);
 		expect(defaultHtml).toContain("Leave blank to allow all tools");
 		expect(defaultHtml).not.toContain("currently permits no tools");
+	});
+
+	it("shows code.execute disabled while the bash env and coding tools are on", () => {
+		const client = createMockClient();
+		const catalog = {
+			envs: [{ envId: "jb_1", kind: "just-bash" as const }],
+			defaultEnvId: "jb_1",
+		};
+		const codingTools = [...DEFAULT_CADMUS_TOOL_NAMES, ...CODING_TOOL_NAMES];
+		const renderBot = (bot: BotRecord) =>
+			renderToString(
+				<CadmusProvider clientOverride={client}>
+					<BotModal
+						isOpen
+						mode="edit"
+						bot={bot}
+						onClose={() => undefined}
+						initialToolsEnvCatalog={catalog}
+					/>
+				</CadmusProvider>,
+			);
+
+		const enabled = renderBot({
+			...TEST_BOT,
+			tools: codingTools,
+			toolsEnv: { enabled: true, binding: { envId: "jb_1" } },
+		});
+		expect(enabled).toContain(CODE_EXECUTE_BASH_ENV_HINT);
+
+		const inherited = renderBot({
+			...TEST_BOT,
+			tools: codingTools,
+		});
+		expect(inherited).toContain(CODE_EXECUTE_BASH_ENV_HINT);
+
+		const envOff = renderBot({
+			...TEST_BOT,
+			tools: codingTools,
+			toolsEnv: { enabled: false, binding: { envId: "jb_1" } },
+		});
+		expect(envOff).not.toContain(CODE_EXECUTE_BASH_ENV_HINT);
+
+		const noCoding = renderBot({
+			...TEST_BOT,
+			tools: [...DEFAULT_CADMUS_TOOL_NAMES],
+			toolsEnv: { enabled: true, binding: { envId: "jb_1" } },
+		});
+		expect(noCoding).not.toContain(CODE_EXECUTE_BASH_ENV_HINT);
 	});
 
 	it("16. Chat autoscroll logic and useAutoScroll hook maintain bottom anchor when at bottom and preserve position when scrolled up", () => {

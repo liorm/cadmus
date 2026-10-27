@@ -272,7 +272,9 @@ describe("chooseToolsEnvIdentity", () => {
 		});
 		expect(ready?.name).toBe("tools-env");
 		expect(ready?.text).toContain("bash, read, write, and edit");
-		expect(ready?.text).toContain("code.execute");
+		expect(ready?.text).toContain("via bash");
+		expect(ready?.text).toContain("code.execute is disabled");
+		expect(ready?.text).not.toContain("isolated provider sandbox");
 		expect(ready?.text).toContain("The bot default is local-daemon");
 		expect(ready?.text).toContain("this chat");
 
@@ -286,6 +288,8 @@ describe("chooseToolsEnvIdentity", () => {
 		});
 		expect(down?.name).toBe("tools-env-unavailable");
 		expect(down?.text).not.toContain("bash");
+		expect(down?.text).toContain("code.execute is disabled");
+		expect(down?.text).not.toContain("independent stateless sandbox");
 		expect(down?.text).toContain("reconnects on its own");
 		expect(down?.text).toContain("Memory, knowledge, and schedules still work");
 	});

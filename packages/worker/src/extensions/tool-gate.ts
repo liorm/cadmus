@@ -1,12 +1,22 @@
+import { CODE_EXECUTE_TOOL_NAME } from "@cadmus/contract/tools";
 import {
 	AgentDoc,
 	defineExtension,
+	GenerationTask,
 	hook,
 	ToolTask,
 } from "@earendil-works/pi-durable";
 import { requireCadmusServices } from "../context.js";
 import { getLogger } from "../log.js";
 import { isCodingTool } from "../tools-env/pure.js";
+import {
+	noteProviderTools,
+	omitCodeExecuteFromProviderMessages,
+	providerToolNames,
+} from "./provider-tools.js";
+
+const CODE_EXECUTE_ENV_BLOCK =
+	"code.execute is disabled while the workspace tools env is on; use bash";
 
 /**
  * Enforces per-bot `bot.tools` allowlist on every tool execution.
@@ -15,6 +25,29 @@ export function toolGateExtension() {
 	return defineExtension({
 		name: "cadmus.tool-gate",
 		hooks: [
+			hook(GenerationTask, {
+				async beforeRequest(request, api, context) {
+					const services = requireCadmusServices(context);
+					const agent = await api.snapshot(
+						AgentDoc,
+						api.conversationId,
+						context,
+					);
+					const botId = agent?.cwd?.trim() ?? "";
+					const offered = botId
+						? await services.codingToolsOffered(
+								api.conversationId as unknown as number,
+								botId,
+							)
+						: false;
+					const messages = offered
+						? omitCodeExecuteFromProviderMessages(request.messages)
+						: request.messages;
+					noteProviderTools(botId, providerToolNames(messages));
+					if (messages === request.messages) return undefined;
+					return { messages };
+				},
+			}),
 			hook(ToolTask, {
 				async beforeTool(call, api, context) {
 					const agent = await api.snapshot(
@@ -34,6 +67,20 @@ export function toolGateExtension() {
 					}
 					const services = requireCadmusServices(context);
 					const bot = services.familyStore.bots.getBot(botId);
+					if (call.name === CODE_EXECUTE_TOOL_NAME && bot) {
+						const offered = await services.codingToolsOffered(
+							api.conversationId as unknown as number,
+							bot.id,
+						);
+						if (offered) {
+							getLogger().warn("tool call blocked by tool-gate", {
+								bot: botId,
+								tool: call.name,
+								session: api.conversationId,
+							});
+							return { block: CODE_EXECUTE_ENV_BLOCK };
+						}
+					}
 					if (isCodingTool(call.name)) {
 						const allowed = bot
 							? await services.codingToolAllowed(

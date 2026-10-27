@@ -30,6 +30,7 @@ export interface CadmusServices {
 		toolsEnv?: ToolsEnvSetting | null;
 	}): Promise<BotRecord>;
 	prepareCodingTools(conversationId: number): Promise<void>;
+	codingToolsOffered(conversationId: number, botId: string): Promise<boolean>;
 	codingToolAllowed(
 		conversationId: number,
 		botId: string,

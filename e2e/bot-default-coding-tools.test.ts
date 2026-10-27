@@ -1,6 +1,7 @@
 import {
 	CODING_TOOL_NAMES,
 	DEFAULT_CADMUS_TOOL_NAMES,
+	effectiveToolNames,
 } from "@cadmus/contract/tools";
 import { describe, expect, it } from "vitest";
 import type { ServerEvent } from "../packages/worker/src/protocol.js";
@@ -79,7 +80,7 @@ describe("default Cadmus tools plus coding tools", () => {
 				status: { tools: string[] | "all" };
 			}>("chat.status", { chatKey: "main" }, options);
 			expect(codingStatus.frame.result?.status.tools).toEqual(
-				DEFAULT_PLUS_CODING,
+				effectiveToolNames(DEFAULT_PLUS_CODING, { codingToolsOffered: true }),
 			);
 
 			const knowledge = await turn(

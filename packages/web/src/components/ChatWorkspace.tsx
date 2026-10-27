@@ -11,6 +11,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useCadmus } from "../context/CadmusContext.js";
 import {
 	buildToolsEnvSetting,
+	CODE_EXECUTE_BASH_ENV_HINT,
+	codeExecuteDisabledHint,
 	formatToolsEnvSummary,
 	hasToolsEnvChanged,
 	type ToolsEnvCatalogChoice,
@@ -515,6 +517,9 @@ export function ChatWorkspace({
 	const [chatEnvChoices, setChatEnvChoices] = useState<ToolsEnvCatalogChoice[]>(
 		[],
 	);
+	const [accountDefaultEnvId, setAccountDefaultEnvId] = useState<string | null>(
+		null,
+	);
 	const [chatEnvChoice, setChatEnvChoice] = useState<ToolsEnvChoice>(
 		initialChatData?.chat.toolsEnv == null
 			? "inherit"
@@ -525,6 +530,28 @@ export function ChatWorkspace({
 	const [chatEnvId, setChatEnvId] = useState(
 		initialChatData?.chat.toolsEnv?.binding?.envId ?? "",
 	);
+	const showCodeExecuteHint = useMemo(() => {
+		const chatBot = bots.find((bot) => bot.id === chatData?.chat.botId);
+		if (!chatBot) return false;
+		const unpinnedEnvId =
+			chatEnvChoice === "inherit" && chatBot.toolsEnv?.enabled === false
+				? undefined
+				: (chatBot.toolsEnv?.binding?.envId ?? accountDefaultEnvId);
+		return codeExecuteDisabledHint({
+			tools: chatBot.tools,
+			choice: chatEnvChoice,
+			envId: chatEnvId,
+			envs: chatEnvChoices,
+			unpinnedEnvId,
+		});
+	}, [
+		accountDefaultEnvId,
+		bots,
+		chatData?.chat.botId,
+		chatEnvChoice,
+		chatEnvChoices,
+		chatEnvId,
+	]);
 	const [isSavingToolsEnv, setIsSavingToolsEnv] = useState(false);
 	const [isLoadingChat, setIsLoadingChat] = useState(false);
 
@@ -652,6 +679,7 @@ export function ChatWorkspace({
 					...(env.label ? { label: env.label } : {}),
 				})),
 			);
+			setAccountDefaultEnvId(listed.result.default?.envId ?? null);
 		});
 		return () => {
 			cancelled = true;
@@ -1141,6 +1169,9 @@ export function ChatWorkspace({
 									onChoice={setChatEnvChoice}
 									onEnvId={setChatEnvId}
 								/>
+								{showCodeExecuteHint ? (
+									<p className="form-hint">{CODE_EXECUTE_BASH_ENV_HINT}</p>
+								) : null}
 								<button
 									type="button"
 									className="btn btn-secondary btn-sm"

@@ -1,6 +1,7 @@
 import {
 	CODING_TOOL_NAMES,
 	DEFAULT_CADMUS_TOOL_NAMES,
+	effectiveToolNames,
 } from "@cadmus/contract/tools";
 import type { ToolsEnvSetting } from "@cadmus/contract/types";
 
@@ -54,6 +55,41 @@ export function hasToolsEnvChanged(input: {
 }
 
 const CODING_TOOL_NAME_SET = new Set<string>(CODING_TOOL_NAMES);
+
+export const CODE_EXECUTE_BASH_ENV_HINT =
+	"Off while the bash env is on — code runs in the workspace.";
+
+/**
+ * True when the draft allowlist lists a coding tool and the env pin resolves
+ * to just-bash or local-daemon, the same case that drops `code.execute`.
+ * `unpinnedEnvId` is the account default, or the bot pin when a chat does
+ * not choose an env id of its own. Choice `off` never hides `code.execute`.
+ */
+export function codeExecuteDisabledHint(input: {
+	tools: readonly string[] | undefined;
+	choice: ToolsEnvChoice;
+	envId: string;
+	envs: readonly ToolsEnvCatalogChoice[];
+	unpinnedEnvId?: string | null;
+}): boolean {
+	if (
+		!input.tools?.some((name) =>
+			(CODING_TOOL_NAMES as readonly string[]).includes(name),
+		)
+	) {
+		return false;
+	}
+	const pinned = input.choice === "on" ? input.envId.trim() : "";
+	const envId =
+		input.choice === "off" ? "" : pinned || input.unpinnedEnvId?.trim() || "";
+	if (!envId) return false;
+	const kind = input.envs.find((env) => env.envId === envId)?.kind;
+	if (kind !== "just-bash" && kind !== "local-daemon") return false;
+	const effective = effectiveToolNames(input.tools, {
+		codingToolsOffered: true,
+	});
+	return !effective?.includes("code.execute");
+}
 
 export function codingToolsSelected(
 	tools: readonly string[] | undefined,
