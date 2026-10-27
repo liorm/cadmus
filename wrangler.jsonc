@@ -53,6 +53,14 @@
 		{
 			"tag": "v2",
 			"new_sqlite_classes": ["CadmusEnvDO"]
+		},
+		{
+			"tag": "v3",
+			"deleted_classes": ["CadmusBotFamilyDO", "CadmusEnvDO"]
+		},
+		{
+			"tag": "v4",
+			"new_sqlite_classes": ["CadmusBotFamilyDO", "CadmusEnvDO"]
 		}
 	],
 	"vars": {
