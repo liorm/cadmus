@@ -14,9 +14,8 @@
 	"include": [
 		"src/**/*.ts",
 		"tests/**/*.ts",
-		"../src/tools-env/wire.ts",
-		"../src/tools-env/wire-call.ts",
-		"../src/tools-env/wire-env.ts",
-		"../tests/conformance/**/*.ts"
+		"../worker/src/tools-env/wire.ts",
+		"../worker/src/tools-env/wire-call.ts",
+		"../worker/src/tools-env/wire-env.ts"
 	]
 }

@@ -95,6 +95,18 @@ describe("daemon confinement", () => {
 		}
 	});
 
+	it("generates sandbox-exec profile for macOS", () => {
+		const argv = confinedExecArgv({
+			mechanism: "sandbox-exec",
+			workspace: "/tmp/cadmus-ws",
+			command: "true",
+		});
+		expect(argv[0]).toBe("sandbox-exec");
+		expect(argv[1]).toBe("-p");
+		expect(argv[2]).toContain('(allow file-write* (subpath "/tmp/cadmus-ws"))');
+		expect(argv.slice(3)).toEqual(["sh", "-c", "true"]);
+	});
+
 	it("refuses to start when confinement is on and no mechanism exists", () => {
 		const refused = startupDecision({
 			confineToWorkspace: true,

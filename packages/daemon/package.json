@@ -5,5 +5,16 @@
 	"type": "module",
 	"bin": {
 		"cadmus-daemon": "./src/cli.ts"
+	},
+	"scripts": {
+		"start": "bun run src/cli.ts",
+		"build": "bun build --compile src/cli.ts --outfile dist/cadmus-daemon",
+		"build:darwin-arm64": "bun build --compile --target=bun-darwin-arm64 src/cli.ts --outfile dist/cadmus-daemon-darwin-arm64",
+		"build:darwin-x64": "bun build --compile --target=bun-darwin-x64 src/cli.ts --outfile dist/cadmus-daemon-darwin-x64",
+		"build:darwin": "bun run build:darwin-arm64 && bun run build:darwin-x64",
+		"build:linux-arm64": "bun build --compile --target=bun-linux-arm64 src/cli.ts --outfile dist/cadmus-daemon-linux-arm64",
+		"build:linux-x64": "bun build --compile --target=bun-linux-x64 src/cli.ts --outfile dist/cadmus-daemon-linux-x64",
+		"build:linux": "bun run build:linux-arm64 && bun run build:linux-x64",
+		"build:all": "bun run build:linux && bun run build:darwin"
 	}
 }

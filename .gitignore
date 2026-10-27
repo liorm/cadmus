@@ -9,3 +9,4 @@ auth.json
 auth.json.lock
 /.wrangler
 packages/*/node_modules/
+.*.bun-build

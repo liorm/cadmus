@@ -1,3 +1,4 @@
+#!/usr/bin/env bun
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
 import { daemonCliArgs, formatDaemonHelp, parseDaemonArgs } from "./args.js";
 import { createBackoff, noteAttempt } from "./backoff.js";

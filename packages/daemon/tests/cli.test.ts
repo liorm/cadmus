@@ -132,7 +132,22 @@ describe("daemon cli args", () => {
 			"--help",
 		]);
 		expect(
+			daemonCliArgs(["bun", "packages/daemon/src/cli.ts", "--help"]),
+		).toEqual(["--help"]);
+		expect(daemonCliArgs(["./packages/daemon/src/cli.ts", "--help"])).toEqual([
+			"--help",
+		]);
+		expect(
 			daemonCliArgs(["/opt/cadmus/cadmus-daemon-linux-arm64", "--version"]),
 		).toEqual(["--version"]);
+		expect(
+			daemonCliArgs(["/opt/cadmus/cadmus-daemon-darwin-arm64", "--version"]),
+		).toEqual(["--version"]);
+		expect(
+			daemonCliArgs(["/opt/cadmus/cadmus-daemon-darwin-x64", "--version"]),
+		).toEqual(["--version"]);
+		expect(
+			daemonCliArgs(["packages/daemon/dist/cadmus-daemon", "--help"]),
+		).toEqual(["--help"]);
 	});
 });

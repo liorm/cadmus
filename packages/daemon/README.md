@@ -9,35 +9,69 @@ This package is not a system service. Nothing here installs it, and there is no 
 From the repository root, with Bun 1.4.3:
 
 ```bash
+# Build all targets (Linux and macOS)
 bun run daemon:build
+
+# macOS targets
+bun run daemon:build:darwin          # Both Apple Silicon & Intel
+bun run daemon:build:darwin-arm64    # Apple Silicon (M1/M2/M3/M4)
+bun run daemon:build:darwin-x64      # Intel Mac
+
+# Linux targets
+bun run daemon:build:linux           # Both arm64 & x64
 bun run daemon:build:linux-arm64
 bun run daemon:build:linux-x64
+
+# Host native target (compiles for your current OS/arch)
+bun run daemon:build:local
 ```
 
-`daemon:build` compiles both targets. Each script runs `bun build --compile` on `daemon/src/cli.ts`:
+Each script runs `bun build --compile` on `packages/daemon/src/cli.ts`:
 
 | Script | Target | Output |
 | :--- | :--- | :--- |
-| `daemon:build:linux-arm64` | `bun-linux-arm64` | `daemon/dist/cadmus-daemon-linux-arm64` |
-| `daemon:build:linux-x64` | `bun-linux-x64` | `daemon/dist/cadmus-daemon-linux-x64` |
+| `daemon:build:darwin-arm64` | `bun-darwin-arm64` | `packages/daemon/dist/cadmus-daemon-darwin-arm64` |
+| `daemon:build:darwin-x64` | `bun-darwin-x64` | `packages/daemon/dist/cadmus-daemon-darwin-x64` |
+| `daemon:build:linux-arm64` | `bun-linux-arm64` | `packages/daemon/dist/cadmus-daemon-linux-arm64` |
+| `daemon:build:linux-x64` | `bun-linux-x64` | `packages/daemon/dist/cadmus-daemon-linux-x64` |
+| `daemon:build:local` | host default | `packages/daemon/dist/cadmus-daemon` |
 
-`daemon/dist/` is gitignored (`dist/` and `daemon/dist/` in `.gitignore`). Do not commit the binaries.
+`packages/daemon/dist/` is gitignored (`dist/` and `packages/*/dist/` in `.gitignore`). Do not commit the binaries.
 
 ## Run
 
-`bun run <name>` reads `package.json` `"scripts"`, not `"bin"`. Start the TypeScript entry by path, from the repository root:
+### Run directly with Bun
+
+You can run the daemon directly from source without compiling:
 
 ```bash
-bun daemon/src/cli.ts --help
-bun daemon/src/cli.ts --version
-bun daemon/src/cli.ts --url <ws-url> --token <cadmus_dt_...> --env-id <id> --workspace <path>
+# From repository root using bun run daemon:
+bun run daemon --help
+bun run daemon --version
+bun run daemon --url <ws-url> --token <cadmus_dt_...> --env-id <id> --workspace <path>
+
+# Or running the entrypoint directly:
+bun packages/daemon/src/cli.ts --help
+./packages/daemon/src/cli.ts --help
 ```
 
-The compiled binaries are the other way to run it:
+### Run compiled binary
+
+Alternatively, compile for your platform and run the binary:
 
 ```bash
-./daemon/dist/cadmus-daemon-linux-arm64 --help
-./daemon/dist/cadmus-daemon-linux-x64 --version
+# On Apple Silicon Mac:
+./packages/daemon/dist/cadmus-daemon-darwin-arm64 --help
+
+# On Intel Mac:
+./packages/daemon/dist/cadmus-daemon-darwin-x64 --help
+
+# On Linux:
+./packages/daemon/dist/cadmus-daemon-linux-arm64 --help
+./packages/daemon/dist/cadmus-daemon-linux-x64 --help
+
+# Native host build:
+./packages/daemon/dist/cadmus-daemon --help
 ```
 
 `--help` and `--version` print and exit 0. They do not open a socket. `--version` prints the `version` field from `daemon/package.json` and nothing else. When both flags are present, `--help` wins. A token that is the value of `--url`, `--token`, `--env-id`, `--workspace`, `--persist`, or `--confine` is not `--help` or `--version`.
