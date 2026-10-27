@@ -686,12 +686,15 @@
 							"workspacePath": {
 								"type": "string",
 								"minLength": 1
+							},
+							"baseUrl": {
+								"type": "string"
 							}
 						},
 						"additionalProperties": false
 					}
 				},
-				"description": "Create a just-bash or local-daemon tools env definition. Daemon rows require secretId, workspacePath, and confineToWorkspace."
+				"description": "Create a just-bash or local-daemon tools env definition. Daemon rows require workspacePath and confineToWorkspace."
 			},
 			"AccountToolsEnvsDeleteCommand": {
 				"type": "object",
@@ -719,6 +722,32 @@
 				},
 				"description": "Delete a tools env definition and its env DO data."
 			},
+			"AccountToolsEnvsDeregisterCommand": {
+				"type": "object",
+				"required": ["id", "type", "payload"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1
+					},
+					"type": {
+						"type": "string",
+						"const": "account.toolsEnvs.deregister"
+					},
+					"payload": {
+						"type": "object",
+						"required": ["envId"],
+						"properties": {
+							"envId": {
+								"type": "string",
+								"minLength": 1
+							}
+						},
+						"additionalProperties": false
+					}
+				},
+				"description": "Deregister a daemon env, revoking its credentials and disconnecting any active session."
+			},
 			"AccountToolsEnvsListCommand": {
 				"type": "object",
 				"required": ["id", "type"],
@@ -739,6 +768,35 @@
 				},
 				"readOnly": true,
 				"description": "List account tools env definitions and the default binding."
+			},
+			"AccountToolsEnvsPairCommand": {
+				"type": "object",
+				"required": ["id", "type", "payload"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1
+					},
+					"type": {
+						"type": "string",
+						"const": "account.toolsEnvs.pair"
+					},
+					"payload": {
+						"type": "object",
+						"required": ["envId"],
+						"properties": {
+							"envId": {
+								"type": "string",
+								"minLength": 1
+							},
+							"baseUrl": {
+								"type": "string"
+							}
+						},
+						"additionalProperties": false
+					}
+				},
+				"description": "Mint a 15-minute single-use pairing token for a local-daemon env."
 			},
 			"AccountToolsEnvsUpdateCommand": {
 				"type": "object",
@@ -1657,6 +1715,12 @@
 					},
 					{
 						"$ref": "#/components/schemas/AccountToolsEnvsDeleteCommand"
+					},
+					{
+						"$ref": "#/components/schemas/AccountToolsEnvsPairCommand"
+					},
+					{
+						"$ref": "#/components/schemas/AccountToolsEnvsDeregisterCommand"
 					},
 					{
 						"$ref": "#/components/schemas/AccountToolsEnvSecretsListCommand"

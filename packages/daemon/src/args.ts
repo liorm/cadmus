@@ -1,19 +1,12 @@
 export const DAEMON_USAGE =
-	"usage: cadmus-daemon --url <ws-url> --token <cadmus_dt_...> --env-id <id> --workspace <path> [--persist true|false] [--confine true|false]";
-
-export interface DaemonRunFlags {
-	url: string;
-	token: string;
-	envId: string;
-	workspacePath: string;
-	persist: boolean;
-	confineToWorkspace: boolean;
-}
+	"usage:\n  cadmus-daemon [pair] <token> [--name <name>] [--config <path>]\n  cadmus-daemon [start] [--config <path>]\n  cadmus-daemon deregister [--config <path>]\n  cadmus-daemon --help | --version";
 
 export type ParsedDaemonArgs =
 	| { kind: "help" }
 	| { kind: "version" }
-	| { kind: "run"; flags: DaemonRunFlags }
+	| { kind: "pair"; token: string; name?: string; configPath?: string }
+	| { kind: "start"; configPath?: string }
+	| { kind: "deregister"; configPath?: string }
 	| { kind: "error"; message: string };
 
 /**
@@ -33,22 +26,14 @@ export function daemonCliArgs(argv: readonly string[]): readonly string[] {
 	return rest;
 }
 
-const VALUE_FLAGS = new Set([
-	"--url",
-	"--token",
-	"--env-id",
-	"--workspace",
-	"--persist",
-	"--confine",
-]);
-
 function flagValue(argv: readonly string[], name: string): string | undefined {
 	const index = argv.indexOf(name);
 	if (index < 0) return undefined;
 	return argv[index + 1];
 }
 
-/** `--help` / `--version` count only as their own argv tokens, not as a flag value. */
+const VALUE_FLAGS = new Set(["--name", "--config"]);
+
 function hasStandaloneFlag(argv: readonly string[], name: string): boolean {
 	return argv.some(
 		(token, index) =>
@@ -57,27 +42,58 @@ function hasStandaloneFlag(argv: readonly string[], name: string): boolean {
 	);
 }
 
-/** Pure flag parse. `--help` and `--version` do not require the run flags. */
 export function parseDaemonArgs(argv: readonly string[]): ParsedDaemonArgs {
 	if (hasStandaloneFlag(argv, "--help")) return { kind: "help" };
 	if (hasStandaloneFlag(argv, "--version")) return { kind: "version" };
-	const url = flagValue(argv, "--url");
-	const token = flagValue(argv, "--token");
-	const envId = flagValue(argv, "--env-id");
-	const workspacePath = flagValue(argv, "--workspace");
-	if (!url || !token || !envId || !workspacePath) {
-		return { kind: "error", message: DAEMON_USAGE };
+
+	const name = flagValue(argv, "--name");
+	const configPath = flagValue(argv, "--config");
+
+	// Extract positionals (tokens not starting with - and not values of flags)
+	const positionals: string[] = [];
+	for (let i = 0; i < argv.length; i++) {
+		const token = argv[i] ?? "";
+		if (token.startsWith("-")) {
+			if (VALUE_FLAGS.has(token)) {
+				i++; // skip flag value
+			}
+			continue;
+		}
+		positionals.push(token);
 	}
+
+	if (positionals.length === 0) {
+		return { kind: "start", configPath };
+	}
+
+	const first = positionals[0] ?? "";
+	if (first === "start") {
+		return { kind: "start", configPath };
+	}
+
+	if (first === "deregister") {
+		return { kind: "deregister", configPath };
+	}
+
+	if (first === "pair") {
+		const token = positionals[1];
+		if (!token) {
+			return {
+				kind: "error",
+				message: `Missing pairing token.\n${DAEMON_USAGE}`,
+			};
+		}
+		return { kind: "pair", token, name, configPath };
+	}
+
+	// Direct token pass without "pair" subcommand
+	if (first.startsWith("cadmus_pt_")) {
+		return { kind: "pair", token: first, name, configPath };
+	}
+
 	return {
-		kind: "run",
-		flags: {
-			url,
-			token,
-			envId,
-			workspacePath,
-			persist: flagValue(argv, "--persist") !== "false",
-			confineToWorkspace: flagValue(argv, "--confine") === "true",
-		},
+		kind: "error",
+		message: `Unknown command or flag '${first}'.\n${DAEMON_USAGE}`,
 	};
 }
 
@@ -87,16 +103,17 @@ export function formatDaemonHelp(): string {
 		"",
 		DAEMON_USAGE,
 		"",
-		"  --url <ws-url>            WebSocket URL. If envId is absent, --env-id is added.",
-		"  --token <cadmus_dt_...>   Pairing bearer from account.toolsEnvSecrets.set.",
-		"  --env-id <id>             Account tools env id.",
-		"  --workspace <path>        Workspace directory.",
-		"  --persist true|false      Keep the workspace (default true). Only false disables it.",
-		"  --confine true|false      Require OS confinement (default false). Only true enables it.",
-		"  --help                    Print this help and exit. Does not connect.",
-		"  --version                 Print the daemon package version and exit. Does not connect.",
+		"Commands:",
+		"  pair <token> [--name <name>]   Pair and register with a 15-minute token from the UI.",
+		"  start                          Run using saved local credentials (default when no command given).",
+		"  deregister                     Remove local registration and credentials.",
 		"",
-		"Required to run: --url, --token, --env-id, --workspace.",
+		"Options:",
+		"  --name <name>                  Friendly daemon name (e.g. 'My MacBook').",
+		"  --config <path>                Custom path to configuration file (default: ~/.cadmus/daemon.json).",
+		"  --help                         Print this help and exit.",
+		"  --version                      Print the daemon package version and exit.",
+		"",
 		"--help wins when both --help and --version are present.",
 	].join("\n");
 }

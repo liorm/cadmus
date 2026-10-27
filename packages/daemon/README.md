@@ -79,27 +79,27 @@ Alternatively, compile for your platform and run the binary:
 ```text
 cadmus-daemon --help
 cadmus-daemon --version
-cadmus-daemon --url <ws-url> --token <cadmus_dt_...> --env-id <id> --workspace <path> [--persist true|false] [--confine true|false]
+cadmus-daemon pair <token> [--name <name>]
+cadmus-daemon [start]
+cadmus-daemon deregister
 ```
 
-| Flag | Required | Meaning |
-| :--- | :--- | :--- |
-| `--url <ws-url>` | yes, to run | WebSocket URL. If the query has no `envId`, the process sets it from `--env-id`. |
-| `--token <cadmus_dt_...>` | yes, to run | Bearer minted by `account.toolsEnvSecrets.set`. |
-| `--env-id <id>` | yes, to run | Account tools env id (`local-daemon` row). |
-| `--workspace <path>` | yes, to run | Workspace directory for this env. |
-| `--persist true\|false` | no | Default `true`. The next token disables persistence only when it is exactly `false`. |
-| `--confine true\|false` | no | Default `false`. Confinement is required only when the next token is exactly `true`. |
-| `--help` | no | Print help and exit. Does not connect. |
-| `--version` | no | Print the package version and exit. Does not connect. |
+| Command / Flag | Meaning |
+| :--- | :--- |
+| `pair <token> [--name <name>]` | Pair and register using a 15-minute token from the UI. Stores token in OS Keystore. |
+| `start` (or no command) | Run daemon using locally stored configuration and credentials. |
+| `deregister` | Remove local daemon registration and delete token from keystore. |
+| `--config <path>` | Custom configuration path (default: `~/.cadmus/daemon.json`). |
+| `--help` | Print help and exit. Does not connect. |
+| `--version` | Print the package version and exit. Does not connect. |
 
-A value is the next argv token. The CLI does not accept `--flag=value`. Missing any required run flag exits 1 and prints the usage line on stderr. No other flags are read.
+## Pairing & Registration
 
-## Pairing
-
-1. `account.toolsEnvSecrets.set` mints a `cadmus_dt_` token and returns it once. Later list and get calls do not return the raw token.
-2. Create a `local-daemon` env that points at that secret (`secretId`), with the workspace path and `confineToWorkspace` for this machine.
-3. The daemon dials `GET /tools-env/ws?envId=<envId>` with `Authorization: Bearer <token>`.
+1. Create a `local-daemon` environment in the Cadmus Web UI (specifying workspace path, persist, and confinement).
+2. The UI issues a self-contained 15-minute pairing token (`cadmus_pt_...`).
+3. Run `cadmus-daemon pair <token> --name "My Machine"` on the target machine.
+4. The daemon exchanges keys with the backend, securely stores the permanent token in the OS Keystore (macOS Keychain or Linux Secret Service with chmod 0600 file fallback), and connects.
+5. On subsequent runs, simply execute `cadmus-daemon`.
 
 ## Confinement
 

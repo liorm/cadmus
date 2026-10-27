@@ -13,117 +13,92 @@ describe("daemon cli args", () => {
 		expect(parseDaemonArgs(["--help"])).toEqual({ kind: "help" });
 		expect(parseDaemonArgs(["--help", "--version"])).toEqual({ kind: "help" });
 		expect(parseDaemonArgs(["--version"])).toEqual({ kind: "version" });
-		expect(
-			parseDaemonArgs(["--version", "--url", "ws://example.test/tools-env/ws"]),
-		).toEqual({ kind: "version" });
 		expect(DAEMON_VERSION).toBe(daemonPackage.version);
 		expect(DAEMON_VERSION).toBe("0.1.0");
 		const help = formatDaemonHelp();
-		for (const flag of [
-			"--url",
-			"--token",
-			"--env-id",
-			"--workspace",
-			"--persist",
-			"--confine",
-			"--help",
-			"--version",
-		]) {
-			expect(help).toContain(flag);
-		}
+		expect(help).toContain("--help");
+		expect(help).toContain("--version");
+		expect(help).toContain("pair <token>");
+		expect(help).toContain("start");
+		expect(help).toContain("deregister");
 		expect(help).toContain(DAEMON_USAGE);
 	});
 
-	it("parses run flags and rejects a partial command", () => {
+	it("parses start command with or without explicit subcommand", () => {
 		expect(parseDaemonArgs([])).toEqual({
-			kind: "error",
-			message: DAEMON_USAGE,
+			kind: "start",
+			configPath: undefined,
 		});
-		expect(
-			parseDaemonArgs([
-				"--url",
-				"wss://cadmus.example/tools-env/ws",
-				"--token",
-				"cadmus_dt_abc",
-				"--env-id",
-				"ld_laptop",
-				"--workspace",
-				"/tmp/workspace",
-			]),
-		).toEqual({
-			kind: "run",
-			flags: {
-				url: "wss://cadmus.example/tools-env/ws",
-				token: "cadmus_dt_abc",
-				envId: "ld_laptop",
-				workspacePath: "/tmp/workspace",
-				persist: true,
-				confineToWorkspace: false,
-			},
+		expect(parseDaemonArgs(["start"])).toEqual({
+			kind: "start",
+			configPath: undefined,
 		});
-		const confined = parseDaemonArgs([
-			"--url",
-			"ws://127.0.0.1/tools-env/ws",
-			"--token",
-			"cadmus_dt_abc",
-			"--env-id",
-			"ld_laptop",
-			"--workspace",
-			"/tmp/workspace",
-			"--persist",
-			"false",
-			"--confine",
-			"true",
-		]);
-		expect(confined).toMatchObject({
-			kind: "run",
-			flags: { persist: false, confineToWorkspace: true },
+		expect(parseDaemonArgs(["start", "--config", "/tmp/cadmus.json"])).toEqual({
+			kind: "start",
+			configPath: "/tmp/cadmus.json",
+		});
+		expect(parseDaemonArgs(["--config", "/tmp/cadmus.json"])).toEqual({
+			kind: "start",
+			configPath: "/tmp/cadmus.json",
 		});
 	});
 
-	it("ignores --help and --version when they are values of other flags", () => {
+	it("parses pair command with token and optional name", () => {
+		expect(parseDaemonArgs(["pair", "cadmus_pt_test123"])).toEqual({
+			kind: "pair",
+			token: "cadmus_pt_test123",
+			name: undefined,
+			configPath: undefined,
+		});
+
 		expect(
 			parseDaemonArgs([
-				"--url",
-				"ws://127.0.0.1/tools-env/ws",
-				"--token",
-				"cadmus_dt_abc",
-				"--env-id",
-				"ld_laptop",
-				"--workspace",
-				"--help",
+				"pair",
+				"cadmus_pt_test123",
+				"--name",
+				"MacBook Pro",
+				"--config",
+				"/tmp/custom.json",
 			]),
 		).toEqual({
-			kind: "run",
-			flags: {
-				url: "ws://127.0.0.1/tools-env/ws",
-				token: "cadmus_dt_abc",
-				envId: "ld_laptop",
-				workspacePath: "--help",
-				persist: true,
-				confineToWorkspace: false,
-			},
+			kind: "pair",
+			token: "cadmus_pt_test123",
+			name: "MacBook Pro",
+			configPath: "/tmp/custom.json",
+		});
+
+		// Direct token pass without "pair" prefix
+		expect(
+			parseDaemonArgs(["cadmus_pt_direct_token", "--name", "Office Mac"]),
+		).toEqual({
+			kind: "pair",
+			token: "cadmus_pt_direct_token",
+			name: "Office Mac",
+			configPath: undefined,
+		});
+	});
+
+	it("parses deregister command", () => {
+		expect(parseDaemonArgs(["deregister"])).toEqual({
+			kind: "deregister",
+			configPath: undefined,
 		});
 		expect(
-			parseDaemonArgs([
-				"--url",
-				"ws://127.0.0.1/tools-env/ws",
-				"--token",
-				"--version",
-				"--env-id",
-				"ld_laptop",
-				"--workspace",
-				"/tmp/workspace",
-			]),
-		).toMatchObject({
-			kind: "run",
-			flags: { token: "--version", workspacePath: "/tmp/workspace" },
+			parseDaemonArgs(["deregister", "--config", "/tmp/custom.json"]),
+		).toEqual({
+			kind: "deregister",
+			configPath: "/tmp/custom.json",
 		});
-		expect(
-			parseDaemonArgs(["--workspace", "/tmp/workspace", "--help"]),
-		).toEqual({ kind: "help" });
-		expect(parseDaemonArgs(["--token", "cadmus_dt_abc", "--version"])).toEqual({
-			kind: "version",
+	});
+
+	it("rejects invalid commands or missing tokens", () => {
+		expect(parseDaemonArgs(["pair"])).toEqual({
+			kind: "error",
+			message: expect.stringContaining("Missing pairing token"),
+		});
+		expect(parseDaemonArgs(["invalid_cmd"])).toEqual({
+			kind: "error",
+			message: expect.stringContaining("Unknown command"),
 		});
 	});
 

@@ -11,7 +11,9 @@ import type {
 	AccountToolsEnvSecretsSetCommand,
 	AccountToolsEnvsCreateCommand,
 	AccountToolsEnvsDeleteCommand,
+	AccountToolsEnvsDeregisterCommand,
 	AccountToolsEnvsListCommand,
+	AccountToolsEnvsPairCommand,
 	AccountToolsEnvsUpdateCommand,
 	AccountUpdateCommand,
 	BotCreateCommand,
@@ -77,7 +79,9 @@ import type {
 	AccountToolsEnvSecretsSetResult,
 	AccountToolsEnvsCreateResult,
 	AccountToolsEnvsDeleteResult,
+	AccountToolsEnvsDeregisterResult,
 	AccountToolsEnvsListResult,
+	AccountToolsEnvsPairResult,
 	AccountToolsEnvsUpdateResult,
 	AccountUpdateResult,
 	BotCreateResult,
@@ -341,6 +345,14 @@ export type AccountToolsEnvsDeleteRpc = Rpc<
 	AccountToolsEnvsDeleteCommand,
 	AccountToolsEnvsDeleteResult
 >;
+export type AccountToolsEnvsPairRpc = Rpc<
+	AccountToolsEnvsPairCommand,
+	AccountToolsEnvsPairResult
+>;
+export type AccountToolsEnvsDeregisterRpc = Rpc<
+	AccountToolsEnvsDeregisterCommand,
+	AccountToolsEnvsDeregisterResult
+>;
 export type AccountToolsEnvSecretsListRpc = Rpc<
 	AccountToolsEnvSecretsListCommand,
 	AccountToolsEnvSecretsListResult
@@ -408,6 +420,8 @@ export interface RpcMap {
 	"account.toolsEnvs.create": AccountToolsEnvsCreateRpc;
 	"account.toolsEnvs.update": AccountToolsEnvsUpdateRpc;
 	"account.toolsEnvs.delete": AccountToolsEnvsDeleteRpc;
+	"account.toolsEnvs.pair": AccountToolsEnvsPairRpc;
+	"account.toolsEnvs.deregister": AccountToolsEnvsDeregisterRpc;
 	"account.toolsEnvSecrets.list": AccountToolsEnvSecretsListRpc;
 	"account.toolsEnvSecrets.set": AccountToolsEnvSecretsSetRpc;
 	"account.toolsEnvSecrets.delete": AccountToolsEnvSecretsDeleteRpc;

@@ -899,17 +899,59 @@ export const AccountToolsEnvsCreateCommandSchema = Type.Object(
 				sharedWorkspace: Type.Optional(Type.Boolean()),
 				secretId: Type.Optional(Type.String({ minLength: 1 })),
 				workspacePath: Type.Optional(Type.String({ minLength: 1 })),
+				baseUrl: Type.Optional(Type.String()),
 			},
 			{ additionalProperties: false },
 		),
 	},
 	{
 		description:
-			"Create a just-bash or local-daemon tools env definition. Daemon rows require secretId, workspacePath, and confineToWorkspace.",
+			"Create a just-bash or local-daemon tools env definition. Daemon rows require workspacePath and confineToWorkspace.",
 	},
 );
 export type AccountToolsEnvsCreateCommand = Static<
 	typeof AccountToolsEnvsCreateCommandSchema
+>;
+
+export const AccountToolsEnvsPairCommandSchema = Type.Object(
+	{
+		id: Type.String({ minLength: 1 }),
+		type: Type.Literal("account.toolsEnvs.pair"),
+		payload: Type.Object(
+			{
+				envId: Type.String({ minLength: 1 }),
+				baseUrl: Type.Optional(Type.String()),
+			},
+			{ additionalProperties: false },
+		),
+	},
+	{
+		description:
+			"Mint a 15-minute single-use pairing token for a local-daemon env.",
+	},
+);
+export type AccountToolsEnvsPairCommand = Static<
+	typeof AccountToolsEnvsPairCommandSchema
+>;
+
+export const AccountToolsEnvsDeregisterCommandSchema = Type.Object(
+	{
+		id: Type.String({ minLength: 1 }),
+		type: Type.Literal("account.toolsEnvs.deregister"),
+		payload: Type.Object(
+			{
+				envId: Type.String({ minLength: 1 }),
+			},
+			{ additionalProperties: false },
+		),
+	},
+	{
+		description:
+			"Deregister a daemon env, revoking its credentials and disconnecting any active session.",
+	},
+);
+export type AccountToolsEnvsDeregisterCommand = Static<
+	typeof AccountToolsEnvsDeregisterCommandSchema
 >;
 
 export const AccountToolsEnvsUpdateCommandSchema = Type.Object(
@@ -1960,6 +2002,8 @@ export const ClientCommandSchema = Type.Union(
 		AccountToolsEnvsCreateCommandSchema,
 		AccountToolsEnvsUpdateCommandSchema,
 		AccountToolsEnvsDeleteCommandSchema,
+		AccountToolsEnvsPairCommandSchema,
+		AccountToolsEnvsDeregisterCommandSchema,
 		AccountToolsEnvSecretsListCommandSchema,
 		AccountToolsEnvSecretsSetCommandSchema,
 		AccountToolsEnvSecretsDeleteCommandSchema,

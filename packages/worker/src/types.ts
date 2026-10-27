@@ -7,6 +7,7 @@ export interface Env {
 	CADMUS_ADMIN_DB: D1Database;
 	CADMUS_CACHE_KV?: KVNamespace;
 	CADMUS_AUTH_SECRET?: string;
+	CADMUS_PUBLIC_URL?: string;
 	CADMUS_ENCRYPTION_KEY?: string;
 	CADMUS_DEFAULT_TIMEZONE?: string;
 	CADMUS_HARVEST_DELAY_MS?: string;

@@ -12,7 +12,9 @@ import {
 	AccountToolsEnvSecretsSetCommandSchema,
 	AccountToolsEnvsCreateCommandSchema,
 	AccountToolsEnvsDeleteCommandSchema,
+	AccountToolsEnvsDeregisterCommandSchema,
 	AccountToolsEnvsListCommandSchema,
+	AccountToolsEnvsPairCommandSchema,
 	AccountToolsEnvsUpdateCommandSchema,
 	AccountUpdateCommandSchema,
 	BotCreateCommandSchema,
@@ -76,7 +78,9 @@ import {
 	AccountToolsEnvSecretsSetResultSchema,
 	AccountToolsEnvsCreateResultSchema,
 	AccountToolsEnvsDeleteResultSchema,
+	AccountToolsEnvsDeregisterResultSchema,
 	AccountToolsEnvsListResultSchema,
+	AccountToolsEnvsPairResultSchema,
 	AccountToolsEnvsUpdateResultSchema,
 	AccountUpdateResultSchema,
 	BotCreateResultSchema,
@@ -324,6 +328,14 @@ export const commandCatalog = {
 	"account.toolsEnvs.delete": {
 		command: AccountToolsEnvsDeleteCommandSchema,
 		result: AccountToolsEnvsDeleteResultSchema,
+	},
+	"account.toolsEnvs.pair": {
+		command: AccountToolsEnvsPairCommandSchema,
+		result: AccountToolsEnvsPairResultSchema,
+	},
+	"account.toolsEnvs.deregister": {
+		command: AccountToolsEnvsDeregisterCommandSchema,
+		result: AccountToolsEnvsDeregisterResultSchema,
 	},
 	"account.toolsEnvSecrets.list": {
 		command: AccountToolsEnvSecretsListCommandSchema,

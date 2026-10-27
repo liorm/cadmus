@@ -181,6 +181,16 @@ describe("contract conformance", () => {
 			envId,
 			label: "Conformance renamed",
 		});
+		const daemonEnv = await call("account.toolsEnvs.create", {
+			kind: "local-daemon",
+			label: "Conformance Daemon",
+			workspacePath: "/tmp/conformance",
+			confineToWorkspace: false,
+		});
+		const daemonEnvId = requireString(daemonEnv, ["env", "envId"]);
+		await call("account.toolsEnvs.pair", { envId: daemonEnvId });
+		await call("account.toolsEnvs.deregister", { envId: daemonEnvId });
+		await call("account.toolsEnvs.delete", { envId: daemonEnvId });
 		await call("account.toolsEnvSecrets.list");
 		const minted = await call("account.toolsEnvSecrets.set", { label: "pair" });
 		const secretId = requireString(minted, ["secret", "secretId"]);

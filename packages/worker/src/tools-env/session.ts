@@ -353,15 +353,19 @@ export class ToolsEnvController {
 	}): Promise<StoredToolsEnv> {
 		if (input.kind === "local-daemon") {
 			assertDaemonEnvWrite(input);
-			const secret = await this.deps.admin.getToolsEnvSecretMeta(
-				this.deps.accountId(),
-				input.secretId?.trim() ?? "",
-			);
-			if (secret?.kind !== "daemon_token") {
-				throw new ProtocolValidationError(
-					`Unknown tools env secret '${input.secretId ?? ""}'`,
-					"not_found",
+			let secretId: string | undefined;
+			if (input.secretId?.trim()) {
+				const secret = await this.deps.admin.getToolsEnvSecretMeta(
+					this.deps.accountId(),
+					input.secretId.trim(),
 				);
+				if (secret?.kind !== "daemon_token") {
+					throw new ProtocolValidationError(
+						`Unknown tools env secret '${input.secretId}'`,
+						"not_found",
+					);
+				}
+				secretId = secret.secretId;
 			}
 			const envId = `ld_${crypto.randomUUID()}`;
 			const created = await this.deps.admin.createToolsEnv(
@@ -374,7 +378,7 @@ export class ToolsEnvController {
 					confineToWorkspace: input.confineToWorkspace === true,
 					sharedWorkspace: false,
 					workspacePath: input.workspacePath?.trim(),
-					secretId: secret.secretId,
+					secretId,
 				},
 			);
 			this.invalidate();
@@ -531,6 +535,42 @@ export class ToolsEnvController {
 			await this.stub(envId).wipeEnv();
 		}
 		await this.deps.admin.deleteToolsEnv(this.deps.accountId(), envId);
+		this.invalidate();
+	}
+
+	async mintPairingToken(
+		envId: string,
+		options: { url: string; wsUrl: string },
+	): Promise<{ pairingToken: string; expiresAt: number; command: string }> {
+		const def = await this.deps.admin.getToolsEnv(this.deps.accountId(), envId);
+		if (def?.kind !== "local-daemon") {
+			throw new ProtocolValidationError(
+				`Unknown local-daemon tools env '${envId}'`,
+				"not_found",
+			);
+		}
+		const stub = this.stub(envId);
+		return stub.createPairing({
+			accountId: this.deps.accountId(),
+			envId,
+			workspacePath: def.workspacePath ?? "/workspace",
+			persist: def.persist,
+			confineToWorkspace: def.confineToWorkspace,
+			url: options.url,
+			wsUrl: options.wsUrl,
+		});
+	}
+
+	async deregisterEnv(envId: string): Promise<void> {
+		const def = await this.deps.admin.getToolsEnv(this.deps.accountId(), envId);
+		if (def?.kind !== "local-daemon") {
+			throw new ProtocolValidationError(
+				`Unknown local-daemon tools env '${envId}'`,
+				"not_found",
+			);
+		}
+		const stub = this.stub(envId);
+		await stub.deregister(this.deps.accountId(), envId);
 		this.invalidate();
 	}
 

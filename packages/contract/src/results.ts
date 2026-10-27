@@ -1036,9 +1036,29 @@ export type AccountToolsEnvsListResult = Static<
 
 export const AccountToolsEnvsCreateResultSchema = Type.Object({
 	env: ToolsEnvRecordSchema,
+	pairingToken: Type.Optional(Type.String()),
+	expiresAt: Type.Optional(Type.Integer({ minimum: 0 })),
+	command: Type.Optional(Type.String()),
 });
 export type AccountToolsEnvsCreateResult = Static<
 	typeof AccountToolsEnvsCreateResultSchema
+>;
+
+export const AccountToolsEnvsPairResultSchema = Type.Object({
+	envId: Type.String(),
+	pairingToken: Type.String(),
+	expiresAt: Type.Integer({ minimum: 0 }),
+	command: Type.String(),
+});
+export type AccountToolsEnvsPairResult = Static<
+	typeof AccountToolsEnvsPairResultSchema
+>;
+
+export const AccountToolsEnvsDeregisterResultSchema = Type.Object({
+	deregistered: Type.String(),
+});
+export type AccountToolsEnvsDeregisterResult = Static<
+	typeof AccountToolsEnvsDeregisterResultSchema
 >;
 
 export const AccountToolsEnvsUpdateResultSchema = Type.Object({

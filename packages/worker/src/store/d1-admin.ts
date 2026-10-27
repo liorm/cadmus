@@ -1246,12 +1246,14 @@ export class D1AdminStore implements AdminStore {
 	): Promise<StoredToolsEnv> {
 		await this.initialize();
 		const now = Date.now();
+		const secretMissing =
+			input.kind === "local-daemon" && !input.secretId ? 1 : 0;
 		await this.#db
 			.prepare(
 				`INSERT INTO cadmus_tools_envs (
           account_id, env_id, kind, label, workspace_path, persist,
           confine_to_workspace, shared_workspace, secret_id, secret_missing, updated_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 0, ?10)`,
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)`,
 			)
 			.bind(
 				accountId,
@@ -1263,6 +1265,7 @@ export class D1AdminStore implements AdminStore {
 				input.confineToWorkspace ? 1 : 0,
 				input.sharedWorkspace ? 1 : 0,
 				input.secretId ?? null,
+				secretMissing,
 				now,
 			)
 			.run();

@@ -65,6 +65,7 @@
 	],
 	"vars": {
 		"CADMUS_AUTH_SECRET": "dev-cadmus-secret",
+		"CADMUS_PUBLIC_URL": "",
 		"CADMUS_ENCRYPTION_KEY": "dev-cadmus-encryption-key-32bytes!",
 		"CADMUS_DEFAULT_TIMEZONE": "UTC",
 		"CADMUS_HARVEST_DELAY_MS": "60000",
@@ -98,6 +99,7 @@
 		},
 		"vars": {
 			"CADMUS_AUTH_SECRET": "dev-cadmus-secret",
+			"CADMUS_PUBLIC_URL": "",
 			"CADMUS_ENCRYPTION_KEY": "dev-cadmus-encryption-key-32bytes!",
 			"CADMUS_DEFAULT_TIMEZONE": "UTC",
 			"CADMUS_HARVEST_DELAY_MS": "60000",

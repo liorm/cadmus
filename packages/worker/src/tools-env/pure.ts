@@ -190,12 +190,6 @@ export function assertDaemonEnvWrite(input: {
 	confineToWorkspace?: boolean;
 	sharedWorkspace?: boolean;
 }): void {
-	if (!input.secretId?.trim()) {
-		throw new ProtocolValidationError(
-			"local-daemon envs require an existing secretId",
-			"invalid_tools_env",
-		);
-	}
 	if (!input.workspacePath?.trim()) {
 		throw new ProtocolValidationError(
 			"local-daemon envs require a non-empty workspacePath",
@@ -456,3 +450,90 @@ export function joinWorkspace(
 
 export const OFFLINE_TOOLS_ENV =
 	"The tools env for this chat is offline (env disconnected). Chat, memory, knowledge, and schedules still work. Do not retry; the environment reconnects on its own.";
+
+export const PAIRING_TOKEN_PREFIX = "cadmus_pt_";
+
+export interface PairingTokenPayload {
+	v: 1;
+	accountId: string;
+	envId: string;
+	url: string;
+	wsUrl: string;
+	workspace: string;
+	persist: boolean;
+	confine: boolean;
+	nonce: string;
+	exp: number;
+	secret: string;
+}
+
+export function encodePairingToken(payload: PairingTokenPayload): string {
+	const json = JSON.stringify(payload);
+	const base64url = Buffer.from(json, "utf-8").toString("base64url");
+	return `${PAIRING_TOKEN_PREFIX}${base64url}`;
+}
+
+export function decodePairingToken(token: string): PairingTokenPayload {
+	const trimmed = token.trim();
+	if (!trimmed.startsWith(PAIRING_TOKEN_PREFIX)) {
+		throw new ProtocolValidationError(
+			"Invalid pairing token format",
+			"invalid_pairing_token",
+		);
+	}
+	const base64url = trimmed.slice(PAIRING_TOKEN_PREFIX.length);
+	try {
+		const json = Buffer.from(base64url, "base64url").toString("utf-8");
+		const parsed = JSON.parse(json) as Partial<PairingTokenPayload>;
+		if (
+			parsed.v !== 1 ||
+			!parsed.accountId ||
+			!parsed.envId ||
+			!parsed.url ||
+			!parsed.wsUrl ||
+			!parsed.workspace ||
+			typeof parsed.persist !== "boolean" ||
+			typeof parsed.confine !== "boolean" ||
+			!parsed.nonce ||
+			typeof parsed.exp !== "number" ||
+			!parsed.secret
+		) {
+			throw new Error("Missing required pairing fields");
+		}
+		return parsed as PairingTokenPayload;
+	} catch {
+		throw new ProtocolValidationError(
+			"Malformed pairing token",
+			"invalid_pairing_token",
+		);
+	}
+}
+
+export function resolvePublicUrls(
+	env: { CADMUS_PUBLIC_URL?: string },
+	request?: Request,
+	clientOrigin?: string,
+): { url: string; wsUrl: string } {
+	let base = env.CADMUS_PUBLIC_URL?.trim();
+	if (!base && clientOrigin?.trim()) {
+		base = clientOrigin.trim();
+	}
+	if (!base && request) {
+		const forwardedHost = request.headers.get("x-forwarded-host");
+		const forwardedProto = request.headers.get("x-forwarded-proto") ?? "https";
+		if (forwardedHost) {
+			base = `${forwardedProto}://${forwardedHost}`;
+		} else {
+			try {
+				base = new URL(request.url).origin;
+			} catch {
+				// ignore
+			}
+		}
+	}
+	base = (base || "http://localhost:8787").replace(/\/+$/, "");
+	const parsed = new URL(base);
+	const wsProto = parsed.protocol === "https:" ? "wss:" : "ws:";
+	const wsUrl = `${wsProto}//${parsed.host}/tools-env/ws`;
+	return { url: base, wsUrl };
+}

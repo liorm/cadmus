@@ -67,6 +67,8 @@ const MUTATING = [
 	"account.toolsEnvSecrets.set",
 	"account.toolsEnvs.create",
 	"account.toolsEnvs.delete",
+	"account.toolsEnvs.deregister",
+	"account.toolsEnvs.pair",
 	"account.toolsEnvs.update",
 	"account.update",
 	"bot.create",

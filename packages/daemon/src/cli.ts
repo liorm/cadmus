@@ -2,11 +2,13 @@
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
 import { daemonCliArgs, formatDaemonHelp, parseDaemonArgs } from "./args.js";
 import { createBackoff, noteAttempt } from "./backoff.js";
+import { deleteDaemonConfig, loadDaemonConfig } from "./config.js";
 import {
 	type ConfineDetector,
 	detectConfineMechanisms,
 	startupDecision,
 } from "./confine.js";
+import { performPairing } from "./pair.js";
 import { DaemonSession } from "./session.js";
 import { type DaemonSocket, openDaemonSocket } from "./socket.js";
 import { DAEMON_VERSION } from "./version.js";
@@ -134,14 +136,50 @@ async function main(): Promise<void> {
 	if (parsed.kind === "error") {
 		throw new Error(parsed.message);
 	}
-	await runDaemon({
-		url: parsed.flags.url,
-		token: parsed.flags.token,
-		envId: parsed.flags.envId,
-		workspacePath: parsed.flags.workspacePath,
-		persist: parsed.flags.persist,
-		confineToWorkspace: parsed.flags.confineToWorkspace,
-	});
+	if (parsed.kind === "deregister") {
+		const removed = await deleteDaemonConfig(parsed.configPath);
+		if (removed) {
+			console.log(
+				"\x1b[32m✔ Local daemon credentials and registration removed.\x1b[0m",
+			);
+		} else {
+			console.log("No local configuration found to remove.");
+		}
+		return;
+	}
+	if (parsed.kind === "pair") {
+		const options = await performPairing({
+			pairingToken: parsed.token,
+			name: parsed.name,
+			customConfigPath: parsed.configPath,
+		});
+		await runDaemon(options);
+		return;
+	}
+	if (parsed.kind === "start") {
+		const loaded = await loadDaemonConfig(parsed.configPath);
+		if (!loaded) {
+			console.error(
+				"\x1b[31m✖ No paired daemon found.\x1b[0m\n" +
+					"Pair this machine with a 15-minute token from the Cadmus Web UI:\n\n" +
+					"  cadmus-daemon pair <token> [--name 'My Machine']\n",
+			);
+			process.exitCode = 1;
+			return;
+		}
+		console.log(
+			`Starting Cadmus daemon "${loaded.config.name || loaded.config.envId}" (workspace: ${loaded.config.workspacePath})...`,
+		);
+		await runDaemon({
+			url: loaded.config.url,
+			token: loaded.token,
+			envId: loaded.config.envId,
+			workspacePath: loaded.config.workspacePath,
+			persist: loaded.config.persist,
+			confineToWorkspace: loaded.config.confineToWorkspace,
+		});
+		return;
+	}
 }
 
 if (import.meta.main) {

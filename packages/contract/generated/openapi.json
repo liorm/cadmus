@@ -3614,7 +3614,7 @@
 		"/api/account/toolsEnvs/create": {
 			"post": {
 				"operationId": "account.toolsEnvs.create",
-				"summary": "Create a just-bash or local-daemon tools env definition. Daemon rows require secretId, workspacePath, and confineToWorkspace.",
+				"summary": "Create a just-bash or local-daemon tools env definition. Daemon rows require workspacePath and confineToWorkspace.",
 				"requestBody": {
 					"required": true,
 					"content": {
@@ -3654,6 +3654,9 @@
 									"workspacePath": {
 										"type": "string",
 										"minLength": 1
+									},
+									"baseUrl": {
+										"type": "string"
 									}
 								},
 								"additionalProperties": false
@@ -3741,7 +3744,7 @@
 						"content": {
 							"application/json": {
 								"schema": {
-									"$ref": "#/components/schemas/AccountToolsEnvsCreateResult"
+									"$ref": "#/components/schemas/AccountToolsEnvsUpdateResult"
 								}
 							}
 						}
@@ -3796,6 +3799,117 @@
 							"application/json": {
 								"schema": {
 									"$ref": "#/components/schemas/AccountToolsEnvSecretsDeleteResult"
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"401": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"404": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"405": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"409": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"500": {
+						"$ref": "#/components/responses/ApiError"
+					}
+				}
+			}
+		},
+		"/api/account/toolsEnvs/pair": {
+			"post": {
+				"operationId": "account.toolsEnvs.pair",
+				"summary": "Mint a 15-minute single-use pairing token for a local-daemon env.",
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"required": ["envId"],
+								"properties": {
+									"envId": {
+										"type": "string",
+										"minLength": 1
+									},
+									"baseUrl": {
+										"type": "string"
+									}
+								},
+								"additionalProperties": false
+							}
+						}
+					}
+				},
+				"responses": {
+					"200": {
+						"description": "Command result",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/AccountToolsEnvsPairResult"
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"401": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"404": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"405": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"409": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"500": {
+						"$ref": "#/components/responses/ApiError"
+					}
+				}
+			}
+		},
+		"/api/account/toolsEnvs/deregister": {
+			"post": {
+				"operationId": "account.toolsEnvs.deregister",
+				"summary": "Deregister a daemon env, revoking its credentials and disconnecting any active session.",
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"required": ["envId"],
+								"properties": {
+									"envId": {
+										"type": "string",
+										"minLength": 1
+									}
+								},
+								"additionalProperties": false
+							}
+						}
+					}
+				},
+				"responses": {
+					"200": {
+						"description": "Command result",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/AccountToolsEnvsDeregisterResult"
 								}
 							}
 						}
@@ -4274,6 +4388,25 @@
 				"properties": {
 					"env": {
 						"$ref": "#/components/schemas/ToolsEnvRecord"
+					},
+					"pairingToken": {
+						"type": "string"
+					},
+					"expiresAt": {
+						"type": "integer",
+						"minimum": 0
+					},
+					"command": {
+						"type": "string"
+					}
+				}
+			},
+			"AccountToolsEnvsDeregisterResult": {
+				"type": "object",
+				"required": ["deregistered"],
+				"properties": {
+					"deregistered": {
+						"type": "string"
 					}
 				}
 			},
@@ -4303,6 +4436,34 @@
 						"items": {
 							"$ref": "#/components/schemas/ToolsEnvRecord"
 						}
+					}
+				}
+			},
+			"AccountToolsEnvsPairResult": {
+				"type": "object",
+				"required": ["envId", "pairingToken", "expiresAt", "command"],
+				"properties": {
+					"envId": {
+						"type": "string"
+					},
+					"pairingToken": {
+						"type": "string"
+					},
+					"expiresAt": {
+						"type": "integer",
+						"minimum": 0
+					},
+					"command": {
+						"type": "string"
+					}
+				}
+			},
+			"AccountToolsEnvsUpdateResult": {
+				"type": "object",
+				"required": ["env"],
+				"properties": {
+					"env": {
+						"$ref": "#/components/schemas/ToolsEnvRecord"
 					}
 				}
 			},

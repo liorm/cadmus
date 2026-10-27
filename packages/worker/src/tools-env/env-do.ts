@@ -1,5 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 import { getLogger } from "../log.js";
+import { D1AdminStore, sha256Hex } from "../store/d1-admin.js";
 import type { Env } from "../types.js";
 import {
 	type FsSnapshotRow,
@@ -7,7 +8,11 @@ import {
 	type OpResult,
 	type WatchEvent,
 } from "./namespace.js";
-import { daemonLockPaths, writeOpLockPaths } from "./pure.js";
+import {
+	daemonLockPaths,
+	encodePairingToken,
+	writeOpLockPaths,
+} from "./pure.js";
 import {
 	frameByteLength,
 	MAX_FRAME_BYTES,
@@ -131,6 +136,243 @@ export class CadmusEnvDO extends DurableObject<Env> {
 	async revokePairing(): Promise<void> {
 		await this.schemaReady;
 		await this.ws.revoke();
+	}
+
+	async createPairing(input: {
+		accountId: string;
+		envId: string;
+		workspacePath: string;
+		persist: boolean;
+		confineToWorkspace: boolean;
+		url: string;
+		wsUrl: string;
+	}): Promise<{ pairingToken: string; expiresAt: number; command: string }> {
+		await this.schemaReady;
+		const nonce = crypto.randomUUID();
+		const secretBytes = crypto.getRandomValues(new Uint8Array(32));
+		const secret = Array.from(secretBytes)
+			.map((b) => b.toString(16).padStart(2, "0"))
+			.join("");
+		const secretHash = await sha256Hex(secret);
+		const expiresAt = Date.now() + 15 * 60 * 1000;
+		const pending = {
+			nonce,
+			secretHash,
+			expiresAt,
+			accountId: input.accountId,
+			envId: input.envId,
+			workspacePath: input.workspacePath,
+			persist: input.persist,
+			confineToWorkspace: input.confineToWorkspace,
+			url: input.url,
+			wsUrl: input.wsUrl,
+		};
+		await this.ctx.storage.put("pending_pairing", pending);
+		await this.ctx.storage.setAlarm(expiresAt);
+		const pairingToken = encodePairingToken({
+			v: 1,
+			accountId: input.accountId,
+			envId: input.envId,
+			url: input.url,
+			wsUrl: input.wsUrl,
+			workspace: input.workspacePath,
+			persist: input.persist,
+			confine: input.confineToWorkspace,
+			nonce,
+			exp: expiresAt,
+			secret,
+		});
+		return {
+			pairingToken,
+			expiresAt,
+			command: `cadmus-daemon pair ${pairingToken}`,
+		};
+	}
+
+	override async alarm(): Promise<void> {
+		await this.schemaReady;
+		const pending = await this.ctx.storage.get<{ expiresAt: number }>(
+			"pending_pairing",
+		);
+		if (pending && Date.now() >= pending.expiresAt) {
+			await this.ctx.storage.delete("pending_pairing");
+		}
+	}
+
+	async redeemPairing(input: {
+		nonce: string;
+		secret: string;
+		name?: string;
+	}): Promise<
+		| {
+				ok: true;
+				token: string;
+				envId: string;
+				url: string;
+				wsUrl: string;
+				workspacePath: string;
+				persist: boolean;
+				confineToWorkspace: boolean;
+				name?: string;
+		  }
+		| {
+				ok: false;
+				error: { code: string; message: string };
+		  }
+	> {
+		await this.schemaReady;
+		const pending = await this.ctx.storage.get<{
+			nonce: string;
+			secretHash: string;
+			expiresAt: number;
+			accountId: string;
+			envId: string;
+			workspacePath: string;
+			persist: boolean;
+			confineToWorkspace: boolean;
+			url: string;
+			wsUrl: string;
+		}>("pending_pairing");
+		if (!pending || Date.now() >= pending.expiresAt) {
+			return {
+				ok: false,
+				error: {
+					code: "pairing_expired_or_invalid",
+					message: "Pairing token is invalid or has expired",
+				},
+			};
+		}
+		if (pending.nonce !== input.nonce) {
+			return {
+				ok: false,
+				error: {
+					code: "pairing_expired_or_invalid",
+					message: "Pairing token nonce mismatch",
+				},
+			};
+		}
+		const inputHash = await sha256Hex(input.secret);
+		if (inputHash !== pending.secretHash) {
+			return {
+				ok: false,
+				error: {
+					code: "pairing_expired_or_invalid",
+					message: "Pairing secret mismatch",
+				},
+			};
+		}
+		await this.ctx.storage.delete("pending_pairing");
+		try {
+			await this.ctx.storage.deleteAlarm();
+		} catch {
+			// ignore
+		}
+
+		const adminStore = this.getAdminStore();
+		const existingDef = await adminStore.getToolsEnv(
+			pending.accountId,
+			pending.envId,
+		);
+		if (existingDef?.secretId) {
+			try {
+				await adminStore.deleteToolsEnvSecret(
+					pending.accountId,
+					existingDef.secretId,
+				);
+			} catch {
+				// ignore
+			}
+		}
+
+		const label = input.name?.trim() || existingDef?.label || undefined;
+		const { secret: secretMeta, token } = await adminStore.setToolsEnvSecret(
+			pending.accountId,
+			label ? { label } : undefined,
+		);
+
+		await this.env.CADMUS_ADMIN_DB.prepare(
+			`UPDATE cadmus_tools_envs
+       SET secret_id = ?1, secret_missing = 0, label = COALESCE(?2, label), updated_at = ?3
+       WHERE account_id = ?4 AND env_id = ?5`,
+		)
+			.bind(
+				secretMeta.secretId,
+				label ?? null,
+				Date.now(),
+				pending.accountId,
+				pending.envId,
+			)
+			.run();
+
+		await this.fanOutCatalog(pending.accountId);
+
+		return {
+			ok: true,
+			token,
+			envId: pending.envId,
+			url: pending.url,
+			wsUrl: pending.wsUrl,
+			workspacePath: pending.workspacePath,
+			persist: pending.persist,
+			confineToWorkspace: pending.confineToWorkspace,
+			name: label,
+		};
+	}
+
+	async deregister(accountId: string, envId: string): Promise<void> {
+		await this.schemaReady;
+		await this.ws.revoke();
+		const adminStore = this.getAdminStore();
+		const existingDef = await adminStore.getToolsEnv(accountId, envId);
+		if (existingDef?.secretId) {
+			try {
+				await adminStore.deleteToolsEnvSecret(accountId, existingDef.secretId);
+			} catch {
+				// ignore
+			}
+		}
+		await this.env.CADMUS_ADMIN_DB.prepare(
+			`UPDATE cadmus_tools_envs
+       SET secret_id = NULL, secret_missing = 1, updated_at = ?1
+       WHERE account_id = ?2 AND env_id = ?3`,
+		)
+			.bind(Date.now(), accountId, envId)
+			.run();
+		await this.fanOutCatalog(accountId);
+	}
+
+	private getAdminStore(): D1AdminStore {
+		return new D1AdminStore({
+			db: this.env.CADMUS_ADMIN_DB,
+			encryptionKey: this.env.CADMUS_ENCRYPTION_KEY,
+			defaultTimezone: this.env.CADMUS_DEFAULT_TIMEZONE ?? "UTC",
+			defaultHarvestDelayMs: Number(this.env.CADMUS_HARVEST_DELAY_MS ?? 60_000),
+		});
+	}
+
+	private async fanOutCatalog(accountId: string): Promise<void> {
+		const adminStore = this.getAdminStore();
+		try {
+			const families = await adminStore.listFamilies(accountId);
+			await Promise.allSettled(
+				families.map(async (family) => {
+					try {
+						const doId = this.env.CADMUS_BOT_FAMILY.idFromName(family.doName);
+						const stub = this.env.CADMUS_BOT_FAMILY.get(doId);
+						if (typeof stub.invalidateToolsEnvCatalog === "function") {
+							await stub.invalidateToolsEnvCatalog({
+								previousDefaultEnvId: null,
+								nextDefaultEnvId: null,
+							});
+						}
+					} catch {
+						// ignore
+					}
+				}),
+			);
+		} catch {
+			// ignore
+		}
 	}
 
 	async closeForConfig(input: { deleteEphemeral: boolean }): Promise<void> {

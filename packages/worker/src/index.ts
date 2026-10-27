@@ -18,6 +18,7 @@ import {
 } from "./protocol.js";
 import { defaultJsonShim } from "./shim.js";
 import { D1AdminStore, resetD1InitializationCache } from "./store/d1-admin.js";
+import { handleToolsEnvPair } from "./tools-env/edge-pair.js";
 import { handleToolsEnvWebsocket } from "./tools-env/edge-ws.js";
 import { CadmusEnvDO } from "./tools-env/env-do.js";
 import type { Env } from "./types.js";
@@ -65,6 +66,10 @@ export default {
 
 		if (url.pathname === "/tools-env/ws") {
 			return handleToolsEnvWebsocket(request, env, adminStore, url, ctx);
+		}
+
+		if (url.pathname === "/tools-env/pair") {
+			return handleToolsEnvPair(request, env, adminStore, url, ctx);
 		}
 
 		const apiRequest = isApiPath(url.pathname);
@@ -403,6 +408,16 @@ async function forwardToFamilyDO(
 	headers.set("X-Cadmus-Family-Id", family.familyId);
 	headers.set("X-Cadmus-Timezone", family.timezone);
 	headers.set("X-Cadmus-Harvest-Delay-Ms", String(family.harvestDelayMs));
+	const originHeader = originalRequest.headers.get("origin");
+	if (originHeader) {
+		headers.set("X-Cadmus-Origin", originHeader);
+	} else {
+		try {
+			headers.set("X-Cadmus-Origin", new URL(originalRequest.url).origin);
+		} catch {
+			// ignore
+		}
+	}
 	// Drop any client-supplied role, then set the membership role authentication resolved.
 	headers.delete(CALLER_ROLE_HEADER);
 	if (callerRole) headers.set(CALLER_ROLE_HEADER, callerRole);

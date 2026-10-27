@@ -322,6 +322,18 @@ export const API_ROUTES = {
 		allow: "POST",
 		readOnly: false,
 	},
+	"account.toolsEnvs.pair": {
+		method: "POST",
+		path: "/api/account/toolsEnvs/pair",
+		allow: "POST",
+		readOnly: false,
+	},
+	"account.toolsEnvs.deregister": {
+		method: "POST",
+		path: "/api/account/toolsEnvs/deregister",
+		allow: "POST",
+		readOnly: false,
+	},
 	"account.toolsEnvSecrets.list": {
 		method: "GET",
 		path: "/api/account/toolsEnvSecrets/list",

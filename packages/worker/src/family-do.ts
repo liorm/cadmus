@@ -108,6 +108,7 @@ import {
 	envDoName,
 	isCodingTool,
 	OFFLINE_TOOLS_ENV,
+	resolvePublicUrls,
 	WORKSPACE_ROOT,
 } from "./tools-env/pure.js";
 import { ToolsEnvController } from "./tools-env/session.js";
@@ -1077,7 +1078,64 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 			"account.toolsEnvs.create": async (command) => {
 				const env = await this.toolsEnvController.createEnv(command.payload);
 				await this.fanOutToolsEnvCatalog(null, null);
-				return { env: await this.toolsEnvController.present(env) };
+				let pairingToken: string | undefined;
+				let expiresAt: number | undefined;
+				let commandStr: string | undefined;
+				if (env.kind === "local-daemon" && !env.secretId) {
+					const urls = resolvePublicUrls(
+						this.env,
+						undefined,
+						command.payload.baseUrl,
+					);
+					const paired = await this.toolsEnvController.mintPairingToken(
+						env.envId,
+						urls,
+					);
+					pairingToken = paired.pairingToken;
+					expiresAt = paired.expiresAt;
+					commandStr = paired.command;
+				}
+				return {
+					env: await this.toolsEnvController.present(env),
+					...(pairingToken
+						? {
+								pairingToken,
+								expiresAt,
+								command: commandStr,
+							}
+						: {}),
+				};
+			},
+			"account.toolsEnvs.pair": async (command) => {
+				const urls = resolvePublicUrls(
+					this.env,
+					undefined,
+					command.payload.baseUrl,
+				);
+				const paired = await this.toolsEnvController.mintPairingToken(
+					command.payload.envId,
+					urls,
+				);
+				return {
+					envId: command.payload.envId,
+					pairingToken: paired.pairingToken,
+					expiresAt: paired.expiresAt,
+					command: paired.command,
+				};
+			},
+			"account.toolsEnvs.deregister": async (command) => {
+				await this.toolsEnvController.deregisterEnv(command.payload.envId);
+				await this.fanOutToolsEnvCatalog(null, null);
+				this.broadcastEvent({
+					type: "account.tools_env_secret",
+					payload: {
+						accountId: meta.accountId,
+						secretId: command.payload.envId,
+						action: "deleted",
+						when: Date.now(),
+					},
+				});
+				return { deregistered: command.payload.envId };
 			},
 			"account.toolsEnvs.update": async (command) => {
 				const env = await this.toolsEnvController.updateEnv(

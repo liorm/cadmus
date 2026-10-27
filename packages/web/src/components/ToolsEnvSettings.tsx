@@ -69,6 +69,11 @@ export function ToolsEnvSettings({ isOpen, onClose }: ToolsEnvSettingsProps) {
 	const [secrets, setSecrets] = useState<ToolsEnvSecretMetaRecord[]>([]);
 	const [canRevoke, setCanRevoke] = useState<boolean | null>(null);
 	const [mintedToken, setMintedToken] = useState<string | null>(null);
+	const [pairingInfo, setPairingInfo] = useState<{
+		command: string;
+		expiresAt: number;
+	} | null>(null);
+	const [copied, setCopied] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [busy, setBusy] = useState(false);
 
@@ -209,13 +214,16 @@ export function ToolsEnvSettings({ isOpen, onClose }: ToolsEnvSettingsProps) {
 		setBusy(true);
 		setError(null);
 		try {
+			const baseUrl =
+				typeof window !== "undefined" ? window.location.origin : undefined;
 			const res = await client.callRpc("account.toolsEnvs.create", {
 				kind: "local-daemon",
 				label: daemonLabel.trim() || undefined,
 				workspacePath: daemonPath.trim(),
 				persist: daemonPersist,
 				confineToWorkspace: daemonConfine,
-				secretId: daemonSecretId,
+				secretId: daemonSecretId || undefined,
+				baseUrl,
 			});
 			if (!res.ok) {
 				setError(res.error?.message ?? "Failed to create daemon env");
@@ -223,6 +231,60 @@ export function ToolsEnvSettings({ isOpen, onClose }: ToolsEnvSettingsProps) {
 			}
 			setDaemonLabel("");
 			setDaemonPath("");
+			if (res.result?.command && res.result?.expiresAt) {
+				setPairingInfo({
+					command: res.result.command,
+					expiresAt: res.result.expiresAt,
+				});
+			}
+			await reload();
+		} finally {
+			setBusy(false);
+		}
+	};
+
+	const pairDaemon = async (env: ToolsEnvRecord) => {
+		setBusy(true);
+		setError(null);
+		try {
+			const baseUrl =
+				typeof window !== "undefined" ? window.location.origin : undefined;
+			const res = await client.callRpc("account.toolsEnvs.pair", {
+				envId: env.envId,
+				baseUrl,
+			});
+			if (!res.ok || !res.result) {
+				setError(res.error?.message ?? "Failed to generate pairing token");
+				return;
+			}
+			setPairingInfo({
+				command: res.result.command,
+				expiresAt: res.result.expiresAt,
+			});
+		} finally {
+			setBusy(false);
+		}
+	};
+
+	const deregisterDaemon = async (env: ToolsEnvRecord) => {
+		if (
+			typeof window !== "undefined" &&
+			!window.confirm(
+				`Deregister daemon ${env.label || env.envId}? Active connections will be terminated and the daemon must be paired again to reconnect.`,
+			)
+		) {
+			return;
+		}
+		setBusy(true);
+		setError(null);
+		try {
+			const res = await client.callRpc("account.toolsEnvs.deregister", {
+				envId: env.envId,
+			});
+			if (!res.ok) {
+				setError(res.error?.message ?? "Failed to deregister daemon");
+				return;
+			}
 			await reload();
 		} finally {
 			setBusy(false);
@@ -261,6 +323,68 @@ export function ToolsEnvSettings({ isOpen, onClose }: ToolsEnvSettingsProps) {
 							style={{ marginBottom: 12 }}
 						>
 							{error}
+						</div>
+					) : null}
+					{pairingInfo ? (
+						<div
+							className="alert-banner"
+							style={{
+								marginBottom: 16,
+								padding: "12px 14px",
+								background: "rgba(16, 185, 129, 0.1)",
+								borderRadius: 6,
+								border: "1px solid var(--accent-emerald, #10b981)",
+							}}
+						>
+							<div
+								style={{
+									display: "flex",
+									justifyContent: "space-between",
+									alignItems: "center",
+									marginBottom: 6,
+								}}
+							>
+								<strong style={{ color: "var(--accent-emerald, #10b981)" }}>
+									Pairing Token Generated (Valid for 15 minutes)
+								</strong>
+								<button
+									type="button"
+									className="btn btn-ghost btn-sm"
+									onClick={() => setPairingInfo(null)}
+									aria-label="Dismiss pairing banner"
+								>
+									✕
+								</button>
+							</div>
+							<p style={{ margin: "0 0 8px 0", fontSize: "0.85em" }}>
+								Run this command on your machine to register the daemon:
+							</p>
+							<div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+								<code
+									className="input-mono"
+									style={{
+										flex: 1,
+										padding: "6px 8px",
+										background: "rgba(0, 0, 0, 0.4)",
+										borderRadius: 4,
+										overflowX: "auto",
+										whiteSpace: "nowrap",
+									}}
+								>
+									{pairingInfo.command}
+								</code>
+								<button
+									type="button"
+									className="btn btn-secondary btn-sm"
+									onClick={() => {
+										void navigator.clipboard.writeText(pairingInfo.command);
+										setCopied(true);
+										setTimeout(() => setCopied(false), 2000);
+									}}
+								>
+									{copied ? "Copied!" : "Copy Command"}
+								</button>
+							</div>
 						</div>
 					) : null}
 					{mintedToken ? (
@@ -304,14 +428,47 @@ export function ToolsEnvSettings({ isOpen, onClose }: ToolsEnvSettingsProps) {
 
 					<ul style={{ margin: "16px 0", paddingLeft: 18 }}>
 						{envs.map((env) => (
-							<li key={env.envId}>
-								<code>{env.envId}</code> {env.kind}
-								{env.workspacePath ? ` · ${env.workspacePath}` : ""}
-								{daemonConnectionLabel(env)}
-								{env.secretMissing &&
-								env.connection?.lastError !== "secret_missing"
-									? " · pairing missing"
-									: ""}
+							<li key={env.envId} style={{ marginBottom: 8 }}>
+								<div
+									style={{
+										display: "flex",
+										justifyContent: "space-between",
+										alignItems: "center",
+									}}
+								>
+									<div>
+										<code>{env.envId}</code> {env.kind}
+										{env.label ? ` (${env.label})` : ""}
+										{env.workspacePath ? ` · ${env.workspacePath}` : ""}
+										{daemonConnectionLabel(env)}
+										{env.secretMissing &&
+										env.connection?.lastError !== "secret_missing"
+											? " · [unpaired]"
+											: ""}
+									</div>
+									{env.kind === "local-daemon" ? (
+										<div style={{ display: "flex", gap: 6 }}>
+											<button
+												type="button"
+												className="btn btn-secondary btn-sm"
+												onClick={() => void pairDaemon(env)}
+												disabled={busy}
+											>
+												{env.secretId ? "Re-pair" : "Pair"}
+											</button>
+											{env.secretId ? (
+												<button
+													type="button"
+													className="btn btn-danger btn-sm"
+													onClick={() => void deregisterDaemon(env)}
+													disabled={busy}
+												>
+													Deregister
+												</button>
+											) : null}
+										</div>
+									) : null}
+								</div>
 							</li>
 						))}
 					</ul>
@@ -430,9 +587,10 @@ export function ToolsEnvSettings({ isOpen, onClose }: ToolsEnvSettingsProps) {
 								className="select input-mono"
 								value={daemonSecretId}
 								onChange={(event) => setDaemonSecretId(event.target.value)}
-								required
 							>
-								<option value="">Select a secret</option>
+								<option value="">
+									Auto-generate pairing token (Recommended)
+								</option>
 								{secrets.map((secret) => (
 									<option key={secret.secretId} value={secret.secretId}>
 										{secret.label
@@ -483,9 +641,9 @@ export function ToolsEnvSettings({ isOpen, onClose }: ToolsEnvSettingsProps) {
 							<button
 								type="submit"
 								className="btn btn-primary btn-sm"
-								disabled={busy || !daemonSecretId || !daemonPath.trim()}
+								disabled={busy || !daemonPath.trim()}
 							>
-								Create daemon env
+								Create & Pair Daemon
 							</button>
 						</div>
 					</form>
