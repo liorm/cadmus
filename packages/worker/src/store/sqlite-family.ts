@@ -227,14 +227,10 @@ class SqliteBotStore implements BotStore {
 	}
 
 	deleteBot(botId: string): void {
-		this.sql.exec(`DELETE FROM cadmus_bot_souls WHERE bot_id = ?`, botId);
-		this.sql.exec(`DELETE FROM cadmus_bot_memories WHERE bot_id = ?`, botId);
-		this.sql.exec(`DELETE FROM cadmus_bot_knowledge WHERE bot_id = ?`, botId);
 		this.sql.exec(
-			`DELETE FROM cadmus_schedule_fires WHERE schedule_id IN (SELECT id FROM cadmus_schedules WHERE bot_id = ?)`,
-			botId,
+			`DELETE FROM cadmus_chats WHERE key LIKE ?`,
+			`peer:${botId}:%`,
 		);
-		this.sql.exec(`DELETE FROM cadmus_schedules WHERE bot_id = ?`, botId);
 		this.sql.exec(`DELETE FROM cadmus_bots WHERE id = ?`, botId);
 	}
 
@@ -952,10 +948,6 @@ class SqliteScheduleStore implements ScheduleStore {
 	}
 
 	deleteSchedule(id: string): void {
-		this.sql.exec(
-			`DELETE FROM cadmus_schedule_fires WHERE schedule_id = ?`,
-			id,
-		);
 		this.sql.exec(`DELETE FROM cadmus_schedules WHERE id = ?`, id);
 	}
 
@@ -1078,6 +1070,8 @@ export class SqliteFamilyStore implements FamilyStore {
 	ensureSchema(): void {
 		if (this.initialized) return;
 		this.sql.exec(`
+      PRAGMA foreign_keys = ON;
+
       CREATE TABLE IF NOT EXISTS cadmus_bots (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
@@ -1085,25 +1079,26 @@ export class SqliteFamilyStore implements FamilyStore {
         thinking TEXT NOT NULL,
         tools_json TEXT,
         timezone TEXT NOT NULL DEFAULT 'UTC',
+        tools_env_json TEXT,
         root_conversation_id INTEGER NOT NULL,
         created_at INTEGER NOT NULL
       );
 
       CREATE TABLE IF NOT EXISTS cadmus_bot_souls (
-        bot_id TEXT PRIMARY KEY,
+        bot_id TEXT PRIMARY KEY REFERENCES cadmus_bots(id) ON DELETE CASCADE,
         content TEXT NOT NULL,
         updated_at INTEGER NOT NULL
       );
 
       CREATE TABLE IF NOT EXISTS cadmus_bot_memories (
-        bot_id TEXT PRIMARY KEY,
+        bot_id TEXT PRIMARY KEY REFERENCES cadmus_bots(id) ON DELETE CASCADE,
         content TEXT NOT NULL,
         version INTEGER NOT NULL,
         updated_at INTEGER NOT NULL
       );
 
       CREATE TABLE IF NOT EXISTS cadmus_bot_knowledge (
-        bot_id TEXT NOT NULL,
+        bot_id TEXT NOT NULL REFERENCES cadmus_bots(id) ON DELETE CASCADE,
         slug TEXT NOT NULL,
         description TEXT NOT NULL,
         category TEXT,
@@ -1118,11 +1113,12 @@ export class SqliteFamilyStore implements FamilyStore {
 
       CREATE TABLE IF NOT EXISTS cadmus_chats (
         key TEXT PRIMARY KEY,
-        bot_id TEXT NOT NULL,
+        bot_id TEXT NOT NULL REFERENCES cadmus_bots(id) ON DELETE CASCADE,
         conversation_id INTEGER NOT NULL,
         title TEXT,
         thinking TEXT,
         closed INTEGER NOT NULL DEFAULT 0,
+        tools_env_json TEXT,
         created_at INTEGER NOT NULL
       );
 
@@ -1132,9 +1128,19 @@ export class SqliteFamilyStore implements FamilyStore {
       CREATE INDEX IF NOT EXISTS idx_cadmus_chats_conv
         ON cadmus_chats(conversation_id);
 
+      CREATE TABLE IF NOT EXISTS cadmus_chat_conversations (
+        conversation_id INTEGER PRIMARY KEY,
+        chat_key TEXT NOT NULL REFERENCES cadmus_chats(key) ON DELETE CASCADE,
+        bot_id TEXT NOT NULL REFERENCES cadmus_bots(id) ON DELETE CASCADE,
+        tools_env_enabled INTEGER NOT NULL DEFAULT 1
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_cadmus_chat_conversations_chat
+        ON cadmus_chat_conversations(chat_key);
+
       CREATE TABLE IF NOT EXISTS cadmus_schedules (
         id TEXT PRIMARY KEY,
-        bot_id TEXT NOT NULL,
+        bot_id TEXT NOT NULL REFERENCES cadmus_bots(id) ON DELETE CASCADE,
         name TEXT,
         kind TEXT NOT NULL,
         input TEXT NOT NULL DEFAULT '',
@@ -1150,19 +1156,19 @@ export class SqliteFamilyStore implements FamilyStore {
         ON cadmus_schedules(bot_id, internal);
 
       CREATE TABLE IF NOT EXISTS cadmus_schedule_fires (
-        schedule_id TEXT NOT NULL,
+        schedule_id TEXT NOT NULL REFERENCES cadmus_schedules(id) ON DELETE CASCADE,
         fire_time INTEGER NOT NULL,
         PRIMARY KEY (schedule_id, fire_time)
       );
 
       CREATE TABLE IF NOT EXISTS cadmus_harvest_watermarks (
-        chat_key TEXT PRIMARY KEY,
+        chat_key TEXT PRIMARY KEY REFERENCES cadmus_chats(key) ON DELETE CASCADE,
         entry_id INTEGER NOT NULL
       );
 
       CREATE TABLE IF NOT EXISTS cadmus_harvest_notes (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        chat_key TEXT NOT NULL,
+        chat_key TEXT NOT NULL REFERENCES cadmus_chats(key) ON DELETE CASCADE,
         at_entry INTEGER NOT NULL,
         files_json TEXT NOT NULL,
         when_ms INTEGER NOT NULL
@@ -1171,44 +1177,6 @@ export class SqliteFamilyStore implements FamilyStore {
       CREATE INDEX IF NOT EXISTS idx_cadmus_harvest_notes_chat
         ON cadmus_harvest_notes(chat_key, id);
     `);
-
-		try {
-			this.sql.exec("ALTER TABLE cadmus_chats ADD COLUMN thinking TEXT");
-		} catch {}
-		try {
-			this.sql.exec("ALTER TABLE cadmus_schedules ADD COLUMN thinking TEXT");
-		} catch {}
-		try {
-			this.sql.exec(
-				"ALTER TABLE cadmus_bots ADD COLUMN timezone TEXT NOT NULL DEFAULT 'UTC'",
-			);
-		} catch {}
-		try {
-			this.sql.exec(
-				"ALTER TABLE cadmus_schedules ADD COLUMN input TEXT DEFAULT ''",
-			);
-		} catch {}
-		try {
-			this.sql.exec("ALTER TABLE cadmus_bots ADD COLUMN tools_env_json TEXT");
-		} catch {}
-		try {
-			this.sql.exec("ALTER TABLE cadmus_chats ADD COLUMN tools_env_json TEXT");
-		} catch {}
-
-		this.sql.exec(`
-      CREATE TABLE IF NOT EXISTS cadmus_chat_conversations (
-        conversation_id INTEGER PRIMARY KEY,
-        chat_key TEXT NOT NULL,
-        bot_id TEXT NOT NULL,
-        tools_env_enabled INTEGER NOT NULL DEFAULT 1
-      );
-      CREATE INDEX IF NOT EXISTS idx_cadmus_chat_conversations_chat
-        ON cadmus_chat_conversations(chat_key);
-    `);
-		this.sql.exec(
-			`INSERT OR IGNORE INTO cadmus_chat_conversations (conversation_id, chat_key, bot_id, tools_env_enabled)
-       SELECT conversation_id, key, bot_id, 1 FROM cadmus_chats`,
-		);
 
 		this.initialized = true;
 	}

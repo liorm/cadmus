@@ -18,10 +18,6 @@ export function scheduledWakeTime(
 	const checkpoint = record.state.checkpoint as
 		| { phase?: string; nextRun?: number }
 		| undefined;
-	if (checkpoint?.phase === "wait" && typeof checkpoint.nextRun === "number") {
-		return checkpoint.nextRun;
-	}
-
 	if (checkpoint?.phase === "run") {
 		return undefined;
 	}
@@ -30,11 +26,19 @@ export function scheduledWakeTime(
 	if (input?.scheduleId && familyStore) {
 		const sched = familyStore.schedules.getSchedule(input.scheduleId);
 		if (
-			sched?.enabled &&
-			!familyStore.schedules.hasFired(sched.id, sched.nextRun)
+			!sched?.enabled ||
+			familyStore.schedules.hasFired(sched.id, sched.nextRun)
 		) {
-			return sched.nextRun;
+			return undefined;
 		}
+		return checkpoint?.phase === "wait" &&
+			typeof checkpoint.nextRun === "number"
+			? checkpoint.nextRun
+			: sched.nextRun;
+	}
+
+	if (checkpoint?.phase === "wait" && typeof checkpoint.nextRun === "number") {
+		return checkpoint.nextRun;
 	}
 
 	return undefined;

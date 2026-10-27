@@ -128,12 +128,24 @@ export function schedulesToolsExtension() {
 						if (!chatKey) {
 							target = { mode: "new-chat" };
 						} else {
+							const existingChat = services.familyStore.chats.getChat(chatKey);
+							if (existingChat && existingChat.botId !== scope.botId) {
+								return toolError(
+									`Chat '${chatKey}' belongs to bot '${existingChat.botId}', not '${scope.botId}'.`,
+								);
+							}
 							target = { mode: "chat", chatKey };
 						}
 					} else if (args.target.mode === "fork") {
 						const chatKey = args.target.chatKey ?? scope.chatKey;
 						if (!chatKey) {
 							return toolError("fork schedule requires a chatKey.");
+						}
+						const existingChat = services.familyStore.chats.getChat(chatKey);
+						if (existingChat && existingChat.botId !== scope.botId) {
+							return toolError(
+								`Chat '${chatKey}' belongs to bot '${existingChat.botId}', not '${scope.botId}'.`,
+							);
 						}
 						target = {
 							mode: "fork",

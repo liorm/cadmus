@@ -587,11 +587,11 @@ export function ChatWorkspace({
 		try {
 			const res = await client.callRpc("chat.list");
 			if (res.ok && res.result?.chats) {
-				setChats(res.result.chats);
-				// If no chat selected, select the first chat
-				const firstChat = res.result.chats[0];
-				if (!selectedChatKeyRef.current && firstChat) {
-					setSelectedChatKey(firstChat.key);
+				const chatList = res.result.chats;
+				setChats(chatList);
+				const currentKey = selectedChatKeyRef.current;
+				if (!currentKey || !chatList.some((c) => c.key === currentKey)) {
+					setSelectedChatKey(chatList[0]?.key ?? null);
 				}
 			}
 		} finally {
@@ -685,10 +685,11 @@ export function ChatWorkspace({
 		}
 	};
 
-	// Initial load of chats
+	// Initial load of chats and refresh when bots change
+	// biome-ignore lint/correctness/useExhaustiveDependencies: refresh chats when bots list updates
 	useEffect(() => {
 		refreshChats();
-	}, [refreshChats]);
+	}, [refreshChats, bots]);
 
 	// Reload chat when selectedChatKey changes
 	useEffect(() => {

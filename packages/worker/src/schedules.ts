@@ -229,6 +229,14 @@ async function executeScheduleTarget(
 	});
 
 	if (target.mode === "chat") {
+		const chat = services.familyStore.chats.getChat(target.chatKey);
+		if (!chat || chat.botId !== schedule.botId) {
+			log.warn("schedule target chat missing or belongs to another bot", {
+				chat: target.chatKey,
+				chatBot: chat?.botId,
+			});
+			return;
+		}
 		log.debug("schedule fire into chat", { chat: target.chatKey });
 		await services.submitChatTurn({
 			chatKey: target.chatKey,
@@ -286,7 +294,7 @@ async function executeStandardFork(
 	context: Context,
 ): Promise<void> {
 	const chat = services.familyStore.chats.getChat(chatKey);
-	if (!chat) return;
+	if (!chat || chat.botId !== schedule.botId) return;
 	const parent = await services.harness.conversation(
 		chat.conversationId as ConversationId,
 		context,
@@ -352,7 +360,7 @@ async function executeHarvestFork(
 	});
 
 	const chat = services.familyStore.chats.getChat(chatKey);
-	if (!chat) return;
+	if (!chat || chat.botId !== schedule.botId) return;
 	const parent = await services.harness.conversation(
 		chat.conversationId as ConversationId,
 		context,

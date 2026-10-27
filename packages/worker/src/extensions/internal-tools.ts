@@ -461,6 +461,11 @@ export function internalToolsExtension() {
 					const peerChatKey =
 						args.chatKey ?? `peer:${scope.botId}:${targetBotId}`;
 					let peerChat = services.familyStore.chats.getChat(peerChatKey);
+					if (peerChat && peerChat.botId !== targetBotId) {
+						return toolError(
+							`Chat '${peerChatKey}' belongs to bot '${peerChat.botId}', not '${targetBotId}'.`,
+						);
+					}
 					if (!peerChat) {
 						peerChat = await services.createChat({
 							botId: targetBotId,

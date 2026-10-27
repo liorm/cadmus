@@ -1,5 +1,9 @@
+import { env, runDurableObjectAlarm } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
-import type { ChatRecord } from "../packages/worker/src/protocol.js";
+import type {
+	ChatRecord,
+	HarvestNote,
+} from "../packages/worker/src/protocol.js";
 import { sendRpc, uniqueAccountId } from "./helpers.js";
 
 describe("Bots, Virtual Files (SOUL.md, MEMORY.md, knowledge/<slug>.md), CAS & Tool Gate", () => {
@@ -234,5 +238,293 @@ describe("Bots, Virtual Files (SOUL.md, MEMORY.md, knowledge/<slug>.md), CAS & T
 		);
 		expect(memAfterAllowed.frame.result?.version).toBe(1);
 		expect(memAfterAllowed.frame.result?.content).toBe("Allowed memory line");
+	});
+
+	it("cascade-deletes chats, harvest state, and schedules on bot.delete so a recreated bot with the same slug starts clean", async () => {
+		const accountId = uniqueAccountId("bot-delete-cascade");
+		const familyId = "default";
+		const scope = { accountId, familyId };
+
+		await sendRpc("family.update", { harvestDelayMs: 5000 }, scope);
+
+		// 1. Create bot "scribe" and a peer bot "helper"
+		await sendRpc(
+			"bot.create",
+			{
+				slug: "scribe",
+				name: "Scribe V1",
+				model: "faux/echo",
+			},
+			scope,
+		);
+		await sendRpc(
+			"bot.create",
+			{
+				slug: "helper",
+				name: "Helper",
+				model: "faux/echo",
+			},
+			scope,
+		);
+
+		// 2. Create chats for "scribe" and submit a turn that triggers harvest + peer message
+		const firstChatRes = await sendRpc<{ chat: ChatRecord }>(
+			"chat.create",
+			{ botId: "scribe", key: "scribe-chat-1", title: "Old Scribe Chat" },
+			scope,
+		);
+		expect(firstChatRes.status).toBe(200);
+		const oldConversationId = firstChatRes.frame.result?.chat.conversationId;
+
+		await sendRpc(
+			"chat.create",
+			{ botId: "scribe", key: "scribe-chat-2" },
+			scope,
+		);
+
+		await sendRpc(
+			"turn.submit",
+			{
+				chatKey: "scribe-chat-1",
+				text: 'Hello V1 [remember: Scribe V1 secret fact] [tool:message_bot {"botId":"helper","text":"ping from v1"}]',
+			},
+			scope,
+		);
+
+		// Fast-forward idle harvest alarm so watermark and harvest notes are written for scribe-chat-1
+		await sendRpc(
+			"schedule.update",
+			{
+				id: "harvest:scribe-chat-1",
+				kind: "absolute",
+				input: Date.now() - 10,
+			},
+			scope,
+		);
+		const doId = env.CADMUS_BOT_FAMILY.idFromName(
+			`cadmus:${accountId}:${familyId}`,
+		);
+		const stub = env.CADMUS_BOT_FAMILY.get(doId);
+		await runDurableObjectAlarm(stub);
+
+		const beforeDeleteGet = await sendRpc<{
+			chat: ChatRecord;
+			messages: unknown[];
+			notes: HarvestNote[];
+		}>("chat.get", { chatKey: "scribe-chat-1" }, scope);
+		expect(beforeDeleteGet.status).toBe(200);
+		expect(beforeDeleteGet.frame.result?.messages.length).toBeGreaterThan(0);
+		expect(beforeDeleteGet.frame.result?.notes.length).toBeGreaterThan(0);
+
+		// Create a recurring schedule for "scribe"
+		await sendRpc(
+			"schedule.create",
+			{
+				id: "scribe-cron",
+				botId: "scribe",
+				kind: "cron",
+				input: "0 9 * * *",
+				text: "Morning check",
+				target: { mode: "chat", chatKey: "scribe-chat-1" },
+			},
+			scope,
+		);
+
+		// 3. Delete bot "scribe"
+		const delRes = await sendRpc("bot.delete", { botId: "scribe" }, scope);
+		expect(delRes.status).toBe(200);
+
+		// Verify all chats of "scribe" (and peer chats initiated by "scribe") are deleted
+		const chatsAfterDelete = await sendRpc<{ chats: ChatRecord[] }>(
+			"chat.list",
+			{ botId: "scribe" },
+			scope,
+		);
+		expect(chatsAfterDelete.frame.result?.chats).toEqual([]);
+
+		const allChatsAfterDelete = await sendRpc<{ chats: ChatRecord[] }>(
+			"chat.list",
+			{},
+			scope,
+		);
+		expect(allChatsAfterDelete.frame.result?.chats).toEqual([]);
+
+		const deletedChatGet = await sendRpc(
+			"chat.get",
+			{ chatKey: "scribe-chat-1" },
+			scope,
+		);
+		expect(deletedChatGet.status).toBe(400);
+		expect(deletedChatGet.frame.error?.code).toBe("not_found");
+
+		// 4. Recreate bot with the exact same slug "scribe"
+		const recreateRes = await sendRpc(
+			"bot.create",
+			{
+				slug: "scribe",
+				name: "Scribe V2",
+				model: "faux/echo",
+			},
+			scope,
+		);
+		expect(recreateRes.status).toBe(200);
+
+		// Recreated bot must have 0 chats
+		const chatsAfterRecreate = await sendRpc<{ chats: ChatRecord[] }>(
+			"chat.list",
+			{ botId: "scribe" },
+			scope,
+		);
+		expect(chatsAfterRecreate.frame.result?.chats).toEqual([]);
+
+		// Creating a chat with the same key "scribe-chat-1" must create a brand new chat with empty transcript & 0 harvest watermark/notes
+		const recreatedChatRes = await sendRpc<{ chat: ChatRecord }>(
+			"chat.create",
+			{ botId: "scribe", key: "scribe-chat-1", title: "New Scribe Chat" },
+			scope,
+		);
+		expect(recreatedChatRes.status).toBe(200);
+		expect(recreatedChatRes.frame.result?.chat.conversationId).not.toBe(
+			oldConversationId,
+		);
+		expect(recreatedChatRes.frame.result?.chat.title).toBe("New Scribe Chat");
+
+		const freshChatGet = await sendRpc<{
+			chat: ChatRecord;
+			messages: unknown[];
+			entries: unknown[];
+			notes: HarvestNote[];
+		}>("chat.get", { chatKey: "scribe-chat-1" }, scope);
+		expect(freshChatGet.status).toBe(200);
+		expect(freshChatGet.frame.result?.messages).toEqual([]);
+		expect(freshChatGet.frame.result?.notes).toEqual([]);
+
+		const statusRes = await sendRpc<{
+			status: { harvestWatermark: number; entryCount: number };
+		}>("chat.status", { chatKey: "scribe-chat-1" }, scope);
+		expect(statusRes.status).toBe(200);
+		expect(statusRes.frame.result?.status.harvestWatermark).toBe(0);
+		expect(statusRes.frame.result?.status.entryCount).toBe(0);
+	});
+
+	it("enforces strict chat-to-bot ownership across chat.create, schedule.create, schedule.update, schedule_create, and message_bot", async () => {
+		const scope = {
+			accountId: uniqueAccountId("strict-chat-owner"),
+			familyId: "default",
+		};
+
+		await sendRpc(
+			"bot.create",
+			{ slug: "alpha", name: "Alpha", model: "faux/echo" },
+			scope,
+		);
+		await sendRpc(
+			"bot.create",
+			{ slug: "beta", name: "Beta", model: "faux/echo" },
+			scope,
+		);
+
+		// Create "alpha-chat" owned by "alpha"
+		const alphaChat = await sendRpc<{ chat: ChatRecord }>(
+			"chat.create",
+			{ botId: "alpha", key: "alpha-chat" },
+			scope,
+		);
+		expect(alphaChat.status).toBe(200);
+		expect(alphaChat.frame.result?.chat.botId).toBe("alpha");
+
+		// 1. Calling chat.create for "beta" with key "alpha-chat" must fail with conflict
+		const crossChatCreate = await sendRpc(
+			"chat.create",
+			{ botId: "beta", key: "alpha-chat" },
+			scope,
+		);
+		expect(crossChatCreate.status).toBe(400);
+		expect(crossChatCreate.frame.ok).toBe(false);
+		expect(crossChatCreate.frame.error?.code).toBe("conflict");
+
+		// 2. Calling schedule.create for "beta" targeting "alpha-chat" (mode: "chat" and mode: "fork") must fail with conflict
+		const crossSchedChat = await sendRpc(
+			"schedule.create",
+			{
+				botId: "beta",
+				kind: "relative",
+				input: "10m",
+				text: "Intrude",
+				target: { mode: "chat", chatKey: "alpha-chat" },
+			},
+			scope,
+		);
+		expect(crossSchedChat.status).toBe(400);
+		expect(crossSchedChat.frame.error?.code).toBe("conflict");
+
+		const crossSchedFork = await sendRpc(
+			"schedule.create",
+			{
+				botId: "beta",
+				kind: "relative",
+				input: "10m",
+				text: "Intrude fork",
+				target: { mode: "fork", chatKey: "alpha-chat" },
+			},
+			scope,
+		);
+		expect(crossSchedFork.status).toBe(400);
+		expect(crossSchedFork.frame.error?.code).toBe("conflict");
+
+		// 3. Calling schedule.update to retarget a "beta" schedule onto "alpha-chat" must fail with conflict
+		const validBetaSched = await sendRpc<{ schedule: { id: string } }>(
+			"schedule.create",
+			{
+				id: "beta-sched",
+				botId: "beta",
+				kind: "relative",
+				input: "10m",
+				text: "Valid",
+				target: { mode: "new-chat" },
+			},
+			scope,
+		);
+		expect(validBetaSched.status).toBe(200);
+
+		const crossSchedUpdate = await sendRpc(
+			"schedule.update",
+			{
+				id: "beta-sched",
+				target: { mode: "chat", chatKey: "alpha-chat" },
+			},
+			scope,
+		);
+		expect(crossSchedUpdate.status).toBe(400);
+		expect(crossSchedUpdate.frame.error?.code).toBe("conflict");
+
+		// 4. Agent tools schedule_create and message_bot must reject cross-bot chat keys
+		await sendRpc("chat.create", { botId: "beta", key: "beta-chat" }, scope);
+
+		const badScheduleToolTurn = await sendRpc<{ reply: string }>(
+			"turn.submit",
+			{
+				chatKey: "beta-chat",
+				text: 'Schedule on alpha chat [tool:schedule_create {"kind":"relative","input":"5m","text":"hi","target":{"mode":"chat","chatKey":"alpha-chat"}}]',
+			},
+			scope,
+		);
+		expect(badScheduleToolTurn.status).toBe(200);
+		expect(badScheduleToolTurn.frame.result?.reply).toContain(
+			"Chat 'alpha-chat' belongs to bot 'alpha', not 'beta'",
+		);
+
+		const badMessageBotTurn = await sendRpc<{ reply: string }>(
+			"turn.submit",
+			{
+				chatKey: "alpha-chat",
+				text: 'Message beta using alpha-chat [tool:message_bot {"botId":"beta","chatKey":"alpha-chat","text":"hello"}]',
+			},
+			scope,
+		);
+		expect(badMessageBotTurn.status).toBe(200);
+		expect(badMessageBotTurn.frame.result?.reply).toContain(
+			"Chat 'alpha-chat' belongs to bot 'alpha', not 'beta'",
+		);
 	});
 });

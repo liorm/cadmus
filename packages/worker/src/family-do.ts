@@ -1438,17 +1438,55 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 				return { bot: updated };
 			},
 			"bot.delete": async (command) => {
-				const existing = this.familyStore.bots.getBot(command.payload.botId);
+				const botId = command.payload.botId;
+				const existing = this.familyStore.bots.getBot(botId);
 				if (!existing) {
 					throw new ProtocolValidationError(
-						`Bot '${command.payload.botId}' not found`,
+						`Bot '${botId}' not found`,
 						"not_found",
 					);
 				}
-				await this.toolsEnvController.deleteScopesForBot(command.payload.botId);
-				this.familyStore.bots.deleteBot(command.payload.botId);
+				const peerPrefix = `peer:${botId}:`;
+				const chatsToDelete = this.familyStore.chats
+					.listChats()
+					.filter(
+						(chat) => chat.botId === botId || chat.key.startsWith(peerPrefix),
+					);
+				const scheduleIds = new Set(
+					this.familyStore.schedules
+						.listSchedules(botId, true)
+						.map((s) => s.id),
+				);
+				for (const chat of chatsToDelete) {
+					scheduleIds.add(harvestScheduleId(chat.key));
+				}
+
+				const { harness, context } = await this.ensureHarness();
+				const conversationIds = [
+					existing.rootConversationId,
+					...chatsToDelete.map((chat) => chat.conversationId),
+				];
+				for (const convId of conversationIds) {
+					const watch = this.activeWatches.get(convId);
+					if (watch) {
+						this.activeWatches.delete(convId);
+						await watch.stop().catch(() => {});
+					}
+					this.streamedAssistantContent.delete(convId);
+					const conv = await harness.conversation(
+						convId as ConversationId,
+						context,
+					);
+					if (conv) {
+						await conv.abort(context).catch(() => {});
+					}
+				}
+
+				await this.toolsEnvController.deleteScopesForBot(botId);
+				this.familyStore.bots.deleteBot(botId);
+				await this.abortScheduleTasksInternal(scheduleIds);
 				await this.syncAlarmInternal();
-				return { deleted: command.payload.botId };
+				return { deleted: botId };
 			},
 			"chat.list": async (command) => {
 				return {
@@ -1818,6 +1856,7 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 						"not_found",
 					);
 				}
+				this.assertScheduleTargetOwnership(botId, target);
 				const timezone = bot.timezone ?? this.getFamilyMeta().timezone;
 
 				let nextRun: number;
@@ -1952,6 +1991,12 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 					}
 				}
 
+				if (command.payload.target) {
+					this.assertScheduleTargetOwnership(
+						existing.botId,
+						command.payload.target,
+					);
+				}
 				const inSeconds = computeInSeconds(nextRun, Date.now());
 				const updated: ScheduleRecord = {
 					...existing,
@@ -1994,11 +2039,27 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 					);
 				}
 				this.familyStore.schedules.deleteSchedule(command.payload.id);
+				await this.abortScheduleTasksInternal(new Set([command.payload.id]));
 				await this.syncAlarmInternal();
 				this.log().debug("schedule deleted", { schedule: command.payload.id });
 				return { deleted: command.payload.id };
 			},
 		};
+	}
+
+	private assertScheduleTargetOwnership(
+		botId: string,
+		target: ScheduleTarget,
+	): void {
+		if (target.mode === "chat" || target.mode === "fork") {
+			const chat = this.familyStore.chats.getChat(target.chatKey);
+			if (chat && chat.botId !== botId) {
+				throw new ProtocolValidationError(
+					`Chat '${target.chatKey}' belongs to bot '${chat.botId}', not '${botId}'`,
+					"conflict",
+				);
+			}
+		}
 	}
 
 	private listBotFiles(botId: string, category?: string) {
@@ -2400,6 +2461,12 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 			input.key?.trim() || `${bot.id}:${crypto.randomUUID().slice(0, 8)}`;
 		const existing = this.familyStore.chats.getChat(key);
 		if (existing) {
+			if (existing.botId !== bot.id) {
+				throw new ProtocolValidationError(
+					`Chat '${key}' already exists and belongs to bot '${existing.botId}'`,
+					"conflict",
+				);
+			}
 			return existing;
 		}
 
@@ -2815,7 +2882,14 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 		});
 
 		const delayMs = this.getFamilyMeta().harvestDelayMs;
-		if (delayMs > 0 && latestEntryId !== undefined) {
+		const currentChat = this.familyStore.chats.getChat(chat.key);
+		const currentBot = this.familyStore.bots.getBot(chat.botId);
+		if (
+			delayMs > 0 &&
+			latestEntryId !== undefined &&
+			currentChat?.conversationId === chat.conversationId &&
+			currentBot
+		) {
 			const nextRun = Date.now() + delayMs;
 			const harvestTarget: ScheduleTarget = {
 				mode: "fork",
@@ -2919,6 +2993,22 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 			});
 			return taskId;
 		}, context);
+	}
+
+	private async abortScheduleTasksInternal(
+		scheduleIds: ReadonlySet<string>,
+	): Promise<void> {
+		if (scheduleIds.size === 0) return;
+		const { harness, context } = await this.ensureHarness();
+		const inspection = await harness.inspect(context);
+		for (const item of inspection.tasks) {
+			if (item.record.kind !== ScheduleTask.definition.name) continue;
+			const input = item.record.input as { scheduleId?: string } | undefined;
+			if (!input?.scheduleId || !scheduleIds.has(input.scheduleId)) continue;
+			await harness
+				.abortTask(item.record.id as TaskId, context)
+				.catch(() => {});
+		}
 	}
 
 	private async syncAlarmInternal(): Promise<number | undefined> {
