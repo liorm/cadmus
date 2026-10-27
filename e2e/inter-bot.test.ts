@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { BotRecord } from "../src/protocol.js";
+import type { BotRecord } from "../packages/worker/src/protocol.js";
 import { connectTestWs, sendRpc } from "./helpers.js";
 
 describe("Inter-Bot Co-Location Tools (create_bot, search_bot, message_bot)", () => {

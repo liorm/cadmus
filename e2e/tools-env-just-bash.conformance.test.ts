@@ -3,8 +3,8 @@ import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { FileError } from "@earendil-works/pi-durable/env";
 import { registerEnvConformance } from "@earendil-works/pi-durable/testing";
 import { describe, expect, it } from "vitest";
-import { createProxyExecutionEnv } from "../src/tools-env/proxy-env.js";
-import { NAMESPACE_BYTE_CAP } from "../src/tools-env/pure.js";
+import { createProxyExecutionEnv } from "../packages/worker/src/tools-env/proxy-env.js";
+import { NAMESPACE_BYTE_CAP } from "../packages/worker/src/tools-env/pure.js";
 
 const accountId = "env-conformance";
 const envId = "jb_conf";

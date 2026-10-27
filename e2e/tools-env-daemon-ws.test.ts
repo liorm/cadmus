@@ -1,6 +1,6 @@
 import { env, runDurableObjectAlarm } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
-import type { ServerEvent } from "../src/protocol.js";
+import type { ServerEvent } from "../packages/worker/src/protocol.js";
 import {
 	connectTestWs,
 	type RpcOptions,

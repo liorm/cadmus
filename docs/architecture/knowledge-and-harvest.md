@@ -1,6 +1,6 @@
 # Virtual Files, Knowledge Store & Idle Harvest
 
-Cadmus manages each bot's persona, long-term memory, and reference notes **out-of-band** from the `pi-durable` conversation log using the `BotFileStore` interface (`src/store/family-interface.ts`), backed by SQLite tables inside `CadmusBotFamilyDO` (`src/store/sqlite-family.ts`).
+Cadmus manages each bot's persona, long-term memory, and reference notes **out-of-band** from the `pi-durable` conversation log using the `BotFileStore` interface (`packages/worker/src/store/family-interface.ts`), backed by SQLite tables inside `CadmusBotFamilyDO` (`packages/worker/src/store/sqlite-family.ts`).
 
 ---
 
@@ -22,7 +22,7 @@ Cadmus manages each bot's persona, long-term memory, and reference notes **out-o
 
 ---
 
-## Prompt Assembly (`cadmus.identity` in `src/extensions/identity.ts`)
+## Prompt Assembly (`cadmus.identity` in `packages/worker/src/extensions/identity.ts`)
 
 Before each model turn, `identityExtension` renders three positional system prompt sections:
 1. **`cadmus.soul`**: The bot's `SOUL.md` instructions.
@@ -31,7 +31,7 @@ Before each model turn, `identityExtension` renders three positional system prom
 
 ---
 
-## Forked Idle Harvest (`executeHarvestFork` in `src/schedules.ts`)
+## Forked Idle Harvest (`executeHarvestFork` in `packages/worker/src/schedules.ts`)
 
 When a user turn completes on `chatKey` and the family's `harvestDelayMs > 0`:
 1. **Debounce via Unified Schedule**: `CadmusBotFamilyDO` upserts an internal one-shot schedule `harvest:<chatKey>` (`internal: true`, `kind: "when"`, `when: Date.now() + harvestDelayMs`, `target: { mode: "fork", chatKey, at: latestEntryId, harvest: true }`). Any new user turn on `chatKey` before `when` deletes/replaces the pending schedule.

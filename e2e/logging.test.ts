@@ -8,7 +8,7 @@ import {
 	type Logger,
 	parseLogLevel,
 	setupLogger,
-} from "../src/log.js";
+} from "../packages/worker/src/log.js";
 import { sendRpc } from "./helpers.js";
 
 describe("Structured Logging System (`src/log.ts`)", () => {

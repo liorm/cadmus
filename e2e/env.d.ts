@@ -1,5 +1,5 @@
-import type { CadmusBotFamilyDO } from "../src/family-do.js";
-import type { CadmusEnvDO } from "../src/tools-env/env-do.js";
+import type { CadmusBotFamilyDO } from "../packages/worker/src/family-do.js";
+import type { CadmusEnvDO } from "../packages/worker/src/tools-env/env-do.js";
 
 declare global {
 	namespace Cloudflare {

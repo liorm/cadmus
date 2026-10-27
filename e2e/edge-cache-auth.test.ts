@@ -5,13 +5,13 @@ import {
 	EdgeCache,
 	getEdgeCache,
 	sha256Hex,
-} from "../src/edge-cache.js";
+} from "../packages/worker/src/edge-cache.js";
 import type {
 	AccountMember,
 	BotRecord,
 	FamilyRecord,
-} from "../src/protocol.js";
-import { D1AdminStore } from "../src/store/d1-admin.js";
+} from "../packages/worker/src/protocol.js";
+import { D1AdminStore } from "../packages/worker/src/store/d1-admin.js";
 import { connectTestWs, sendRpc, TEST_TOKEN } from "./helpers.js";
 
 describe("Edge Caching for Tokens and Family DO Routing (Issue #19)", () => {

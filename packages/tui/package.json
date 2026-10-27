@@ -12,6 +12,6 @@
 		"typescript": "^5.9.3"
 	},
 	"dependencies": {
-		"@cadmus/contract": "file:../packages/contract"
+		"@cadmus/contract": "workspace:*"
 	}
 }

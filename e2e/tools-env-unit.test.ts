@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ProtocolValidationError } from "../src/protocol/validate.js";
+import { ProtocolValidationError } from "../packages/worker/src/protocol/validate.js";
 import {
 	assertDaemonEnvWrite,
 	assertJustBashEnvWrite,
@@ -15,7 +15,7 @@ import {
 	storageFamilyId,
 	supportsConfinement,
 	writeOpLockPaths,
-} from "../src/tools-env/pure.js";
+} from "../packages/worker/src/tools-env/pure.js";
 import {
 	isDaemonBearerToken,
 	isTransportMessage,
@@ -25,7 +25,7 @@ import {
 	peerErrorMessage,
 	TRANSPORT_DISCONNECTED,
 	transportFailure,
-} from "../src/tools-env/wire.js";
+} from "../packages/worker/src/tools-env/wire.js";
 
 describe("resolveToolsEnv", () => {
 	const account = { envId: "jb_default" };

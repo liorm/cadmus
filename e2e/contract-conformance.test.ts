@@ -17,7 +17,7 @@ import {
 	apiPathFromCommandType,
 	type CommandType,
 	coerceSearchParamsToPayload,
-} from "../src/protocol.js";
+} from "../packages/worker/src/protocol.js";
 import { connectTestWs, TEST_TOKEN } from "./helpers.js";
 
 const MAY_FAIL_OFFLINE = new Set<CommandType>([

@@ -20,7 +20,7 @@ import {
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
-const clientRoots = ["web/src", "tui/src"];
+const clientRoots = ["packages/web/src", "packages/tui/src"];
 const contractRoots = ["packages/contract/src", "packages/contract/generated"];
 
 const sourceExtensions = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs"]);

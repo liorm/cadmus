@@ -5,15 +5,15 @@ Cadmus is the cloud-native V2 architecture of `pi-bot`, built on **Cloudflare Wo
 ## Key Highlights
 
 - **Two-Tier Storage Architecture (Self-Initializing in Code)**:
-  - **Global Admin Database (`CADMUS_ADMIN_DB` on Cloudflare D1)**: Stores cross-family account data — users, auth tokens, accounts, user-to-account memberships, AES-GCM 256-bit encrypted BYOK credentials, and the Bot Families catalog (`account_id <-> family_id <-> do_name`). Schema is self-initializing and self-migrating in application code ([`src/store/d1-admin.ts`](src/store/d1-admin.ts)); no external SQL migration files or `wrangler d1 migrations` steps exist.
-  - **Per-Family Durable Object (`CadmusBotFamilyDO` on DO SQLite)**: Co-locates all bots, chats, virtual files (`SOUL.md`, `MEMORY.md`, `knowledge/<slug>.md` with CAS optimistic concurrency), schedules, harvest watermarks/notes (`cadmus_*` tables), and `pi-durable` conversations/tasks (`cadmus_pi_*` tables) for one Bot Family inside a single SQLite-backed Durable Object (`cadmus:<accountId>:<familyId>`). Schema is self-initializing in code ([`src/store/sqlite-family.ts`](src/store/sqlite-family.ts)).
+  - **Global Admin Database (`CADMUS_ADMIN_DB` on Cloudflare D1)**: Stores cross-family account data — users, auth tokens, accounts, user-to-account memberships, AES-GCM 256-bit encrypted BYOK credentials, and the Bot Families catalog (`account_id <-> family_id <-> do_name`). Schema is self-initializing and self-migrating in application code ([`packages/worker/src/store/d1-admin.ts`](packages/worker/src/store/d1-admin.ts)); no external SQL migration files or `wrangler d1 migrations` steps exist.
+  - **Per-Family Durable Object (`CadmusBotFamilyDO` on DO SQLite)**: Co-locates all bots, chats, virtual files (`SOUL.md`, `MEMORY.md`, `knowledge/<slug>.md` with CAS optimistic concurrency), schedules, harvest watermarks/notes (`cadmus_*` tables), and `pi-durable` conversations/tasks (`cadmus_pi_*` tables) for one Bot Family inside a single SQLite-backed Durable Object (`cadmus:<accountId>:<familyId>`). Schema is self-initializing in code ([`packages/worker/src/store/sqlite-family.ts`](packages/worker/src/store/sqlite-family.ts)).
 - **Schema-Validated Protocol + `ProtocolShim`**:
   - UI-agnostic JSON protocol (`POST /rpc`, REST `/api/*`, `GET /ws` WebSocket, `GET /events` SSE) validated with TypeBox and exported as standard JSON Schema at `GET /protocol/schema`. Readonly commands set `readOnly: true` on their schema and are served as `GET /api/<dotted.path>`; mutating commands are `POST`. `/api/*` uses the same dispatch path as `/rpc` and accepts credentials only as `Authorization: Bearer` (`?token=` is `401 query_token_not_allowed`; a session cookie alone is `401 header_required`). `/rpc`, `/ws`, and `/events` still accept `?token=` and the `cadmus_session` cookie. Generated OpenAPI and AsyncAPI documents are committed and validated internally (`bun run contract:gen` / `contract:check`); the Worker does not serve them.
 - **Unified Schedule & Idle Harvest Engine (`ScheduleTask`)**:
   - Single durable `cadmus.schedule` task (`wait` -> `run`) driving 5-field cron schedules, one-shot `when` timers, and idle knowledge/memory harvest forks (`harvest:<chatKey>`) via a single Durable Object alarm (`ctx.storage.setAlarm`).
 - **Out-of-Band `/status`**:
   - Inspects live conversation, bot, usage, harvest watermark, and alarm state out-of-band without polluting conversation transcripts or invoking the LLM.
-- **Standalone TUI Client (`tui/`) & Web UI (`web/`)**:
+- **Standalone TUI Client (`packages/tui/`) & Web UI (`packages/web/`)**:
   - Independent TUI client package that drives the Worker/DO purely over the wire protocol (`POST /rpc` and `GET /ws`).
   - React + Vite Web UI. `CadmusClient.callRpc` uses `GET`/`POST /api/*` (readonly vs mutating from the protocol `readOnly` flag), sends `Authorization: Bearer`, and keeps `CommandResultFrame` results. The token is not placed on `/api` URLs. Live events still arrive on `GET /ws` (query token).
 
@@ -92,7 +92,7 @@ bun run deploy
 
 ### 6. Edge Caching & Optional Workers KV (`CADMUS_CACHE_KV`)
 
-Cadmus includes an edge caching layer (`src/edge-cache.ts`) for token resolution and Bot Family DO routing info:
+Cadmus includes an edge caching layer (`packages/worker/src/edge-cache.ts`) for token resolution and Bot Family DO routing info:
 - **L1 (In-Memory)**: Always enabled, zero latency, 60s TTL, bounded LRU cache per isolate.
 - **L2 (Workers KV)**: Optional distributed cache via `CADMUS_CACHE_KV` binding.
 - **Master Secret Fast-Path**: Constant-time comparison on raw token; skips repeat D1 `ensureAccountAndUser` upserts within the isolate.

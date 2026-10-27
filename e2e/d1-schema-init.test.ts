@@ -1,6 +1,6 @@
 import { env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
-import { resetEdgeD1InitCache } from "../src/index.js";
+import { resetEdgeD1InitCache } from "../packages/worker/src/index.js";
 import {
 	CADMUS_SCHEMA_VERSION,
 	D1AdminStore,
@@ -12,7 +12,7 @@ import {
 	resetD1InitStats,
 	runD1SchemaMigrations,
 	wrapD1WithSchemaFallback,
-} from "../src/store/d1-admin.js";
+} from "../packages/worker/src/store/d1-admin.js";
 import { sendRpc } from "./helpers.js";
 
 describe("D1 Schema Initialization & Isolate Caching (Issue #18)", () => {

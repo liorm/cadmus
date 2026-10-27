@@ -2,8 +2,8 @@
 
 Cadmus separates **global account/tenant administration** from **per-family conversational state** across two distinct storage tiers:
 
-1. **Global Admin Store (`AdminStore` -> `D1AdminStore` in `src/store/d1-admin.ts`)**: Backed by Cloudflare D1 (`CADMUS_ADMIN_DB`).
-2. **Per-Family Store (`FamilyStore` -> `SqliteFamilyStore` in `src/store/sqlite-family.ts`)**: Backed by the embedded SQLite database inside each `CadmusBotFamilyDO` instance.
+1. **Global Admin Store (`AdminStore` -> `D1AdminStore` in `packages/worker/src/store/d1-admin.ts`)**: Backed by Cloudflare D1 (`CADMUS_ADMIN_DB`).
+2. **Per-Family Store (`FamilyStore` -> `SqliteFamilyStore` in `packages/worker/src/store/sqlite-family.ts`)**: Backed by the embedded SQLite database inside each `CadmusBotFamilyDO` instance.
 
 ---
 
@@ -12,7 +12,7 @@ Cadmus separates **global account/tenant administration** from **per-family conv
 - **Does it belong to account administration, user membership, provider API keys, or locating which Durable Object owns a Bot Family?**
   -> Store it in **`D1AdminStore` (`CADMUS_ADMIN_DB`)**.
 - **Is it read or mutated during a conversation turn, tool call, prompt render, schedule firing, or idle harvest inside a Bot Family?**
-  -> Store it in **`FamilyStore` (`CadmusBotFamilyDO` SQLite)** behind the `FamilyStore` interface (`src/store/family-interface.ts`).
+  -> Store it in **`FamilyStore` (`CadmusBotFamilyDO` SQLite)** behind the `FamilyStore` interface (`packages/worker/src/store/family-interface.ts`).
 
 ---
 
@@ -54,9 +54,9 @@ Provider API keys (`anthropic`, `openai`, `google`, `xai`) set via `account.cred
 
 ---
 
-## Authentication Modes & Edge Caching (`src/auth.ts`, `src/edge-cache.ts`)
+## Authentication Modes & Edge Caching (`packages/worker/src/auth.ts`, `packages/worker/src/edge-cache.ts`)
 
-Every incoming HTTP/WebSocket request is authenticated by the Worker entrypoint (`src/index.ts`) before forwarding to `CadmusBotFamilyDO`:
+Every incoming HTTP/WebSocket request is authenticated by the Worker entrypoint (`packages/worker/src/index.ts`) before forwarding to `CadmusBotFamilyDO`:
 
 1. **`CADMUS_AUTH_MODE="cf-access"`**: Verifies Cloudflare Access headers (`Cf-Access-Authenticated-User-Email` / JWT) and resolves the member's `accountId` in `D1AdminStore`.
 2. **`CADMUS_AUTH_MODE="token"`**: Verifies `Authorization: Bearer <token>` against either `CADMUS_DEV_TOKEN` or SHA-256 `token_hash` in `cadmus_auth_tokens` / `cadmus_account_members`. `/rpc`, `/ws`, and `/events` also accept `?token=` and the `cadmus_session` cookie. `/api/*` accepts the header only (`authenticateRequest` options `{ allowQueryToken: false, allowCookie: false }`).
@@ -64,7 +64,7 @@ Every incoming HTTP/WebSocket request is authenticated by the Worker entrypoint 
 
 ---
 
-## Two-Tier Edge Cache (`EdgeCache` in `src/edge-cache.ts`)
+## Two-Tier Edge Cache (`EdgeCache` in `packages/worker/src/edge-cache.ts`)
 
 To avoid querying D1 on every single `/rpc` request, Cadmus implements a two-tier edge cache for token resolution and Bot Family DO routing info:
 

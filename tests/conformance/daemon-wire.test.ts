@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
 import { registerEnvConformance } from "@earendil-works/pi-durable/testing";
-import { DaemonSession } from "../../daemon/src/session.js";
-import { createWireExecutionEnv } from "../../src/tools-env/wire-env.js";
+import { DaemonSession } from "../../packages/daemon/src/session.js";
+import { createWireExecutionEnv } from "../../packages/worker/src/tools-env/wire-env.js";
 
 registerEnvConformance(
 	{ describe, expect, it },

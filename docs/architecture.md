@@ -11,7 +11,7 @@ This document serves as the **high-level architectural index**. Detailed design,
 ```mermaid
 flowchart TD
     Client["Client (Standalone TUI / CLI / Future Native UI)"]
-    Worker["Cloudflare Worker Entrypoint (src/index.ts)"]
+    Worker["Cloudflare Worker Entrypoint (packages/worker/src/index.ts)"]
     D1[("Cloudflare D1: CADMUS_ADMIN_DB\n(D1AdminStore)")]
     DO["CadmusBotFamilyDO\n(One SQLite Durable Object per Bot Family)"]
     SQLite[("DO SQLite: cadmus_pi_* + cadmus_*\n(pi-durable + SqliteFamilyStore)")]
@@ -33,7 +33,7 @@ flowchart TD
    - See **[Accounts, Multi-Tenancy & Storage Split](./architecture/accounts-and-storage.md)**.
 
 2. **UI-Agnostic Protocol & Adapter Shims**
-   - All interactions flow through a strongly-typed TypeBox protocol (`ClientCommand`, `CommandResultFrame`, `ServerEvent`) mediated by a pluggable `ProtocolShim` (`src/shim.ts`).
+   - All interactions flow through a strongly-typed TypeBox protocol (`ClientCommand`, `CommandResultFrame`, `ServerEvent`) mediated by a pluggable `ProtocolShim` (`packages/worker/src/shim.ts`).
    - Supports HTTP RPC (`POST /rpc`), a REST translation of the same commands (`/api/*`), bidirectional WebSockets (`GET /ws`), and Server-Sent Events (`GET /events`).
    - Slash commands that inspect runtime state—specifically `/status`—are intercepted **out-of-band** before `conv.submit()` so they never pollute LLM conversation history or incur token costs.
    - See **[Protocol, Shims & Out-of-Band Commands](./architecture/protocol-and-turns.md)**.

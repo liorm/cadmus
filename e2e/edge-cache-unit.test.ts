@@ -1,5 +1,8 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { matchMasterSecret, timingSafeEqualSha256 } from "../src/auth.js";
+import {
+	matchMasterSecret,
+	timingSafeEqualSha256,
+} from "../packages/worker/src/auth.js";
 import {
 	clearAllEdgeCaches,
 	clearEnsuredMasterUsers,
@@ -12,8 +15,8 @@ import {
 	makeTokenCacheKey,
 	markMasterUserEnsured,
 	sha256Hex,
-} from "../src/edge-cache.js";
-import { sha256Hex as d1Sha256Hex } from "../src/store/d1-admin.js";
+} from "../packages/worker/src/edge-cache.js";
+import { sha256Hex as d1Sha256Hex } from "../packages/worker/src/store/d1-admin.js";
 
 describe("EdgeCache Pure Unit Helpers & L1 LRU Cache", () => {
 	beforeEach(() => {

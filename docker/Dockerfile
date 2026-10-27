@@ -19,11 +19,12 @@ FROM oven/bun:1-slim AS deps
 WORKDIR /app
 
 COPY package.json bun.lock ./
-COPY tui/package.json tui/bun.lock ./tui/
-COPY web/package.json web/bun.lock ./web/
-RUN bun install --frozen-lockfile \
- && bun install --frozen-lockfile --cwd tui \
- && bun install --frozen-lockfile --cwd web
+COPY packages/contract/package.json ./packages/contract/
+COPY packages/daemon/package.json ./packages/daemon/
+COPY packages/tui/package.json ./packages/tui/
+COPY packages/web/package.json ./packages/web/
+COPY packages/worker/package.json ./packages/worker/
+RUN bun install --frozen-lockfile
 
 # ==========================================
 # Stage 3: Build Web UI
@@ -33,13 +34,12 @@ FROM oven/bun:1-slim AS web-builder
 WORKDIR /app
 
 COPY tsconfig.json package.json bun.lock ./
-COPY src/ ./src/
-COPY web/ ./web/
+COPY packages/contract/ ./packages/contract/
+COPY packages/web/ ./packages/web/
 
 COPY --from=deps /app/node_modules ./node_modules
-COPY --from=deps /app/web/node_modules ./web/node_modules
 
-RUN bun run --cwd web build
+RUN bun run web:build
 
 # ==========================================
 # Stage 4: Lean runtime image
@@ -56,17 +56,18 @@ WORKDIR /app
 # Copy celld binary from Stage 1
 COPY --from=celld-bin /usr/local/bin/celld /usr/local/bin/celld
 
-# Copy configuration, source files, and TUI package
+# Copy configuration, source files, and packages
 COPY tsconfig.json wrangler.jsonc biome.json package.json bun.lock ./
-COPY src/ ./src/
-COPY tui/ ./tui/
+COPY packages/worker/ ./packages/worker/
+COPY packages/contract/ ./packages/contract/
+COPY packages/tui/ ./packages/tui/
+COPY packages/daemon/ ./packages/daemon/
 
 # Copy built Web UI assets from Stage 3
-COPY --from=web-builder /app/web/dist ./web/dist
+COPY --from=web-builder /app/packages/web/dist ./packages/web/dist
 
 # Copy installed node_modules from Stage 2
 COPY --from=deps /app/node_modules ./node_modules
-COPY --from=deps /app/tui/node_modules ./tui/node_modules
 
 # Ensure esbuild from node_modules is available on PATH for celld
 ENV PATH="/app/node_modules/.bin:${PATH}"

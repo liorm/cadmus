@@ -1,6 +1,6 @@
 import { SELF } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
-import { CadmusClient } from "../web/src/client.js";
+import { CadmusClient } from "../packages/web/src/client.js";
 import { sendRpc, TEST_TOKEN } from "./helpers.js";
 
 function webClient(

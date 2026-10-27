@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
-import { SYSTEM_PROMPT } from "../../src/extensions/identity.js";
-import { chooseToolsEnvIdentity } from "../../src/tools-env/pure.js";
+import { SYSTEM_PROMPT } from "../../packages/worker/src/extensions/identity.js";
+import { chooseToolsEnvIdentity } from "../../packages/worker/src/tools-env/pure.js";
 
 describe("Virtual files enforcement", () => {
 	it("enforces in SYSTEM_PROMPT that MEMORY.md and knowledge are virtual entities and not workspace files", () => {

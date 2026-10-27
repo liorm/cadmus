@@ -1,7 +1,7 @@
 import { env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
-import type { ServerEvent } from "../src/protocol.js";
-import { sha256Hex } from "../src/store/d1-admin.js";
+import type { ServerEvent } from "../packages/worker/src/protocol.js";
+import { sha256Hex } from "../packages/worker/src/store/d1-admin.js";
 import { connectTestWs, type RpcOptions, sendRpc } from "./helpers.js";
 
 const CODING_TOOLS = ["bash", "read", "write", "edit"];

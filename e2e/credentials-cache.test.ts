@@ -1,7 +1,13 @@
 import { env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
-import type { CredentialSummary, FamilyRecord } from "../src/protocol.js";
-import { clearAesKeyCache, toDoName } from "../src/store/d1-admin.js";
+import type {
+	CredentialSummary,
+	FamilyRecord,
+} from "../packages/worker/src/protocol.js";
+import {
+	clearAesKeyCache,
+	toDoName,
+} from "../packages/worker/src/store/d1-admin.js";
 import { sendRpc } from "./helpers.js";
 
 describe("Credential In-Memory Caching & Cross-DO Cache Busting", () => {

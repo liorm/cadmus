@@ -7,7 +7,7 @@ import type {
 	CredentialSummary,
 	FamilyRecord,
 	ModelInfo,
-} from "../src/protocol.js";
+} from "../packages/worker/src/protocol.js";
 import { sendRpc, TEST_TOKEN } from "./helpers.js";
 
 describe("Authentication, Accounts, Encrypted BYOK Credentials & Multi-Family Catalog", () => {

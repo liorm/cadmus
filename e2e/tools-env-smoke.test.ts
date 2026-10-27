@@ -1,6 +1,6 @@
 import { Bash } from "just-bash";
 import { describe, expect, it } from "vitest";
-import { JustBashNamespace } from "../src/tools-env/namespace.js";
+import { JustBashNamespace } from "../packages/worker/src/tools-env/namespace.js";
 
 describe("just-bash in workerd", () => {
 	it("runs echo and creates a symlink", async () => {

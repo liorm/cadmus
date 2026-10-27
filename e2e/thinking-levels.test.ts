@@ -7,7 +7,7 @@ import type {
 	ChatStatusResult,
 	ScheduleCreateResult,
 	ScheduleUpdateResult,
-} from "../src/protocol.js";
+} from "../packages/worker/src/protocol.js";
 import { sendRpc } from "./helpers.js";
 
 describe("Thinking Levels in Models, Bots, Chats, and Schedules", () => {

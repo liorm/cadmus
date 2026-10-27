@@ -1,5 +1,5 @@
 import { SELF } from "cloudflare:test";
-import { setupLogger } from "../src/log.js";
+import { setupLogger } from "../packages/worker/src/log.js";
 import type {
 	CommandResultFrame,
 	RpcPayload,
@@ -7,7 +7,7 @@ import type {
 	RpcType,
 	ServerEvent,
 	ServerFrame,
-} from "../src/protocol.js";
+} from "../packages/worker/src/protocol.js";
 
 setupLogger({ type: "silent" });
 

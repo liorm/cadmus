@@ -10,10 +10,10 @@ Checked 20 Oct 2026:
 - [`@cloudflare/computer` README](https://github.com/cloudflare/computer/blob/main/packages/computer/README.md) and [repo README](https://github.com/cloudflare/computer/blob/main/README.md).
 - [Pi harness docs](https://developers.cloudflare.com/agents/harnesses/pi/) (page updated 12 Oct 2026) and the Agents SDK source doc [`docs/agents/harnesses/pi.md`](https://github.com/cloudflare/agents/blob/main/docs/agents/harnesses/pi.md).
 - [Changelog, 2 Oct 2026](https://developers.cloudflare.com/changelog/post/2026-10-02-pi-harness/): first-class Pi Durable support via `PiHarness`.
-- Pi example: [`agents/examples/next/harnesses/pi`](https://github.com/cloudflare/agents/tree/main/examples/next/harnesses/pi), including `src/workspace.ts`.
+- Pi example: [`agents/examples/next/harnesses/pi`](https://github.com/cloudflare/agents/tree/main/examples/next/harnesses/pi), including `packages/worker/src/workspace.ts`.
 - [`@cloudflare/shell` README](https://github.com/cloudflare/agents/blob/main/packages/shell/README.md): deprecated in favor of `@cloudflare/computer`.
 - Think workspace tools: [`agents/docs/think/tools.md`](https://github.com/cloudflare/agents/blob/main/docs/think/tools.md).
-- Cadmus: `CadmusBotFamilyDO.initHarness` in [`src/family-do.ts`](../../src/family-do.ts), [`src/alarms.ts`](../../src/alarms.ts), [tools-env plan](../plans/tools-env/README.md).
+- Cadmus: `CadmusBotFamilyDO.initHarness` in [`packages/worker/src/family-do.ts`](../../packages/worker/src/family-do.ts), [`packages/worker/src/alarms.ts`](../../packages/worker/src/alarms.ts), [tools-env plan](../plans/tools-env/README.md).
 
 The tweet is a migration note for people already on `@cloudflare/shell`. Think used to depend on that package. Cadmus never did. The changelog and migration skill move shell users onto Computer. They do not describe a pi-durable `ExecutionEnv`.
 
@@ -56,7 +56,7 @@ Limits from the package README: about 10 GB per workspace because it shares the 
 
 The host tree is one absolute namespace rooted at `/`. `/workspace` is a convention, not a configured root. There is no scope key, no per-binding size cap, and no `persist: false` mode. Read-only mounts (R2, files shipped with the Worker) land inside that one tree.
 
-`createPiTools` (`@cloudflare/computer/tools/pi-ai`) returns pi-ai declarations and one `execute` function, for a loop the caller writes. pi-durable runs the loop itself, so the Pi example (`createWorkspaceTools` in `src/workspace.ts`) turns each declaration into a `ToolRegistration`. It marks `read`, `ls`, `find`, `grep`, `write`, and `delete` replay-safe. `edit` and `exec` are not: after eviction the model gets an interrupted result. That example uses `WorkerJavaScriptBackend` only, rewrites the `exec` description so the model knows it is an ES module (imports `node:fs/promises` and `ws:git`, no shell, no npm, no network), and does not pass `HarnessOptions.env`.
+`createPiTools` (`@cloudflare/computer/tools/pi-ai`) returns pi-ai declarations and one `execute` function, for a loop the caller writes. pi-durable runs the loop itself, so the Pi example (`createWorkspaceTools` in `packages/worker/src/workspace.ts`) turns each declaration into a `ToolRegistration`. It marks `read`, `ls`, `find`, `grep`, `write`, and `delete` replay-safe. `edit` and `exec` are not: after eviction the model gets an interrupted result. That example uses `WorkerJavaScriptBackend` only, rewrites the `exec` description so the model knows it is an ES module (imports `node:fs/promises` and `ws:git`, no shell, no npm, no network), and does not pass `HarnessOptions.env`.
 
 Think does the same product move on the AI SDK side. Every Think agent gets `this.workspace`, and Computer's tools join every turn. That is the "default workspace" in the tweet.
 

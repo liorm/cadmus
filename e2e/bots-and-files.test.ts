@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ChatRecord } from "../src/protocol.js";
+import type { ChatRecord } from "../packages/worker/src/protocol.js";
 import { sendRpc } from "./helpers.js";
 
 describe("Bots, Virtual Files (SOUL.md, MEMORY.md, knowledge/<slug>.md), CAS & Tool Gate", () => {

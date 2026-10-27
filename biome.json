@@ -7,7 +7,13 @@
 	},
 	"files": {
 		"ignoreUnknown": false,
-		"includes": ["**", "!docs", "!web/dist", "!web/node_modules"]
+		"includes": [
+			"**",
+			"!docs",
+			"!packages/web/dist",
+			"!packages/web/node_modules",
+			"!packages/daemon/dist"
+		]
 	},
 	"formatter": {
 		"enabled": true,
@@ -34,7 +40,7 @@
 	},
 	"overrides": [
 		{
-			"includes": ["web/**", "tui/**"],
+			"includes": ["packages/web/**", "packages/tui/**"],
 			"linter": {
 				"rules": {
 					"style": {
@@ -46,6 +52,8 @@
 										"group": [
 											"src",
 											"src/**",
+											"worker",
+											"worker/**",
 											"daemon",
 											"daemon/**",
 											"../src",
@@ -56,6 +64,14 @@
 											"../../../src/**",
 											"../../../../src",
 											"../../../../src/**",
+											"../worker",
+											"../worker/**",
+											"../../worker",
+											"../../worker/**",
+											"../../../worker",
+											"../../../worker/**",
+											"../../../../worker",
+											"../../../../worker/**",
 											"../daemon",
 											"../daemon/**",
 											"../../daemon",

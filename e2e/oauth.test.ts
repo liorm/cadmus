@@ -4,7 +4,7 @@ import type {
 	CredentialSummary,
 	OAuthFlowRecord,
 	OAuthProviderInfo,
-} from "../src/protocol.js";
+} from "../packages/worker/src/protocol.js";
 import { connectTestWs, sendRpc } from "./helpers.js";
 
 describe("Generic OAuth Protocol & xAI Device Code Flow", () => {

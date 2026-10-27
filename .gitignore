@@ -4,9 +4,8 @@ data/
 *.log
 coverage/
 dist/
-daemon/dist/
+packages/*/dist/
 auth.json
 auth.json.lock
 /.wrangler
-web/node_modules/
-web/dist/
+packages/*/node_modules/

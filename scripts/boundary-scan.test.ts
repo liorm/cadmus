@@ -237,6 +237,8 @@ describe("client contract specifiers", () => {
 			"@cadmus/contract/asyncapi.json",
 			"../../src/protocol.js",
 			"../../daemon/cli.js",
+			"../../packages/worker/src/protocol.js",
+			"../../packages/daemon/src/cli.js",
 		]) {
 			expect(isAllowedClientContractSpecifier(specifier)).toBe(false);
 			expect(clientImportReason(specifier)).toBeTruthy();

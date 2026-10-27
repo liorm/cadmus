@@ -1,12 +1,16 @@
 import { SELF } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
-import type { ChatGetResult, ChatRecord, TurnBlock } from "../src/protocol.js";
 import {
 	createTuiState,
 	handleServerEvent,
 	handleTurnSubmitResult,
 	type TuiOutput,
-} from "../tui/src/handler.js";
+} from "../packages/tui/src/handler.js";
+import type {
+	ChatGetResult,
+	ChatRecord,
+	TurnBlock,
+} from "../packages/worker/src/protocol.js";
 import { connectTestWs, sendRpc, TEST_TOKEN } from "./helpers.js";
 
 describe("Turns, Streaming Protocol Events & Out-of-Band /status", () => {

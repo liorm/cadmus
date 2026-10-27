@@ -17,7 +17,7 @@ import {
 	bytesToBase64,
 	encodeWire,
 	parseWireRequest,
-} from "../../src/tools-env/wire.js";
+} from "../../worker/src/tools-env/wire.js";
 import {
 	type ConfineDetector,
 	confinedExecArgv,

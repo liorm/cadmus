@@ -4,7 +4,7 @@ import type {
 	ChatRecord,
 	HarvestNote,
 	ScheduleRecord,
-} from "../src/protocol.js";
+} from "../packages/worker/src/protocol.js";
 import { sendRpc } from "./helpers.js";
 
 describe("Unified ScheduleTask (Cron, When & Idle Harvest Forks) & DO Alarm Driver", () => {

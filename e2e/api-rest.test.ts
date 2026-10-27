@@ -2,7 +2,7 @@ import { SELF } from "cloudflare:test";
 import { API_ROUTES } from "@cadmus/contract/routes";
 import { Type } from "typebox";
 import { describe, expect, it } from "vitest";
-import { type Logger, setupLogger } from "../src/log.js";
+import { type Logger, setupLogger } from "../packages/worker/src/log.js";
 import {
 	allowHeaderForCommand,
 	apiPathFromCommandType,
@@ -15,7 +15,7 @@ import {
 	httpStatusForProtocolCode,
 	isCommandReadOnly,
 	listCommandTypes,
-} from "../src/protocol.js";
+} from "../packages/worker/src/protocol.js";
 import { sendRpc, TEST_TOKEN } from "./helpers.js";
 
 const PRIVATE_API_CACHE = "private, no-store";

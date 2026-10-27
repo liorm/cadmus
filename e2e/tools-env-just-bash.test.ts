@@ -1,6 +1,6 @@
 import { env, runDurableObjectAlarm } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
-import type { ServerEvent } from "../src/protocol.js";
+import type { ServerEvent } from "../packages/worker/src/protocol.js";
 import { connectTestWs, type RpcOptions, sendRpc } from "./helpers.js";
 
 const CODING_TOOLS = ["bash", "read", "write", "edit"];
@@ -865,7 +865,7 @@ describe("just-bash tools env through the bot", () => {
 		const five = new Uint8Array(5 * 1024 * 1024);
 		const stub = envStub(accountId);
 		const { createProxyExecutionEnv } = await import(
-			"../src/tools-env/proxy-env.js"
+			"../packages/worker/src/tools-env/proxy-env.js"
 		);
 		const { BACKGROUND_CONTEXT } = await import(
 			"@earendil-works/chord/context"

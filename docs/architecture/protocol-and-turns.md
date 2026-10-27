@@ -1,12 +1,12 @@
 # Protocol, Shims & Out-of-Band Commands
 
-Cadmus is designed as a **headless, protocol-first runtime**. Any UI (the standalone TUI in `tui/`, E2E tests in `e2e/`, or a future web/mobile client) interacts with the Worker exclusively over "the protocol".
+Cadmus is designed as a **headless, protocol-first runtime**. Any UI (the standalone TUI in `packages/tui/`, E2E tests in `e2e/`, or a future web/mobile client) interacts with the Worker exclusively over "the protocol".
 
 ---
 
-## TypeBox-Validated Protocol (`src/protocol.ts`)
+## TypeBox-Validated Protocol (`packages/worker/src/protocol.ts`)
 
-All client-to-server commands and server-to-client responses/events are validated at runtime using **TypeBox** schemas in `src/protocol.ts`:
+All client-to-server commands and server-to-client responses/events are validated at runtime using **TypeBox** schemas in `packages/worker/src/protocol.ts`:
 
 ### Client Commands (`ClientCommand`)
 - **Account & Credentials**: `account.get`, `account.members.list`, `account.members.add`, `account.credentials.list`, `account.credentials.set`, `account.credentials.delete`
@@ -32,7 +32,7 @@ All client-to-server commands and server-to-client responses/events are validate
 
 ---
 
-## Pluggable `ProtocolShim` (`src/shim.ts`)
+## Pluggable `ProtocolShim` (`packages/worker/src/shim.ts`)
 
 To keep the core runtime independent of wire serialization details (so future clients can use Protobuf, MsgPack, or UI-specific adapters), `CadmusBotFamilyDO` decodes and encodes frames through the `ProtocolShim` interface:
 
@@ -60,9 +60,9 @@ The default implementation (`JsonProtocolShim`) parses JSON and validates every 
 
 ## REST Adapter (`/api/*`)
 
-`/api/*` is a thin edge translation in [`src/api-adapter.ts`](../../src/api-adapter.ts). It builds a `ClientCommand` and runs the **same** dispatch function as `POST /rpc` (edge `family.create`, then the family Durable Object `/rpc`). There is no second command switch.
+`/api/*` is a thin edge translation in [`packages/worker/src/api-adapter.ts`](../../packages/worker/src/api-adapter.ts). It builds a `ClientCommand` and runs the **same** dispatch function as `POST /rpc` (edge `family.create`, then the family Durable Object `/rpc`). There is no second command switch.
 
-Path mapping lives in [`src/protocol/rest.ts`](../../src/protocol/rest.ts) (schema `readOnly`, query coercion) and [`src/protocol/rest-encode.ts`](../../src/protocol/rest-encode.ts) (path strings, no TypeBox). `encodePayloadQuery` is generated into `@cadmus/contract/routes` and re-exported from `src/protocol.ts`. Dots in the command name become slashes:
+Path mapping lives in [`packages/worker/src/protocol/rest.ts`](../../packages/worker/src/protocol/rest.ts) (schema `readOnly`, query coercion) and [`packages/worker/src/protocol/rest-encode.ts`](../../packages/worker/src/protocol/rest-encode.ts) (path strings, no TypeBox). `encodePayloadQuery` is generated into `@cadmus/contract/routes` and re-exported from `packages/worker/src/protocol.ts`. Dots in the command name become slashes:
 
 | Command | HTTP |
 | --- | --- |
@@ -95,7 +95,7 @@ Every `/api/*` response (success, error, **401**, **404**, **405**, and `HEAD`) 
 
 ### Web UI client
 
-[`web/src/client.ts`](../../web/src/client.ts) (`CadmusClient`) is the browser caller. `callRpc` and `sendCommand` keep their signatures and return a `CommandResultFrame`. The HTTP request uses `@cadmus/contract/routes` (`API_ROUTES` from each command's `readOnly` flag → GET, otherwise POST) and `encodePayloadQuery`:
+[`packages/web/src/client.ts`](../../packages/web/src/client.ts) (`CadmusClient`) is the browser caller. `callRpc` and `sendCommand` keep their signatures and return a `CommandResultFrame`. The HTTP request uses `@cadmus/contract/routes` (`API_ROUTES` from each command's `readOnly` flag → GET, otherwise POST) and `encodePayloadQuery`:
 
 - Readonly commands are `GET /api/...`. The payload is `encodePayloadQuery` (the inverse of `coerceSearchParamsToPayload`). `undefined` fields are omitted. GET and HEAD do not send `Content-Type`.
 - Mutating commands are `POST /api/...` with the payload object as the JSON body and `Content-Type: application/json`.
@@ -124,6 +124,6 @@ Control and inspection slash commands—specifically **`/status`**—do **not** 
 
 ---
 
-## Standalone TUI Boundary (`tui/`)
+## Standalone TUI Boundary (`packages/tui/`)
 
-The terminal client in `tui/` is an independent package with its own `tui/package.json` and `tui/tsconfig.json`. It imports **zero** files from `src/` and communicates with the Worker exclusively via HTTP `/rpc` and WebSocket `/ws`.
+The terminal client in `packages/tui/` is an independent package with its own `packages/tui/package.json` and `packages/tui/tsconfig.json`. It imports **zero** files from `packages/worker/src/` and communicates with the Worker exclusively via HTTP `/rpc` and WebSocket `/ws`.
