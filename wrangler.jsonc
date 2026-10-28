@@ -12,7 +12,7 @@
 			"/health",
 			"/protocol/schema",
 			"/ws",
-			"/tools-env/ws",
+			"/tools-env/*",
 			"/events",
 			"/rpc",
 			"/api/*"
