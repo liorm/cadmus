@@ -1003,8 +1003,6 @@ export const ToolsEnvRecordSchema = Type.Object({
 	confineToWorkspace: Type.Boolean(),
 	sharedWorkspace: Type.Optional(Type.Boolean()),
 	workspacePath: Type.Optional(Type.String()),
-	secretId: Type.Optional(Type.String()),
-	secretMissing: Type.Optional(Type.Boolean()),
 	updatedAt: Type.Number(),
 	supportsConfinement: Type.Boolean(),
 	connection: Type.Optional(
@@ -1073,49 +1071,4 @@ export const AccountToolsEnvsDeleteResultSchema = Type.Object({
 });
 export type AccountToolsEnvsDeleteResult = Static<
 	typeof AccountToolsEnvsDeleteResultSchema
->;
-
-export const ToolsEnvSecretMetaSchema = Type.Object(
-	{
-		secretId: Type.String(),
-		label: Type.Optional(Type.String()),
-		kind: Type.Literal("daemon_token"),
-		updatedAt: Type.Number(),
-		createdAt: Type.Optional(
-			Type.Number({
-				description:
-					"Unix epoch milliseconds when the secret was minted. Absent for rows created before this field existed.",
-			}),
-		),
-		lastUsedAt: Type.Optional(
-			Type.Number({
-				description:
-					"Unix epoch milliseconds when a daemon last authenticated with this token. Absent until the first successful authentication.",
-			}),
-		),
-	},
-	{ additionalProperties: false },
-);
-export type ToolsEnvSecretMetaRecord = Static<typeof ToolsEnvSecretMetaSchema>;
-
-export const AccountToolsEnvSecretsListResultSchema = Type.Object({
-	secrets: Type.Array(ToolsEnvSecretMetaSchema),
-});
-export type AccountToolsEnvSecretsListResult = Static<
-	typeof AccountToolsEnvSecretsListResultSchema
->;
-
-export const AccountToolsEnvSecretsSetResultSchema = Type.Object({
-	secret: ToolsEnvSecretMetaSchema,
-	token: Type.String(),
-});
-export type AccountToolsEnvSecretsSetResult = Static<
-	typeof AccountToolsEnvSecretsSetResultSchema
->;
-
-export const AccountToolsEnvSecretsDeleteResultSchema = Type.Object({
-	deleted: Type.String(),
-});
-export type AccountToolsEnvSecretsDeleteResult = Static<
-	typeof AccountToolsEnvSecretsDeleteResultSchema
 >;

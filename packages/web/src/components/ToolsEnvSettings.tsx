@@ -1,7 +1,4 @@
-import type {
-	ToolsEnvRecord,
-	ToolsEnvSecretMetaRecord,
-} from "@cadmus/contract/types";
+import type { ToolsEnvRecord } from "@cadmus/contract/types";
 import { useCallback, useEffect, useState } from "react";
 import { useCadmus } from "../context/CadmusContext.js";
 
@@ -10,44 +7,14 @@ interface ToolsEnvSettingsProps {
 	onClose: () => void;
 }
 
-function formatTimestamp(ms: number): string {
-	return new Date(ms).toISOString();
-}
+const OWNER_DEREGISTER_HINT = "Only account owners can deregister a daemon";
 
-function daemonEnvsUsingSecret(
-	envs: ToolsEnvRecord[],
-	secretId: string,
-): ToolsEnvRecord[] {
-	return envs.filter(
-		(env) => env.kind === "local-daemon" && env.secretId === secretId,
-	);
-}
-
-function envUsageLabel(env: ToolsEnvRecord): string {
-	return env.label ? `${env.label} (${env.envId})` : env.envId;
-}
-
-function revokeConfirmMessage(
-	secret: ToolsEnvSecretMetaRecord,
-	users: ToolsEnvRecord[],
-): string {
-	const name = secret.label ?? secret.secretId;
-	const envList =
-		users.length === 0
-			? "No local-daemon envs use this secret."
-			: `Daemon envs that will disconnect: ${users.map(envUsageLabel).join(", ")}.`;
-	return `Revoke pairing secret ${name} (${secret.secretId})? The token stops working immediately. ${envList}`;
-}
-
-const OWNER_REVOKE_HINT = "Only account owners can revoke";
-const OWNER_REVOKE_ERROR = "Only account owners can revoke pairing secrets";
-
-function revokeFailureMessage(error: {
+function deregisterFailureMessage(error: {
 	code?: string;
 	message?: string;
 }): string {
-	if (error.code === "forbidden") return OWNER_REVOKE_ERROR;
-	return error.message ?? "Failed to revoke pairing secret";
+	if (error.code === "forbidden") return OWNER_DEREGISTER_HINT;
+	return error.message ?? "Failed to deregister daemon";
 }
 
 function daemonConnectionLabel(env: ToolsEnvRecord): string {
@@ -66,9 +33,7 @@ export function ToolsEnvSettings({ isOpen, onClose }: ToolsEnvSettingsProps) {
 	const { client } = useCadmus();
 	const [envs, setEnvs] = useState<ToolsEnvRecord[]>([]);
 	const [defaultEnvId, setDefaultEnvId] = useState("");
-	const [secrets, setSecrets] = useState<ToolsEnvSecretMetaRecord[]>([]);
-	const [canRevoke, setCanRevoke] = useState<boolean | null>(null);
-	const [mintedToken, setMintedToken] = useState<string | null>(null);
+	const [canDeregister, setCanDeregister] = useState<boolean | null>(null);
 	const [pairingInfo, setPairingInfo] = useState<{
 		command: string;
 		expiresAt: number;
@@ -85,40 +50,30 @@ export function ToolsEnvSettings({ isOpen, onClose }: ToolsEnvSettingsProps) {
 	const [daemonPath, setDaemonPath] = useState("");
 	const [daemonPersist, setDaemonPersist] = useState(true);
 	const [daemonConfine, setDaemonConfine] = useState(true);
-	const [daemonSecretId, setDaemonSecretId] = useState("");
 
 	const reload = useCallback(async () => {
-		const [listed, secretList, memberList] = await Promise.all([
+		const [listed, memberList] = await Promise.all([
 			client.callRpc("account.toolsEnvs.list"),
-			client.callRpc("account.toolsEnvSecrets.list"),
 			client.callRpc("account.members.list"),
 		]);
 		if (listed.ok && listed.result) {
 			setEnvs(listed.result.envs);
 			setDefaultEnvId(listed.result.default?.envId ?? "");
 		}
-		if (secretList.ok && secretList.result) {
-			setSecrets(secretList.result.secrets);
-		}
 		if (memberList.ok && memberList.result) {
 			const me = memberList.result.members.find(
 				(member) => member.userId === client.getUserId(),
 			);
-			setCanRevoke(me ? me.role === "owner" : null);
+			setCanDeregister(me ? me.role === "owner" : null);
 		} else {
-			setCanRevoke(null);
+			setCanDeregister(null);
 		}
 	}, [client]);
 
 	useEffect(() => {
 		if (!isOpen) return;
 		void reload();
-		return client.subscribe((event) => {
-			if (event.type === "account.tools_env_secret") {
-				void reload();
-			}
-		});
-	}, [isOpen, client, reload]);
+	}, [isOpen, reload]);
 
 	if (!isOpen) return null;
 
@@ -163,52 +118,6 @@ export function ToolsEnvSettings({ isOpen, onClose }: ToolsEnvSettingsProps) {
 		}
 	};
 
-	const mintSecret = async () => {
-		setBusy(true);
-		setError(null);
-		try {
-			const res = await client.callRpc("account.toolsEnvSecrets.set", {});
-			if (!res.ok || !res.result) {
-				setError(res.error?.message ?? "Failed to mint a pairing token");
-				return;
-			}
-			setMintedToken(res.result.token);
-			setDaemonSecretId(res.result.secret.secretId);
-			await reload();
-		} finally {
-			setBusy(false);
-		}
-	};
-
-	const revokeSecret = async (secret: ToolsEnvSecretMetaRecord) => {
-		if (canRevoke === false) return;
-		const users = daemonEnvsUsingSecret(envs, secret.secretId);
-		if (
-			typeof window === "undefined" ||
-			!window.confirm(revokeConfirmMessage(secret, users))
-		) {
-			return;
-		}
-		setBusy(true);
-		setError(null);
-		try {
-			const res = await client.callRpc("account.toolsEnvSecrets.delete", {
-				secretId: secret.secretId,
-			});
-			if (!res.ok) {
-				setError(
-					revokeFailureMessage(
-						res.error ?? { message: "Failed to revoke pairing secret" },
-					),
-				);
-				return;
-			}
-			await reload();
-		} finally {
-			setBusy(false);
-		}
-	};
-
 	const createDaemon = async (event: React.FormEvent) => {
 		event.preventDefault();
 		setBusy(true);
@@ -222,7 +131,6 @@ export function ToolsEnvSettings({ isOpen, onClose }: ToolsEnvSettingsProps) {
 				workspacePath: daemonPath.trim(),
 				persist: daemonPersist,
 				confineToWorkspace: daemonConfine,
-				secretId: daemonSecretId || undefined,
 				baseUrl,
 			});
 			if (!res.ok) {
@@ -267,10 +175,11 @@ export function ToolsEnvSettings({ isOpen, onClose }: ToolsEnvSettingsProps) {
 	};
 
 	const deregisterDaemon = async (env: ToolsEnvRecord) => {
+		if (canDeregister !== true) return;
 		if (
 			typeof window !== "undefined" &&
 			!window.confirm(
-				`Deregister daemon ${env.label || env.envId}? Active connections will be terminated and the daemon must be paired again to reconnect.`,
+				`Deregister daemon ${env.label || env.envId}? The token stops working immediately. Active connections will be terminated and the daemon must be paired again to reconnect.`,
 			)
 		) {
 			return;
@@ -282,7 +191,11 @@ export function ToolsEnvSettings({ isOpen, onClose }: ToolsEnvSettingsProps) {
 				envId: env.envId,
 			});
 			if (!res.ok) {
-				setError(res.error?.message ?? "Failed to deregister daemon");
+				setError(
+					deregisterFailureMessage(
+						res.error ?? { message: "Failed to deregister daemon" },
+					),
+				);
 				return;
 			}
 			await reload();
@@ -387,12 +300,6 @@ export function ToolsEnvSettings({ isOpen, onClose }: ToolsEnvSettingsProps) {
 							</div>
 						</div>
 					) : null}
-					{mintedToken ? (
-						<div className="alert-banner" style={{ marginBottom: 12 }}>
-							Pairing token (shown once):{" "}
-							<code className="input-mono">{mintedToken}</code>
-						</div>
-					) : null}
 					<form onSubmit={saveDefault}>
 						<div className="form-group">
 							<label className="form-label" htmlFor="account-default-env">
@@ -441,10 +348,6 @@ export function ToolsEnvSettings({ isOpen, onClose }: ToolsEnvSettingsProps) {
 										{env.label ? ` (${env.label})` : ""}
 										{env.workspacePath ? ` · ${env.workspacePath}` : ""}
 										{daemonConnectionLabel(env)}
-										{env.secretMissing &&
-										env.connection?.lastError !== "secret_missing"
-											? " · [unpaired]"
-											: ""}
 									</div>
 									{env.kind === "local-daemon" ? (
 										<div style={{ display: "flex", gap: 6 }}>
@@ -454,12 +357,13 @@ export function ToolsEnvSettings({ isOpen, onClose }: ToolsEnvSettingsProps) {
 												onClick={() => void pairDaemon(env)}
 												disabled={busy}
 											>
-												{env.secretId ? "Re-pair" : "Pair"}
+												Pair
 											</button>
-											{env.secretId ? (
+											{canDeregister === true ? (
 												<button
 													type="button"
 													className="btn btn-danger btn-sm"
+													aria-label={`Deregister daemon ${env.envId}`}
 													onClick={() => void deregisterDaemon(env)}
 													disabled={busy}
 												>
@@ -473,55 +377,9 @@ export function ToolsEnvSettings({ isOpen, onClose }: ToolsEnvSettingsProps) {
 						))}
 					</ul>
 
-					<section aria-label="Pairing secrets" style={{ marginTop: 16 }}>
-						<h4>Pairing secrets</h4>
-						{canRevoke === false ? (
-							<p className="form-hint">{OWNER_REVOKE_HINT}</p>
-						) : null}
-						{secrets.length === 0 ? (
-							<p className="form-hint">No pairing secrets.</p>
-						) : (
-							<ul style={{ margin: "8px 0 0", paddingLeft: 18 }}>
-								{secrets.map((secret) => {
-									const users = daemonEnvsUsingSecret(envs, secret.secretId);
-									return (
-										<li key={secret.secretId} style={{ marginBottom: 10 }}>
-											<div>
-												<strong>{secret.label ?? secret.secretId}</strong>
-												{" · "}
-												<code>{secret.secretId}</code>
-											</div>
-											<div className="form-hint">
-												created{" "}
-												{secret.createdAt
-													? formatTimestamp(secret.createdAt)
-													: "unknown"}
-												{" · "}
-												last used{" "}
-												{secret.lastUsedAt
-													? formatTimestamp(secret.lastUsedAt)
-													: "never"}
-											</div>
-											<div className="form-hint">
-												{users.length === 0
-													? "No local-daemon envs use this secret."
-													: `Daemon envs: ${users.map(envUsageLabel).join(", ")}`}
-											</div>
-											<button
-												type="button"
-												className="btn btn-danger btn-sm"
-												aria-label={`Revoke pairing secret ${secret.secretId}`}
-												onClick={() => void revokeSecret(secret)}
-												disabled={busy || canRevoke === false}
-											>
-												Revoke
-											</button>
-										</li>
-									);
-								})}
-							</ul>
-						)}
-					</section>
+					{canDeregister === false ? (
+						<p className="form-hint">{OWNER_DEREGISTER_HINT}</p>
+					) : null}
 
 					<form onSubmit={createJustBash}>
 						<h4>Create just-bash env</h4>
@@ -578,28 +436,6 @@ export function ToolsEnvSettings({ isOpen, onClose }: ToolsEnvSettingsProps) {
 								required
 							/>
 						</div>
-						<div className="form-group">
-							<label className="form-label" htmlFor="daemon-secret">
-								Pairing secret
-							</label>
-							<select
-								id="daemon-secret"
-								className="select input-mono"
-								value={daemonSecretId}
-								onChange={(event) => setDaemonSecretId(event.target.value)}
-							>
-								<option value="">
-									Auto-generate pairing token (Recommended)
-								</option>
-								{secrets.map((secret) => (
-									<option key={secret.secretId} value={secret.secretId}>
-										{secret.label
-											? `${secret.label} (${secret.secretId})`
-											: secret.secretId}
-									</option>
-								))}
-							</select>
-						</div>
 						<label htmlFor="daemon-persist">
 							<input
 								id="daemon-persist"
@@ -629,23 +465,13 @@ export function ToolsEnvSettings({ isOpen, onClose }: ToolsEnvSettingsProps) {
 								onChange={(event) => setDaemonLabel(event.target.value)}
 							/>
 						</div>
-						<div style={{ display: "flex", gap: 8 }}>
-							<button
-								type="button"
-								className="btn btn-secondary btn-sm"
-								onClick={() => void mintSecret()}
-								disabled={busy}
-							>
-								Mint pairing token
-							</button>
-							<button
-								type="submit"
-								className="btn btn-primary btn-sm"
-								disabled={busy || !daemonPath.trim()}
-							>
-								Create & Pair Daemon
-							</button>
-						</div>
+						<button
+							type="submit"
+							className="btn btn-primary btn-sm"
+							disabled={busy || !daemonPath.trim()}
+						>
+							Create & Pair Daemon
+						</button>
 					</form>
 				</div>
 			</div>

@@ -82,7 +82,7 @@ describe("daemon pairing logic", () => {
 			return new Response(
 				JSON.stringify({
 					ok: true,
-					token: "cadmus_dt_mock_permanent_token",
+					token: "cadmus_dk_mock_permanent_token",
 					envId: "ld_456",
 					url: "http://example.com",
 					wsUrl: "ws://example.com/tools-env/ws",
@@ -102,7 +102,7 @@ describe("daemon pairing logic", () => {
 			fetchImpl: mockFetch,
 		});
 
-		expect(result.token).toBe("cadmus_dt_mock_permanent_token");
+		expect(result.token).toBe("cadmus_dk_mock_permanent_token");
 		expect(result.envId).toBe("ld_456");
 		expect(result.workspacePath).toBe("/tmp/test-workspace");
 		expect(result.url).toBe("ws://example.com/tools-env/ws");

@@ -65,7 +65,7 @@ export default {
 		await adminStore.initialize();
 
 		if (url.pathname === "/tools-env/ws") {
-			return handleToolsEnvWebsocket(request, env, adminStore, url, ctx);
+			return handleToolsEnvWebsocket(request, env, adminStore, url);
 		}
 
 		if (url.pathname === "/tools-env/pair") {

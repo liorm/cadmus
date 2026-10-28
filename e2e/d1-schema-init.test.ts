@@ -54,7 +54,7 @@ describe("D1 Schema Initialization & Isolate Caching (Issue #18)", () => {
 		expect(tableNames).toContain("cadmus_account_credentials");
 		expect(tableNames).toContain("cadmus_families");
 		expect(tableNames).toContain("cadmus_tools_envs");
-		expect(tableNames).toContain("cadmus_tools_env_secrets");
+		expect(tableNames.some((name) => name.includes("secrets"))).toBe(false);
 		expect(tableNames).toContain("cadmus_schema_meta");
 	});
 
@@ -353,64 +353,85 @@ describe("D1 Schema Initialization & Isolate Caching (Issue #18)", () => {
 		}
 	});
 
-	it("(l) adds created_at and last_used_at to a pre-existing pairing-secret table", async () => {
-		const accountId = uniqueAccountId("secret-migrate");
-		const secretId = `hs_${crypto.randomUUID()}`;
-		const tokenHash = crypto.randomUUID().replaceAll("-", "");
+	it("(l) drops legacy credential columns and keeps env rows", async () => {
+		const accountId = uniqueAccountId("env-migrate");
+		const legacy = ["cadmus", "tools", "env", "secrets"].join("_");
 		try {
+			await ensureD1Schema(env.CADMUS_ADMIN_DB);
 			await env.CADMUS_ADMIN_DB.prepare(
-				"DROP TABLE IF EXISTS cadmus_tools_env_secrets",
+				`INSERT INTO cadmus_tools_envs (
+          account_id, env_id, kind, label, workspace_path, persist,
+          confine_to_workspace, shared_workspace, updated_at
+        ) VALUES (?1, 'ld_keep', 'local-daemon', 'Keep', '/work', 1, 0, 0, ?2)`,
+			)
+				.bind(accountId, 1_700_000_000_000)
+				.run();
+			await env.CADMUS_ADMIN_DB.prepare(
+				"ALTER TABLE cadmus_tools_envs RENAME TO cadmus_tools_envs_old",
 			).run();
 			await env.CADMUS_ADMIN_DB.prepare(
-				`CREATE TABLE cadmus_tools_env_secrets (
+				`CREATE TABLE cadmus_tools_envs (
+          account_id TEXT NOT NULL,
+          env_id TEXT NOT NULL,
+          kind TEXT NOT NULL,
+          label TEXT,
+          workspace_path TEXT,
+          persist INTEGER NOT NULL DEFAULT 1,
+          confine_to_workspace INTEGER NOT NULL DEFAULT 1,
+          shared_workspace INTEGER NOT NULL DEFAULT 0,
+          secret_id TEXT,
+          secret_missing INTEGER NOT NULL DEFAULT 0,
+          updated_at INTEGER NOT NULL,
+          PRIMARY KEY (account_id, env_id)
+        )`,
+			).run();
+			await env.CADMUS_ADMIN_DB.prepare(
+				`INSERT INTO cadmus_tools_envs (
+          account_id, env_id, kind, label, workspace_path, persist,
+          confine_to_workspace, shared_workspace, secret_id, secret_missing, updated_at
+        )
+        SELECT account_id, env_id, kind, label, workspace_path, persist,
+          confine_to_workspace, shared_workspace, NULL, 0, updated_at
+        FROM cadmus_tools_envs_old`,
+			).run();
+			await env.CADMUS_ADMIN_DB.prepare(
+				"DROP TABLE cadmus_tools_envs_old",
+			).run();
+			await env.CADMUS_ADMIN_DB.prepare(
+				`CREATE TABLE ${legacy} (
           account_id TEXT NOT NULL,
           secret_id TEXT NOT NULL,
-          label TEXT,
           kind TEXT NOT NULL,
           token_hash TEXT NOT NULL,
-          iv_hex TEXT NOT NULL,
-          cipher_hex TEXT NOT NULL,
           updated_at INTEGER NOT NULL,
           PRIMARY KEY (account_id, secret_id)
         )`,
 			).run();
 			await env.CADMUS_ADMIN_DB.prepare(
-				`INSERT INTO cadmus_tools_env_secrets (
-          account_id, secret_id, label, kind, token_hash, iv_hex, cipher_hex, updated_at
-        ) VALUES (?1, ?2, 'legacy', 'daemon_token', ?3, 'aa', 'bb', ?4)`,
-			)
-				.bind(accountId, secretId, tokenHash, 1_700_000_000_000)
-				.run();
-			await env.CADMUS_ADMIN_DB.prepare(
-				"UPDATE cadmus_schema_meta SET value = '1' WHERE key = 'version'",
+				"UPDATE cadmus_schema_meta SET value = '2' WHERE key = 'version'",
 			).run();
 
 			resetD1InitializationCache(env.CADMUS_ADMIN_DB);
 			await ensureD1Schema(env.CADMUS_ADMIN_DB);
 
 			const columns = await env.CADMUS_ADMIN_DB.prepare(
-				"PRAGMA table_info(cadmus_tools_env_secrets)",
+				"PRAGMA table_info(cadmus_tools_envs)",
 			).all<{ name: string }>();
 			const names = columns.results.map((column) => column.name);
-			expect(names).toContain("created_at");
-			expect(names).toContain("last_used_at");
-
+			expect(names).toContain("daemon_token_hash");
+			expect(names).not.toContain("secret_id");
+			expect(names).not.toContain("secret_missing");
+			const tables = await env.CADMUS_ADMIN_DB.prepare(
+				"SELECT name FROM sqlite_master WHERE type = 'table'",
+			).all<{ name: string }>();
+			expect(tables.results.some((table) => table.name === legacy)).toBe(false);
 			const row = await env.CADMUS_ADMIN_DB.prepare(
-				`SELECT label, created_at, last_used_at
-         FROM cadmus_tools_env_secrets
-         WHERE account_id = ?1 AND secret_id = ?2`,
+				`SELECT label, workspace_path FROM cadmus_tools_envs
+         WHERE account_id = ?1 AND env_id = 'ld_keep'`,
 			)
-				.bind(accountId, secretId)
-				.first<{
-					label: string;
-					created_at: number | null;
-					last_used_at: number | null;
-				}>();
-			expect(row).toEqual({
-				label: "legacy",
-				created_at: null,
-				last_used_at: null,
-			});
+				.bind(accountId)
+				.first<{ label: string; workspace_path: string }>();
+			expect(row).toEqual({ label: "Keep", workspace_path: "/work" });
 			expect(await readSchemaVersion(env.CADMUS_ADMIN_DB)).toBe(
 				CADMUS_SCHEMA_VERSION,
 			);

@@ -6,9 +6,6 @@ import type {
 	AccountMembersAddCommand,
 	AccountMembersListCommand,
 	AccountModelsListCommand,
-	AccountToolsEnvSecretsDeleteCommand,
-	AccountToolsEnvSecretsListCommand,
-	AccountToolsEnvSecretsSetCommand,
 	AccountToolsEnvsCreateCommand,
 	AccountToolsEnvsDeleteCommand,
 	AccountToolsEnvsDeregisterCommand,
@@ -74,9 +71,6 @@ import type {
 	AccountMembersAddResult,
 	AccountMembersListResult,
 	AccountModelsListResult,
-	AccountToolsEnvSecretsDeleteResult,
-	AccountToolsEnvSecretsListResult,
-	AccountToolsEnvSecretsSetResult,
 	AccountToolsEnvsCreateResult,
 	AccountToolsEnvsDeleteResult,
 	AccountToolsEnvsDeregisterResult,
@@ -353,18 +347,6 @@ export type AccountToolsEnvsDeregisterRpc = Rpc<
 	AccountToolsEnvsDeregisterCommand,
 	AccountToolsEnvsDeregisterResult
 >;
-export type AccountToolsEnvSecretsListRpc = Rpc<
-	AccountToolsEnvSecretsListCommand,
-	AccountToolsEnvSecretsListResult
->;
-export type AccountToolsEnvSecretsSetRpc = Rpc<
-	AccountToolsEnvSecretsSetCommand,
-	AccountToolsEnvSecretsSetResult
->;
-export type AccountToolsEnvSecretsDeleteRpc = Rpc<
-	AccountToolsEnvSecretsDeleteCommand,
-	AccountToolsEnvSecretsDeleteResult
->;
 
 /** Central registry mapping every protocol command type to its RPC contract. */
 export interface RpcMap {
@@ -422,9 +404,6 @@ export interface RpcMap {
 	"account.toolsEnvs.delete": AccountToolsEnvsDeleteRpc;
 	"account.toolsEnvs.pair": AccountToolsEnvsPairRpc;
 	"account.toolsEnvs.deregister": AccountToolsEnvsDeregisterRpc;
-	"account.toolsEnvSecrets.list": AccountToolsEnvSecretsListRpc;
-	"account.toolsEnvSecrets.set": AccountToolsEnvSecretsSetRpc;
-	"account.toolsEnvSecrets.delete": AccountToolsEnvSecretsDeleteRpc;
 }
 
 /** Union of all recognized command type strings in the RPC registry. */

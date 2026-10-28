@@ -1124,9 +1124,7 @@ describe("Web UI Components", () => {
 			binding: { envId: "ld_laptop" },
 		});
 		expect(onDaemon).not.toHaveProperty("workspacePath");
-		expect(onDaemon).not.toHaveProperty("secretId");
 		expect(JSON.stringify(onDaemon)).not.toContain("token");
-		expect(JSON.stringify(onDaemon)).not.toContain("cadmus_dt_");
 
 		const html = renderToString(
 			<ToolsEnvPinFields
@@ -1147,7 +1145,6 @@ describe("Web UI Components", () => {
 		expect(html).toContain('value="jb_default"');
 		expect(html).toContain('value="ld_laptop"');
 		expect(html).toContain("local-daemon");
-		expect(html).not.toContain("cadmus_dt_");
 		expect(html).not.toContain("connected");
 		expect(html).not.toContain("probe");
 		const summary = formatToolsEnvSummary({
@@ -1156,10 +1153,10 @@ describe("Web UI Components", () => {
 			effective: { kind: "local-daemon", envId: "ld_laptop" },
 			status: "disconnected",
 			connectedAt: Date.UTC(2026, 0, 2),
-			lastError: "secret_missing",
+			lastError: "deregistered",
 		});
 		expect(summary).toContain("disconnected");
-		expect(summary).toContain("secret_missing");
+		expect(summary).toContain("deregistered");
 		expect(summary).toContain("connectedAt");
 		expect(summary).not.toContain("probe");
 	});

@@ -897,7 +897,6 @@ export const AccountToolsEnvsCreateCommandSchema = Type.Object(
 				persist: Type.Optional(Type.Boolean()),
 				confineToWorkspace: Type.Optional(Type.Boolean()),
 				sharedWorkspace: Type.Optional(Type.Boolean()),
-				secretId: Type.Optional(Type.String({ minLength: 1 })),
 				workspacePath: Type.Optional(Type.String({ minLength: 1 })),
 				baseUrl: Type.Optional(Type.String()),
 			},
@@ -965,7 +964,6 @@ export const AccountToolsEnvsUpdateCommandSchema = Type.Object(
 				persist: Type.Optional(Type.Boolean()),
 				confineToWorkspace: Type.Optional(Type.Boolean()),
 				sharedWorkspace: Type.Optional(Type.Boolean()),
-				secretId: Type.Optional(Type.String({ minLength: 1 })),
 				workspacePath: Type.Optional(Type.String({ minLength: 1 })),
 			},
 			{ additionalProperties: false },
@@ -992,64 +990,6 @@ export const AccountToolsEnvsDeleteCommandSchema = Type.Object(
 );
 export type AccountToolsEnvsDeleteCommand = Static<
 	typeof AccountToolsEnvsDeleteCommandSchema
->;
-
-export const AccountToolsEnvSecretsListCommandSchema = Type.Object(
-	{
-		id: Type.String({ minLength: 1 }),
-		type: Type.Literal("account.toolsEnvSecrets.list"),
-		payload: Type.Optional(Type.Object({}, { additionalProperties: false })),
-	},
-	{
-		readOnly: true,
-		description:
-			"List daemon pairing secrets. Metadata only; the token is never returned.",
-	},
-);
-export type AccountToolsEnvSecretsListCommand = Static<
-	typeof AccountToolsEnvSecretsListCommandSchema
->;
-
-export const AccountToolsEnvSecretsSetCommandSchema = Type.Object(
-	{
-		id: Type.String({ minLength: 1 }),
-		type: Type.Literal("account.toolsEnvSecrets.set"),
-		payload: Type.Optional(
-			Type.Object(
-				{
-					label: Type.Optional(Type.String()),
-				},
-				{ additionalProperties: false },
-			),
-		),
-	},
-	{
-		description:
-			"Mint a daemon pairing token (cadmus_dt_ + 64 hex). The token is returned once. A caller-supplied token is rejected.",
-	},
-);
-export type AccountToolsEnvSecretsSetCommand = Static<
-	typeof AccountToolsEnvSecretsSetCommandSchema
->;
-
-export const AccountToolsEnvSecretsDeleteCommandSchema = Type.Object(
-	{
-		id: Type.String({ minLength: 1 }),
-		type: Type.Literal("account.toolsEnvSecrets.delete"),
-		payload: Type.Object(
-			{
-				secretId: Type.String({ minLength: 1 }),
-			},
-			{ additionalProperties: false },
-		),
-	},
-	{
-		description:
-			"Delete a daemon pairing secret. Owner-only. Flags env rows that named it and clears a default that points at one of them.",
-	},
-);
-export type AccountToolsEnvSecretsDeleteCommand = Static<
-	typeof AccountToolsEnvSecretsDeleteCommandSchema
 >;
 
 /**
@@ -2004,9 +1944,6 @@ export const ClientCommandSchema = Type.Union(
 		AccountToolsEnvsDeleteCommandSchema,
 		AccountToolsEnvsPairCommandSchema,
 		AccountToolsEnvsDeregisterCommandSchema,
-		AccountToolsEnvSecretsListCommandSchema,
-		AccountToolsEnvSecretsSetCommandSchema,
-		AccountToolsEnvSecretsDeleteCommandSchema,
 	],
 	{
 		description:

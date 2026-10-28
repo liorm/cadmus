@@ -265,11 +265,7 @@ export class ToolsEnvController {
 
 	async connectionFor(def: StoredToolsEnv): Promise<ConnectionSnapshot> {
 		if (def.kind !== "local-daemon") return { status: "connected" };
-		const connection = await this.stub(def.envId).getConnection("local-daemon");
-		if (!connection.lastError && def.secretMissing) {
-			return { ...connection, lastError: "secret_missing" };
-		}
-		return connection;
+		return this.stub(def.envId).getConnection("local-daemon");
 	}
 
 	async resolvedFields(bot: BotRecord, chatSetting?: ToolsEnvSetting | null) {
@@ -306,33 +302,27 @@ export class ToolsEnvController {
 		connection?: ConnectionSnapshot,
 	): StoredToolsEnv & {
 		supportsConfinement: boolean;
-		secretMissing?: boolean;
 		connection?: {
 			status: "connected" | "disconnected";
 			connectedAt?: number;
 			lastError?: string;
 		};
 	} {
-		const { secretMissing, ...rest } = def;
 		const snap =
 			def.kind === "local-daemon"
 				? (connection ?? { status: "disconnected" as const })
 				: { status: "connected" as const };
-		const lastError =
-			snap.lastError ??
-			(def.kind === "local-daemon" && secretMissing
-				? "secret_missing"
-				: undefined);
 		return {
-			...rest,
+			...def,
 			supportsConfinement: supportsConfinement(def.kind),
-			...(secretMissing ? { secretMissing: true } : {}),
 			connection: {
 				status: snap.status,
 				...(def.kind === "local-daemon" && snap.connectedAt !== undefined
 					? { connectedAt: snap.connectedAt }
 					: {}),
-				...(def.kind === "local-daemon" && lastError ? { lastError } : {}),
+				...(def.kind === "local-daemon" && snap.lastError
+					? { lastError: snap.lastError }
+					: {}),
 			},
 		};
 	}
@@ -348,25 +338,10 @@ export class ToolsEnvController {
 		persist?: boolean;
 		confineToWorkspace?: boolean;
 		sharedWorkspace?: boolean;
-		secretId?: string;
 		workspacePath?: string;
 	}): Promise<StoredToolsEnv> {
 		if (input.kind === "local-daemon") {
 			assertDaemonEnvWrite(input);
-			let secretId: string | undefined;
-			if (input.secretId?.trim()) {
-				const secret = await this.deps.admin.getToolsEnvSecretMeta(
-					this.deps.accountId(),
-					input.secretId.trim(),
-				);
-				if (secret?.kind !== "daemon_token") {
-					throw new ProtocolValidationError(
-						`Unknown tools env secret '${input.secretId}'`,
-						"not_found",
-					);
-				}
-				secretId = secret.secretId;
-			}
 			const envId = `ld_${crypto.randomUUID()}`;
 			const created = await this.deps.admin.createToolsEnv(
 				this.deps.accountId(),
@@ -378,7 +353,6 @@ export class ToolsEnvController {
 					confineToWorkspace: input.confineToWorkspace === true,
 					sharedWorkspace: false,
 					workspacePath: input.workspacePath?.trim(),
-					secretId,
 				},
 			);
 			this.invalidate();
@@ -409,7 +383,6 @@ export class ToolsEnvController {
 			confineToWorkspace?: boolean;
 			sharedWorkspace?: boolean;
 			workspacePath?: string;
-			secretId?: string;
 		},
 	): Promise<StoredToolsEnv> {
 		const existing = await this.deps.admin.getToolsEnv(
@@ -423,37 +396,19 @@ export class ToolsEnvController {
 			);
 		}
 		if (existing.kind === "local-daemon") {
-			const secretId = patch.secretId ?? existing.secretId;
 			const workspacePath = patch.workspacePath ?? existing.workspacePath;
 			assertDaemonEnvWrite({
-				secretId,
 				workspacePath,
 				confineToWorkspace:
 					patch.confineToWorkspace ?? existing.confineToWorkspace,
 				sharedWorkspace: patch.sharedWorkspace ?? false,
 			});
-			let storedSecretId = patch.secretId;
-			if (patch.secretId !== undefined) {
-				const secret = await this.deps.admin.getToolsEnvSecretMeta(
-					this.deps.accountId(),
-					patch.secretId.trim(),
-				);
-				if (secret?.kind !== "daemon_token") {
-					throw new ProtocolValidationError(
-						`Unknown tools env secret '${patch.secretId}'`,
-						"not_found",
-					);
-				}
-				storedSecretId = secret.secretId;
-			}
 			const updated = await this.deps.admin.updateToolsEnv(
 				this.deps.accountId(),
 				envId,
 				{
 					...patch,
-					...(storedSecretId !== undefined ? { secretId: storedSecretId } : {}),
 					sharedWorkspace: false,
-					...(patch.secretId !== undefined ? { secretMissing: false } : {}),
 				},
 			);
 			if (!updated) {
@@ -482,7 +437,6 @@ export class ToolsEnvController {
 			kind: existing.kind,
 			confineToWorkspace: patch.confineToWorkspace,
 			sharedWorkspace: patch.sharedWorkspace,
-			secretId: patch.secretId,
 			workspacePath: patch.workspacePath,
 		});
 		const updated = await this.deps.admin.updateToolsEnv(

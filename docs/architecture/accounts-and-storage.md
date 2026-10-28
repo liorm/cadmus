@@ -40,8 +40,7 @@ Because the Cloudflare account may host multiple Workers and Durable Object clas
 | `cadmus_auth_tokens` | Authentication token hashes (`token_hash`, `user_id`, `account_id`, `label`, `created_at`). |
 | `cadmus_families` | Registry mapping `(account_id, family_id)` to `do_name` (`cadmus:<accountId>:<familyId>`), `timezone`, and `harvest_delay_ms`. |
 | `cadmus_account_credentials` | AES-GCM encrypted provider credentials (`account_id`, `provider_id`, `cred_type`, `iv_hex`, `cipher_hex`, `updated_at`). |
-| `cadmus_tools_envs` | Execution environments (`account_id`, `env_id`, `kind`, `label`, `workspace_path`, `persist`, `confine_to_workspace`, `shared_workspace`, `secret_id`, `secret_missing`, `updated_at`). |
-| `cadmus_tools_env_secrets` | Local daemon pairing secrets (`account_id`, `secret_id`, `label`, `kind`, `token_hash`, `iv_hex`, `cipher_hex`, `updated_at`). |
+| `cadmus_tools_envs` | Execution environments (`account_id`, `env_id`, `kind`, `label`, `workspace_path`, `persist`, `confine_to_workspace`, `shared_workspace`, `daemon_token_hash`, `updated_at`). A paired local daemon stores only the SHA-256 of its session bearer. |
 
 ### Schema Versioning & Cold-Path Decoupling
 To avoid running 6-8 D1 round-trips (`CREATE TABLE IF NOT EXISTS`, `PRAGMA table_info`, `ALTER TABLE`) on every edge request:

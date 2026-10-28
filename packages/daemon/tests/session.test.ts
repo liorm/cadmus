@@ -250,7 +250,7 @@ describe("daemon dial", () => {
 		let dials = 0;
 		await runDaemon({
 			url: "ws://127.0.0.1/tools-env/ws",
-			token: `cadmus_dt_${"ab".repeat(32)}`,
+			token: `cadmus_dk_${"ab".repeat(32)}`,
 			envId: "ld_test",
 			workspacePath: "/tmp/cadmus-not-used",
 			persist: true,
@@ -271,7 +271,7 @@ describe("daemon dial", () => {
 		dials = 0;
 		await runDaemon({
 			url: "ws://127.0.0.1/tools-env/ws",
-			token: `cadmus_dt_${"ab".repeat(32)}`,
+			token: `cadmus_dk_${"ab".repeat(32)}`,
 			envId: "ld_test",
 			workspacePath: "/tmp/cadmus-not-used",
 			persist: true,
@@ -294,7 +294,7 @@ describe("daemon dial", () => {
 		try {
 			await runDaemon({
 				url: "ws://127.0.0.1/tools-env/ws",
-				token: `cadmus_dt_${"ab".repeat(32)}`,
+				token: `cadmus_dk_${"ab".repeat(32)}`,
 				envId: "ld_test",
 				workspacePath: "/tmp/cadmus-not-used",
 				persist: true,
@@ -317,7 +317,7 @@ describe("daemon dial", () => {
 		let dials = 0;
 		await runDaemon({
 			url: "ws://127.0.0.1/tools-env/ws",
-			token: `cadmus_dt_${"cd".repeat(32)}`,
+			token: `cadmus_dk_${"cd".repeat(32)}`,
 			envId: "ld_test",
 			workspacePath: "/tmp/cadmus-not-used",
 			persist: true,
@@ -344,7 +344,7 @@ describe("daemon dial", () => {
 		let dials = 0;
 		await runDaemon({
 			url: "ws://127.0.0.1/tools-env/ws",
-			token: `cadmus_dt_${"ef".repeat(32)}`,
+			token: `cadmus_dk_${"ef".repeat(32)}`,
 			envId: "ld_test",
 			workspacePath: "/tmp/cadmus-not-used",
 			persist: true,
@@ -384,7 +384,7 @@ describe("daemon dial", () => {
 		try {
 			await runDaemon({
 				url: `ws://127.0.0.1:${address.port}/tools-env/ws`,
-				token: `cadmus_dt_${"12".repeat(32)}`,
+				token: `cadmus_dk_${"12".repeat(32)}`,
 				envId: "ld_test",
 				workspacePath: "/tmp/cadmus-not-used",
 				persist: true,

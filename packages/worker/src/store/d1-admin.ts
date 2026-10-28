@@ -14,7 +14,6 @@ import type {
 	AuthenticatedIdentity,
 	FamilySettingsPatch,
 	StoredToolsEnv,
-	ToolsEnvSecretMeta,
 } from "./admin-interface.js";
 
 const encoder = new TextEncoder();
@@ -154,10 +153,7 @@ function slugifyId(text: string): string {
 	);
 }
 
-export const CADMUS_SCHEMA_VERSION = 2;
-
-/** Minimum gap between last-used writes for one pairing secret. */
-const TOOLS_ENV_SECRET_LAST_USED_INTERVAL_MS = 60_000;
+export const CADMUS_SCHEMA_VERSION = 3;
 
 export function isMissingSchemaError(error: unknown): boolean {
 	if (!error) return false;
@@ -237,8 +233,8 @@ async function seedJustBashDefault(
 		.prepare(
 			`INSERT OR IGNORE INTO cadmus_tools_envs (
           account_id, env_id, kind, label, workspace_path, persist,
-          confine_to_workspace, shared_workspace, secret_id, updated_at
-        ) VALUES (?1, 'jb_default', 'just-bash', 'Default just-bash', NULL, 1, 1, 0, NULL, ?2)`,
+          confine_to_workspace, shared_workspace, updated_at
+        ) VALUES (?1, 'jb_default', 'just-bash', 'Default just-bash', NULL, 1, 1, 0, ?2)`,
 		)
 		.bind(accountId, now)
 		.run();
@@ -314,30 +310,10 @@ export async function runD1SchemaMigrations(db: D1Database): Promise<void> {
           persist INTEGER NOT NULL DEFAULT 1,
           confine_to_workspace INTEGER NOT NULL DEFAULT 1,
           shared_workspace INTEGER NOT NULL DEFAULT 0,
-          secret_id TEXT,
-          secret_missing INTEGER NOT NULL DEFAULT 0,
+          daemon_token_hash TEXT,
           updated_at INTEGER NOT NULL,
           PRIMARY KEY (account_id, env_id)
         )
-      `),
-		db.prepare(`
-        CREATE TABLE IF NOT EXISTS cadmus_tools_env_secrets (
-          account_id TEXT NOT NULL,
-          secret_id TEXT NOT NULL,
-          label TEXT,
-          kind TEXT NOT NULL,
-          token_hash TEXT NOT NULL,
-          iv_hex TEXT NOT NULL,
-          cipher_hex TEXT NOT NULL,
-          updated_at INTEGER NOT NULL,
-          created_at INTEGER,
-          last_used_at INTEGER,
-          PRIMARY KEY (account_id, secret_id)
-        )
-      `),
-		db.prepare(`
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_cadmus_tools_env_secrets_token_hash
-         ON cadmus_tools_env_secrets (token_hash)
       `),
 		db.prepare(`
         CREATE TABLE IF NOT EXISTS cadmus_schema_meta (
@@ -354,25 +330,7 @@ export async function runD1SchemaMigrations(db: D1Database): Promise<void> {
 		"TEXT NOT NULL DEFAULT 'UTC'",
 	);
 
-	await addColumnIfNotExists(
-		db,
-		"cadmus_tools_envs",
-		"secret_missing",
-		"INTEGER NOT NULL DEFAULT 0",
-	);
-
-	await addColumnIfNotExists(
-		db,
-		"cadmus_tools_env_secrets",
-		"created_at",
-		"INTEGER",
-	);
-	await addColumnIfNotExists(
-		db,
-		"cadmus_tools_env_secrets",
-		"last_used_at",
-		"INTEGER",
-	);
+	await migrateToolsEnvCredentialColumns(db);
 
 	const addedDefaultToolsEnv = await addColumnIfNotExists(
 		db,
@@ -405,6 +363,66 @@ export async function runD1SchemaMigrations(db: D1Database): Promise<void> {
        ON CONFLICT(key) DO UPDATE SET value = ?1`,
 		)
 		.bind(String(CADMUS_SCHEMA_VERSION))
+		.run();
+}
+
+/**
+ * Legacy account-level pairing (`account.toolsEnvSecrets`, event
+ * `account.tools_env_secret`) stored cadmus_dt_ tokens in
+ * cadmus_tools_env_secrets and pointed env rows at them with secretId /
+ * secretMissing (`secret_id`, `secret_missing`). Session credentials are now
+ * a hash on the env row. Safe on an existing database: env rows are copied,
+ * then the old table is dropped.
+ */
+async function migrateToolsEnvCredentialColumns(db: D1Database): Promise<void> {
+	const cols = await db
+		.prepare(`PRAGMA table_info(cadmus_tools_envs)`)
+		.all<{ name: string }>();
+	const names = new Set(cols.results.map((column) => column.name));
+	const hasLegacy = names.has("secret_id") || names.has("secret_missing");
+	const hasHash = names.has("daemon_token_hash");
+	if (hasLegacy || !hasHash) {
+		const hashExpr = hasHash ? "daemon_token_hash" : "NULL";
+		await db.prepare(`DROP TABLE IF EXISTS cadmus_tools_envs_next`).run();
+		await db
+			.prepare(`
+        CREATE TABLE cadmus_tools_envs_next (
+          account_id TEXT NOT NULL,
+          env_id TEXT NOT NULL,
+          kind TEXT NOT NULL,
+          label TEXT,
+          workspace_path TEXT,
+          persist INTEGER NOT NULL DEFAULT 1,
+          confine_to_workspace INTEGER NOT NULL DEFAULT 1,
+          shared_workspace INTEGER NOT NULL DEFAULT 0,
+          daemon_token_hash TEXT,
+          updated_at INTEGER NOT NULL,
+          PRIMARY KEY (account_id, env_id)
+        )
+      `)
+			.run();
+		await db
+			.prepare(`
+        INSERT INTO cadmus_tools_envs_next (
+          account_id, env_id, kind, label, workspace_path, persist,
+          confine_to_workspace, shared_workspace, daemon_token_hash, updated_at
+        )
+        SELECT account_id, env_id, kind, label, workspace_path, persist,
+          confine_to_workspace, shared_workspace, ${hashExpr}, updated_at
+        FROM cadmus_tools_envs
+      `)
+			.run();
+		await db.prepare(`DROP TABLE cadmus_tools_envs`).run();
+		await db
+			.prepare(`ALTER TABLE cadmus_tools_envs_next RENAME TO cadmus_tools_envs`)
+			.run();
+	}
+	await db.prepare(`DROP TABLE IF EXISTS cadmus_tools_env_secrets`).run();
+	await db
+		.prepare(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_cadmus_tools_envs_daemon_token_hash
+      ON cadmus_tools_envs (daemon_token_hash)
+    `)
 		.run();
 }
 
@@ -1204,7 +1222,7 @@ export class D1AdminStore implements AdminStore {
 		const { results } = await this.#db
 			.prepare(
 				`SELECT env_id, kind, label, workspace_path, persist, confine_to_workspace,
-                shared_workspace, secret_id, secret_missing, updated_at
+                shared_workspace, updated_at
          FROM cadmus_tools_envs
          WHERE account_id = ?1
          ORDER BY env_id ASC`,
@@ -1222,7 +1240,7 @@ export class D1AdminStore implements AdminStore {
 		const row = await this.#db
 			.prepare(
 				`SELECT env_id, kind, label, workspace_path, persist, confine_to_workspace,
-                shared_workspace, secret_id, secret_missing, updated_at
+                shared_workspace, updated_at
          FROM cadmus_tools_envs
          WHERE account_id = ?1 AND env_id = ?2`,
 			)
@@ -1241,19 +1259,16 @@ export class D1AdminStore implements AdminStore {
 			confineToWorkspace: boolean;
 			sharedWorkspace: boolean;
 			workspacePath?: string;
-			secretId?: string;
 		},
 	): Promise<StoredToolsEnv> {
 		await this.initialize();
 		const now = Date.now();
-		const secretMissing =
-			input.kind === "local-daemon" && !input.secretId ? 1 : 0;
 		await this.#db
 			.prepare(
 				`INSERT INTO cadmus_tools_envs (
           account_id, env_id, kind, label, workspace_path, persist,
-          confine_to_workspace, shared_workspace, secret_id, secret_missing, updated_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)`,
+          confine_to_workspace, shared_workspace, updated_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`,
 			)
 			.bind(
 				accountId,
@@ -1264,8 +1279,6 @@ export class D1AdminStore implements AdminStore {
 				input.persist ? 1 : 0,
 				input.confineToWorkspace ? 1 : 0,
 				input.sharedWorkspace ? 1 : 0,
-				input.secretId ?? null,
-				secretMissing,
 				now,
 			)
 			.run();
@@ -1284,8 +1297,6 @@ export class D1AdminStore implements AdminStore {
 			confineToWorkspace?: boolean;
 			sharedWorkspace?: boolean;
 			workspacePath?: string;
-			secretId?: string;
-			secretMissing?: boolean;
 		},
 	): Promise<StoredToolsEnv | undefined> {
 		await this.initialize();
@@ -1300,21 +1311,12 @@ export class D1AdminStore implements AdminStore {
 			patch.workspacePath !== undefined
 				? patch.workspacePath
 				: (existing.workspacePath ?? null);
-		const secret =
-			patch.secretId !== undefined
-				? patch.secretId
-				: (existing.secretId ?? null);
-		const secretMissing =
-			patch.secretMissing !== undefined
-				? patch.secretMissing
-				: Boolean(existing.secretMissing);
 		await this.#db
 			.prepare(
 				`UPDATE cadmus_tools_envs
          SET label = ?1, persist = ?2, confine_to_workspace = ?3,
-             shared_workspace = ?4, workspace_path = ?5, secret_id = ?6,
-             secret_missing = ?7, updated_at = ?8
-         WHERE account_id = ?9 AND env_id = ?10`,
+             shared_workspace = ?4, workspace_path = ?5, updated_at = ?6
+         WHERE account_id = ?7 AND env_id = ?8`,
 			)
 			.bind(
 				label,
@@ -1322,8 +1324,6 @@ export class D1AdminStore implements AdminStore {
 				confine ? 1 : 0,
 				shared ? 1 : 0,
 				workspace,
-				secret,
-				secretMissing ? 1 : 0,
 				Date.now(),
 				accountId,
 				envId,
@@ -1352,186 +1352,53 @@ export class D1AdminStore implements AdminStore {
 		return true;
 	}
 
-	async listToolsEnvSecrets(accountId: string): Promise<ToolsEnvSecretMeta[]> {
-		await this.initialize();
-		const { results } = await this.#db
-			.prepare(
-				`SELECT secret_id, label, kind, updated_at, created_at, last_used_at
-         FROM cadmus_tools_env_secrets
-         WHERE account_id = ?1
-         ORDER BY updated_at ASC, secret_id ASC`,
-			)
-			.bind(accountId)
-			.all<ToolsEnvSecretSqlRow>();
-		return results.map(mapToolsEnvSecret);
-	}
-
-	async getToolsEnvSecretMeta(
+	async assignToolsEnvDaemonToken(
 		accountId: string,
-		secretId: string,
-	): Promise<ToolsEnvSecretMeta | undefined> {
+		envId: string,
+		tokenHash: string,
+		label?: string,
+	): Promise<void> {
 		await this.initialize();
-		const row = await this.#db
-			.prepare(
-				`SELECT secret_id, label, kind, updated_at, created_at, last_used_at
-         FROM cadmus_tools_env_secrets
-         WHERE account_id = ?1 AND secret_id = ?2`,
-			)
-			.bind(accountId, secretId)
-			.first<ToolsEnvSecretSqlRow>();
-		return row ? mapToolsEnvSecret(row) : undefined;
-	}
-
-	async setToolsEnvSecret(
-		accountId: string,
-		input?: { label?: string },
-	): Promise<{ secret: ToolsEnvSecretMeta; token: string }> {
-		await this.initialize();
-		const token = mintDaemonToken();
-		const tokenHash = await sha256Hex(token);
-		const { ivHex, cipherHex } = await encryptJson(
-			this.#encryptionKey,
-			accountId,
-			{ token },
-		);
-		const secretId = `hs_${crypto.randomUUID()}`;
-		const now = Date.now();
-		const label = input?.label?.trim() ? input.label.trim() : null;
 		await this.#db
 			.prepare(
-				`INSERT INTO cadmus_tools_env_secrets (
-          account_id, secret_id, label, kind, token_hash, iv_hex, cipher_hex, updated_at, created_at
-        ) VALUES (?1, ?2, ?3, 'daemon_token', ?4, ?5, ?6, ?7, ?7)`,
+				`UPDATE cadmus_tools_envs
+         SET daemon_token_hash = ?1, label = COALESCE(?2, label), updated_at = ?3
+         WHERE account_id = ?4 AND env_id = ?5 AND kind = 'local-daemon'`,
 			)
-			.bind(accountId, secretId, label, tokenHash, ivHex, cipherHex, now)
+			.bind(tokenHash, label ?? null, Date.now(), accountId, envId)
 			.run();
-		const secret = await this.getToolsEnvSecretMeta(accountId, secretId);
-		if (!secret) {
-			throw new Error(`Failed to store tools env secret '${secretId}'`);
-		}
-		return { secret, token };
 	}
 
-	async getToolsEnvSecret(
+	async clearToolsEnvDaemonToken(
 		accountId: string,
-		secretId: string,
-	): Promise<{ token: string } | undefined> {
+		envId: string,
+	): Promise<void> {
 		await this.initialize();
-		const row = await this.#db
-			.prepare(
-				`SELECT iv_hex, cipher_hex
-         FROM cadmus_tools_env_secrets
-         WHERE account_id = ?1 AND secret_id = ?2`,
-			)
-			.bind(accountId, secretId)
-			.first<{ iv_hex: string; cipher_hex: string }>();
-		if (!row) return undefined;
-		return decryptJson<{ token: string }>(
-			this.#encryptionKey,
-			accountId,
-			row.iv_hex,
-			row.cipher_hex,
-		);
-	}
-
-	async deleteToolsEnvSecret(
-		accountId: string,
-		secretId: string,
-	): Promise<{
-		deleted: boolean;
-		flaggedEnvIds: string[];
-		clearedDefaultEnvId: string | null;
-	}> {
-		await this.initialize();
-		const existing = await this.getToolsEnvSecretMeta(accountId, secretId);
-		if (!existing) {
-			return { deleted: false, flaggedEnvIds: [], clearedDefaultEnvId: null };
-		}
-		const named = await this.#db
-			.prepare(
-				`SELECT env_id FROM cadmus_tools_envs
-         WHERE account_id = ?1 AND secret_id = ?2 AND kind = 'local-daemon'`,
-			)
-			.bind(accountId, secretId)
-			.all<{ env_id: string }>();
-		const flaggedEnvIds = named.results.map((row) => row.env_id);
-		if (flaggedEnvIds.length > 0) {
-			await this.#db
-				.prepare(
-					`UPDATE cadmus_tools_envs
-           SET secret_missing = 1, updated_at = ?1
-           WHERE account_id = ?2 AND secret_id = ?3 AND kind = 'local-daemon'`,
-				)
-				.bind(Date.now(), accountId, secretId)
-				.run();
-		}
 		await this.#db
 			.prepare(
-				`DELETE FROM cadmus_tools_env_secrets
-         WHERE account_id = ?1 AND secret_id = ?2`,
+				`UPDATE cadmus_tools_envs
+         SET daemon_token_hash = NULL, updated_at = ?1
+         WHERE account_id = ?2 AND env_id = ?3 AND kind = 'local-daemon'`,
 			)
-			.bind(accountId, secretId)
+			.bind(Date.now(), accountId, envId)
 			.run();
-		const account = await this.getAccount(accountId);
-		const defaultId = account?.defaultToolsEnv?.envId ?? null;
-		let clearedDefaultEnvId: string | null = null;
-		if (defaultId && flaggedEnvIds.includes(defaultId)) {
-			const updateRes = await this.#db
-				.prepare(
-					`UPDATE cadmus_accounts
-           SET default_tools_env_json = NULL
-           WHERE id = ?1 AND json_extract(default_tools_env_json, '$.envId') = ?2`,
-				)
-				.bind(accountId, defaultId)
-				.run();
-			if ((updateRes.meta?.changes ?? 0) > 0) {
-				clearedDefaultEnvId = defaultId;
-			}
-		}
-		return { deleted: true, flaggedEnvIds, clearedDefaultEnvId };
 	}
 
 	async resolveToolsEnvDaemonToken(
 		tokenHash: string,
-	): Promise<{ accountId: string; secretId: string } | undefined> {
+	): Promise<{ accountId: string; envId: string } | undefined> {
 		await this.initialize();
 		const row = await this.#db
 			.prepare(
-				`SELECT account_id, secret_id
-         FROM cadmus_tools_env_secrets
-         WHERE token_hash = ?1 AND kind = 'daemon_token'`,
+				`SELECT account_id, env_id
+         FROM cadmus_tools_envs
+         WHERE daemon_token_hash = ?1 AND kind = 'local-daemon'`,
 			)
 			.bind(tokenHash)
-			.first<{ account_id: string; secret_id: string }>();
+			.first<{ account_id: string; env_id: string }>();
 		if (!row) return undefined;
-		return { accountId: row.account_id, secretId: row.secret_id };
+		return { accountId: row.account_id, envId: row.env_id };
 	}
-
-	async noteToolsEnvSecretUse(
-		accountId: string,
-		secretId: string,
-	): Promise<void> {
-		await this.initialize();
-		const now = Date.now();
-		const cutoff = now - TOOLS_ENV_SECRET_LAST_USED_INTERVAL_MS;
-		await this.#db
-			.prepare(
-				`UPDATE cadmus_tools_env_secrets
-         SET last_used_at = ?1
-         WHERE account_id = ?2 AND secret_id = ?3
-           AND (last_used_at IS NULL OR last_used_at <= ?4)`,
-			)
-			.bind(now, accountId, secretId, cutoff)
-			.run();
-	}
-}
-
-function mintDaemonToken(): string {
-	const bytes = crypto.getRandomValues(new Uint8Array(32));
-	const hex = Array.from(bytes)
-		.map((byte) => byte.toString(16).padStart(2, "0"))
-		.join("");
-	return `cadmus_dt_${hex}`;
 }
 
 function parseDefaultToolsEnv(
@@ -1555,8 +1422,6 @@ interface ToolsEnvSqlRow {
 	persist: number;
 	confine_to_workspace: number;
 	shared_workspace: number;
-	secret_id: string | null;
-	secret_missing: number | null;
 	updated_at: number;
 }
 
@@ -1571,29 +1436,6 @@ function mapToolsEnv(row: ToolsEnvSqlRow): StoredToolsEnv {
 	};
 	if (row.label) record.label = row.label;
 	if (row.workspace_path) record.workspacePath = row.workspace_path;
-	if (row.secret_id) record.secretId = row.secret_id;
-	if (row.secret_missing) record.secretMissing = true;
-	return record;
-}
-
-interface ToolsEnvSecretSqlRow {
-	secret_id: string;
-	label: string | null;
-	kind: string;
-	updated_at: number;
-	created_at: number | null;
-	last_used_at: number | null;
-}
-
-function mapToolsEnvSecret(row: ToolsEnvSecretSqlRow): ToolsEnvSecretMeta {
-	const record: ToolsEnvSecretMeta = {
-		secretId: row.secret_id,
-		kind: "daemon_token",
-		updatedAt: Number(row.updated_at),
-	};
-	if (row.label) record.label = row.label;
-	if (row.created_at != null) record.createdAt = Number(row.created_at);
-	if (row.last_used_at != null) record.lastUsedAt = Number(row.last_used_at);
 	return record;
 }
 

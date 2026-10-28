@@ -105,7 +105,6 @@ import {
 import {
 	chooseToolsEnvIdentity,
 	daemonCwd,
-	envDoName,
 	isCodingTool,
 	OFFLINE_TOOLS_ENV,
 	resolvePublicUrls,
@@ -1081,7 +1080,7 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 				let pairingToken: string | undefined;
 				let expiresAt: number | undefined;
 				let commandStr: string | undefined;
-				if (env.kind === "local-daemon" && !env.secretId) {
+				if (env.kind === "local-daemon") {
 					const urls = resolvePublicUrls(
 						this.env,
 						undefined,
@@ -1124,17 +1123,9 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 				};
 			},
 			"account.toolsEnvs.deregister": async (command) => {
+				requireOwner(caller);
 				await this.toolsEnvController.deregisterEnv(command.payload.envId);
 				await this.fanOutToolsEnvCatalog(null, null);
-				this.broadcastEvent({
-					type: "account.tools_env_secret",
-					payload: {
-						accountId: meta.accountId,
-						secretId: command.payload.envId,
-						action: "deleted",
-						when: Date.now(),
-					},
-				});
 				return { deregistered: command.payload.envId };
 			},
 			"account.toolsEnvs.update": async (command) => {
@@ -1149,67 +1140,6 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 				await this.toolsEnvController.deleteEnv(command.payload.envId);
 				await this.fanOutToolsEnvCatalog(null, null);
 				return { deleted: command.payload.envId };
-			},
-			"account.toolsEnvSecrets.list": async (_command) => {
-				const secrets = await this.adminStore.listToolsEnvSecrets(
-					meta.accountId,
-				);
-				return { secrets };
-			},
-			"account.toolsEnvSecrets.set": async (command) => {
-				const created = await this.adminStore.setToolsEnvSecret(
-					meta.accountId,
-					command.payload?.label !== undefined
-						? { label: command.payload.label }
-						: undefined,
-				);
-				this.broadcastEvent({
-					type: "account.tools_env_secret",
-					payload: {
-						accountId: meta.accountId,
-						secretId: created.secret.secretId,
-						action: "set",
-						when: created.secret.updatedAt,
-					},
-				});
-				this.log().info("tools env secret minted", {
-					secretId: created.secret.secretId,
-				});
-				return created;
-			},
-			"account.toolsEnvSecrets.delete": async (command) => {
-				requireOwner(caller);
-				const outcome = await this.adminStore.deleteToolsEnvSecret(
-					meta.accountId,
-					command.payload.secretId,
-				);
-				if (!outcome.deleted) {
-					throw new ProtocolValidationError(
-						`Unknown tools env secret '${command.payload.secretId}'`,
-						"not_found",
-					);
-				}
-				for (const envId of outcome.flaggedEnvIds) {
-					await this.env.CADMUS_ENV.getByName(
-						envDoName(meta.accountId, envId),
-					).revokePairing();
-				}
-				const previousDefault = outcome.clearedDefaultEnvId;
-				await this.invalidateToolsEnvCatalog({
-					previousDefaultEnvId: previousDefault,
-					nextDefaultEnvId: null,
-				});
-				await this.fanOutToolsEnvCatalog(previousDefault, null);
-				this.broadcastEvent({
-					type: "account.tools_env_secret",
-					payload: {
-						accountId: meta.accountId,
-						secretId: command.payload.secretId,
-						action: "deleted",
-						when: Date.now(),
-					},
-				});
-				return { deleted: command.payload.secretId };
 			},
 			"account.members.list": async (_command) => {
 				const members = await this.adminStore.listMembers(meta.accountId);

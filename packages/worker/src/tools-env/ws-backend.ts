@@ -68,7 +68,7 @@ const FILE_METHODS = new Set([
  * WebSocket backend for one daemon env DO.
  * Heartbeats use setTimeout and only run while calls are in flight.
  * Disconnect writes compare-and-swap on generation and only while the row is
- * still connected, so a close that follows heartbeat_timeout or secret_missing
+ * still connected, so a close that follows heartbeat_timeout or deregistered
  * cannot overwrite that last_error.
  */
 export class WsRemoteBackend {
@@ -358,13 +358,13 @@ export class WsRemoteBackend {
 		const socket = this.currentSocket();
 		const generation = readAttachment(socket)?.generation ?? row?.generation;
 		if (generation !== undefined) {
-			this.casDisconnect(generation, "secret_missing");
+			this.casDisconnect(generation, "deregistered");
 		}
 		this.caller.failGeneration(generation ?? -1);
 		this.stopHeartbeat();
 		if (socket) {
 			try {
-				socket.close(1008, "Pairing secret revoked");
+				socket.close(1008, "Daemon deregistered");
 			} catch {
 				// Already closed.
 			}

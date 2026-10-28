@@ -1517,8 +1517,8 @@ describe("just-bash tools env through the bot", () => {
 		await env.CADMUS_ADMIN_DB.prepare(
 			`INSERT INTO cadmus_tools_envs (
           account_id, env_id, kind, label, workspace_path, persist,
-          confine_to_workspace, shared_workspace, secret_id, updated_at
-        ) VALUES (?1, 'jb_default_extra', 'just-bash', 'Extra', NULL, 1, 1, 0, NULL, ?2)`,
+          confine_to_workspace, shared_workspace, updated_at
+        ) VALUES (?1, 'jb_default_extra', 'just-bash', 'Extra', NULL, 1, 1, 0, ?2)`,
 		)
 			.bind(options.accountId, Date.now())
 			.run();

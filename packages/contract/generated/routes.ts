@@ -334,24 +334,6 @@ export const API_ROUTES = {
 		allow: "POST",
 		readOnly: false,
 	},
-	"account.toolsEnvSecrets.list": {
-		method: "GET",
-		path: "/api/account/toolsEnvSecrets/list",
-		allow: "GET, HEAD",
-		readOnly: true,
-	},
-	"account.toolsEnvSecrets.set": {
-		method: "POST",
-		path: "/api/account/toolsEnvSecrets/set",
-		allow: "POST",
-		readOnly: false,
-	},
-	"account.toolsEnvSecrets.delete": {
-		method: "POST",
-		path: "/api/account/toolsEnvSecrets/delete",
-		allow: "POST",
-		readOnly: false,
-	},
 } as const satisfies Record<string, ApiRoute>;
 
 export type ApiCommandName = keyof typeof API_ROUTES;

@@ -48,7 +48,7 @@ You can run the daemon directly from source without compiling:
 # From repository root using bun run daemon:
 bun run daemon --help
 bun run daemon --version
-bun run daemon --url <ws-url> --token <cadmus_dt_...> --env-id <id> --workspace <path>
+bun run daemon --url <ws-url> --token <token> --env-id <id> --workspace <path>
 
 # Or running the entrypoint directly:
 bun packages/daemon/src/cli.ts --help

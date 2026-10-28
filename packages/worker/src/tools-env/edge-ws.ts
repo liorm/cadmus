@@ -15,7 +15,6 @@ export async function handleToolsEnvWebsocket(
 	env: Env,
 	adminStore: D1AdminStore,
 	url: URL,
-	ctx: ExecutionContext,
 ): Promise<Response> {
 	if (
 		request.method !== "GET" ||
@@ -52,17 +51,16 @@ export async function handleToolsEnvWebsocket(
 	if (definition?.kind !== "local-daemon") {
 		return new Response("unknown env", { status: 404 });
 	}
-	if (definition.secretId !== resolved.secretId) {
-		return new Response("secret mismatch", { status: 403 });
+	if (definition.envId !== resolved.envId) {
+		return new Response("token mismatch", { status: 403 });
 	}
-	noteSecretUse(ctx, adminStore, resolved.accountId, resolved.secretId);
 	const headers = new Headers();
 	for (const [key, value] of request.headers) {
 		if (key.toLowerCase().startsWith("x-cadmus-")) continue;
 		headers.set(key, value);
 	}
 	headers.set("X-Cadmus-Account-Id", resolved.accountId);
-	headers.set("X-Cadmus-Tools-Env-Secret-Id", resolved.secretId);
+	headers.set("X-Cadmus-Daemon-Token-Hash", tokenHash);
 	const capabilities = request.headers.get("X-Cadmus-Env-Capabilities") ?? "";
 	if (capabilities.split(",").some((part) => part.trim() === "confinement")) {
 		headers.set("X-Cadmus-Env-Capabilities", "confinement");
@@ -78,30 +76,4 @@ export async function handleToolsEnvWebsocket(
 	return env.CADMUS_ENV.getByName(envDoName(resolved.accountId, envId)).fetch(
 		new Request(forward.toString(), { method: "GET", headers }),
 	);
-}
-
-/**
- * Last-used bookkeeping runs after the token is accepted and must not delay
- * or fail the upgrade. `waitUntil` keeps the write alive after the response.
- */
-function noteSecretUse(
-	ctx: ExecutionContext,
-	adminStore: D1AdminStore,
-	accountId: string,
-	secretId: string,
-): void {
-	const pending = adminStore
-		.noteToolsEnvSecretUse(accountId, secretId)
-		.catch((error: unknown) => {
-			getLogger().warn("tools env secret last-used update failed", {
-				error: error instanceof Error ? error.message : String(error),
-			});
-		});
-	try {
-		ctx.waitUntil(pending);
-	} catch (error) {
-		getLogger().warn("tools env secret last-used update failed", {
-			error: error instanceof Error ? error.message : String(error),
-		});
-	}
 }

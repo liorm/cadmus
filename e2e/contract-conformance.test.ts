@@ -191,10 +191,6 @@ describe("contract conformance", () => {
 		await call("account.toolsEnvs.pair", { envId: daemonEnvId });
 		await call("account.toolsEnvs.deregister", { envId: daemonEnvId });
 		await call("account.toolsEnvs.delete", { envId: daemonEnvId });
-		await call("account.toolsEnvSecrets.list");
-		const minted = await call("account.toolsEnvSecrets.set", { label: "pair" });
-		const secretId = requireString(minted, ["secret", "secretId"]);
-		await call("account.toolsEnvSecrets.delete", { secretId });
 
 		await call("family.list");
 		await call("family.get", { familyId });

@@ -3647,10 +3647,6 @@
 									"sharedWorkspace": {
 										"type": "boolean"
 									},
-									"secretId": {
-										"type": "string",
-										"minLength": 1
-									},
 									"workspacePath": {
 										"type": "string",
 										"minLength": 1
@@ -3724,10 +3720,6 @@
 									"sharedWorkspace": {
 										"type": "boolean"
 									},
-									"secretId": {
-										"type": "string",
-										"minLength": 1
-									},
 									"workspacePath": {
 										"type": "string",
 										"minLength": 1
@@ -3798,7 +3790,7 @@
 						"content": {
 							"application/json": {
 								"schema": {
-									"$ref": "#/components/schemas/AccountToolsEnvSecretsDeleteResult"
+									"$ref": "#/components/schemas/AccountToolsEnvsDeleteResult"
 								}
 							}
 						}
@@ -3910,171 +3902,6 @@
 							"application/json": {
 								"schema": {
 									"$ref": "#/components/schemas/AccountToolsEnvsDeregisterResult"
-								}
-							}
-						}
-					},
-					"400": {
-						"$ref": "#/components/responses/ApiError"
-					},
-					"401": {
-						"$ref": "#/components/responses/ApiError"
-					},
-					"404": {
-						"$ref": "#/components/responses/ApiError"
-					},
-					"405": {
-						"$ref": "#/components/responses/ApiError"
-					},
-					"409": {
-						"$ref": "#/components/responses/ApiError"
-					},
-					"500": {
-						"$ref": "#/components/responses/ApiError"
-					}
-				}
-			}
-		},
-		"/api/account/toolsEnvSecrets/list": {
-			"get": {
-				"operationId": "account.toolsEnvSecrets.list",
-				"summary": "List daemon pairing secrets. Metadata only; the token is never returned.",
-				"parameters": [],
-				"responses": {
-					"200": {
-						"description": "Command result",
-						"content": {
-							"application/json": {
-								"schema": {
-									"$ref": "#/components/schemas/AccountToolsEnvSecretsListResult"
-								}
-							}
-						}
-					},
-					"400": {
-						"$ref": "#/components/responses/ApiError"
-					},
-					"401": {
-						"$ref": "#/components/responses/ApiError"
-					},
-					"404": {
-						"$ref": "#/components/responses/ApiError"
-					},
-					"405": {
-						"$ref": "#/components/responses/ApiError"
-					},
-					"409": {
-						"$ref": "#/components/responses/ApiError"
-					},
-					"500": {
-						"$ref": "#/components/responses/ApiError"
-					}
-				}
-			},
-			"head": {
-				"operationId": "account.toolsEnvSecrets.list.head",
-				"summary": "List daemon pairing secrets. Metadata only; the token is never returned.",
-				"parameters": [],
-				"responses": {
-					"200": {
-						"description": "Same as GET with an empty body"
-					},
-					"400": {
-						"$ref": "#/components/responses/ApiError"
-					},
-					"401": {
-						"$ref": "#/components/responses/ApiError"
-					},
-					"404": {
-						"$ref": "#/components/responses/ApiError"
-					},
-					"405": {
-						"$ref": "#/components/responses/ApiError"
-					}
-				}
-			}
-		},
-		"/api/account/toolsEnvSecrets/set": {
-			"post": {
-				"operationId": "account.toolsEnvSecrets.set",
-				"summary": "Mint a daemon pairing token (cadmus_dt_ + 64 hex). The token is returned once. A caller-supplied token is rejected.",
-				"requestBody": {
-					"required": true,
-					"content": {
-						"application/json": {
-							"schema": {
-								"type": "object",
-								"properties": {
-									"label": {
-										"type": "string"
-									}
-								},
-								"additionalProperties": false
-							}
-						}
-					}
-				},
-				"responses": {
-					"200": {
-						"description": "Command result",
-						"content": {
-							"application/json": {
-								"schema": {
-									"$ref": "#/components/schemas/AccountToolsEnvSecretsSetResult"
-								}
-							}
-						}
-					},
-					"400": {
-						"$ref": "#/components/responses/ApiError"
-					},
-					"401": {
-						"$ref": "#/components/responses/ApiError"
-					},
-					"404": {
-						"$ref": "#/components/responses/ApiError"
-					},
-					"405": {
-						"$ref": "#/components/responses/ApiError"
-					},
-					"409": {
-						"$ref": "#/components/responses/ApiError"
-					},
-					"500": {
-						"$ref": "#/components/responses/ApiError"
-					}
-				}
-			}
-		},
-		"/api/account/toolsEnvSecrets/delete": {
-			"post": {
-				"operationId": "account.toolsEnvSecrets.delete",
-				"summary": "Delete a daemon pairing secret. Owner-only. Flags env rows that named it and clears a default that points at one of them.",
-				"requestBody": {
-					"required": true,
-					"content": {
-						"application/json": {
-							"schema": {
-								"type": "object",
-								"required": ["secretId"],
-								"properties": {
-									"secretId": {
-										"type": "string",
-										"minLength": 1
-									}
-								},
-								"additionalProperties": false
-							}
-						}
-					}
-				},
-				"responses": {
-					"200": {
-						"description": "Command result",
-						"content": {
-							"application/json": {
-								"schema": {
-									"$ref": "#/components/schemas/AccountToolsEnvSecretsDeleteResult"
 								}
 							}
 						}
@@ -4349,39 +4176,6 @@
 				},
 				"description": "Tenant account record representing the administrative boundary for users, credentials, and bot families."
 			},
-			"AccountToolsEnvSecretsDeleteResult": {
-				"type": "object",
-				"required": ["deleted"],
-				"properties": {
-					"deleted": {
-						"type": "string"
-					}
-				}
-			},
-			"AccountToolsEnvSecretsListResult": {
-				"type": "object",
-				"required": ["secrets"],
-				"properties": {
-					"secrets": {
-						"type": "array",
-						"items": {
-							"$ref": "#/components/schemas/ToolsEnvSecretMeta"
-						}
-					}
-				}
-			},
-			"AccountToolsEnvSecretsSetResult": {
-				"type": "object",
-				"required": ["secret", "token"],
-				"properties": {
-					"secret": {
-						"$ref": "#/components/schemas/ToolsEnvSecretMeta"
-					},
-					"token": {
-						"type": "string"
-					}
-				}
-			},
 			"AccountToolsEnvsCreateResult": {
 				"type": "object",
 				"required": ["env"],
@@ -4397,6 +4191,15 @@
 						"minimum": 0
 					},
 					"command": {
+						"type": "string"
+					}
+				}
+			},
+			"AccountToolsEnvsDeleteResult": {
+				"type": "object",
+				"required": ["deleted"],
+				"properties": {
+					"deleted": {
 						"type": "string"
 					}
 				}
@@ -6217,12 +6020,6 @@
 					"workspacePath": {
 						"type": "string"
 					},
-					"secretId": {
-						"type": "string"
-					},
-					"secretMissing": {
-						"type": "boolean"
-					},
 					"updatedAt": {
 						"type": "number"
 					},
@@ -6255,34 +6052,6 @@
 						"additionalProperties": false
 					}
 				}
-			},
-			"ToolsEnvSecretMeta": {
-				"type": "object",
-				"required": ["secretId", "kind", "updatedAt"],
-				"properties": {
-					"secretId": {
-						"type": "string"
-					},
-					"label": {
-						"type": "string"
-					},
-					"kind": {
-						"type": "string",
-						"const": "daemon_token"
-					},
-					"updatedAt": {
-						"type": "number"
-					},
-					"createdAt": {
-						"type": "number",
-						"description": "Unix epoch milliseconds when the secret was minted. Absent for rows created before this field existed."
-					},
-					"lastUsedAt": {
-						"type": "number",
-						"description": "Unix epoch milliseconds when a daemon last authenticated with this token. Absent until the first successful authentication."
-					}
-				},
-				"additionalProperties": false
 			},
 			"ToolsEnvSetting": {
 				"anyOf": [

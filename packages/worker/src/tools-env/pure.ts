@@ -22,7 +22,6 @@ export interface ToolsEnvDefinition {
 	confineToWorkspace: boolean;
 	sharedWorkspace: boolean;
 	workspacePath?: string;
-	secretId?: string;
 	updatedAt: number;
 }
 
@@ -185,7 +184,6 @@ function assertKnownEnv(
  * env row. sharedWorkspace stays off. The binding itself is still `{ envId }`.
  */
 export function assertDaemonEnvWrite(input: {
-	secretId?: string;
 	workspacePath?: string;
 	confineToWorkspace?: boolean;
 	sharedWorkspace?: boolean;
@@ -214,7 +212,6 @@ export function assertJustBashEnvWrite(input: {
 	kind: string;
 	confineToWorkspace?: boolean;
 	sharedWorkspace?: boolean;
-	secretId?: string;
 	workspacePath?: string;
 }): void {
 	if (input.kind !== "just-bash") {
@@ -229,9 +226,9 @@ export function assertJustBashEnvWrite(input: {
 			"confinement_required",
 		);
 	}
-	if (input.secretId !== undefined || input.workspacePath !== undefined) {
+	if (input.workspacePath !== undefined) {
 		throw new ProtocolValidationError(
-			"just-bash envs do not take secretId or workspacePath",
+			"just-bash envs do not take workspacePath",
 			"invalid_tools_env",
 		);
 	}

@@ -1,4 +1,4 @@
-import { env } from "cloudflare:test";
+import { env, SELF } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import type { ServerEvent } from "../packages/worker/src/protocol.js";
 import { sha256Hex } from "../packages/worker/src/store/d1-admin.js";
@@ -47,13 +47,6 @@ async function bashResult(
 	}
 }
 
-interface SecretMeta {
-	secretId: string;
-	label?: string;
-	kind: string;
-	updatedAt: number;
-}
-
 interface EnvRow {
 	envId: string;
 	kind: string;
@@ -61,33 +54,14 @@ interface EnvRow {
 	confineToWorkspace: boolean;
 	sharedWorkspace?: boolean;
 	workspacePath?: string;
-	secretId?: string;
-	secretMissing?: boolean;
+	label?: string;
 	supportsConfinement: boolean;
-	connection?: { status: string };
-}
-
-async function mintSecret(
-	options: RpcOptions,
-	label?: string,
-): Promise<{ secretId: string; token: string }> {
-	const set = await sendRpc<{ secret: SecretMeta; token: string }>(
-		"account.toolsEnvSecrets.set",
-		label ? { label } : {},
-		options,
-	);
-	expect(set.frame.ok).toBe(true);
-	const token = set.frame.result?.token ?? "";
-	const secretId = set.frame.result?.secret.secretId ?? "";
-	expect(token).toMatch(/^cadmus_dt_[0-9a-f]{64}$/);
-	expect(secretId.startsWith("hs_")).toBe(true);
-	return { secretId, token };
+	connection?: { status: string; lastError?: string };
 }
 
 async function createDaemon(
 	options: RpcOptions,
 	input: {
-		secretId: string;
 		workspacePath: string;
 		label?: string;
 		persist?: boolean;
@@ -95,91 +69,47 @@ async function createDaemon(
 		sharedWorkspace?: boolean;
 	},
 ) {
-	return sendRpc<{ env: EnvRow }>(
+	return sendRpc<{ env: EnvRow; pairingToken?: string }>(
 		"account.toolsEnvs.create",
-		{ kind: "local-daemon", ...input },
+		{ kind: "local-daemon", baseUrl: "http://example.com", ...input },
 		options,
 	);
 }
 
 describe("local-daemon tools env through the bot", () => {
-	it("mints, lists, and deletes pairing secrets without storing plaintext", async () => {
-		const options = scope("secrets");
+	it("creates daemon envs, stores only a token hash, and deregisters one env", async () => {
+		const options = scope("pair-row");
 		await sendRpc("family.update", { harvestDelayMs: 0 }, options);
 
 		const supplied = await sendRpc(
-			"account.toolsEnvSecrets.set",
-			{ token: "cadmus_dt_caller" },
+			"account.toolsEnvs.create",
+			{
+				kind: "local-daemon",
+				workspacePath: "/home/dev/a",
+				confineToWorkspace: true,
+				token: "caller-supplied",
+			},
 			options,
 		);
 		expect(supplied.frame.ok).toBe(false);
 		expect(supplied.frame.error?.code).toBe("invalid_command");
 
-		const { secretId, token } = await mintSecret(options, "laptop");
-		const listed = await sendRpc<{ secrets: SecretMeta[] }>(
-			"account.toolsEnvSecrets.list",
-			{},
-			options,
-		);
-		expect(listed.frame.ok).toBe(true);
-		expect(listed.frame.result?.secrets).toEqual([
-			expect.objectContaining({
-				secretId,
-				label: "laptop",
-				kind: "daemon_token",
-			}),
-		]);
-		const listedJson = JSON.stringify(listed.frame.result);
-		expect(listedJson).not.toContain(token);
-		expect(listedJson).not.toContain("cipher");
-		expect(listedJson).not.toContain("iv_hex");
-
-		const row = await env.CADMUS_ADMIN_DB.prepare(
-			`SELECT token_hash, cipher_hex, iv_hex FROM cadmus_tools_env_secrets
-       WHERE account_id = ? AND secret_id = ?`,
-		)
-			.bind(options.accountId, secretId)
-			.first<{ token_hash: string; cipher_hex: string; iv_hex: string }>();
-		expect(row?.token_hash).toBe(await sha256Hex(token));
-		expect(row?.token_hash).not.toBe(token);
-		expect(row?.cipher_hex).not.toContain(token);
-		expect(row?.iv_hex).not.toContain(token);
-		expect(row?.iv_hex.length).toBeGreaterThan(0);
-
-		const columns = await env.CADMUS_ADMIN_DB.prepare(
-			"PRAGMA table_info(cadmus_tools_env_secrets)",
-		).all<{ name: string }>();
-		expect(columns.results.map((column) => column.name)).not.toContain(
-			"family_id",
-		);
-
-		const other = await mintSecret(options);
 		const sharedA = await createDaemon(options, {
-			secretId,
 			workspacePath: "/home/dev/a",
 			label: "A",
 			persist: true,
 			confineToWorkspace: true,
 		});
 		const sharedB = await createDaemon(options, {
-			secretId,
 			workspacePath: "/home/dev/b",
 			label: "B",
 			persist: false,
 			confineToWorkspace: false,
 		});
-		const otherEnv = await createDaemon(options, {
-			secretId: other.secretId,
-			workspacePath: "/home/dev/c",
-			label: "C",
-			confineToWorkspace: true,
-		});
 		expect(sharedA.frame.ok).toBe(true);
 		expect(sharedB.frame.ok).toBe(true);
-		expect(otherEnv.frame.ok).toBe(true);
 		const envA = sharedA.frame.result?.env.envId ?? "";
 		const envB = sharedB.frame.result?.env.envId ?? "";
-		const envC = otherEnv.frame.result?.env.envId ?? "";
 		expect(envA).not.toBe(envB);
 		expect(envA.startsWith("ld_")).toBe(true);
 		expect(sharedA.frame.result?.env.connection).toEqual({
@@ -188,10 +118,19 @@ describe("local-daemon tools env through the bot", () => {
 		expect(sharedA.frame.result?.env.supportsConfinement).toBe(true);
 		expect(sharedA.frame.result?.env.sharedWorkspace).toBe(false);
 		expect(sharedB.frame.result?.env.persist).toBe(false);
-		expect(sharedB.frame.result?.env.confineToWorkspace).toBe(false);
+		expect(sharedA.frame.result?.pairingToken).toMatch(/^cadmus_pt_/);
+		const token = sharedA.frame.result?.pairingToken ?? "";
+		const redeemed = await SELF.fetch("http://example.com/tools-env/pair", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ pairingToken: token, name: "Laptop" }),
+		});
+		expect(redeemed.status).toBe(200);
+		const body = (await redeemed.json()) as { token: string };
+		expect(body.token).toMatch(/^cadmus_dk_[0-9a-f]{64}$/);
 
 		const stored = await env.CADMUS_ADMIN_DB.prepare(
-			`SELECT workspace_path, persist, confine_to_workspace, shared_workspace, secret_id
+			`SELECT workspace_path, persist, confine_to_workspace, shared_workspace, daemon_token_hash
        FROM cadmus_tools_envs WHERE account_id = ? AND env_id = ?`,
 		)
 			.bind(options.accountId, envA)
@@ -200,18 +139,19 @@ describe("local-daemon tools env through the bot", () => {
 				persist: number;
 				confine_to_workspace: number;
 				shared_workspace: number;
-				secret_id: string;
+				daemon_token_hash: string;
 			}>();
 		expect(stored).toMatchObject({
 			workspace_path: "/home/dev/a",
 			persist: 1,
 			confine_to_workspace: 1,
 			shared_workspace: 0,
-			secret_id: secretId,
 		});
+		expect(stored?.daemon_token_hash).toBe(await sha256Hex(body.token));
+		expect(stored?.daemon_token_hash).not.toBe(body.token);
+		expect(JSON.stringify(stored)).not.toContain(body.token);
 
 		const sharedRejected = await createDaemon(options, {
-			secretId,
 			workspacePath: "/home/dev/shared",
 			sharedWorkspace: true,
 			confineToWorkspace: true,
@@ -222,18 +162,11 @@ describe("local-daemon tools env through the bot", () => {
 			{
 				kind: "local-daemon",
 				label: "No flag",
-				secretId,
 				workspacePath: "/tmp/proj",
 			},
 			options,
 		);
 		expect(missingFlag.frame.error?.code).toBe("invalid_tools_env");
-		const unknownSecret = await createDaemon(options, {
-			secretId: "hs_missing",
-			workspacePath: "/tmp/proj",
-			confineToWorkspace: true,
-		});
-		expect(unknownSecret.frame.error?.code).toBe("not_found");
 
 		await sendRpc(
 			"bot.create",
@@ -252,170 +185,56 @@ describe("local-daemon tools env through the bot", () => {
 			options,
 		);
 
-		const removed = await sendRpc<{ deleted: string }>(
-			"account.toolsEnvSecrets.delete",
-			{ secretId },
+		const removed = await sendRpc<{ deregistered: string }>(
+			"account.toolsEnvs.deregister",
+			{ envId: envA },
 			options,
 		);
 		expect(removed.frame.ok).toBe(true);
-		expect(removed.frame.result?.deleted).toBe(secretId);
+		expect(removed.frame.result?.deregistered).toBe(envA);
 
 		const after = await sendRpc<{
 			default: { envId: string } | null;
 			envs: EnvRow[];
 		}>("account.toolsEnvs.list", {}, options);
 		expect(after.frame.ok).toBe(true);
-		expect(after.frame.result?.default).toBeNull();
+		expect(after.frame.result?.default).toEqual({ envId: envA });
 		const rows = after.frame.result?.envs ?? [];
 		const byId = new Map(rows.map((row) => [row.envId, row]));
 		expect(byId.get("jb_default")?.kind).toBe("just-bash");
 		expect(byId.get("jb_default")?.connection).toEqual({ status: "connected" });
-		expect(byId.get("jb_default")?.supportsConfinement).toBe(true);
-		expect(byId.get(envA)?.secretMissing).toBe(true);
-		expect(byId.get(envA)?.secretId).toBe(secretId);
-		expect(byId.get(envA)?.connection).toEqual({
-			status: "disconnected",
-			lastError: "secret_missing",
-		});
-		expect(byId.get(envB)?.secretMissing).toBe(true);
-		expect(byId.get(envC)?.secretMissing).toBeUndefined();
-		expect(byId.get(envC)?.secretId).toBe(other.secretId);
+		expect(byId.get(envA)?.connection).toEqual({ status: "disconnected" });
+		expect(byId.get(envB)?.connection).toEqual({ status: "disconnected" });
 
-		const secretsLeft = await sendRpc<{ secrets: SecretMeta[] }>(
-			"account.toolsEnvSecrets.list",
-			{},
-			options,
-		);
-		expect(
-			secretsLeft.frame.result?.secrets.map((item) => item.secretId),
-		).toEqual([other.secretId]);
-		expect(JSON.stringify(secretsLeft.frame.result)).not.toContain(token);
-		expect(JSON.stringify(secretsLeft.frame.result)).not.toContain(other.token);
-
-		const bot = await sendRpc<{
-			bot: { toolsEnv?: { enabled?: boolean; binding?: { envId?: string } } };
-			toolsEnvLastError?: string | null;
-		}>("bot.get", { botId: "pinned" }, options);
-		expect(bot.frame.result?.bot.toolsEnv).toEqual({
-			enabled: true,
-			binding: { envId: envA },
-		});
-		expect(bot.frame.result?.toolsEnvLastError).toBe("secret_missing");
-
-		const gone = await env.CADMUS_ADMIN_DB.prepare(
-			`SELECT secret_id FROM cadmus_tools_env_secrets
-       WHERE account_id = ? AND secret_id = ?`,
-		)
-			.bind(options.accountId, secretId)
-			.first<{ secret_id: string }>();
-		expect(gone).toBeNull();
-
-		const flagged = await env.CADMUS_ADMIN_DB.prepare(
-			`SELECT secret_missing, secret_id FROM cadmus_tools_envs
+		const cleared = await env.CADMUS_ADMIN_DB.prepare(
+			`SELECT daemon_token_hash FROM cadmus_tools_envs
        WHERE account_id = ? AND env_id = ?`,
 		)
-			.bind(options.accountId, envB)
-			.first<{ secret_missing: number; secret_id: string }>();
-		expect(flagged).toEqual({ secret_missing: 1, secret_id: secretId });
+			.bind(options.accountId, envA)
+			.first<{ daemon_token_hash: string | null }>();
+		expect(cleared?.daemon_token_hash).toBeNull();
 
 		await sendRpc(
 			"chat.create",
 			{ botId: "pinned", key: "daemon-chat" },
 			options,
 		);
-		const daemonChat = await sendRpc<{
-			toolsEnvLastError?: string | null;
-		}>("chat.get", { chatKey: "daemon-chat" }, options);
-		expect(daemonChat.frame.ok).toBe(true);
-		expect(daemonChat.frame.result?.toolsEnvLastError).toBe("secret_missing");
-		const daemonStatus = await sendRpc<{
-			status: {
-				toolsEnv?: {
-					enabled?: boolean;
-					kind?: string;
-					envId?: string;
-					status?: string;
-					lastError?: string;
-				};
-			};
-			text: string;
-		}>("turn.submit", { chatKey: "daemon-chat", text: "/status" }, options);
-		expect(daemonStatus.frame.ok).toBe(true);
-		expect(daemonStatus.frame.result?.status.toolsEnv).toMatchObject({
-			enabled: true,
-			kind: "local-daemon",
-			envId: envA,
-			status: "disconnected",
-			lastError: "secret_missing",
-		});
-		expect(daemonStatus.frame.result?.text).toContain(
-			`Tools env: local-daemon (${envA}, disconnected, error: secret_missing)`,
-		);
 		const offline = await bashResult(options, "daemon-chat", "echo hi");
 		expect(offline.turnOk).toBe(true);
 		expect(offline.payload?.isError).toBe(true);
 		expect(offline.payload?.content ?? "").toContain("env disconnected");
-		expect(offline.payload?.content ?? "").toContain("reconnects on its own");
 
-		await sendRpc(
-			"chat.create",
-			{
-				botId: "pinned",
-				key: "bash-chat",
-				toolsEnv: { enabled: true, binding: { envId: "jb_default" } },
-			},
-			options,
-		);
-		const stillBash = await bashResult(options, "bash-chat", "echo still");
-		expect(stillBash.payload?.isError).toBe(false);
-
-		const labelOnly = await sendRpc<{
-			env: { secretMissing?: boolean; label?: string };
-		}>(
+		const labelOnly = await sendRpc<{ env: { label?: string } }>(
 			"account.toolsEnvs.update",
-			{ envId: envA, label: "still missing" },
+			{ envId: envA, label: "still named" },
 			options,
 		);
 		expect(labelOnly.frame.ok).toBe(true);
-		expect(labelOnly.frame.result?.env.secretMissing).toBe(true);
-		expect(labelOnly.frame.result?.env.label).toBe("still missing");
-
-		const sameSecret = await sendRpc(
-			"account.toolsEnvs.update",
-			{ envId: envA, secretId },
-			options,
-		);
-		expect(sameSecret.frame.ok).toBe(false);
-		expect(sameSecret.frame.error?.code).toBe("not_found");
-		const stillFlagged = await sendRpc<{ envs: EnvRow[] }>(
-			"account.toolsEnvs.list",
-			{},
-			options,
-		);
-		expect(
-			stillFlagged.frame.result?.envs.find((row) => row.envId === envA)
-				?.secretMissing,
-		).toBe(true);
-
-		const replacement = await mintSecret(options, "replacement");
-		const repaired = await sendRpc<{
-			env: { secretId?: string; secretMissing?: boolean };
-		}>(
-			"account.toolsEnvs.update",
-			{ envId: envA, secretId: replacement.secretId },
-			options,
-		);
-		expect(repaired.frame.ok).toBe(true);
-		expect(repaired.frame.result?.env.secretId).toBe(replacement.secretId);
-		expect(repaired.frame.result?.env.secretMissing).toBeUndefined();
-		const repairedBot = await sendRpc<{
-			toolsEnvLastError?: string | null;
-		}>("bot.get", { botId: "pinned" }, options);
-		expect(repairedBot.frame.result?.toolsEnvLastError).toBeNull();
+		expect(labelOnly.frame.result?.env.label).toBe("still named");
 
 		const missing = await sendRpc(
-			"account.toolsEnvSecrets.delete",
-			{ secretId },
+			"account.toolsEnvs.deregister",
+			{ envId: "ld_missing" },
 			options,
 		);
 		expect(missing.frame.error?.code).toBe("not_found");
@@ -469,9 +288,7 @@ describe("local-daemon tools env through the bot", () => {
 		);
 		const entryCount = beforeEntries.frame.result?.entries.length ?? 0;
 
-		const { secretId } = await mintSecret(alpha);
 		const created = await createDaemon(alpha, {
-			secretId,
 			workspacePath: "/srv/work",
 			confineToWorkspace: true,
 			persist: true,
@@ -551,9 +368,7 @@ describe("local-daemon tools env through the bot", () => {
 	it("does not offer coding tools when the bot is off and uses the account env when the bot is on without a binding", async () => {
 		const options = scope("inherit");
 		await sendRpc("family.update", { harvestDelayMs: 0 }, options);
-		const { secretId } = await mintSecret(options);
 		const created = await createDaemon(options, {
-			secretId,
 			workspacePath: "/srv/account",
 			confineToWorkspace: true,
 		});
@@ -617,9 +432,7 @@ describe("local-daemon tools env through the bot", () => {
 	it("reports chat.get sources for chat, bot, account, and unbound", async () => {
 		const options = scope("sources");
 		await sendRpc("family.update", { harvestDelayMs: 0 }, options);
-		const { secretId } = await mintSecret(options);
 		const created = await createDaemon(options, {
-			secretId,
 			workspacePath: "/workspace/laptop",
 			label: "Laptop",
 			persist: true,
@@ -753,9 +566,7 @@ describe("local-daemon tools env through the bot", () => {
 	it("drops a daemon chat pin without a namespace RPC and inherits just-bash", async () => {
 		const options = scope("unpin");
 		await sendRpc("family.update", { harvestDelayMs: 0 }, options);
-		const { secretId } = await mintSecret(options);
 		const created = await createDaemon(options, {
-			secretId,
 			workspacePath: "/srv/unpin",
 			confineToWorkspace: true,
 		});
@@ -822,13 +633,12 @@ describe("local-daemon tools env through the bot", () => {
 		);
 		await sendRpc("chat.create", { botId: "assistant", key: "main" }, options);
 		const extras = {
-			secretId: "hs_x",
 			workspacePath: "/tmp",
 			persist: true,
 			confineToWorkspace: true,
 			sharedWorkspace: false,
 			kind: "local-daemon",
-			token: "cadmus_dt_nope",
+			token: "not-a-daemon-token",
 		};
 		for (const [key, value] of Object.entries(extras)) {
 			const botUpdate = await sendRpc(
@@ -869,9 +679,7 @@ describe("local-daemon tools env through the bot", () => {
 	it("pins a daemon env from create_bot and rejects an inline token", async () => {
 		const options = scope("create-bot");
 		await sendRpc("family.update", { harvestDelayMs: 0 }, options);
-		const { secretId } = await mintSecret(options);
 		const created = await createDaemon(options, {
-			secretId,
 			workspacePath: "/srv/peer",
 			confineToWorkspace: true,
 		});
@@ -901,7 +709,7 @@ describe("local-daemon tools env through the bot", () => {
 					tools: ["bash"],
 					toolsEnv: {
 						enabled: true,
-						binding: { envId: daemonId, token: "cadmus_dt_inline" },
+						binding: { envId: daemonId, token: "inline-token" },
 					},
 				})}]`,
 			});

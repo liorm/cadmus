@@ -104,9 +104,20 @@ export type ParsedDaemonFrame =
 	| { action: "output"; frame: WireOutputEvent }
 	| { action: "watch"; frame: WireWatchEvent };
 
-/** Pairing bearer shape. Callers reject anything else before SHA-256 or D1. */
+/** Daemon session bearer prefix. Callers reject anything else before SHA-256 or D1. */
+export const DAEMON_BEARER_PREFIX = "cadmus_dk_";
+
 export function isDaemonBearerToken(token: string): boolean {
-	return /^cadmus_dt_[0-9a-f]{64}$/.test(token);
+	return /^cadmus_dk_[0-9a-f]{64}$/.test(token);
+}
+
+/** Mint a one-time-displayed daemon session token. Only the hash is stored. */
+export function mintDaemonBearerToken(): string {
+	const bytes = crypto.getRandomValues(new Uint8Array(32));
+	const hex = Array.from(bytes)
+		.map((byte) => byte.toString(16).padStart(2, "0"))
+		.join("");
+	return `${DAEMON_BEARER_PREFIX}${hex}`;
 }
 
 export interface WireRequest {

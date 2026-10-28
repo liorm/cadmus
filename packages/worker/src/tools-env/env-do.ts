@@ -16,6 +16,7 @@ import {
 import {
 	frameByteLength,
 	MAX_FRAME_BYTES,
+	mintDaemonBearerToken,
 	resolveHeartbeatMs,
 } from "./wire.js";
 import { type ConnectionSnapshot, WsRemoteBackend } from "./ws-backend.js";
@@ -131,11 +132,6 @@ export class CadmusEnvDO extends DurableObject<Env> {
 		await this.schemaReady;
 		const alarm = await this.ctx.storage.getAlarm();
 		return alarm ?? null;
-	}
-
-	async revokePairing(): Promise<void> {
-		await this.schemaReady;
-		await this.ws.revoke();
 	}
 
 	async createPairing(input: {
@@ -273,36 +269,15 @@ export class CadmusEnvDO extends DurableObject<Env> {
 			pending.accountId,
 			pending.envId,
 		);
-		if (existingDef?.secretId) {
-			try {
-				await adminStore.deleteToolsEnvSecret(
-					pending.accountId,
-					existingDef.secretId,
-				);
-			} catch {
-				// ignore
-			}
-		}
-
 		const label = input.name?.trim() || existingDef?.label || undefined;
-		const { secret: secretMeta, token } = await adminStore.setToolsEnvSecret(
+		const token = mintDaemonBearerToken();
+		const tokenHash = await sha256Hex(token);
+		await adminStore.assignToolsEnvDaemonToken(
 			pending.accountId,
-			label ? { label } : undefined,
+			pending.envId,
+			tokenHash,
+			label,
 		);
-
-		await this.env.CADMUS_ADMIN_DB.prepare(
-			`UPDATE cadmus_tools_envs
-       SET secret_id = ?1, secret_missing = 0, label = COALESCE(?2, label), updated_at = ?3
-       WHERE account_id = ?4 AND env_id = ?5`,
-		)
-			.bind(
-				secretMeta.secretId,
-				label ?? null,
-				Date.now(),
-				pending.accountId,
-				pending.envId,
-			)
-			.run();
 
 		await this.fanOutCatalog(pending.accountId);
 
@@ -322,22 +297,7 @@ export class CadmusEnvDO extends DurableObject<Env> {
 	async deregister(accountId: string, envId: string): Promise<void> {
 		await this.schemaReady;
 		await this.ws.revoke();
-		const adminStore = this.getAdminStore();
-		const existingDef = await adminStore.getToolsEnv(accountId, envId);
-		if (existingDef?.secretId) {
-			try {
-				await adminStore.deleteToolsEnvSecret(accountId, existingDef.secretId);
-			} catch {
-				// ignore
-			}
-		}
-		await this.env.CADMUS_ADMIN_DB.prepare(
-			`UPDATE cadmus_tools_envs
-       SET secret_id = NULL, secret_missing = 1, updated_at = ?1
-       WHERE account_id = ?2 AND env_id = ?3`,
-		)
-			.bind(Date.now(), accountId, envId)
-			.run();
+		await this.getAdminStore().clearToolsEnvDaemonToken(accountId, envId);
 		await this.fanOutCatalog(accountId);
 	}
 
@@ -388,14 +348,14 @@ export class CadmusEnvDO extends DurableObject<Env> {
 		await this.schemaReady;
 		const envId = url.searchParams.get("envId")?.trim() ?? "";
 		const accountId = request.headers.get("X-Cadmus-Account-Id") ?? "";
-		const secretId = request.headers.get("X-Cadmus-Tools-Env-Secret-Id") ?? "";
+		const tokenHash = request.headers.get("X-Cadmus-Daemon-Token-Hash") ?? "";
 		const capabilities = request.headers.get("X-Cadmus-Env-Capabilities") ?? "";
 		const definition = await this.loadDefinition(accountId, envId);
 		if (definition?.kind !== "local-daemon") {
 			return new Response("unknown env", { status: 404 });
 		}
-		if (!secretId || definition.secretId !== secretId) {
-			return new Response("secret mismatch", { status: 403 });
+		if (!tokenHash || definition.tokenHash !== tokenHash) {
+			return new Response("token mismatch", { status: 403 });
 		}
 		const confined = capabilities
 			.split(",")
@@ -1001,27 +961,27 @@ export class CadmusEnvDO extends DurableObject<Env> {
 	): Promise<
 		| {
 				kind: string;
-				secretId: string | null;
+				tokenHash: string | null;
 				confineToWorkspace: boolean;
 		  }
 		| undefined
 	> {
 		if (!accountId || !envId) return undefined;
 		const row = await this.env.CADMUS_ADMIN_DB.prepare(
-			`SELECT kind, secret_id, confine_to_workspace
+			`SELECT kind, daemon_token_hash, confine_to_workspace
        FROM cadmus_tools_envs
        WHERE account_id = ?1 AND env_id = ?2`,
 		)
 			.bind(accountId, envId)
 			.first<{
 				kind: string;
-				secret_id: string | null;
+				daemon_token_hash: string | null;
 				confine_to_workspace: number;
 			}>();
 		if (!row) return undefined;
 		return {
 			kind: row.kind,
-			secretId: row.secret_id,
+			tokenHash: row.daemon_token_hash,
 			confineToWorkspace: row.confine_to_workspace !== 0,
 		};
 	}

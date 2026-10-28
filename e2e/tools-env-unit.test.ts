@@ -220,14 +220,12 @@ describe("tools env ids and writes", () => {
 	it("stores daemon confinement and rejects a shared daemon workspace", () => {
 		expect(() =>
 			assertDaemonEnvWrite({
-				secretId: "hs_1",
 				workspacePath: "/home/me/src",
 				confineToWorkspace: true,
 			}),
 		).not.toThrow();
 		expect(() =>
 			assertDaemonEnvWrite({
-				secretId: "hs_1",
 				workspacePath: "/home/me/src",
 				confineToWorkspace: false,
 				sharedWorkspace: false,
@@ -235,7 +233,6 @@ describe("tools env ids and writes", () => {
 		).not.toThrow();
 		expect(() =>
 			assertDaemonEnvWrite({
-				secretId: "hs_1",
 				workspacePath: "/home/me/src",
 				confineToWorkspace: true,
 				sharedWorkspace: true,
@@ -243,7 +240,6 @@ describe("tools env ids and writes", () => {
 		).toThrow(ProtocolValidationError);
 		try {
 			assertDaemonEnvWrite({
-				secretId: "hs_1",
 				workspacePath: "  ",
 				confineToWorkspace: true,
 			});
@@ -295,9 +291,9 @@ describe("chooseToolsEnvIdentity", () => {
 	});
 
 	it("checks daemon bearer shape, wire frames, and transport classification", () => {
-		expect(isDaemonBearerToken(`cadmus_dt_${"a".repeat(64)}`)).toBe(true);
-		expect(isDaemonBearerToken(`cadmus_dt_${"A".repeat(64)}`)).toBe(false);
-		expect(isDaemonBearerToken("cadmus_dt_short")).toBe(false);
+		expect(isDaemonBearerToken(`cadmus_dk_${"a".repeat(64)}`)).toBe(true);
+		expect(isDaemonBearerToken(`cadmus_dk_${"A".repeat(64)}`)).toBe(false);
+		expect(isDaemonBearerToken("cadmus_dk_short")).toBe(false);
 		expect(isDaemonBearerToken(`user_${"a".repeat(64)}`)).toBe(false);
 
 		const request = parseWireRequest(

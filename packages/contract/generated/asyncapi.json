@@ -529,116 +529,6 @@
 				},
 				"description": "Command to advance an interactive or code-submission OAuth step with user-supplied input."
 			},
-			"AccountToolsEnvSecretEvent": {
-				"type": "object",
-				"required": ["type", "payload"],
-				"properties": {
-					"type": {
-						"type": "string",
-						"const": "account.tools_env_secret"
-					},
-					"payload": {
-						"type": "object",
-						"required": ["accountId", "secretId", "action", "when"],
-						"properties": {
-							"accountId": {
-								"type": "string"
-							},
-							"secretId": {
-								"type": "string"
-							},
-							"action": {
-								"anyOf": [
-									{
-										"type": "string",
-										"const": "set"
-									},
-									{
-										"type": "string",
-										"const": "deleted"
-									}
-								]
-							},
-							"when": {
-								"type": "number"
-							}
-						},
-						"additionalProperties": false
-					}
-				},
-				"description": "Broadcast when a daemon pairing secret is minted or deleted. No token bytes."
-			},
-			"AccountToolsEnvSecretsDeleteCommand": {
-				"type": "object",
-				"required": ["id", "type", "payload"],
-				"properties": {
-					"id": {
-						"type": "string",
-						"minLength": 1
-					},
-					"type": {
-						"type": "string",
-						"const": "account.toolsEnvSecrets.delete"
-					},
-					"payload": {
-						"type": "object",
-						"required": ["secretId"],
-						"properties": {
-							"secretId": {
-								"type": "string",
-								"minLength": 1
-							}
-						},
-						"additionalProperties": false
-					}
-				},
-				"description": "Delete a daemon pairing secret. Owner-only. Flags env rows that named it and clears a default that points at one of them."
-			},
-			"AccountToolsEnvSecretsListCommand": {
-				"type": "object",
-				"required": ["id", "type"],
-				"properties": {
-					"id": {
-						"type": "string",
-						"minLength": 1
-					},
-					"type": {
-						"type": "string",
-						"const": "account.toolsEnvSecrets.list"
-					},
-					"payload": {
-						"type": "object",
-						"properties": {},
-						"additionalProperties": false
-					}
-				},
-				"readOnly": true,
-				"description": "List daemon pairing secrets. Metadata only; the token is never returned."
-			},
-			"AccountToolsEnvSecretsSetCommand": {
-				"type": "object",
-				"required": ["id", "type"],
-				"properties": {
-					"id": {
-						"type": "string",
-						"minLength": 1
-					},
-					"type": {
-						"type": "string",
-						"const": "account.toolsEnvSecrets.set"
-					},
-					"payload": {
-						"type": "object",
-						"properties": {
-							"label": {
-								"type": "string"
-							}
-						},
-						"additionalProperties": false
-					}
-				},
-				"description": "Mint a daemon pairing token (cadmus_dt_ + 64 hex). The token is returned once. A caller-supplied token is rejected."
-			},
 			"AccountToolsEnvsCreateCommand": {
 				"type": "object",
 				"required": ["id", "type", "payload"],
@@ -678,10 +568,6 @@
 							},
 							"sharedWorkspace": {
 								"type": "boolean"
-							},
-							"secretId": {
-								"type": "string",
-								"minLength": 1
 							},
 							"workspacePath": {
 								"type": "string",
@@ -829,10 +715,6 @@
 							},
 							"sharedWorkspace": {
 								"type": "boolean"
-							},
-							"secretId": {
-								"type": "string",
-								"minLength": 1
 							},
 							"workspacePath": {
 								"type": "string",
@@ -1721,15 +1603,6 @@
 					},
 					{
 						"$ref": "#/components/schemas/AccountToolsEnvsDeregisterCommand"
-					},
-					{
-						"$ref": "#/components/schemas/AccountToolsEnvSecretsListCommand"
-					},
-					{
-						"$ref": "#/components/schemas/AccountToolsEnvSecretsSetCommand"
-					},
-					{
-						"$ref": "#/components/schemas/AccountToolsEnvSecretsDeleteCommand"
 					}
 				],
 				"description": "Complete discriminated union of all client-to-server commands in the Cadmus protocol."
@@ -2784,9 +2657,6 @@
 					},
 					{
 						"$ref": "#/components/schemas/AccountEvent"
-					},
-					{
-						"$ref": "#/components/schemas/AccountToolsEnvSecretEvent"
 					},
 					{
 						"$ref": "#/components/schemas/AccountOAuthEvent"

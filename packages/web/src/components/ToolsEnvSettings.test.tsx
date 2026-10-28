@@ -1,9 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import type {
-	ServerEvent,
-	ToolsEnvRecord,
-	ToolsEnvSecretMetaRecord,
-} from "@cadmus/contract/types";
+import type { ToolsEnvRecord } from "@cadmus/contract/types";
 import { GlobalRegistrator } from "@happy-dom/global-registrator";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -23,7 +19,6 @@ if (typeof document === "undefined") {
 ).IS_REACT_ACT_ENVIRONMENT = true;
 
 const CREATED = Date.parse("2024-01-02T03:04:05.000Z");
-const USED = Date.parse("2024-06-07T08:09:10.000Z");
 
 class SilentWebSocket {
 	static CONNECTING = 0;
@@ -61,7 +56,80 @@ function readRequest(
 	};
 }
 
-describe("ToolsEnvSettings pairing secrets", () => {
+const envs: ToolsEnvRecord[] = [
+	{
+		envId: "ld_desk",
+		kind: "local-daemon",
+		label: "Desk",
+		persist: true,
+		confineToWorkspace: true,
+		workspacePath: "/home/desk",
+		updatedAt: CREATED,
+		supportsConfinement: true,
+		connection: { status: "connected" },
+	},
+	{
+		envId: "jb_default",
+		kind: "just-bash",
+		persist: true,
+		confineToWorkspace: true,
+		updatedAt: CREATED,
+		supportsConfinement: true,
+		connection: { status: "connected" },
+	},
+];
+
+function clientFor(
+	role: "owner" | "member",
+	onDeregister?: (payload: unknown) => Response,
+): CadmusClient {
+	const mockFetch: FetchFunction = async (input, init) => {
+		const { type, payload } = readRequest(input, init);
+		if (type === "family.list") {
+			return new Response(JSON.stringify({ families: [] }));
+		}
+		if (type === "bot.list") {
+			return new Response(JSON.stringify({ bots: [] }));
+		}
+		if (type === "account.models.list") {
+			return new Response(JSON.stringify({ models: [] }));
+		}
+		if (type === "account.toolsEnvs.list") {
+			return new Response(JSON.stringify({ default: null, envs }));
+		}
+		if (type === "account.members.list") {
+			return new Response(
+				JSON.stringify({
+					members: [
+						{
+							accountId: "acc-test",
+							userId: "test-user",
+							role,
+							createdAt: CREATED,
+						},
+					],
+				}),
+			);
+		}
+		if (type === "account.toolsEnvs.deregister") {
+			return (
+				onDeregister?.(payload) ??
+				new Response(JSON.stringify({ deregistered: "ld_desk" }))
+			);
+		}
+		throw new Error(`Unhandled command ${type}`);
+	};
+	return new CadmusClient({
+		baseUrl: "",
+		userId: "test-user",
+		accountId: "acc-test",
+		familyId: "fam-test",
+		token: "test-token",
+		fetchImpl: mockFetch,
+	});
+}
+
+describe("ToolsEnvSettings daemon lifecycle", () => {
 	let root: Root | undefined;
 	let container: HTMLDivElement | undefined;
 	const previousWebSocket = globalThis.WebSocket;
@@ -80,140 +148,7 @@ describe("ToolsEnvSettings pairing secrets", () => {
 		globalThis.confirm = previousConfirm;
 	});
 
-	it("lists secrets, cancels revoke, then confirms delete and refreshes", async () => {
-		const secrets: ToolsEnvSecretMetaRecord[] = [
-			{
-				secretId: "hs_one",
-				label: "laptop",
-				kind: "daemon_token",
-				updatedAt: CREATED,
-				createdAt: CREATED,
-				lastUsedAt: USED,
-			},
-			{
-				secretId: "hs_two",
-				kind: "daemon_token",
-				updatedAt: CREATED,
-				createdAt: CREATED,
-			},
-		];
-		const envs: ToolsEnvRecord[] = [
-			{
-				envId: "ld_desk",
-				kind: "local-daemon",
-				label: "Desk",
-				persist: true,
-				confineToWorkspace: true,
-				workspacePath: "/home/desk",
-				secretId: "hs_one",
-				updatedAt: CREATED,
-				supportsConfinement: true,
-				connection: { status: "connected" },
-			},
-			{
-				envId: "jb_default",
-				kind: "just-bash",
-				persist: true,
-				confineToWorkspace: true,
-				updatedAt: CREATED,
-				supportsConfinement: true,
-				connection: { status: "connected" },
-			},
-		];
-		const deletes: unknown[] = [];
-		let secretLists = 0;
-		let envLists = 0;
-		const listeners = new Set<(event: ServerEvent) => void>();
-		let allowDelete = true;
-
-		const mockFetch: FetchFunction = async (input, init) => {
-			const { type, payload } = readRequest(input, init);
-			if (type === "family.list") {
-				return new Response(
-					JSON.stringify({
-						families: [
-							{
-								accountId: "acc-test",
-								familyId: "fam-test",
-								doName: "cadmus:acc-test:fam-test",
-								name: "Test Family",
-								timezone: "UTC",
-								harvestDelayMs: 60000,
-								createdAt: CREATED,
-							},
-						],
-					}),
-				);
-			}
-			if (type === "bot.list") {
-				return new Response(JSON.stringify({ bots: [] }));
-			}
-			if (type === "account.models.list") {
-				return new Response(JSON.stringify({ models: [] }));
-			}
-			if (type === "account.toolsEnvs.list") {
-				envLists += 1;
-				return new Response(JSON.stringify({ default: null, envs: [...envs] }));
-			}
-			if (type === "account.toolsEnvSecrets.list") {
-				secretLists += 1;
-				return new Response(JSON.stringify({ secrets: [...secrets] }));
-			}
-			if (type === "account.members.list") {
-				return new Response(
-					JSON.stringify({
-						members: [
-							{
-								accountId: "acc-test",
-								userId: "test-user",
-								role: "owner",
-								createdAt: CREATED,
-							},
-						],
-					}),
-				);
-			}
-			if (type === "account.toolsEnvSecrets.delete") {
-				deletes.push(payload);
-				const secretId = (payload as { secretId?: string }).secretId;
-				if (!allowDelete) {
-					return new Response(
-						JSON.stringify({
-							error: {
-								code: "not_found",
-								message: `Unknown tools env secret '${secretId ?? ""}'`,
-							},
-						}),
-						{ status: 404 },
-					);
-				}
-				const index = secrets.findIndex(
-					(secret) => secret.secretId === secretId,
-				);
-				if (index >= 0) secrets.splice(index, 1);
-				return new Response(JSON.stringify({ deleted: secretId }));
-			}
-			throw new Error(`Unhandled command ${type}`);
-		};
-
-		const client = new CadmusClient({
-			baseUrl: "",
-			userId: "test-user",
-			accountId: "acc-test",
-			familyId: "fam-test",
-			token: "test-token",
-			fetchImpl: mockFetch,
-		});
-		const subscribe = client.subscribe.bind(client);
-		client.subscribe = (listener) => {
-			listeners.add(listener);
-			const unsubscribe = subscribe(listener);
-			return () => {
-				listeners.delete(listener);
-				unsubscribe();
-			};
-		};
-
+	async function render(client: CadmusClient) {
 		const view = document.createElement("div");
 		container = view;
 		document.body.appendChild(view);
@@ -225,39 +160,23 @@ describe("ToolsEnvSettings pairing secrets", () => {
 				</CadmusProvider>,
 			);
 		});
+		return view;
+	}
 
-		await waitForText(view, "laptop");
-		expect(view.textContent).toContain("hs_one");
-		expect(view.textContent).toContain("hs_two");
-		expect(view.textContent).toContain("2024-01-02T03:04:05.000Z");
-		expect(view.textContent).toContain("2024-06-07T08:09:10.000Z");
-		expect(view.textContent).toContain("never");
-		expect(view.textContent).toContain("Desk (ld_desk)");
-		expect(view.textContent).toContain("No local-daemon envs use this secret.");
-		expect(view.textContent).not.toContain("jb_default (");
-		expect(listeners.size).toBe(1);
-
-		const listsAfterLoad = secretLists;
-		const envListsAfterLoad = envLists;
-		const current = secrets[0];
-		if (!current) throw new Error("missing secret");
-		secrets[0] = { ...current, label: "studio-laptop" };
-		await act(async () => {
-			for (const listener of listeners) {
-				listener({
-					type: "account.tools_env_secret",
-					payload: {
-						accountId: "acc-test",
-						secretId: "hs_one",
-						action: "set",
-						when: USED,
-					},
-				});
-			}
-		});
-		await waitForText(view, "studio-laptop");
-		expect(secretLists).toBeGreaterThan(listsAfterLoad);
-		expect(envLists).toBeGreaterThan(envListsAfterLoad);
+	it("lists envs and deregisters a daemon after confirm", async () => {
+		const deletes: unknown[] = [];
+		const view = await render(
+			clientFor("owner", (payload) => {
+				deletes.push(payload);
+				return new Response(JSON.stringify({ deregistered: "ld_desk" }));
+			}),
+		);
+		await waitForText(view, "ld_desk");
+		expect(view.textContent).toContain("Desk");
+		expect(view.textContent).not.toContain("Pairing secrets");
+		expect(
+			view.querySelector("button[aria-label='Deregister daemon jb_default']"),
+		).toBeNull();
 
 		let confirmResult = false;
 		let confirmMessage = "";
@@ -265,166 +184,60 @@ describe("ToolsEnvSettings pairing secrets", () => {
 			confirmMessage = String(message ?? "");
 			return confirmResult;
 		};
-
-		const revoke = revokeButton(view, "hs_one");
+		const button = deregisterButton(view, "ld_desk");
 		await act(async () => {
-			revoke.click();
+			button.click();
 		});
 		expect(confirmMessage).toContain("stops working immediately");
-		expect(confirmMessage).toContain("Desk (ld_desk)");
 		expect(deletes).toEqual([]);
-		expect(view.textContent).toContain("studio-laptop");
 
 		confirmResult = true;
-		const listsBeforeDelete = secretLists;
 		await act(async () => {
-			revoke.click();
+			button.click();
 		});
-		await waitForTextGone(view, "hs_one");
-		expect(deletes).toEqual([{ secretId: "hs_one" }]);
-		expect(secretLists).toBeGreaterThan(listsBeforeDelete);
-		expect(view.textContent).toContain("hs_two");
-		expect(view.textContent).not.toContain("studio-laptop");
-
-		allowDelete = false;
-		confirmMessage = "";
-		await act(async () => {
-			revokeButton(view, "hs_two").click();
-		});
-		await waitForText(view, "Unknown tools env secret 'hs_two'");
-		expect(confirmMessage).toContain("stops working immediately");
-		expect(confirmMessage).toContain("No local-daemon envs use this secret.");
-		expect(deletes).toEqual([{ secretId: "hs_one" }, { secretId: "hs_two" }]);
-		expect(view.textContent).toContain("hs_two");
+		expect(deletes).toEqual([{ envId: "ld_desk" }]);
 	});
 
-	it("disables revoke for a member and shows a friendly forbidden message", async () => {
-		const secrets: ToolsEnvSecretMetaRecord[] = [
-			{
-				secretId: "hs_member",
-				label: "laptop",
-				kind: "daemon_token",
-				updatedAt: CREATED,
-				createdAt: CREATED,
-			},
-		];
-		let role: "owner" | "member" = "member";
-		const deletes: unknown[] = [];
+	it("hides deregister from members and shows the owner hint", async () => {
+		const view = await render(clientFor("member"));
+		await waitForText(view, "Only account owners can deregister a daemon");
+		expect(view.textContent).toContain("ld_desk");
+		expect(
+			view.querySelector("button[aria-label^='Deregister daemon']"),
+		).toBeNull();
+		expect(view.textContent).not.toContain("Pairing secrets");
+	});
 
-		const mockFetch: FetchFunction = async (input, init) => {
-			const { type, payload } = readRequest(input, init);
-			if (type === "family.list") {
-				return new Response(JSON.stringify({ families: [] }));
-			}
-			if (type === "bot.list") {
-				return new Response(JSON.stringify({ bots: [] }));
-			}
-			if (type === "account.models.list") {
-				return new Response(JSON.stringify({ models: [] }));
-			}
-			if (type === "account.toolsEnvs.list") {
-				return new Response(JSON.stringify({ default: null, envs: [] }));
-			}
-			if (type === "account.toolsEnvSecrets.list") {
-				return new Response(JSON.stringify({ secrets: [...secrets] }));
-			}
-			if (type === "account.members.list") {
-				return new Response(
-					JSON.stringify({
-						members: [
-							{
-								accountId: "acc-test",
-								userId: "test-user",
-								role,
-								createdAt: CREATED,
-							},
-						],
-					}),
-				);
-			}
-			if (type === "account.toolsEnvSecrets.delete") {
-				deletes.push(payload);
+	it("shows a friendly message when deregister is forbidden", async () => {
+		const view = await render(
+			clientFor("owner", () => {
 				return new Response(
 					JSON.stringify({
 						error: { code: "forbidden", message: "forbidden" },
 					}),
 					{ status: 403 },
 				);
-			}
-			throw new Error(`Unhandled command ${type}`);
-		};
-
-		const client = new CadmusClient({
-			baseUrl: "",
-			userId: "test-user",
-			accountId: "acc-test",
-			familyId: "fam-test",
-			token: "test-token",
-			fetchImpl: mockFetch,
-		});
-
-		const view = document.createElement("div");
-		container = view;
-		document.body.appendChild(view);
-		root = createRoot(view);
+			}),
+		);
+		await waitForText(view, "ld_desk");
+		window.confirm = () => true;
 		await act(async () => {
-			root?.render(
-				<CadmusProvider clientOverride={client}>
-					<ToolsEnvSettings isOpen onClose={() => {}} />
-				</CadmusProvider>,
-			);
+			deregisterButton(view, "ld_desk").click();
 		});
-
-		await waitForText(view, "Only account owners can revoke");
-		const revoke = revokeButton(view, "hs_member");
-		expect(revoke.disabled).toBe(true);
-		let confirmed = false;
-		window.confirm = () => {
-			confirmed = true;
-			return true;
-		};
-		await act(async () => {
-			revoke.click();
-		});
-		expect(confirmed).toBe(false);
-		expect(deletes).toEqual([]);
+		await waitForText(view, "Only account owners can deregister a daemon");
 		expect(view.textContent).not.toContain("forbidden");
-
-		role = "owner";
-		await act(async () => {
-			root?.render(
-				<CadmusProvider clientOverride={client}>
-					<ToolsEnvSettings isOpen={false} onClose={() => {}} />
-				</CadmusProvider>,
-			);
-		});
-		await act(async () => {
-			root?.render(
-				<CadmusProvider clientOverride={client}>
-					<ToolsEnvSettings isOpen onClose={() => {}} />
-				</CadmusProvider>,
-			);
-		});
-		await waitForText(view, "laptop");
-		expect(view.textContent).not.toContain("Only account owners can revoke");
-		await act(async () => {
-			revokeButton(view, "hs_member").click();
-		});
-		await waitForText(view, "Only account owners can revoke pairing secrets");
-		expect(view.textContent).not.toContain("forbidden");
-		expect(deletes).toEqual([{ secretId: "hs_member" }]);
 	});
 });
 
-function revokeButton(
+function deregisterButton(
 	container: ParentNode,
-	secretId: string,
+	envId: string,
 ): HTMLButtonElement {
 	const button = container.querySelector(
-		`button[aria-label="Revoke pairing secret ${secretId}"]`,
+		`button[aria-label="Deregister daemon ${envId}"]`,
 	);
 	if (!(button instanceof HTMLButtonElement)) {
-		throw new Error(`missing revoke button for ${secretId}`);
+		throw new Error(`missing deregister button for ${envId}`);
 	}
 	return button;
 }
@@ -438,18 +251,4 @@ async function waitForText(container: ParentNode, text: string): Promise<void> {
 		});
 	}
 	throw new Error(`missing ${text} in ${container.textContent ?? ""}`);
-}
-
-async function waitForTextGone(
-	container: ParentNode,
-	text: string,
-): Promise<void> {
-	const deadline = Date.now() + 2_000;
-	while (Date.now() < deadline) {
-		if (!container.textContent?.includes(text)) return;
-		await act(async () => {
-			await new Promise((resolve) => setTimeout(resolve, 10));
-		});
-	}
-	throw new Error(`still showing ${text} in ${container.textContent ?? ""}`);
 }

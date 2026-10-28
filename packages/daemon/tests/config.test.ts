@@ -18,7 +18,7 @@ describe("daemon configuration storage", () => {
 				persist: true,
 				confineToWorkspace: false,
 				name: "Dev Machine",
-				token: "cadmus_dt_test_secret_token",
+				token: "cadmus_dk_test_secret_token",
 			},
 			testConfigPath,
 		);
@@ -37,7 +37,7 @@ describe("daemon configuration storage", () => {
 		expect(loaded?.config.url).toBe("wss://cadmus.example/tools-env/ws");
 		expect(loaded?.config.workspacePath).toBe("/tmp/test-ws");
 		expect(loaded?.config.name).toBe("Dev Machine");
-		expect(loaded?.token).toBe("cadmus_dt_test_secret_token");
+		expect(loaded?.token).toBe("cadmus_dk_test_secret_token");
 
 		// Delete config
 		const deleted = await deleteDaemonConfig(testConfigPath);

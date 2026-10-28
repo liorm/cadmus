@@ -7,9 +7,6 @@ import {
 	AccountMembersAddCommandSchema,
 	AccountMembersListCommandSchema,
 	AccountModelsListCommandSchema,
-	AccountToolsEnvSecretsDeleteCommandSchema,
-	AccountToolsEnvSecretsListCommandSchema,
-	AccountToolsEnvSecretsSetCommandSchema,
 	AccountToolsEnvsCreateCommandSchema,
 	AccountToolsEnvsDeleteCommandSchema,
 	AccountToolsEnvsDeregisterCommandSchema,
@@ -73,9 +70,6 @@ import {
 	AccountMembersAddResultSchema,
 	AccountMembersListResultSchema,
 	AccountModelsListResultSchema,
-	AccountToolsEnvSecretsDeleteResultSchema,
-	AccountToolsEnvSecretsListResultSchema,
-	AccountToolsEnvSecretsSetResultSchema,
 	AccountToolsEnvsCreateResultSchema,
 	AccountToolsEnvsDeleteResultSchema,
 	AccountToolsEnvsDeregisterResultSchema,
@@ -336,18 +330,6 @@ export const commandCatalog = {
 	"account.toolsEnvs.deregister": {
 		command: AccountToolsEnvsDeregisterCommandSchema,
 		result: AccountToolsEnvsDeregisterResultSchema,
-	},
-	"account.toolsEnvSecrets.list": {
-		command: AccountToolsEnvSecretsListCommandSchema,
-		result: AccountToolsEnvSecretsListResultSchema,
-	},
-	"account.toolsEnvSecrets.set": {
-		command: AccountToolsEnvSecretsSetCommandSchema,
-		result: AccountToolsEnvSecretsSetResultSchema,
-	},
-	"account.toolsEnvSecrets.delete": {
-		command: AccountToolsEnvSecretsDeleteCommandSchema,
-		result: AccountToolsEnvSecretsDeleteResultSchema,
 	},
 } as const;
 

@@ -1,4 +1,4 @@
-import { env, runDurableObjectAlarm } from "cloudflare:test";
+import { env, runDurableObjectAlarm, SELF } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import type { ServerEvent } from "../packages/worker/src/protocol.js";
 import { resolveHeartbeatMs } from "../packages/worker/src/tools-env/wire.js";
@@ -35,41 +35,39 @@ function toolResults(events: ServerEvent[]) {
 	return events.filter((event) => event.type === "turn.tool_result");
 }
 
-async function mintSecret(options: RpcOptions) {
-	const set = await sendRpc<{ secret: { secretId: string }; token: string }>(
-		"account.toolsEnvSecrets.set",
-		{},
-		options,
-	);
-	expect(set.frame.ok).toBe(true);
-	return {
-		secretId: set.frame.result?.secret.secretId ?? "",
-		token: set.frame.result?.token ?? "",
-	};
-}
-
-async function createDaemon(
+async function registerDaemon(
 	options: RpcOptions,
 	input: {
-		secretId: string;
 		workspacePath?: string;
 		persist?: boolean;
 		confineToWorkspace?: boolean;
-	},
-) {
-	const created = await sendRpc<{ env: { envId: string } }>(
+	} = {},
+): Promise<{ envId: string; token: string }> {
+	const created = await sendRpc<{
+		env: { envId: string };
+		pairingToken?: string;
+	}>(
 		"account.toolsEnvs.create",
 		{
 			kind: "local-daemon",
 			workspacePath: input.workspacePath ?? WORKSPACE,
-			secretId: input.secretId,
 			persist: input.persist ?? true,
 			confineToWorkspace: input.confineToWorkspace ?? false,
+			baseUrl: "http://example.com",
 		},
 		options,
 	);
 	expect(created.frame.ok).toBe(true);
-	return created.frame.result?.env.envId ?? "";
+	const envId = created.frame.result?.env.envId ?? "";
+	const pairingToken = created.frame.result?.pairingToken ?? "";
+	const pairResponse = await SELF.fetch("http://example.com/tools-env/pair", {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ pairingToken, name: "Rig" }),
+	});
+	expect(pairResponse.status).toBe(200);
+	const redeemed = (await pairResponse.json()) as { token: string };
+	return { envId, token: redeemed.token };
 }
 
 async function ensureFamily(
@@ -146,8 +144,8 @@ describe("daemon websocket tools env", () => {
 	it("serves bash, read, write, and edit through one scripted peer", async () => {
 		const options = scope("tools");
 		await sendRpc("family.update", { harvestDelayMs: 0 }, options);
-		const secret = await mintSecret(options);
-		const envId = await createDaemon(options, { secretId: secret.secretId });
+		const secret = await registerDaemon(options);
+		const envId = secret.envId;
 		await sendRpc(
 			"bot.create",
 			{
@@ -239,13 +237,12 @@ describe("daemon websocket tools env", () => {
 	it("rejects daemon upgrades before generic auth", async () => {
 		const options = scope("auth");
 		await sendRpc("family.update", { harvestDelayMs: 0 }, options);
-		const secret = await mintSecret(options);
-		const other = await mintSecret(options);
-		const envId = await createDaemon(options, {
-			secretId: secret.secretId,
+		const other = await registerDaemon(options, {
 			confineToWorkspace: false,
 		});
-		const otherEnv = await createDaemon(options, { secretId: other.secretId });
+		const envId = other.envId;
+		const otherEnvReg = await registerDaemon(options);
+		const otherEnv = otherEnvReg.envId;
 		const plain = await ScriptedDaemon.upgrade({
 			token: "not-a-daemon-token",
 			envId,
@@ -253,12 +250,12 @@ describe("daemon websocket tools env", () => {
 		});
 		expect(plain.status).toBe(401);
 		const malformed = await ScriptedDaemon.upgrade({
-			token: `cadmus_dt_${"zz".repeat(32)}`,
+			token: `cadmus_dk_${"zz".repeat(32)}`,
 			envId,
 		});
 		expect(malformed.status).toBe(401);
 		const unknown = await ScriptedDaemon.upgrade({
-			token: `cadmus_dt_${"ab".repeat(32)}`,
+			token: `cadmus_dk_${"ab".repeat(32)}`,
 			envId,
 		});
 		expect(unknown.status).toBe(401);
@@ -269,32 +266,31 @@ describe("daemon websocket tools env", () => {
 		});
 		expect(user.status).toBe(401);
 		const notWs = await ScriptedDaemon.upgrade({
-			token: secret.token,
+			token: other.token,
 			envId,
 			websocket: false,
 		});
 		expect(notWs.status).toBe(426);
 		const missingEnv = await ScriptedDaemon.upgrade({
-			token: secret.token,
+			token: other.token,
 			envId: "ld_missing",
 		});
 		expect(missingEnv.status).toBe(404);
 		const justBash = await ScriptedDaemon.upgrade({
-			token: secret.token,
+			token: other.token,
 			envId: "jb_default",
 		});
 		expect(justBash.status).toBe(404);
 		const forged = await ScriptedDaemon.upgrade({
-			token: secret.token,
+			token: other.token,
 			envId,
-			headers: { "X-Cadmus-Tools-Env-Secret-Id": other.secretId },
+			headers: { "X-Cadmus-Daemon-Token-Hash": "forged" },
 		});
 		expect(forged.status).toBe(101);
 		forged.peer?.close();
 		const mismatch = await ScriptedDaemon.upgrade({
-			token: secret.token,
+			token: other.token,
 			envId: otherEnv,
-			headers: { "X-Cadmus-Tools-Env-Secret-Id": other.secretId },
 		});
 		expect(mismatch.status).toBe(403);
 	});
@@ -306,8 +302,8 @@ describe("daemon websocket tools env", () => {
 		await ensureFamily(alpha.accountId, "beta", "Beta");
 		await sendRpc("family.update", { harvestDelayMs: 0 }, alpha);
 		await sendRpc("family.update", { harvestDelayMs: 0 }, beta);
-		const secret = await mintSecret(alpha);
-		const envId = await createDaemon(alpha, { secretId: secret.secretId });
+		const secret = await registerDaemon(alpha);
+		const envId = secret.envId;
 		for (const options of [alpha, beta]) {
 			await sendRpc(
 				"bot.create",
@@ -373,7 +369,7 @@ describe("daemon websocket tools env", () => {
 			other,
 		);
 		expect(foreign.frame.ok).toBe(false);
-		const otherSecret = await mintSecret(other);
+		const otherSecret = await registerDaemon(other);
 		const foreignSocket = await ScriptedDaemon.upgrade({
 			token: otherSecret.token,
 			envId,
@@ -384,8 +380,8 @@ describe("daemon websocket tools env", () => {
 	it("does not run a protocol command from the daemon socket", async () => {
 		const options = scope("cmd");
 		await sendRpc("family.update", { harvestDelayMs: 0 }, options);
-		const secret = await mintSecret(options);
-		const envId = await createDaemon(options, { secretId: secret.secretId });
+		const secret = await registerDaemon(options);
+		const envId = secret.envId;
 		await sendRpc(
 			"bot.create",
 			{
@@ -414,13 +410,13 @@ describe("daemon websocket tools env", () => {
 		expect(bot.frame.ok).toBe(true);
 	});
 
-	it("revokes only the envs that used the deleted secret", async () => {
+	it("deregisters only the targeted daemon", async () => {
 		const options = scope("revoke");
 		await sendRpc("family.update", { harvestDelayMs: 0 }, options);
-		const secret = await mintSecret(options);
-		const other = await mintSecret(options);
-		const envId = await createDaemon(options, { secretId: secret.secretId });
-		const keptId = await createDaemon(options, { secretId: other.secretId });
+		const target = await registerDaemon(options);
+		const envId = target.envId;
+		const keptDaemon = await registerDaemon(options);
+		const keptId = keptDaemon.envId;
 		await sendRpc(
 			"bot.create",
 			{
@@ -433,9 +429,9 @@ describe("daemon websocket tools env", () => {
 			options,
 		);
 		await sendRpc("chat.create", { botId: "assistant", key: "main" }, options);
-		const live = await ScriptedDaemon.upgrade({ token: secret.token, envId });
+		const live = await ScriptedDaemon.upgrade({ token: target.token, envId });
 		const kept = await ScriptedDaemon.upgrade({
-			token: other.token,
+			token: keptDaemon.token,
 			envId: keptId,
 		});
 		const peer = live.peer;
@@ -454,8 +450,8 @@ describe("daemon websocket tools env", () => {
 		const running = toolTurn(options, "main", "bash", { command: "echo hold" });
 		expect(await waitFor(() => holding, 5_000)).toBe(true);
 		const removed = await sendRpc(
-			"account.toolsEnvSecrets.delete",
-			{ secretId: secret.secretId },
+			"account.toolsEnvs.deregister",
+			{ envId },
 			options,
 		);
 		expect(removed.frame.ok).toBe(true);
@@ -466,10 +462,10 @@ describe("daemon websocket tools env", () => {
 		);
 		await peer.closed;
 		expect(peer.closeCode).toBe(1008);
-		expect(peer.closeReason).toContain("Pairing secret revoked");
+		expect(peer.closeReason).toContain("Daemon deregistered");
 		const snap = await connection(options.accountId, envId);
 		expect(snap.status).toBe("disconnected");
-		expect(snap.lastError).toBe("secret_missing");
+		expect(snap.lastError).toBe("deregistered");
 		const next = await toolTurn(options, "main", "bash", {
 			command: "echo later",
 		});
@@ -494,8 +490,8 @@ describe("daemon websocket tools env", () => {
 	it("keeps a non-zero exit connected and fails fast while disconnected", async () => {
 		const options = scope("exit");
 		await sendRpc("family.update", { harvestDelayMs: 0 }, options);
-		const secret = await mintSecret(options);
-		const envId = await createDaemon(options, { secretId: secret.secretId });
+		const secret = await registerDaemon(options);
+		const envId = secret.envId;
 		await sendRpc(
 			"bot.create",
 			{
@@ -576,8 +572,8 @@ describe("daemon websocket tools env", () => {
 	it("bumps generation on reconnect and ignores a stale close", async () => {
 		const options = scope("gen");
 		await sendRpc("family.update", { harvestDelayMs: 0 }, options);
-		const secret = await mintSecret(options);
-		const envId = await createDaemon(options, { secretId: secret.secretId });
+		const secret = await registerDaemon(options);
+		const envId = secret.envId;
 		await sendRpc(
 			"bot.create",
 			{
@@ -631,8 +627,8 @@ describe("daemon websocket tools env", () => {
 	it("closes an oversized daemon frame before parsing it", async () => {
 		const options = scope("size");
 		await sendRpc("family.update", { harvestDelayMs: 0 }, options);
-		const secret = await mintSecret(options);
-		const envId = await createDaemon(options, { secretId: secret.secretId });
+		const secret = await registerDaemon(options);
+		const envId = secret.envId;
 		const upgraded = await ScriptedDaemon.upgrade({
 			token: secret.token,
 			envId,
@@ -651,8 +647,8 @@ describe("daemon websocket tools env", () => {
 		await ensureFamily(alpha.accountId, "beta", "Beta");
 		await sendRpc("family.update", { harvestDelayMs: 0 }, alpha);
 		await sendRpc("family.update", { harvestDelayMs: 0 }, beta);
-		const secret = await mintSecret(alpha);
-		const envId = await createDaemon(alpha, { secretId: secret.secretId });
+		const secret = await registerDaemon(alpha);
+		const envId = secret.envId;
 		for (const options of [alpha, beta]) {
 			await sendRpc(
 				"bot.create",
@@ -714,8 +710,8 @@ describe("daemon websocket tools env", () => {
 	it("classifies peer errors separately from transport failures", async () => {
 		const options = scope("class");
 		await sendRpc("family.update", { harvestDelayMs: 0 }, options);
-		const secret = await mintSecret(options);
-		const envId = await createDaemon(options, { secretId: secret.secretId });
+		const secret = await registerDaemon(options);
+		const envId = secret.envId;
 		await sendRpc(
 			"bot.create",
 			{
@@ -820,8 +816,8 @@ describe("daemon websocket tools env", () => {
 		await ensureFamily(alpha.accountId, "beta", "Beta");
 		await sendRpc("family.update", { harvestDelayMs: 0 }, alpha);
 		await sendRpc("family.update", { harvestDelayMs: 0 }, beta);
-		const secret = await mintSecret(alpha);
-		const envId = await createDaemon(alpha, { secretId: secret.secretId });
+		const secret = await registerDaemon(alpha);
+		const envId = secret.envId;
 		for (const options of [alpha, beta]) {
 			await sendRpc(
 				"bot.create",
@@ -929,11 +925,8 @@ describe("daemon websocket tools env", () => {
 	it("sends cleanup when the env is deleted or persist flips, not when one bot unbinds", async () => {
 		const options = scope("clean");
 		await sendRpc("family.update", { harvestDelayMs: 0 }, options);
-		const secret = await mintSecret(options);
-		const envId = await createDaemon(options, {
-			secretId: secret.secretId,
-			persist: false,
-		});
+		const secret = await registerDaemon(options, { persist: false });
+		const envId = secret.envId;
 		await sendRpc(
 			"bot.create",
 			{
@@ -981,18 +974,21 @@ describe("daemon websocket tools env", () => {
 		expect(cleanup?.args.deleteEphemeral).toBe(true);
 		expect(peer.closeCode).toBe(1000);
 
-		const ephemeral = await createDaemon(options, {
-			secretId: secret.secretId,
+		const ephemeral = await registerDaemon(options, {
 			persist: false,
 			workspacePath: "/home/dev/other",
 		});
 		const again = await ScriptedDaemon.upgrade({
-			token: secret.token,
-			envId: ephemeral,
+			token: ephemeral.token,
+			envId: ephemeral.envId,
 		});
 		const second = again.peer;
 		if (!second) throw new Error("missing peer");
-		await sendRpc("account.toolsEnvs.delete", { envId: ephemeral }, options);
+		await sendRpc(
+			"account.toolsEnvs.delete",
+			{ envId: ephemeral.envId },
+			options,
+		);
 		await second.closed;
 		expect(
 			second.requests.find((request) => request.method === "cleanup")?.args
@@ -1003,11 +999,8 @@ describe("daemon websocket tools env", () => {
 	it("enforces confinement on the upgrade and on escaped paths", async () => {
 		const options = scope("jail");
 		await sendRpc("family.update", { harvestDelayMs: 0 }, options);
-		const secret = await mintSecret(options);
-		const envId = await createDaemon(options, {
-			secretId: secret.secretId,
-			confineToWorkspace: true,
-		});
+		const secret = await registerDaemon(options, { confineToWorkspace: true });
+		const envId = secret.envId;
 		const blocked = await ScriptedDaemon.upgrade({
 			token: secret.token,
 			envId,
@@ -1082,8 +1075,8 @@ describe("daemon websocket tools env", () => {
 	it("runs chat, memory, knowledge, and a schedule fork while the daemon is offline", async () => {
 		const options = scope("fork");
 		await sendRpc("family.update", { harvestDelayMs: 0 }, options);
-		const secret = await mintSecret(options);
-		const envId = await createDaemon(options, { secretId: secret.secretId });
+		const secret = await registerDaemon(options);
+		const envId = secret.envId;
 		await sendRpc(
 			"bot.create",
 			{
@@ -1176,8 +1169,8 @@ describe("daemon websocket tools env", () => {
 	it("lists daemon connection fields from getConnection", async () => {
 		const options = scope("list");
 		await sendRpc("family.update", { harvestDelayMs: 0 }, options);
-		const secret = await mintSecret(options);
-		const envId = await createDaemon(options, { secretId: secret.secretId });
+		const secret = await registerDaemon(options);
+		const envId = secret.envId;
 		await sendRpc(
 			"bot.create",
 			{
@@ -1234,8 +1227,8 @@ describe("daemon websocket tools env", () => {
 		async () => {
 			const options = scope("beat");
 			await sendRpc("family.update", { harvestDelayMs: 0 }, options);
-			const secret = await mintSecret(options);
-			const envId = await createDaemon(options, { secretId: secret.secretId });
+			const secret = await registerDaemon(options);
+			const envId = secret.envId;
 			await sendRpc(
 				"bot.create",
 				{

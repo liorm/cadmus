@@ -4,7 +4,7 @@ import {
 	decodePairingToken,
 	encodePairingToken,
 } from "../packages/worker/src/tools-env/pure.js";
-import { sendRpc, uniqueAccountId } from "./helpers.js";
+import { sendRpc, TEST_TOKEN, uniqueAccountId } from "./helpers.js";
 import { ScriptedDaemon } from "./scripted-daemon.js";
 
 describe("tools-env automated pairing and registration", () => {
@@ -12,7 +12,7 @@ describe("tools-env automated pairing and registration", () => {
 		const accountId = uniqueAccountId("pairing");
 		const rpcOpts = { accountId, familyId: "default" };
 
-		// 1. Create a local-daemon env without a secretId (unpaired)
+		// 1. Create a local-daemon env. It starts unpaired and returns a pairing token.
 		const created = await sendRpc(
 			"account.toolsEnvs.create",
 			{
@@ -29,7 +29,7 @@ describe("tools-env automated pairing and registration", () => {
 		const env = created.frame.result?.env;
 		const envId = env?.envId ?? "";
 		expect(envId).toMatch(/^ld_/);
-		expect(env?.secretMissing).toBe(true);
+		expect(env?.connection).toEqual({ status: "disconnected" });
 		expect(created.frame.result?.pairingToken).toMatch(/^cadmus_pt_/);
 		expect(created.frame.result?.command).toContain(
 			"cadmus-daemon pair cadmus_pt_",
@@ -91,7 +91,7 @@ describe("tools-env automated pairing and registration", () => {
 		};
 
 		expect(redeemed.ok).toBe(true);
-		expect(redeemed.token).toMatch(/^cadmus_dt_[0-9a-f]{64}$/);
+		expect(redeemed.token).toMatch(/^cadmus_dk_[0-9a-f]{64}$/);
 		expect(redeemed.envId).toBe(envId);
 		expect(redeemed.name).toBe("Test Laptop Rig");
 		expect(redeemed.workspacePath).toBe("/tmp/project");
@@ -102,8 +102,7 @@ describe("tools-env automated pairing and registration", () => {
 		const listedEnv = listed.frame.result?.envs.find((e) => e.envId === envId);
 		expect(listedEnv).toBeDefined();
 		expect(listedEnv?.label).toBe("Test Laptop Rig");
-		expect(listedEnv?.secretMissing).toBeFalsy();
-		expect(listedEnv?.secretId).toBeDefined();
+		expect(listedEnv?.connection?.status).toBe("disconnected");
 
 		// 5. Connect daemon via WebSocket with the returned permanent token
 		const upgrade = await ScriptedDaemon.upgrade({
@@ -173,5 +172,104 @@ describe("tools-env automated pairing and registration", () => {
 			envId,
 		});
 		expect(reconnectAttempt.status).toBe(401);
+	});
+
+	it("lets only the account owner deregister a daemon", async () => {
+		const accountId = uniqueAccountId("pair-owner");
+		const rpcOpts = { accountId, familyId: "default" };
+		const created = await sendRpc(
+			"account.toolsEnvs.create",
+			{
+				kind: "local-daemon",
+				workspacePath: "/tmp/project",
+				persist: true,
+				confineToWorkspace: false,
+				baseUrl: "http://example.com",
+			},
+			rpcOpts,
+		);
+		expect(created.frame.ok).toBe(true);
+		const envId = created.frame.result?.env?.envId ?? "";
+		const pairingToken = created.frame.result?.pairingToken as string;
+		const pairResponse = await SELF.fetch("http://example.com/tools-env/pair", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ pairingToken, name: "Desk" }),
+		});
+		expect(pairResponse.status).toBe(200);
+		const redeemed = (await pairResponse.json()) as { token: string };
+		const upgraded = await ScriptedDaemon.upgrade({
+			token: redeemed.token,
+			envId,
+		});
+		expect(upgraded.status).toBe(101);
+		const peer = upgraded.peer;
+		if (!peer) throw new Error("missing peer");
+
+		const memberToken = crypto.randomUUID();
+		const added = await sendRpc(
+			"account.members.add",
+			{
+				userId: `member-${crypto.randomUUID()}`,
+				name: "Member",
+				role: "member",
+				token: memberToken,
+			},
+			rpcOpts,
+		);
+		expect(added.frame.ok).toBe(true);
+
+		const denied = await SELF.fetch(
+			"http://example.com/api/account/toolsEnvs/deregister",
+			{
+				method: "POST",
+				headers: {
+					Authorization: `Bearer ${memberToken}`,
+					"Content-Type": "application/json",
+				},
+				body: JSON.stringify({ envId }),
+			},
+		);
+		expect(denied.status).toBe(403);
+		expect(await denied.json()).toEqual({
+			error: {
+				code: "forbidden",
+				message: "Only account owners can deregister a daemon",
+			},
+		});
+
+		const rpcDenied = await sendRpc(
+			"account.toolsEnvs.deregister",
+			{ envId },
+			{ token: memberToken },
+		);
+		expect(rpcDenied.status).toBe(400);
+		expect(rpcDenied.frame.error).toEqual({
+			code: "forbidden",
+			message: "Only account owners can deregister a daemon",
+		});
+
+		const stayedOpen = await Promise.race([
+			peer.closed.then(() => "closed" as const),
+			new Promise<"open">((resolve) => setTimeout(() => resolve("open"), 200)),
+		]);
+		expect(stayedOpen).toBe("open");
+
+		const removed = await SELF.fetch(
+			"http://example.com/api/account/toolsEnvs/deregister",
+			{
+				method: "POST",
+				headers: {
+					Authorization: `Bearer ${TEST_TOKEN}`,
+					"x-account-id": accountId,
+					"Content-Type": "application/json",
+				},
+				body: JSON.stringify({ envId }),
+			},
+		);
+		expect(removed.status).toBe(200);
+		expect(await removed.json()).toEqual({ deregistered: envId });
+		await peer.closed;
+		expect(peer.closeCode).toBe(1008);
 	});
 });
