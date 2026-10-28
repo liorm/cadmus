@@ -34,18 +34,29 @@ export type CodingToolName = (typeof CODING_TOOL_NAMES)[number];
 /**
  * Tool names a turn may offer.
  *
- * `codingToolsOffered` is the worker's existing coding-tools condition
- * (the bot lists bash/read/write/edit and the chat resolves an enabled
- * just-bash or local-daemon env). When that is true, `code.execute` is
- * removed. The stored `bot.tools` array is not rewritten. `undefined`
- * means the default Cadmus set and is returned unchanged, because that
- * condition is never true unless `tools` lists a coding tool.
+ * `codingToolsOffered` is the worker's coding-tools condition: the chat
+ * resolves an enabled just-bash or local-daemon env, and the bot allowlist
+ * either lists a coding tool or is omitted (the default Cadmus set). An
+ * explicit allowlist that does not list a coding tool never offers them.
+ * When coding tools are offered, `code.execute` is removed. An omitted
+ * allowlist expands to the default Cadmus names (without `code.execute`)
+ * plus bash, read, write, and edit. The stored `bot.tools` array is not
+ * rewritten. An explicit array is returned as stored, aside from dropping
+ * `code.execute`.
  */
 export function effectiveToolNames(
 	tools: readonly string[] | undefined,
 	options: { codingToolsOffered: boolean },
 ): readonly string[] | undefined {
-	if (!options.codingToolsOffered || tools === undefined) return tools;
+	if (!options.codingToolsOffered) return tools;
+	if (tools === undefined) {
+		return [
+			...DEFAULT_CADMUS_TOOL_NAMES.filter(
+				(name) => name !== CODE_EXECUTE_TOOL_NAME,
+			),
+			...CODING_TOOL_NAMES,
+		];
+	}
 	if (!tools.includes(CODE_EXECUTE_TOOL_NAME)) return tools;
 	return tools.filter((name) => name !== CODE_EXECUTE_TOOL_NAME);
 }

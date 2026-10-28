@@ -108,9 +108,16 @@ export class ToolsEnvController {
 		bot: BotRecord,
 		chatSetting: ToolsEnvSetting | null,
 	): Promise<boolean> {
-		if (!bot.tools) return false;
-		if (!CODING_TOOL_NAMES.some((name) => bot.tools?.includes(name)))
+		// An explicit allowlist without a coding tool stays on code.execute.
+		// Omitted bot.tools is the default Cadmus set: an enabled just-bash or
+		// local-daemon env (chat pin, bot pin, or account default) offers
+		// bash/read/write/edit and drops code.execute.
+		if (
+			bot.tools &&
+			!CODING_TOOL_NAMES.some((name) => bot.tools?.includes(name))
+		) {
 			return false;
+		}
 		const { resolved, def } = await this.resolvedFor(bot, chatSetting);
 		return (
 			runtimeToolsEnvOn(resolved) &&
@@ -135,7 +142,7 @@ export class ToolsEnvController {
 		bot: BotRecord,
 		toolName: string,
 	): Promise<boolean> {
-		if (!bot.tools?.includes(toolName)) return false;
+		if (bot.tools && !bot.tools.includes(toolName)) return false;
 		return this.offerCodingTools(conversationId, bot);
 	}
 

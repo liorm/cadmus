@@ -9,7 +9,8 @@ import { webToolsExtension } from "./web-tools.js";
 
 /**
  * Cadmus extensions installed on every family harness. Coding tools are
- * installed separately and offered only when `bot.tools` lists them.
+ * installed separately and offered when an enabled tools env resolves and
+ * `bot.tools` is omitted or lists a coding tool.
  */
 export function cadmusDefaultExtensions(): Extension[] {
 	return [

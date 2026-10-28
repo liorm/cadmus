@@ -1,6 +1,14 @@
 import type { CadmusBotFamilyDO } from "../packages/worker/src/family-do.js";
 import type { CadmusEnvDO } from "../packages/worker/src/tools-env/env-do.js";
 
+declare module "vitest" {
+	interface ProvidedContext {
+		daemonBridgeHost: string;
+		daemonBridgePort: number;
+		daemonBridgeEventPort: number;
+	}
+}
+
 declare global {
 	namespace Cloudflare {
 		interface Env {
@@ -12,6 +20,9 @@ declare global {
 			CADMUS_DEFAULT_TIMEZONE?: string;
 			CADMUS_HARVEST_DELAY_MS?: string;
 			CADMUS_HEARTBEAT_MS?: string;
+			CADMUS_DAEMON_BRIDGE_HOST?: string;
+			CADMUS_DAEMON_BRIDGE_PORT?: string;
+			CADMUS_DAEMON_BRIDGE_EVENT_PORT?: string;
 		}
 	}
 }

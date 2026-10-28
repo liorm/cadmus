@@ -1,4 +1,5 @@
 import { env, runDurableObjectAlarm } from "cloudflare:test";
+import { DEFAULT_CADMUS_TOOL_NAMES } from "@cadmus/contract/tools";
 import { describe, expect, it } from "vitest";
 import type { ServerEvent } from "../packages/worker/src/protocol.js";
 import {
@@ -1621,7 +1622,10 @@ describe("just-bash tools env through the bot", () => {
 			const defaultStatus = await sendRpc<{
 				status: { tools: string[] | "all" };
 			}>("chat.status", { chatKey: "main" }, options);
-			expect(defaultStatus.frame.result?.status.tools).toBe("all");
+			expect(defaultStatus.frame.result?.status.tools).toEqual([
+				...DEFAULT_CADMUS_TOOL_NAMES.filter((name) => name !== "code.execute"),
+				...CODING_TOOLS,
+			]);
 			expect((await turn("main", "[tool:memory_read {}]"))?.isError).toBe(
 				false,
 			);
@@ -1630,7 +1634,9 @@ describe("just-bash tools env through the bot", () => {
 				'[tool:knowledge_update {"slug":"restored","description":"back","body":"default","expectedVersion":0}]',
 			);
 			expect(restoredKnowledge?.isError).toBe(false);
-			expectBlocked(await turn("main", '[tool:bash {"command":"echo no"}]'));
+			expect(
+				(await turn("main", '[tool:bash {"command":"echo default"}]'))?.isError,
+			).toBe(false);
 
 			const renamed = await sendRpc<{
 				bot: { name: string; tools?: string[] };

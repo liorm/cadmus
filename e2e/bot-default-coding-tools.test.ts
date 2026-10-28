@@ -45,7 +45,9 @@ describe("default Cadmus tools plus coding tools", () => {
 			status: { tools: string[] | "all" };
 		}>("chat.status", { chatKey: "main" }, options);
 		expect(initialStatus.frame.ok).toBe(true);
-		expect(initialStatus.frame.result?.status.tools).toBe("all");
+		expect(initialStatus.frame.result?.status.tools).toEqual(
+			effectiveToolNames(undefined, { codingToolsOffered: true }),
+		);
 
 		const ws = await connectTestWs(options);
 		const turn = async (text: string) => {
@@ -65,6 +67,17 @@ describe("default Cadmus tools plus coding tools", () => {
 			);
 			expect(memory?.toolName).toBe("memory_update");
 			expect(memory?.isError).toBe(false);
+			const bashFirst = await turn('[tool:bash {"command":"echo coded"}]');
+			expect(bashFirst?.toolName).toBe("bash");
+			expect(bashFirst?.isError).toBe(false);
+			expect(bashFirst?.content ?? "").toContain("coded");
+
+			const narrowed = await sendRpc<{ bot: { tools?: string[] } }>(
+				"bot.update",
+				{ botId: "assistant", tools: [...DEFAULT_CADMUS_TOOL_NAMES] },
+				options,
+			);
+			expect(narrowed.frame.ok).toBe(true);
 			const bashBlocked = await turn('[tool:bash {"command":"echo no"}]');
 			expect(bashBlocked?.isError).toBe(true);
 			expect(bashBlocked?.content ?? "").toMatch(/not available|disabled/);
@@ -109,14 +122,17 @@ describe("default Cadmus tools plus coding tools", () => {
 			const restored = await sendRpc<{
 				status: { tools: string[] | "all" };
 			}>("chat.status", { chatKey: "main" }, options);
-			expect(restored.frame.result?.status.tools).toBe("all");
+			expect(restored.frame.result?.status.tools).toEqual(
+				effectiveToolNames(undefined, { codingToolsOffered: true }),
+			);
 
 			const memoryAgain = await turn("[tool:memory_read {}]");
 			expect(memoryAgain?.toolName).toBe("memory_read");
 			expect(memoryAgain?.isError).toBe(false);
-			const bashAgain = await turn('[tool:bash {"command":"echo no"}]');
-			expect(bashAgain?.isError).toBe(true);
-			expect(bashAgain?.content ?? "").toMatch(/not available|disabled/);
+			const bashAgain = await turn('[tool:bash {"command":"echo again"}]');
+			expect(bashAgain?.toolName).toBe("bash");
+			expect(bashAgain?.isError).toBe(false);
+			expect(bashAgain?.content ?? "").toContain("again");
 		} finally {
 			ws.close();
 		}

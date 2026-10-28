@@ -1385,9 +1385,10 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 				// Omitted leaves the allowlist unchanged. null clears it (default set).
 				// An array, including [], replaces it. pi-durable treats configure
 				// tools: null as "delete the filter" (every registered tool). That is
-				// the default set: coding tools are a separate extension and are not
-				// offered unless bot.tools lists them. [] must stay an array so the
-				// filter is empty instead of deleted.
+				// the default set. Coding tools are a separate extension. They are
+				// offered when bot.tools is omitted or lists one, and an enabled
+				// just-bash or local-daemon env resolves. [] must stay an array so
+				// the filter is empty instead of deleted.
 				if (command.payload.tools === null) {
 					delete updated.tools;
 				} else if (Array.isArray(command.payload.tools)) {
@@ -2179,8 +2180,9 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 		{ name: "tools-env" | "tools-env-unavailable"; text: string } | undefined
 	> {
 		const bot = this.familyStore.bots.getBot(input.botId);
-		if (!bot?.tools) return undefined;
-		if (!bot.tools.some((name) => isCodingTool(name))) return undefined;
+		if (!bot) return undefined;
+		if (bot.tools && !bot.tools.some((name) => isCodingTool(name)))
+			return undefined;
 		const route = this.familyStore.chats.getConversationRoute(
 			input.conversationId,
 		);

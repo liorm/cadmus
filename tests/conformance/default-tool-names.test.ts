@@ -25,8 +25,13 @@ describe("effective tool names", () => {
 	const both = [...DEFAULT_CADMUS_TOOL_NAMES, ...CODING_TOOL_NAMES];
 
 	it("drops code.execute only when coding tools are offered", () => {
-		expect(effectiveToolNames(undefined, { codingToolsOffered: true })).toBe(
-			undefined,
+		expect(effectiveToolNames(undefined, { codingToolsOffered: true })).toEqual(
+			[
+				...DEFAULT_CADMUS_TOOL_NAMES.filter(
+					(name) => name !== CODE_EXECUTE_TOOL_NAME,
+				),
+				...CODING_TOOL_NAMES,
+			],
 		);
 		expect(effectiveToolNames(undefined, { codingToolsOffered: false })).toBe(
 			undefined,

@@ -17,11 +17,12 @@ export default defineConfig({
 		isolate: false,
 		fileParallelism: true,
 		maxWorkers: 2,
+		globalSetup: ["./e2e/global-setup.ts"],
 		include: ["e2e/**/*.test.ts"],
 		exclude: ["**/node_modules/**", "**/dist/**"],
 	},
 	plugins: [
-		cloudflareTest({
+		cloudflareTest(({ inject }) => ({
 			wrangler: { configPath: "./wrangler.jsonc" },
 			miniflare: {
 				bindings: {
@@ -30,8 +31,13 @@ export default defineConfig({
 					CADMUS_DEFAULT_TIMEZONE: "UTC",
 					CADMUS_HARVEST_DELAY_MS: "200",
 					CADMUS_HEARTBEAT_MS: "200",
+					CADMUS_DAEMON_BRIDGE_HOST: inject("daemonBridgeHost"),
+					CADMUS_DAEMON_BRIDGE_PORT: String(inject("daemonBridgePort")),
+					CADMUS_DAEMON_BRIDGE_EVENT_PORT: String(
+						inject("daemonBridgeEventPort"),
+					),
 				},
 			},
-		}),
+		})),
 	],
 });
