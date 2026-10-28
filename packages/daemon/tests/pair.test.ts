@@ -19,7 +19,6 @@ describe("daemon pairing logic", () => {
 		envId: "ld_456",
 		url: "http://example.com",
 		wsUrl: "ws://example.com/tools-env/ws",
-		workspace: "/tmp/test-workspace",
 		persist: true,
 		confine: false,
 		nonce: "nonce-uuid-789",
@@ -58,6 +57,7 @@ describe("daemon pairing logic", () => {
 		await expect(
 			performPairing({
 				pairingToken: token,
+				workspacePath: "/tmp/from-cli",
 			}),
 		).rejects.toThrow("Pairing token has expired");
 	});
@@ -86,7 +86,6 @@ describe("daemon pairing logic", () => {
 					envId: "ld_456",
 					url: "http://example.com",
 					wsUrl: "ws://example.com/tools-env/ws",
-					workspacePath: "/tmp/test-workspace",
 					persist: true,
 					confineToWorkspace: false,
 					name: "Test Rig",
@@ -98,13 +97,14 @@ describe("daemon pairing logic", () => {
 		const result = await performPairing({
 			pairingToken: token,
 			name: "Test Rig",
+			workspacePath: "/tmp/from-cli",
 			customConfigPath: testConfigPath,
 			fetchImpl: mockFetch,
 		});
 
 		expect(result.token).toBe("cadmus_dk_mock_permanent_token");
 		expect(result.envId).toBe("ld_456");
-		expect(result.workspacePath).toBe("/tmp/test-workspace");
+		expect(result.workspacePath).toBe("/tmp/from-cli");
 		expect(result.url).toBe("ws://example.com/tools-env/ws");
 	});
 });

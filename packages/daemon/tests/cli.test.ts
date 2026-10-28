@@ -27,18 +27,35 @@ describe("daemon cli args", () => {
 	it("parses start command with or without explicit subcommand", () => {
 		expect(parseDaemonArgs([])).toEqual({
 			kind: "start",
+			workspace: undefined,
 			configPath: undefined,
 		});
 		expect(parseDaemonArgs(["start"])).toEqual({
 			kind: "start",
+			workspace: undefined,
 			configPath: undefined,
 		});
 		expect(parseDaemonArgs(["start", "--config", "/tmp/cadmus.json"])).toEqual({
 			kind: "start",
+			workspace: undefined,
 			configPath: "/tmp/cadmus.json",
+		});
+		expect(
+			parseDaemonArgs([
+				"start",
+				"--workspace",
+				"proj",
+				"--config",
+				"/tmp/c.json",
+			]),
+		).toEqual({
+			kind: "start",
+			workspace: "proj",
+			configPath: "/tmp/c.json",
 		});
 		expect(parseDaemonArgs(["--config", "/tmp/cadmus.json"])).toEqual({
 			kind: "start",
+			workspace: undefined,
 			configPath: "/tmp/cadmus.json",
 		});
 	});
@@ -48,6 +65,7 @@ describe("daemon cli args", () => {
 			kind: "pair",
 			token: "cadmus_pt_test123",
 			name: undefined,
+			workspace: undefined,
 			configPath: undefined,
 		});
 
@@ -64,6 +82,7 @@ describe("daemon cli args", () => {
 			kind: "pair",
 			token: "cadmus_pt_test123",
 			name: "MacBook Pro",
+			workspace: undefined,
 			configPath: "/tmp/custom.json",
 		});
 
@@ -74,6 +93,7 @@ describe("daemon cli args", () => {
 			kind: "pair",
 			token: "cadmus_pt_direct_token",
 			name: "Office Mac",
+			workspace: undefined,
 			configPath: undefined,
 		});
 	});

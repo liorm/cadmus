@@ -12,7 +12,6 @@ import {
 export interface DaemonConfig {
 	url: string;
 	envId: string;
-	workspacePath: string;
 	persist: boolean;
 	confineToWorkspace: boolean;
 	name?: string;
@@ -31,7 +30,6 @@ export async function saveDaemonConfig(
 	params: {
 		url: string;
 		envId: string;
-		workspacePath: string;
 		persist: boolean;
 		confineToWorkspace: boolean;
 		name?: string;
@@ -53,7 +51,6 @@ export async function saveDaemonConfig(
 	const configData: DaemonConfig = {
 		url: params.url,
 		envId: params.envId,
-		workspacePath: params.workspacePath,
 		persist: params.persist,
 		confineToWorkspace: params.confineToWorkspace,
 		name: params.name,

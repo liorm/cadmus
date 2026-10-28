@@ -10,7 +10,6 @@ export interface DecodedPairingToken {
 	envId: string;
 	url: string;
 	wsUrl: string;
-	workspace: string;
 	persist: boolean;
 	confine: boolean;
 	nonce: string;
@@ -35,7 +34,6 @@ export function parsePairingToken(token: string): DecodedPairingToken {
 			!payload.envId ||
 			!payload.url ||
 			!payload.wsUrl ||
-			!payload.workspace ||
 			typeof payload.persist !== "boolean" ||
 			typeof payload.confine !== "boolean" ||
 			!payload.nonce ||
@@ -55,6 +53,7 @@ export function parsePairingToken(token: string): DecodedPairingToken {
 export async function performPairing(input: {
 	pairingToken: string;
 	name?: string;
+	workspacePath: string;
 	customConfigPath?: string;
 	fetchImpl?: typeof fetch;
 }): Promise<RunDaemonOptions> {
@@ -107,7 +106,6 @@ export async function performPairing(input: {
 		envId: string;
 		url: string;
 		wsUrl: string;
-		workspacePath: string;
 		persist: boolean;
 		confineToWorkspace: boolean;
 		name?: string;
@@ -123,7 +121,6 @@ export async function performPairing(input: {
 		{
 			url: result.wsUrl || payload.wsUrl,
 			envId: result.envId || payload.envId,
-			workspacePath: result.workspacePath || payload.workspace,
 			persist: result.persist ?? payload.persist,
 			confineToWorkspace: result.confineToWorkspace ?? payload.confine,
 			name: result.name || daemonName,
@@ -143,7 +140,7 @@ export async function performPairing(input: {
 		url: result.wsUrl || payload.wsUrl,
 		token: result.token,
 		envId: result.envId || payload.envId,
-		workspacePath: result.workspacePath || payload.workspace,
+		workspacePath: input.workspacePath,
 		persist: result.persist ?? payload.persist,
 		confineToWorkspace: result.confineToWorkspace ?? payload.confine,
 	};

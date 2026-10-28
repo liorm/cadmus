@@ -17,6 +17,7 @@ export interface ConnectionSnapshot {
 	connectedAt?: number;
 	disconnectedAt?: number;
 	lastError?: string;
+	workspacePath?: string;
 }
 
 type ConnectionRow = {
@@ -26,6 +27,7 @@ type ConnectionRow = {
 	connected_at: number | null;
 	disconnected_at: number | null;
 	last_error: string | null;
+	workspace_path: string | null;
 };
 
 interface SocketAttachment {
@@ -97,9 +99,18 @@ export class WsRemoteBackend {
 				generation INTEGER NOT NULL,
 				connected_at INTEGER,
 				disconnected_at INTEGER,
-				last_error TEXT
+				last_error TEXT,
+				workspace_path TEXT
 			);
 		`);
+		const columns = this.sql
+			.exec<{ name: string }>(`PRAGMA table_info(cadmus_env_connection)`)
+			.toArray();
+		if (!columns.some((column) => column.name === "workspace_path")) {
+			this.sql.exec(
+				`ALTER TABLE cadmus_env_connection ADD COLUMN workspace_path TEXT`,
+			);
+		}
 		this.schemaDone = true;
 	}
 
@@ -111,17 +122,19 @@ export class WsRemoteBackend {
 	}
 
 	/** One write. Returns the generation now stored on the row. */
-	markConnected(envId: string): number {
+	markConnected(envId: string, workspacePath: string): number {
 		this.envId = envId;
 		const now = Date.now();
 		const existing = this.readRow();
 		if (!existing) {
 			this.sql.exec(
 				`INSERT INTO cadmus_env_connection (
-           env_id, status, generation, connected_at, disconnected_at, last_error
-         ) VALUES (?, 'connected', 1, ?, NULL, NULL)`,
+           env_id, status, generation, connected_at, disconnected_at, last_error,
+           workspace_path
+         ) VALUES (?, 'connected', 1, ?, NULL, NULL, ?)`,
 				envId,
 				now,
+				workspacePath,
 			);
 		} else {
 			this.sql.exec(
@@ -130,9 +143,11 @@ export class WsRemoteBackend {
              generation = generation + 1,
              connected_at = ?,
              disconnected_at = NULL,
-             last_error = NULL
+             last_error = NULL,
+             workspace_path = ?
          WHERE env_id = ?`,
 				now,
+				workspacePath,
 				existing.env_id,
 			);
 		}
@@ -602,7 +617,8 @@ export class WsRemoteBackend {
 		this.ensureSchema();
 		const rows = this.sql
 			.exec<ConnectionRow>(
-				`SELECT env_id, status, generation, connected_at, disconnected_at, last_error
+				`SELECT env_id, status, generation, connected_at, disconnected_at, last_error,
+                workspace_path
          FROM cadmus_env_connection
          LIMIT 1`,
 			)
@@ -617,6 +633,7 @@ export class WsRemoteBackend {
 			disconnected_at:
 				row.disconnected_at === null ? null : Number(row.disconnected_at),
 			last_error: row.last_error,
+			workspace_path: row.workspace_path ?? null,
 		};
 	}
 }
@@ -630,6 +647,9 @@ function snapshot(row: ConnectionRow): ConnectionSnapshot {
 			? { disconnectedAt: row.disconnected_at }
 			: {}),
 		...(row.last_error ? { lastError: row.last_error } : {}),
+		...(row.status === "connected" && row.workspace_path
+			? { workspacePath: row.workspace_path }
+			: {}),
 	};
 }
 

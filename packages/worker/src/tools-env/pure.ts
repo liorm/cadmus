@@ -21,7 +21,6 @@ export interface ToolsEnvDefinition {
 	persist: boolean;
 	confineToWorkspace: boolean;
 	sharedWorkspace: boolean;
-	workspacePath?: string;
 	updatedAt: number;
 }
 
@@ -180,20 +179,14 @@ function assertKnownEnv(
 }
 
 /**
- * local-daemon definitions store workspace, persist, and confinement on the
- * env row. sharedWorkspace stays off. The binding itself is still `{ envId }`.
+ * local-daemon definitions store persist and confinement on the env row.
+ * The directory is reported by the daemon. sharedWorkspace stays off.
+ * The binding itself is still `{ envId }`.
  */
 export function assertDaemonEnvWrite(input: {
-	workspacePath?: string;
 	confineToWorkspace?: boolean;
 	sharedWorkspace?: boolean;
 }): void {
-	if (!input.workspacePath?.trim()) {
-		throw new ProtocolValidationError(
-			"local-daemon envs require a non-empty workspacePath",
-			"invalid_tools_env",
-		);
-	}
 	if (input.confineToWorkspace === undefined) {
 		throw new ProtocolValidationError(
 			"local-daemon envs require confineToWorkspace",
@@ -212,7 +205,6 @@ export function assertJustBashEnvWrite(input: {
 	kind: string;
 	confineToWorkspace?: boolean;
 	sharedWorkspace?: boolean;
-	workspacePath?: string;
 }): void {
 	if (input.kind !== "just-bash") {
 		throw new ProtocolValidationError(
@@ -224,12 +216,6 @@ export function assertJustBashEnvWrite(input: {
 		throw new ProtocolValidationError(
 			"just-bash envs are always confined to the workspace",
 			"confinement_required",
-		);
-	}
-	if (input.workspacePath !== undefined) {
-		throw new ProtocolValidationError(
-			"just-bash envs do not take workspacePath",
-			"invalid_tools_env",
 		);
 	}
 }
@@ -302,15 +288,21 @@ export interface ResolvedPath {
 	path: string;
 }
 
-export function daemonCwd(def: {
-	workspacePath?: string;
-	persist: boolean;
-}): string {
-	const base = def.workspacePath ?? "";
-	if (def.persist) return base;
-	return base.endsWith("/")
-		? `${base}.cadmus-ephemeral`
-		: `${base}/.cadmus-ephemeral`;
+const WORKSPACE_HEADER_MAX = 4096;
+
+/** Absolute directory reported by a connected daemon. */
+export function parseReportedWorkspace(
+	header: string | null,
+): string | undefined {
+	if (header === null) return undefined;
+	const value = header.trim();
+	if (!value.startsWith("/")) return undefined;
+	if (value.length > WORKSPACE_HEADER_MAX) return undefined;
+	for (let index = 0; index < value.length; index++) {
+		const code = value.charCodeAt(index);
+		if (code <= 0x1f || code === 0x7f) return undefined;
+	}
+	return value;
 }
 
 /**
@@ -456,7 +448,6 @@ export interface PairingTokenPayload {
 	envId: string;
 	url: string;
 	wsUrl: string;
-	workspace: string;
 	persist: boolean;
 	confine: boolean;
 	nonce: string;
@@ -488,7 +479,6 @@ export function decodePairingToken(token: string): PairingTokenPayload {
 			!parsed.envId ||
 			!parsed.url ||
 			!parsed.wsUrl ||
-			!parsed.workspace ||
 			typeof parsed.persist !== "boolean" ||
 			typeof parsed.confine !== "boolean" ||
 			!parsed.nonce ||

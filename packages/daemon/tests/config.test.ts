@@ -14,7 +14,6 @@ describe("daemon configuration storage", () => {
 			{
 				url: "wss://cadmus.example/tools-env/ws",
 				envId: "ld_test_env",
-				workspacePath: "/tmp/test-ws",
 				persist: true,
 				confineToWorkspace: false,
 				name: "Dev Machine",
@@ -35,7 +34,7 @@ describe("daemon configuration storage", () => {
 		expect(loaded).not.toBeNull();
 		expect(loaded?.config.envId).toBe("ld_test_env");
 		expect(loaded?.config.url).toBe("wss://cadmus.example/tools-env/ws");
-		expect(loaded?.config.workspacePath).toBe("/tmp/test-ws");
+		expect(loaded?.config).not.toHaveProperty("workspacePath");
 		expect(loaded?.config.name).toBe("Dev Machine");
 		expect(loaded?.token).toBe("cadmus_dk_test_secret_token");
 

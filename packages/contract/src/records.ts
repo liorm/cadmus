@@ -225,8 +225,12 @@ export const EffectiveToolsEnvSchema = Type.Object(
 		persist: Type.Boolean(),
 		confineToWorkspace: Type.Boolean(),
 		sharedWorkspace: Type.Boolean(),
-		workspacePath: Type.Optional(Type.String()),
-		root: Type.String(),
+		root: Type.Optional(
+			Type.String({
+				description:
+					"Runtime directory. Present for just-bash, and for a local-daemon only while that daemon is connected.",
+			}),
+		),
 	},
 	{
 		additionalProperties: false,

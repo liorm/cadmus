@@ -1258,7 +1258,6 @@ export class D1AdminStore implements AdminStore {
 			persist: boolean;
 			confineToWorkspace: boolean;
 			sharedWorkspace: boolean;
-			workspacePath?: string;
 		},
 	): Promise<StoredToolsEnv> {
 		await this.initialize();
@@ -1268,14 +1267,13 @@ export class D1AdminStore implements AdminStore {
 				`INSERT INTO cadmus_tools_envs (
           account_id, env_id, kind, label, workspace_path, persist,
           confine_to_workspace, shared_workspace, updated_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`,
+        ) VALUES (?1, ?2, ?3, ?4, NULL, ?5, ?6, ?7, ?8)`,
 			)
 			.bind(
 				accountId,
 				input.envId,
 				input.kind,
 				input.label ?? null,
-				input.workspacePath ?? null,
 				input.persist ? 1 : 0,
 				input.confineToWorkspace ? 1 : 0,
 				input.sharedWorkspace ? 1 : 0,
@@ -1296,7 +1294,6 @@ export class D1AdminStore implements AdminStore {
 			persist?: boolean;
 			confineToWorkspace?: boolean;
 			sharedWorkspace?: boolean;
-			workspacePath?: string;
 		},
 	): Promise<StoredToolsEnv | undefined> {
 		await this.initialize();
@@ -1307,23 +1304,18 @@ export class D1AdminStore implements AdminStore {
 		const persist = patch.persist ?? existing.persist;
 		const confine = patch.confineToWorkspace ?? existing.confineToWorkspace;
 		const shared = patch.sharedWorkspace ?? existing.sharedWorkspace;
-		const workspace =
-			patch.workspacePath !== undefined
-				? patch.workspacePath
-				: (existing.workspacePath ?? null);
 		await this.#db
 			.prepare(
 				`UPDATE cadmus_tools_envs
          SET label = ?1, persist = ?2, confine_to_workspace = ?3,
-             shared_workspace = ?4, workspace_path = ?5, updated_at = ?6
-         WHERE account_id = ?7 AND env_id = ?8`,
+             shared_workspace = ?4, updated_at = ?5
+         WHERE account_id = ?6 AND env_id = ?7`,
 			)
 			.bind(
 				label,
 				persist ? 1 : 0,
 				confine ? 1 : 0,
 				shared ? 1 : 0,
-				workspace,
 				Date.now(),
 				accountId,
 				envId,
@@ -1435,7 +1427,6 @@ function mapToolsEnv(row: ToolsEnvSqlRow): StoredToolsEnv {
 		updatedAt: Number(row.updated_at),
 	};
 	if (row.label) record.label = row.label;
-	if (row.workspace_path) record.workspacePath = row.workspace_path;
 	return record;
 }
 

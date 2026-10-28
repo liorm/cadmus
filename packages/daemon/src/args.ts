@@ -1,11 +1,17 @@
 export const DAEMON_USAGE =
-	"usage:\n  cadmus-daemon [pair] <token> [--name <name>] [--config <path>]\n  cadmus-daemon [start] [--config <path>]\n  cadmus-daemon deregister [--config <path>]\n  cadmus-daemon --help | --version";
+	"usage:\n  cadmus-daemon [pair] <token> [--name <name>] [--workspace <path>] [--config <path>]\n  cadmus-daemon [start] [--workspace <path>] [--config <path>]\n  cadmus-daemon deregister [--config <path>]\n  cadmus-daemon --help | --version";
 
 export type ParsedDaemonArgs =
 	| { kind: "help" }
 	| { kind: "version" }
-	| { kind: "pair"; token: string; name?: string; configPath?: string }
-	| { kind: "start"; configPath?: string }
+	| {
+			kind: "pair";
+			token: string;
+			name?: string;
+			workspace?: string;
+			configPath?: string;
+	  }
+	| { kind: "start"; workspace?: string; configPath?: string }
 	| { kind: "deregister"; configPath?: string }
 	| { kind: "error"; message: string };
 
@@ -32,7 +38,7 @@ function flagValue(argv: readonly string[], name: string): string | undefined {
 	return argv[index + 1];
 }
 
-const VALUE_FLAGS = new Set(["--name", "--config"]);
+const VALUE_FLAGS = new Set(["--name", "--config", "--workspace"]);
 
 function hasStandaloneFlag(argv: readonly string[], name: string): boolean {
 	return argv.some(
@@ -48,6 +54,7 @@ export function parseDaemonArgs(argv: readonly string[]): ParsedDaemonArgs {
 
 	const name = flagValue(argv, "--name");
 	const configPath = flagValue(argv, "--config");
+	const workspace = flagValue(argv, "--workspace");
 
 	// Extract positionals (tokens not starting with - and not values of flags)
 	const positionals: string[] = [];
@@ -63,12 +70,12 @@ export function parseDaemonArgs(argv: readonly string[]): ParsedDaemonArgs {
 	}
 
 	if (positionals.length === 0) {
-		return { kind: "start", configPath };
+		return { kind: "start", workspace, configPath };
 	}
 
 	const first = positionals[0] ?? "";
 	if (first === "start") {
-		return { kind: "start", configPath };
+		return { kind: "start", workspace, configPath };
 	}
 
 	if (first === "deregister") {
@@ -83,12 +90,12 @@ export function parseDaemonArgs(argv: readonly string[]): ParsedDaemonArgs {
 				message: `Missing pairing token.\n${DAEMON_USAGE}`,
 			};
 		}
-		return { kind: "pair", token, name, configPath };
+		return { kind: "pair", token, name, workspace, configPath };
 	}
 
 	// Direct token pass without "pair" subcommand
 	if (first.startsWith("cadmus_pt_")) {
-		return { kind: "pair", token: first, name, configPath };
+		return { kind: "pair", token: first, name, workspace, configPath };
 	}
 
 	return {
@@ -110,6 +117,7 @@ export function formatDaemonHelp(): string {
 		"",
 		"Options:",
 		"  --name <name>                  Friendly daemon name (e.g. 'My MacBook').",
+		"  --workspace <path>             Directory for this run. Defaults to the current directory.",
 		"  --config <path>                Custom path to configuration file (default: ~/.cadmus/daemon.json).",
 		"  --help                         Print this help and exit.",
 		"  --version                      Print the daemon package version and exit.",

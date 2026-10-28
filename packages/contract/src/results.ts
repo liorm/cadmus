@@ -1002,7 +1002,6 @@ export const ToolsEnvRecordSchema = Type.Object({
 	persist: Type.Boolean(),
 	confineToWorkspace: Type.Boolean(),
 	sharedWorkspace: Type.Optional(Type.Boolean()),
-	workspacePath: Type.Optional(Type.String()),
 	updatedAt: Type.Number(),
 	supportsConfinement: Type.Boolean(),
 	connection: Type.Optional(
@@ -1014,6 +1013,12 @@ export const ToolsEnvRecordSchema = Type.Object({
 				]),
 				connectedAt: Type.Optional(Type.Number()),
 				lastError: Type.Optional(Type.String()),
+				workspacePath: Type.Optional(
+					Type.String({
+						description:
+							"Directory reported by the connected daemon. Omitted while disconnected.",
+					}),
+				),
 			},
 			{ additionalProperties: false },
 		),

@@ -104,7 +104,6 @@ import {
 } from "./store/sqlite-family.js";
 import {
 	chooseToolsEnvIdentity,
-	daemonCwd,
 	isCodingTool,
 	OFFLINE_TOOLS_ENV,
 	resolvePublicUrls,
@@ -2200,13 +2199,19 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 					botLevel.resolved.binding.envId,
 				)
 			: undefined;
-		const connected = def
-			? (await this.toolsEnvController.connectionFor(def)).status ===
-				"connected"
-			: false;
+		const connection = def
+			? await this.toolsEnvController.connectionFor(def)
+			: undefined;
+		const connected = connection?.status === "connected";
+		const root =
+			def?.kind === "just-bash"
+				? WORKSPACE_ROOT
+				: connected
+					? connection?.workspacePath
+					: undefined;
 		return chooseToolsEnvIdentity({
 			enabled: true,
-			connected,
+			connected: connected && root !== undefined,
 			toolsOffered: input.toolNames.some((name) => isCodingTool(name)),
 			harvest: false,
 			kind: def?.kind,
@@ -2218,7 +2223,7 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 			sharedWorkspace: def?.sharedWorkspace,
 			scopeKind: resolved.scopeKind,
 			botDefaultKind: botDef?.kind,
-			root: def?.kind === "local-daemon" ? daemonCwd(def) : WORKSPACE_ROOT,
+			...(root ? { root } : {}),
 		});
 	}
 

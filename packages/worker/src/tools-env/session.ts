@@ -18,7 +18,6 @@ import {
 	assertJustBashEnvWrite,
 	assertToolsEnvWrite,
 	CODING_TOOL_NAMES,
-	daemonCwd,
 	envDoName,
 	executionEnvId,
 	type ResolvedToolsEnv,
@@ -166,14 +165,16 @@ export class ToolsEnvController {
 		const connection = await this.stub(def.envId).getConnection(
 			def.kind === "local-daemon" ? "local-daemon" : "just-bash",
 		);
-		if (connection.status !== "connected") {
+		const reported =
+			def.kind === "local-daemon" ? connection.workspacePath : WORKSPACE_ROOT;
+		if (connection.status !== "connected" || !reported) {
 			return createOfflineExecutionEnv(
 				executionEnvId({
 					kind: "daemon",
 					accountId: this.deps.accountId(),
 					envId: def.envId,
 				}),
-				daemonCwd(def),
+				reported ?? "/",
 			);
 		}
 		const scopeId = bot.id;
@@ -187,7 +188,7 @@ export class ToolsEnvController {
 					accountId: this.deps.accountId(),
 					envId: def.envId,
 				}),
-				cwd: daemonCwd(def),
+				cwd: reported,
 				pathMode: "host",
 				call: {
 					storageFamilyId: "",
@@ -284,11 +285,11 @@ export class ToolsEnvController {
 							persist: def.persist,
 							confineToWorkspace: def.confineToWorkspace,
 							sharedWorkspace: def.sharedWorkspace,
-							...(def.workspacePath
-								? { workspacePath: def.workspacePath }
-								: {}),
-							root:
-								def.kind === "local-daemon" ? daemonCwd(def) : WORKSPACE_ROOT,
+							...(def.kind === "just-bash"
+								? { root: WORKSPACE_ROOT }
+								: connection?.status === "connected" && connection.workspacePath
+									? { root: connection.workspacePath }
+									: {}),
 						}
 					: null,
 			toolsEnvStatus: connection?.status,
@@ -306,6 +307,7 @@ export class ToolsEnvController {
 			status: "connected" | "disconnected";
 			connectedAt?: number;
 			lastError?: string;
+			workspacePath?: string;
 		};
 	} {
 		const snap =
@@ -323,6 +325,11 @@ export class ToolsEnvController {
 				...(def.kind === "local-daemon" && snap.lastError
 					? { lastError: snap.lastError }
 					: {}),
+				...(def.kind === "local-daemon" &&
+				snap.status === "connected" &&
+				snap.workspacePath
+					? { workspacePath: snap.workspacePath }
+					: {}),
 			},
 		};
 	}
@@ -338,7 +345,6 @@ export class ToolsEnvController {
 		persist?: boolean;
 		confineToWorkspace?: boolean;
 		sharedWorkspace?: boolean;
-		workspacePath?: string;
 	}): Promise<StoredToolsEnv> {
 		if (input.kind === "local-daemon") {
 			assertDaemonEnvWrite(input);
@@ -352,7 +358,6 @@ export class ToolsEnvController {
 					persist: input.persist ?? true,
 					confineToWorkspace: input.confineToWorkspace === true,
 					sharedWorkspace: false,
-					workspacePath: input.workspacePath?.trim(),
 				},
 			);
 			this.invalidate();
@@ -382,7 +387,6 @@ export class ToolsEnvController {
 			persist?: boolean;
 			confineToWorkspace?: boolean;
 			sharedWorkspace?: boolean;
-			workspacePath?: string;
 		},
 	): Promise<StoredToolsEnv> {
 		const existing = await this.deps.admin.getToolsEnv(
@@ -396,9 +400,7 @@ export class ToolsEnvController {
 			);
 		}
 		if (existing.kind === "local-daemon") {
-			const workspacePath = patch.workspacePath ?? existing.workspacePath;
 			assertDaemonEnvWrite({
-				workspacePath,
 				confineToWorkspace:
 					patch.confineToWorkspace ?? existing.confineToWorkspace,
 				sharedWorkspace: patch.sharedWorkspace ?? false,
@@ -437,7 +439,6 @@ export class ToolsEnvController {
 			kind: existing.kind,
 			confineToWorkspace: patch.confineToWorkspace,
 			sharedWorkspace: patch.sharedWorkspace,
-			workspacePath: patch.workspacePath,
 		});
 		const updated = await this.deps.admin.updateToolsEnv(
 			this.deps.accountId(),
@@ -507,7 +508,6 @@ export class ToolsEnvController {
 		return stub.createPairing({
 			accountId: this.deps.accountId(),
 			envId,
-			workspacePath: def.workspacePath ?? "/workspace",
 			persist: def.persist,
 			confineToWorkspace: def.confineToWorkspace,
 			url: options.url,

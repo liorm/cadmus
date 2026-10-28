@@ -65,10 +65,9 @@ const envs: ToolsEnvRecord[] = [
 		label: "Desk",
 		persist: true,
 		confineToWorkspace: true,
-		workspacePath: "/home/desk",
 		updatedAt: CREATED,
 		supportsConfinement: true,
-		connection: { status: "connected" },
+		connection: { status: "connected", workspacePath: "/home/desk" },
 	},
 	{
 		envId: "jb_default",

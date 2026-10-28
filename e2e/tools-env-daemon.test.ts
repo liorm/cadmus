@@ -53,7 +53,6 @@ interface EnvRow {
 	persist: boolean;
 	confineToWorkspace: boolean;
 	sharedWorkspace?: boolean;
-	workspacePath?: string;
 	label?: string;
 	supportsConfinement: boolean;
 	connection?: { status: string; lastError?: string };
@@ -62,7 +61,6 @@ interface EnvRow {
 async function createDaemon(
 	options: RpcOptions,
 	input: {
-		workspacePath: string;
 		label?: string;
 		persist?: boolean;
 		confineToWorkspace?: boolean;
@@ -85,7 +83,6 @@ describe("local-daemon tools env through the bot", () => {
 			"account.toolsEnvs.create",
 			{
 				kind: "local-daemon",
-				workspacePath: "/home/dev/a",
 				confineToWorkspace: true,
 				token: "caller-supplied",
 			},
@@ -95,13 +92,11 @@ describe("local-daemon tools env through the bot", () => {
 		expect(supplied.frame.error?.code).toBe("invalid_command");
 
 		const sharedA = await createDaemon(options, {
-			workspacePath: "/home/dev/a",
 			label: "A",
 			persist: true,
 			confineToWorkspace: true,
 		});
 		const sharedB = await createDaemon(options, {
-			workspacePath: "/home/dev/b",
 			label: "B",
 			persist: false,
 			confineToWorkspace: false,
@@ -135,14 +130,14 @@ describe("local-daemon tools env through the bot", () => {
 		)
 			.bind(options.accountId, envA)
 			.first<{
-				workspace_path: string;
+				workspace_path: string | null;
 				persist: number;
 				confine_to_workspace: number;
 				shared_workspace: number;
 				daemon_token_hash: string;
 			}>();
 		expect(stored).toMatchObject({
-			workspace_path: "/home/dev/a",
+			workspace_path: null,
 			persist: 1,
 			confine_to_workspace: 1,
 			shared_workspace: 0,
@@ -152,7 +147,6 @@ describe("local-daemon tools env through the bot", () => {
 		expect(JSON.stringify(stored)).not.toContain(body.token);
 
 		const sharedRejected = await createDaemon(options, {
-			workspacePath: "/home/dev/shared",
 			sharedWorkspace: true,
 			confineToWorkspace: true,
 		});
@@ -162,7 +156,6 @@ describe("local-daemon tools env through the bot", () => {
 			{
 				kind: "local-daemon",
 				label: "No flag",
-				workspacePath: "/tmp/proj",
 			},
 			options,
 		);
@@ -289,7 +282,6 @@ describe("local-daemon tools env through the bot", () => {
 		const entryCount = beforeEntries.frame.result?.entries.length ?? 0;
 
 		const created = await createDaemon(alpha, {
-			workspacePath: "/srv/work",
 			confineToWorkspace: true,
 			persist: true,
 		});
@@ -369,7 +361,6 @@ describe("local-daemon tools env through the bot", () => {
 		const options = scope("inherit");
 		await sendRpc("family.update", { harvestDelayMs: 0 }, options);
 		const created = await createDaemon(options, {
-			workspacePath: "/srv/account",
 			confineToWorkspace: true,
 		});
 		const daemonId = created.frame.result?.env.envId ?? "";
@@ -433,7 +424,6 @@ describe("local-daemon tools env through the bot", () => {
 		const options = scope("sources");
 		await sendRpc("family.update", { harvestDelayMs: 0 }, options);
 		const created = await createDaemon(options, {
-			workspacePath: "/workspace/laptop",
 			label: "Laptop",
 			persist: true,
 			confineToWorkspace: true,
@@ -481,7 +471,6 @@ describe("local-daemon tools env through the bot", () => {
 			effectiveToolsEnv?: {
 				kind?: string;
 				envId?: string;
-				workspacePath?: string;
 				sharedWorkspace?: boolean;
 				root?: string;
 			} | null;
@@ -494,12 +483,11 @@ describe("local-daemon tools env through the bot", () => {
 		expect(chatPin.frame.result?.effectiveToolsEnv).toMatchObject({
 			kind: "local-daemon",
 			envId: daemonId,
-			workspacePath: "/workspace/laptop",
 			sharedWorkspace: false,
-			root: "/workspace/laptop",
 			persist: true,
 			confineToWorkspace: true,
 		});
+		expect(chatPin.frame.result?.effectiveToolsEnv).not.toHaveProperty("root");
 
 		const botPin = await sendRpc<{
 			toolsEnvEnabledSource?: string;
@@ -567,7 +555,6 @@ describe("local-daemon tools env through the bot", () => {
 		const options = scope("unpin");
 		await sendRpc("family.update", { harvestDelayMs: 0 }, options);
 		const created = await createDaemon(options, {
-			workspacePath: "/srv/unpin",
 			confineToWorkspace: true,
 		});
 		const daemonId = created.frame.result?.env.envId ?? "";
@@ -633,7 +620,6 @@ describe("local-daemon tools env through the bot", () => {
 		);
 		await sendRpc("chat.create", { botId: "assistant", key: "main" }, options);
 		const extras = {
-			workspacePath: "/tmp",
 			persist: true,
 			confineToWorkspace: true,
 			sharedWorkspace: false,
@@ -680,7 +666,6 @@ describe("local-daemon tools env through the bot", () => {
 		const options = scope("create-bot");
 		await sendRpc("family.update", { harvestDelayMs: 0 }, options);
 		const created = await createDaemon(options, {
-			workspacePath: "/srv/peer",
 			confineToWorkspace: true,
 		});
 		const daemonId = created.frame.result?.env.envId ?? "";

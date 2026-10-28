@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { resolve } from "node:path";
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
 import { daemonCliArgs, formatDaemonHelp, parseDaemonArgs } from "./args.js";
 import { createBackoff, noteAttempt } from "./backoff.js";
@@ -57,8 +58,14 @@ export async function runDaemon(options: RunDaemonOptions): Promise<void> {
 	let execution: NodeExecutionEnv | undefined;
 	while (!options.signal?.aborted) {
 		if (state.stopped) return;
+		if (!prepared || !execution) {
+			cwd = prepareWorkspace(options.workspacePath, options.persist);
+			execution = new NodeExecutionEnv({ cwd });
+			prepared = true;
+		}
 		const headers: Record<string, string> = {
 			Authorization: `Bearer ${options.token}`,
+			"X-Cadmus-Workspace": cwd,
 		};
 		if (decision.capability)
 			headers["X-Cadmus-Env-Capabilities"] = "confinement";
@@ -84,12 +91,7 @@ export async function runDaemon(options: RunDaemonOptions): Promise<void> {
 			await sleep(step.delayMs);
 			continue;
 		}
-		if (!opened.socket) return;
-		if (!prepared || !execution) {
-			cwd = prepareWorkspace(options.workspacePath, options.persist);
-			execution = new NodeExecutionEnv({ cwd });
-			prepared = true;
-		}
+		if (!opened.socket || !execution) return;
 		await runSocket(opened.socket, execution, cwd, options, detector);
 	}
 }
@@ -148,9 +150,11 @@ async function main(): Promise<void> {
 		return;
 	}
 	if (parsed.kind === "pair") {
+		const workspacePath = resolveDaemonWorkspace(parsed.workspace);
 		const options = await performPairing({
 			pairingToken: parsed.token,
 			name: parsed.name,
+			workspacePath,
 			customConfigPath: parsed.configPath,
 		});
 		await runDaemon(options);
@@ -167,19 +171,25 @@ async function main(): Promise<void> {
 			process.exitCode = 1;
 			return;
 		}
+		const workspacePath = resolveDaemonWorkspace(parsed.workspace);
 		console.log(
-			`Starting Cadmus daemon "${loaded.config.name || loaded.config.envId}" (workspace: ${loaded.config.workspacePath})...`,
+			`Starting Cadmus daemon "${loaded.config.name || loaded.config.envId}" (workspace: ${workspacePath})...`,
 		);
 		await runDaemon({
 			url: loaded.config.url,
 			token: loaded.token,
 			envId: loaded.config.envId,
-			workspacePath: loaded.config.workspacePath,
+			workspacePath,
 			persist: loaded.config.persist,
 			confineToWorkspace: loaded.config.confineToWorkspace,
 		});
 		return;
 	}
+}
+
+export function resolveDaemonWorkspace(flag: string | undefined): string {
+	const trimmed = flag?.trim();
+	return resolve(trimmed && trimmed.length > 0 ? trimmed : process.cwd());
 }
 
 if (import.meta.main) {

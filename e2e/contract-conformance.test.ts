@@ -184,7 +184,6 @@ describe("contract conformance", () => {
 		const daemonEnv = await call("account.toolsEnvs.create", {
 			kind: "local-daemon",
 			label: "Conformance Daemon",
-			workspacePath: "/tmp/conformance",
 			confineToWorkspace: false,
 		});
 		const daemonEnvId = requireString(daemonEnv, ["env", "envId"]);

@@ -220,29 +220,23 @@ describe("tools env ids and writes", () => {
 	it("stores daemon confinement and rejects a shared daemon workspace", () => {
 		expect(() =>
 			assertDaemonEnvWrite({
-				workspacePath: "/home/me/src",
 				confineToWorkspace: true,
 			}),
 		).not.toThrow();
 		expect(() =>
 			assertDaemonEnvWrite({
-				workspacePath: "/home/me/src",
 				confineToWorkspace: false,
 				sharedWorkspace: false,
 			}),
 		).not.toThrow();
 		expect(() =>
 			assertDaemonEnvWrite({
-				workspacePath: "/home/me/src",
 				confineToWorkspace: true,
 				sharedWorkspace: true,
 			}),
 		).toThrow(ProtocolValidationError);
 		try {
-			assertDaemonEnvWrite({
-				workspacePath: "  ",
-				confineToWorkspace: true,
-			});
+			assertDaemonEnvWrite({});
 		} catch (error) {
 			expect((error as ProtocolValidationError).code).toBe("invalid_tools_env");
 		}

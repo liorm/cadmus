@@ -897,7 +897,6 @@ export const AccountToolsEnvsCreateCommandSchema = Type.Object(
 				persist: Type.Optional(Type.Boolean()),
 				confineToWorkspace: Type.Optional(Type.Boolean()),
 				sharedWorkspace: Type.Optional(Type.Boolean()),
-				workspacePath: Type.Optional(Type.String({ minLength: 1 })),
 				baseUrl: Type.Optional(Type.String()),
 			},
 			{ additionalProperties: false },
@@ -905,7 +904,7 @@ export const AccountToolsEnvsCreateCommandSchema = Type.Object(
 	},
 	{
 		description:
-			"Create a just-bash or local-daemon tools env definition. Daemon rows require workspacePath and confineToWorkspace.",
+			"Create a just-bash or local-daemon tools env definition. Daemon rows require confineToWorkspace. The workspace path is reported by the daemon process.",
 	},
 );
 export type AccountToolsEnvsCreateCommand = Static<
@@ -964,7 +963,6 @@ export const AccountToolsEnvsUpdateCommandSchema = Type.Object(
 				persist: Type.Optional(Type.Boolean()),
 				confineToWorkspace: Type.Optional(Type.Boolean()),
 				sharedWorkspace: Type.Optional(Type.Boolean()),
-				workspacePath: Type.Optional(Type.String({ minLength: 1 })),
 			},
 			{ additionalProperties: false },
 		),

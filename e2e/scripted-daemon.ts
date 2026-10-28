@@ -59,11 +59,13 @@ export class ScriptedDaemon {
 		token: string;
 		envId: string;
 		capabilities?: string;
+		workspace?: string;
 		headers?: Record<string, string>;
 		websocket?: boolean;
 	}): Promise<UpgradeResult> {
 		const headers: Record<string, string> = {
 			Authorization: `Bearer ${input.token}`,
+			"X-Cadmus-Workspace": input.workspace ?? "/home/dev/workspace",
 			...(input.headers ?? {}),
 		};
 		if (input.websocket !== false) headers.Upgrade = "websocket";

@@ -3614,7 +3614,7 @@
 		"/api/account/toolsEnvs/create": {
 			"post": {
 				"operationId": "account.toolsEnvs.create",
-				"summary": "Create a just-bash or local-daemon tools env definition. Daemon rows require workspacePath and confineToWorkspace.",
+				"summary": "Create a just-bash or local-daemon tools env definition. Daemon rows require confineToWorkspace. The workspace path is reported by the daemon process.",
 				"requestBody": {
 					"required": true,
 					"content": {
@@ -3646,10 +3646,6 @@
 									},
 									"sharedWorkspace": {
 										"type": "boolean"
-									},
-									"workspacePath": {
-										"type": "string",
-										"minLength": 1
 									},
 									"baseUrl": {
 										"type": "string"
@@ -3719,10 +3715,6 @@
 									},
 									"sharedWorkspace": {
 										"type": "boolean"
-									},
-									"workspacePath": {
-										"type": "string",
-										"minLength": 1
 									}
 								},
 								"additionalProperties": false
@@ -4909,8 +4901,7 @@
 					"kind",
 					"persist",
 					"confineToWorkspace",
-					"sharedWorkspace",
-					"root"
+					"sharedWorkspace"
 				],
 				"properties": {
 					"envId": {
@@ -4937,11 +4928,9 @@
 					"sharedWorkspace": {
 						"type": "boolean"
 					},
-					"workspacePath": {
-						"type": "string"
-					},
 					"root": {
-						"type": "string"
+						"type": "string",
+						"description": "Runtime directory. Present for just-bash, and for a local-daemon only while that daemon is connected."
 					}
 				},
 				"additionalProperties": false,
@@ -6017,9 +6006,6 @@
 					"sharedWorkspace": {
 						"type": "boolean"
 					},
-					"workspacePath": {
-						"type": "string"
-					},
 					"updatedAt": {
 						"type": "number"
 					},
@@ -6047,6 +6033,10 @@
 							},
 							"lastError": {
 								"type": "string"
+							},
+							"workspacePath": {
+								"type": "string",
+								"description": "Directory reported by the connected daemon. Omitted while disconnected."
 							}
 						},
 						"additionalProperties": false

@@ -65,6 +65,8 @@ export async function handleToolsEnvWebsocket(
 	if (capabilities.split(",").some((part) => part.trim() === "confinement")) {
 		headers.set("X-Cadmus-Env-Capabilities", "confinement");
 	}
+	const workspace = request.headers.get("X-Cadmus-Workspace");
+	if (workspace) headers.set("X-Cadmus-Workspace", workspace);
 	const forward = new URL(request.url);
 	forward.pathname = "/tools-env/ws";
 	forward.search = `?envId=${encodeURIComponent(envId)}`;

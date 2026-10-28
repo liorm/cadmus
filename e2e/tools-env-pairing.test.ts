@@ -17,7 +17,6 @@ describe("tools-env automated pairing and registration", () => {
 			"account.toolsEnvs.create",
 			{
 				kind: "local-daemon",
-				workspacePath: "/tmp/project",
 				persist: true,
 				confineToWorkspace: false,
 				baseUrl: "http://example.com",
@@ -40,7 +39,7 @@ describe("tools-env automated pairing and registration", () => {
 		const decoded = decodePairingToken(initialToken);
 		expect(decoded.accountId).toBe(accountId);
 		expect(decoded.envId).toBe(envId);
-		expect(decoded.workspace).toBe("/tmp/project");
+		expect(decoded).not.toHaveProperty("workspace");
 		expect(decoded.persist).toBe(true);
 		expect(decoded.confine).toBe(false);
 		expect(decoded.nonce).toBeDefined();
@@ -84,7 +83,6 @@ describe("tools-env automated pairing and registration", () => {
 			envId: string;
 			url: string;
 			wsUrl: string;
-			workspacePath: string;
 			persist: boolean;
 			confineToWorkspace: boolean;
 			name: string;
@@ -94,7 +92,7 @@ describe("tools-env automated pairing and registration", () => {
 		expect(redeemed.token).toMatch(/^cadmus_dk_[0-9a-f]{64}$/);
 		expect(redeemed.envId).toBe(envId);
 		expect(redeemed.name).toBe("Test Laptop Rig");
-		expect(redeemed.workspacePath).toBe("/tmp/project");
+		expect(redeemed).not.toHaveProperty("workspacePath");
 
 		// 4. Verify environment status in account.toolsEnvs.list
 		const listed = await sendRpc("account.toolsEnvs.list", {}, rpcOpts);
@@ -108,8 +106,29 @@ describe("tools-env automated pairing and registration", () => {
 		const upgrade = await ScriptedDaemon.upgrade({
 			token: redeemed.token,
 			envId,
+			workspace: "/tmp/run-a",
 		});
 		expect(upgrade.status).toBe(101);
+		const live = await sendRpc("account.toolsEnvs.list", {}, rpcOpts);
+		const liveEnv = live.frame.result?.envs.find((e) => e.envId === envId);
+		expect(liveEnv?.connection).toMatchObject({
+			status: "connected",
+			workspacePath: "/tmp/run-a",
+		});
+		const replaced = await ScriptedDaemon.upgrade({
+			token: redeemed.token,
+			envId,
+			workspace: "/tmp/run-b",
+		});
+		expect(replaced.status).toBe(101);
+		const next = await sendRpc("account.toolsEnvs.list", {}, rpcOpts);
+		const nextEnv = next.frame.result?.envs.find((e) => e.envId === envId);
+		expect(nextEnv?.connection).toMatchObject({
+			status: "connected",
+			workspacePath: "/tmp/run-b",
+		});
+		replaced.peer?.close();
+		upgrade.peer?.close();
 		expect(upgrade.peer).toBeDefined();
 
 		// 6. Test Replay Prevention: Try redeeming the same pairing token again
@@ -181,7 +200,6 @@ describe("tools-env automated pairing and registration", () => {
 			"account.toolsEnvs.create",
 			{
 				kind: "local-daemon",
-				workspacePath: "/tmp/project",
 				persist: true,
 				confineToWorkspace: false,
 				baseUrl: "http://example.com",

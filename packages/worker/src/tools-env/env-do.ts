@@ -11,6 +11,7 @@ import {
 import {
 	daemonLockPaths,
 	encodePairingToken,
+	parseReportedWorkspace,
 	writeOpLockPaths,
 } from "./pure.js";
 import {
@@ -137,7 +138,6 @@ export class CadmusEnvDO extends DurableObject<Env> {
 	async createPairing(input: {
 		accountId: string;
 		envId: string;
-		workspacePath: string;
 		persist: boolean;
 		confineToWorkspace: boolean;
 		url: string;
@@ -157,7 +157,6 @@ export class CadmusEnvDO extends DurableObject<Env> {
 			expiresAt,
 			accountId: input.accountId,
 			envId: input.envId,
-			workspacePath: input.workspacePath,
 			persist: input.persist,
 			confineToWorkspace: input.confineToWorkspace,
 			url: input.url,
@@ -171,7 +170,6 @@ export class CadmusEnvDO extends DurableObject<Env> {
 			envId: input.envId,
 			url: input.url,
 			wsUrl: input.wsUrl,
-			workspace: input.workspacePath,
 			persist: input.persist,
 			confine: input.confineToWorkspace,
 			nonce,
@@ -206,7 +204,6 @@ export class CadmusEnvDO extends DurableObject<Env> {
 				envId: string;
 				url: string;
 				wsUrl: string;
-				workspacePath: string;
 				persist: boolean;
 				confineToWorkspace: boolean;
 				name?: string;
@@ -223,7 +220,6 @@ export class CadmusEnvDO extends DurableObject<Env> {
 			expiresAt: number;
 			accountId: string;
 			envId: string;
-			workspacePath: string;
 			persist: boolean;
 			confineToWorkspace: boolean;
 			url: string;
@@ -287,7 +283,6 @@ export class CadmusEnvDO extends DurableObject<Env> {
 			envId: pending.envId,
 			url: pending.url,
 			wsUrl: pending.wsUrl,
-			workspacePath: pending.workspacePath,
 			persist: pending.persist,
 			confineToWorkspace: pending.confineToWorkspace,
 			name: label,
@@ -364,10 +359,16 @@ export class CadmusEnvDO extends DurableObject<Env> {
 			this.ws.noteConfinementUnavailable(envId);
 			return new Response("confinement_unavailable", { status: 409 });
 		}
+		const workspacePath = parseReportedWorkspace(
+			request.headers.get("X-Cadmus-Workspace"),
+		);
+		if (!workspacePath) {
+			return new Response("workspace_required", { status: 400 });
+		}
 		const pair = new WebSocketPair();
 		const client = pair[0];
 		const server = pair[1];
-		const generation = this.ws.markConnected(envId);
+		const generation = this.ws.markConnected(envId, workspacePath);
 		this.ctx.acceptWebSocket(server, ["tools-env-daemon"]);
 		server.serializeAttachment({ envId, generation });
 		this.ws.supersede(server, generation);

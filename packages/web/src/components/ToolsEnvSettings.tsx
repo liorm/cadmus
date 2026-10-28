@@ -34,7 +34,11 @@ function daemonConnectionLabel(env: ToolsEnvRecord): string {
 	const error = env.connection?.lastError
 		? ` · error ${env.connection.lastError}`
 		: "";
-	return ` · ${status}${when}${error}`;
+	const workspace =
+		status === "connected" && env.connection?.workspacePath
+			? ` · ${env.connection.workspacePath}`
+			: "";
+	return ` · ${status}${workspace}${when}${error}`;
 }
 
 export function ToolsEnvSettings({ isOpen, onClose }: ToolsEnvSettingsProps) {
@@ -55,7 +59,6 @@ export function ToolsEnvSettings({ isOpen, onClose }: ToolsEnvSettingsProps) {
 	const [jbShared, setJbShared] = useState(false);
 
 	const [daemonLabel, setDaemonLabel] = useState("");
-	const [daemonPath, setDaemonPath] = useState("");
 	const [daemonPersist, setDaemonPersist] = useState(true);
 	const [daemonConfine, setDaemonConfine] = useState(true);
 
@@ -136,7 +139,6 @@ export function ToolsEnvSettings({ isOpen, onClose }: ToolsEnvSettingsProps) {
 			const res = await client.callRpc("account.toolsEnvs.create", {
 				kind: "local-daemon",
 				label: daemonLabel.trim() || undefined,
-				workspacePath: daemonPath.trim(),
 				persist: daemonPersist,
 				confineToWorkspace: daemonConfine,
 				baseUrl,
@@ -146,7 +148,6 @@ export function ToolsEnvSettings({ isOpen, onClose }: ToolsEnvSettingsProps) {
 				return;
 			}
 			setDaemonLabel("");
-			setDaemonPath("");
 			if (res.result?.command && res.result?.expiresAt) {
 				setPairingInfo({
 					command: res.result.command,
@@ -353,7 +354,6 @@ export function ToolsEnvSettings({ isOpen, onClose }: ToolsEnvSettingsProps) {
 									<div>
 										<code>{env.envId}</code> {env.kind}
 										{env.label ? ` (${env.label})` : ""}
-										{env.workspacePath ? ` · ${env.workspacePath}` : ""}
 										{daemonConnectionLabel(env)}
 									</div>
 									{env.kind === "local-daemon" || canDeregister === true ? (
@@ -437,18 +437,10 @@ export function ToolsEnvSettings({ isOpen, onClose }: ToolsEnvSettingsProps) {
 
 					<form onSubmit={createDaemon} style={{ marginTop: 16 }}>
 						<h4>Create local-daemon env</h4>
-						<div className="form-group">
-							<label className="form-label" htmlFor="daemon-path">
-								Workspace path
-							</label>
-							<input
-								id="daemon-path"
-								className="input input-mono"
-								value={daemonPath}
-								onChange={(event) => setDaemonPath(event.target.value)}
-								required
-							/>
-						</div>
+						<p className="form-hint">
+							The workspace is the directory where you start cadmus-daemon, or
+							the path you pass with --workspace.
+						</p>
 						<label htmlFor="daemon-persist">
 							<input
 								id="daemon-persist"
@@ -481,7 +473,7 @@ export function ToolsEnvSettings({ isOpen, onClose }: ToolsEnvSettingsProps) {
 						<button
 							type="submit"
 							className="btn btn-primary btn-sm"
-							disabled={busy || !daemonPath.trim()}
+							disabled={busy}
 						>
 							Create & Pair Daemon
 						</button>

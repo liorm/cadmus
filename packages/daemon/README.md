@@ -48,7 +48,8 @@ You can run the daemon directly from source without compiling:
 # From repository root using bun run daemon:
 bun run daemon --help
 bun run daemon --version
-bun run daemon --url <ws-url> --token <token> --env-id <id> --workspace <path>
+bun run daemon pair <token> [--workspace <path>]
+bun run daemon start [--workspace <path>]
 
 # Or running the entrypoint directly:
 bun packages/daemon/src/cli.ts --help
@@ -74,7 +75,9 @@ Alternatively, compile for your platform and run the binary:
 ./packages/daemon/dist/cadmus-daemon --help
 ```
 
-`--help` and `--version` print and exit 0. They do not open a socket. `--version` prints the `version` field from `daemon/package.json` and nothing else. When both flags are present, `--help` wins. A token that is the value of `--url`, `--token`, `--env-id`, `--workspace`, `--persist`, or `--confine` is not `--help` or `--version`.
+`--help` and `--version` print and exit 0. They do not open a socket. `--version` prints the `version` field from `daemon/package.json` and nothing else. When both flags are present, `--help` wins. A token that is the value of `--name`, `--workspace`, or `--config` is not `--help` or `--version`.
+
+The workspace is `--workspace` when that flag is set, otherwise the process current directory. It is not stored in `~/.cadmus/daemon.json`. Each run reports the prepared directory to Cadmus. A non-persistent env reports `<workspace>/.cadmus-ephemeral`.
 
 ```text
 cadmus-daemon --help

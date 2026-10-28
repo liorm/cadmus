@@ -38,7 +38,6 @@ function toolResults(events: ServerEvent[]) {
 async function registerDaemon(
 	options: RpcOptions,
 	input: {
-		workspacePath?: string;
 		persist?: boolean;
 		confineToWorkspace?: boolean;
 	} = {},
@@ -50,7 +49,6 @@ async function registerDaemon(
 		"account.toolsEnvs.create",
 		{
 			kind: "local-daemon",
-			workspacePath: input.workspacePath ?? WORKSPACE,
 			persist: input.persist ?? true,
 			confineToWorkspace: input.confineToWorkspace ?? false,
 			baseUrl: "http://example.com",
@@ -976,7 +974,6 @@ describe("daemon websocket tools env", () => {
 
 		const ephemeral = await registerDaemon(options, {
 			persist: false,
-			workspacePath: "/home/dev/other",
 		});
 		const again = await ScriptedDaemon.upgrade({
 			token: ephemeral.token,

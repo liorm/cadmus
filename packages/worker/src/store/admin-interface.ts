@@ -29,7 +29,6 @@ export interface StoredToolsEnv {
 	persist: boolean;
 	confineToWorkspace: boolean;
 	sharedWorkspace: boolean;
-	workspacePath?: string;
 	updatedAt: number;
 }
 
@@ -108,7 +107,6 @@ export interface AdminStore {
 			persist: boolean;
 			confineToWorkspace: boolean;
 			sharedWorkspace: boolean;
-			workspacePath?: string;
 		},
 	): Promise<StoredToolsEnv>;
 	updateToolsEnv(
@@ -119,7 +117,6 @@ export interface AdminStore {
 			persist?: boolean;
 			confineToWorkspace?: boolean;
 			sharedWorkspace?: boolean;
-			workspacePath?: string;
 		},
 	): Promise<StoredToolsEnv | undefined>;
 	deleteToolsEnv(accountId: string, envId: string): Promise<boolean>;
