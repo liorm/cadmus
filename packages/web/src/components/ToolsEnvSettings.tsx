@@ -7,14 +7,22 @@ interface ToolsEnvSettingsProps {
 	onClose: () => void;
 }
 
-const OWNER_DEREGISTER_HINT = "Only account owners can deregister a daemon";
+const OWNER_DEREGISTER_HINT = "Only account owners can deregister an env";
 
 function deregisterFailureMessage(error: {
 	code?: string;
 	message?: string;
 }): string {
 	if (error.code === "forbidden") return OWNER_DEREGISTER_HINT;
-	return error.message ?? "Failed to deregister daemon";
+	return error.message ?? "Failed to deregister env";
+}
+
+function deregisterConfirm(env: ToolsEnvRecord): string {
+	const name = env.label || env.envId;
+	if (env.kind === "local-daemon") {
+		return `Deregister daemon ${name}? The token stops working immediately. Active connections will be terminated and the daemon must be paired again to reconnect.`;
+	}
+	return `Deregister env ${name}?`;
 }
 
 function daemonConnectionLabel(env: ToolsEnvRecord): string {
@@ -174,13 +182,11 @@ export function ToolsEnvSettings({ isOpen, onClose }: ToolsEnvSettingsProps) {
 		}
 	};
 
-	const deregisterDaemon = async (env: ToolsEnvRecord) => {
+	const deregisterEnv = async (env: ToolsEnvRecord) => {
 		if (canDeregister !== true) return;
 		if (
 			typeof window !== "undefined" &&
-			!window.confirm(
-				`Deregister daemon ${env.label || env.envId}? The token stops working immediately. Active connections will be terminated and the daemon must be paired again to reconnect.`,
-			)
+			!window.confirm(deregisterConfirm(env))
 		) {
 			return;
 		}
@@ -193,7 +199,7 @@ export function ToolsEnvSettings({ isOpen, onClose }: ToolsEnvSettingsProps) {
 			if (!res.ok) {
 				setError(
 					deregisterFailureMessage(
-						res.error ?? { message: "Failed to deregister daemon" },
+						res.error ?? { message: "Failed to deregister env" },
 					),
 				);
 				return;
@@ -277,11 +283,12 @@ export function ToolsEnvSettings({ isOpen, onClose }: ToolsEnvSettingsProps) {
 									className="input-mono"
 									style={{
 										flex: 1,
+										minWidth: 0,
 										padding: "6px 8px",
 										background: "rgba(0, 0, 0, 0.4)",
 										borderRadius: 4,
-										overflowX: "auto",
-										whiteSpace: "nowrap",
+										overflowWrap: "anywhere",
+										wordBreak: "break-all",
 									}}
 								>
 									{pairingInfo.command}
@@ -349,22 +356,28 @@ export function ToolsEnvSettings({ isOpen, onClose }: ToolsEnvSettingsProps) {
 										{env.workspacePath ? ` · ${env.workspacePath}` : ""}
 										{daemonConnectionLabel(env)}
 									</div>
-									{env.kind === "local-daemon" ? (
+									{env.kind === "local-daemon" || canDeregister === true ? (
 										<div style={{ display: "flex", gap: 6 }}>
-											<button
-												type="button"
-												className="btn btn-secondary btn-sm"
-												onClick={() => void pairDaemon(env)}
-												disabled={busy}
-											>
-												Pair
-											</button>
+											{env.kind === "local-daemon" ? (
+												<button
+													type="button"
+													className="btn btn-secondary btn-sm"
+													onClick={() => void pairDaemon(env)}
+													disabled={busy}
+												>
+													Pair
+												</button>
+											) : null}
 											{canDeregister === true ? (
 												<button
 													type="button"
 													className="btn btn-danger btn-sm"
-													aria-label={`Deregister daemon ${env.envId}`}
-													onClick={() => void deregisterDaemon(env)}
+													aria-label={
+														env.kind === "local-daemon"
+															? `Deregister daemon ${env.envId}`
+															: `Deregister env ${env.envId}`
+													}
+													onClick={() => void deregisterEnv(env)}
 													disabled={busy}
 												>
 													Deregister

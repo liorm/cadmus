@@ -517,15 +517,20 @@ export class ToolsEnvController {
 
 	async deregisterEnv(envId: string): Promise<void> {
 		const def = await this.deps.admin.getToolsEnv(this.deps.accountId(), envId);
-		if (def?.kind !== "local-daemon") {
+		if (!def) {
 			throw new ProtocolValidationError(
-				`Unknown local-daemon tools env '${envId}'`,
+				`Unknown tools env '${envId}'`,
 				"not_found",
 			);
 		}
-		const stub = this.stub(envId);
-		await stub.deregister(this.deps.accountId(), envId);
-		this.invalidate();
+		if (def.kind === "local-daemon") {
+			await this.stub(envId).deregister(this.deps.accountId(), envId);
+			this.invalidate();
+			return;
+		}
+		// just-bash (and any later non-daemon kind) matches delete: wipe env DO
+		// state, drop the account row, and clear the account default.
+		await this.deleteEnv(envId);
 	}
 
 	async listEnvs(): Promise<{

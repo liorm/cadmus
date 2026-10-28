@@ -56,6 +56,8 @@ function readRequest(
 	};
 }
 
+const PAIR_COMMAND = `cadmus-daemon pair cadmus_pt_${"a".repeat(80)}`;
+
 const envs: ToolsEnvRecord[] = [
 	{
 		envId: "ld_desk",
@@ -117,6 +119,16 @@ function clientFor(
 				new Response(JSON.stringify({ deregistered: "ld_desk" }))
 			);
 		}
+		if (type === "account.toolsEnvs.pair") {
+			return new Response(
+				JSON.stringify({
+					envId: "ld_desk",
+					pairingToken: "cadmus_pt_test",
+					expiresAt: CREATED + 900_000,
+					command: PAIR_COMMAND,
+				}),
+			);
+		}
 		throw new Error(`Unhandled command ${type}`);
 	};
 	return new CadmusClient({
@@ -174,9 +186,9 @@ describe("ToolsEnvSettings daemon lifecycle", () => {
 		await waitForText(view, "ld_desk");
 		expect(view.textContent).toContain("Desk");
 		expect(view.textContent).not.toContain("Pairing secrets");
-		expect(
-			view.querySelector("button[aria-label='Deregister daemon jb_default']"),
-		).toBeNull();
+		expect(deregisterButton(view, "jb_default", "env")).toBeInstanceOf(
+			HTMLButtonElement,
+		);
 
 		let confirmResult = false;
 		let confirmMessage = "";
@@ -196,15 +208,67 @@ describe("ToolsEnvSettings daemon lifecycle", () => {
 			button.click();
 		});
 		expect(deletes).toEqual([{ envId: "ld_desk" }]);
+
+		confirmMessage = "";
+		await act(async () => {
+			deregisterButton(view, "jb_default", "env").click();
+		});
+		expect(confirmMessage).toBe("Deregister env jb_default?");
+		expect(confirmMessage).not.toContain("token");
+		expect(deletes).toEqual([{ envId: "ld_desk" }, { envId: "jb_default" }]);
+	});
+
+	it("wraps the pairing command and copies the full string", async () => {
+		const view = await render(clientFor("owner"));
+		await waitForText(view, "ld_desk");
+		const pair = [...view.querySelectorAll("button")].find(
+			(button) => button.textContent === "Pair",
+		);
+		if (!(pair instanceof HTMLButtonElement)) {
+			throw new Error("missing pair button");
+		}
+		await act(async () => {
+			pair.click();
+		});
+		await waitForText(view, PAIR_COMMAND);
+		const code = view.querySelector("code.input-mono");
+		if (!(code instanceof HTMLElement)) {
+			throw new Error("missing pairing command");
+		}
+		expect(code.style.overflowWrap).toBe("anywhere");
+		expect(code.style.wordBreak).toBe("break-all");
+		expect(code.textContent).toBe(PAIR_COMMAND);
+		let copied = "";
+		const clipboard = navigator.clipboard;
+		Object.defineProperty(navigator, "clipboard", {
+			configurable: true,
+			value: {
+				writeText: async (value: string) => {
+					copied = value;
+				},
+			},
+		});
+		const copy = [...view.querySelectorAll("button")].find(
+			(button) => button.textContent === "Copy Command",
+		);
+		if (!(copy instanceof HTMLButtonElement)) {
+			throw new Error("missing copy button");
+		}
+		await act(async () => {
+			copy.click();
+		});
+		expect(copied).toBe(PAIR_COMMAND);
+		Object.defineProperty(navigator, "clipboard", {
+			configurable: true,
+			value: clipboard,
+		});
 	});
 
 	it("hides deregister from members and shows the owner hint", async () => {
 		const view = await render(clientFor("member"));
-		await waitForText(view, "Only account owners can deregister a daemon");
+		await waitForText(view, "Only account owners can deregister an env");
 		expect(view.textContent).toContain("ld_desk");
-		expect(
-			view.querySelector("button[aria-label^='Deregister daemon']"),
-		).toBeNull();
+		expect(view.querySelector("button[aria-label^='Deregister']")).toBeNull();
 		expect(view.textContent).not.toContain("Pairing secrets");
 	});
 
@@ -224,7 +288,7 @@ describe("ToolsEnvSettings daemon lifecycle", () => {
 		await act(async () => {
 			deregisterButton(view, "ld_desk").click();
 		});
-		await waitForText(view, "Only account owners can deregister a daemon");
+		await waitForText(view, "Only account owners can deregister an env");
 		expect(view.textContent).not.toContain("forbidden");
 	});
 });
@@ -232,9 +296,10 @@ describe("ToolsEnvSettings daemon lifecycle", () => {
 function deregisterButton(
 	container: ParentNode,
 	envId: string,
+	kind: "daemon" | "env" = "daemon",
 ): HTMLButtonElement {
 	const button = container.querySelector(
-		`button[aria-label="Deregister daemon ${envId}"]`,
+		`button[aria-label="Deregister ${kind} ${envId}"]`,
 	);
 	if (!(button instanceof HTMLButtonElement)) {
 		throw new Error(`missing deregister button for ${envId}`);
