@@ -467,8 +467,7 @@ describe("daemon websocket tools env", () => {
 		const next = await toolTurn(options, "main", "bash", {
 			command: "echo later",
 		});
-		expect(next.payload?.content ?? "").toContain("env disconnected");
-		expect(next.payload?.content ?? "").toContain("reconnects on its own");
+		expect(next.payload?.content ?? "").toContain("Tool bash is not available");
 		expect(
 			peer.requests.filter((request) => request.method === "exec").length,
 		).toBe(1);
@@ -481,6 +480,8 @@ describe("daemon websocket tools env", () => {
 		const rows = new Map(
 			(listed.frame.result?.envs ?? []).map((row) => [row.envId, row]),
 		);
+		expect(rows.has(envId)).toBe(false);
+		expect(rows.get(keptId)?.connection?.status).toBe("connected");
 		expect(rows.get("jb_default")?.connection).toEqual({ status: "connected" });
 		kept.peer.close();
 	});

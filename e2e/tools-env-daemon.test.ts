@@ -191,12 +191,12 @@ describe("local-daemon tools env through the bot", () => {
 			envs: EnvRow[];
 		}>("account.toolsEnvs.list", {}, options);
 		expect(after.frame.ok).toBe(true);
-		expect(after.frame.result?.default).toEqual({ envId: envA });
+		expect(after.frame.result?.default).toBeNull();
 		const rows = after.frame.result?.envs ?? [];
 		const byId = new Map(rows.map((row) => [row.envId, row]));
 		expect(byId.get("jb_default")?.kind).toBe("just-bash");
 		expect(byId.get("jb_default")?.connection).toEqual({ status: "connected" });
-		expect(byId.get(envA)?.connection).toEqual({ status: "disconnected" });
+		expect(byId.has(envA)).toBe(false);
 		expect(byId.get(envB)?.connection).toEqual({ status: "disconnected" });
 
 		const cleared = await env.CADMUS_ADMIN_DB.prepare(
@@ -205,7 +205,7 @@ describe("local-daemon tools env through the bot", () => {
 		)
 			.bind(options.accountId, envA)
 			.first<{ daemon_token_hash: string | null }>();
-		expect(cleared?.daemon_token_hash).toBeNull();
+		expect(cleared).toBeNull();
 
 		await sendRpc(
 			"chat.create",
@@ -215,15 +215,14 @@ describe("local-daemon tools env through the bot", () => {
 		const offline = await bashResult(options, "daemon-chat", "echo hi");
 		expect(offline.turnOk).toBe(true);
 		expect(offline.payload?.isError).toBe(true);
-		expect(offline.payload?.content ?? "").toContain("env disconnected");
 
 		const labelOnly = await sendRpc<{ env: { label?: string } }>(
 			"account.toolsEnvs.update",
 			{ envId: envA, label: "still named" },
 			options,
 		);
-		expect(labelOnly.frame.ok).toBe(true);
-		expect(labelOnly.frame.result?.env.label).toBe("still named");
+		expect(labelOnly.frame.ok).toBe(false);
+		expect(labelOnly.frame.error?.code).toBe("not_found");
 
 		const missing = await sendRpc(
 			"account.toolsEnvs.deregister",

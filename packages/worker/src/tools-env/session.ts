@@ -472,25 +472,9 @@ export class ToolsEnvController {
 	}
 
 	async deleteEnv(envId: string): Promise<void> {
-		const existing = await this.deps.admin.getToolsEnv(
-			this.deps.accountId(),
-			envId,
-		);
-		if (!existing) {
-			throw new ProtocolValidationError(
-				`Unknown tools env '${envId}'`,
-				"not_found",
-			);
-		}
-		if (existing.kind === "local-daemon") {
-			await this.stub(envId).closeForConfig({
-				deleteEphemeral: existing.persist === false,
-			});
-		} else if (existing.kind === "just-bash") {
-			await this.stub(envId).wipeEnv();
-		}
-		await this.deps.admin.deleteToolsEnv(this.deps.accountId(), envId);
-		this.invalidate();
+		const existing = await this.requireEnv(envId);
+		await this.releaseEnv(existing);
+		await this.dropEnv(envId);
 	}
 
 	async mintPairingToken(
@@ -516,21 +500,50 @@ export class ToolsEnvController {
 	}
 
 	async deregisterEnv(envId: string): Promise<void> {
-		const def = await this.deps.admin.getToolsEnv(this.deps.accountId(), envId);
-		if (!def) {
+		const def = await this.requireEnv(envId);
+		// Kind-specific cleanup, then the same removal as delete for every kind.
+		if (def.kind === "local-daemon") {
+			await this.stub(envId).deregister(this.deps.accountId(), envId);
+		}
+		try {
+			await this.releaseEnv(def);
+		} catch {
+			// Revoke may already have closed the socket and wiped DO state.
+		}
+		await this.dropEnv(envId);
+	}
+
+	private async requireEnv(envId: string): Promise<StoredToolsEnv> {
+		const existing = await this.deps.admin.getToolsEnv(
+			this.deps.accountId(),
+			envId,
+		);
+		if (!existing) {
 			throw new ProtocolValidationError(
 				`Unknown tools env '${envId}'`,
 				"not_found",
 			);
 		}
-		if (def.kind === "local-daemon") {
-			await this.stub(envId).deregister(this.deps.accountId(), envId);
-			this.invalidate();
+		return existing;
+	}
+
+	/** Kind-specific DO cleanup. Safe to repeat after a daemon revoke. */
+	private async releaseEnv(existing: StoredToolsEnv): Promise<void> {
+		if (existing.kind === "local-daemon") {
+			await this.stub(existing.envId).closeForConfig({
+				deleteEphemeral: existing.persist === false,
+			});
+			await this.stub(existing.envId).wipeEnv();
 			return;
 		}
-		// just-bash (and any later non-daemon kind) matches delete: wipe env DO
-		// state, drop the account row, and clear the account default.
-		await this.deleteEnv(envId);
+		if (existing.kind === "just-bash") {
+			await this.stub(existing.envId).wipeEnv();
+		}
+	}
+
+	private async dropEnv(envId: string): Promise<void> {
+		await this.deps.admin.deleteToolsEnv(this.deps.accountId(), envId);
+		this.invalidate();
 	}
 
 	async listEnvs(): Promise<{

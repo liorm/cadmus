@@ -200,6 +200,8 @@ describe("ToolsEnvSettings daemon lifecycle", () => {
 			button.click();
 		});
 		expect(confirmMessage).toContain("stops working immediately");
+		expect(confirmMessage).toContain("env is deleted");
+		expect(confirmMessage).toContain("Pair a new env to reconnect");
 		expect(deletes).toEqual([]);
 
 		confirmResult = true;
@@ -289,6 +291,33 @@ describe("ToolsEnvSettings daemon lifecycle", () => {
 		});
 		await waitForText(view, "Only account owners can deregister an env");
 		expect(view.textContent).not.toContain("forbidden");
+		const banner = view.querySelector(".alert-banner.alert-error");
+		expect(banner?.textContent).toContain(
+			"Only account owners can deregister an env",
+		);
+		expect(view.textContent).toContain("ld_desk");
+	});
+
+	it("shows the RPC error in the dialog when deregister fails", async () => {
+		const view = await render(
+			clientFor("owner", () => {
+				return new Response(
+					JSON.stringify({
+						error: { code: "internal", message: "Env revoke failed" },
+					}),
+					{ status: 500 },
+				);
+			}),
+		);
+		await waitForText(view, "ld_desk");
+		window.confirm = () => true;
+		await act(async () => {
+			deregisterButton(view, "ld_desk").click();
+		});
+		await waitForText(view, "Env revoke failed");
+		const banner = view.querySelector(".alert-banner.alert-error");
+		expect(banner?.textContent).toContain("Env revoke failed");
+		expect(view.textContent).toContain("ld_desk");
 	});
 });
 

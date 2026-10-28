@@ -20,7 +20,7 @@ function deregisterFailureMessage(error: {
 function deregisterConfirm(env: ToolsEnvRecord): string {
 	const name = env.label || env.envId;
 	if (env.kind === "local-daemon") {
-		return `Deregister daemon ${name}? The token stops working immediately. Active connections will be terminated and the daemon must be paired again to reconnect.`;
+		return `Deregister daemon ${name}? The token stops working immediately, active connections are closed, and the env is deleted. Pair a new env to reconnect.`;
 	}
 	return `Deregister env ${name}?`;
 }

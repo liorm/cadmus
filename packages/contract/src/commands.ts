@@ -945,7 +945,7 @@ export const AccountToolsEnvsDeregisterCommandSchema = Type.Object(
 	},
 	{
 		description:
-			"Deregister a tools env. A local-daemon env has its pairing revoked and any active session disconnected. Any other env is removed the same way as delete: the account row, account default, and env state are cleared.",
+			"Deregister a tools env. Every kind is removed the same way as delete: env state is wiped, the account row is dropped, and the account default is cleared when it pointed at this env. A local-daemon env first has its pairing revoked and any live connection closed.",
 	},
 );
 export type AccountToolsEnvsDeregisterCommand = Static<

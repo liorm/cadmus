@@ -189,7 +189,14 @@ describe("contract conformance", () => {
 		const daemonEnvId = requireString(daemonEnv, ["env", "envId"]);
 		await call("account.toolsEnvs.pair", { envId: daemonEnvId });
 		await call("account.toolsEnvs.deregister", { envId: daemonEnvId });
-		await call("account.toolsEnvs.delete", { envId: daemonEnvId });
+		const deletable = await call("account.toolsEnvs.create", {
+			kind: "just-bash",
+			label: "Conformance delete",
+			persist: false,
+		});
+		await call("account.toolsEnvs.delete", {
+			envId: requireString(deletable, ["env", "envId"]),
+		});
 
 		await call("family.list");
 		await call("family.get", { familyId });
