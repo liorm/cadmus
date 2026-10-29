@@ -10,6 +10,18 @@ import type {
 
 export type ConnectionStatus = "connecting" | "connected" | "disconnected";
 
+/** `crypto.randomUUID` is missing on insecure origins (plain HTTP by IP). */
+function newCommandId(): string {
+	if (typeof crypto.randomUUID === "function") {
+		return `cmd-${crypto.randomUUID().slice(0, 8)}`;
+	}
+	const bytes = new Uint8Array(4);
+	crypto.getRandomValues(bytes);
+	let hex = "";
+	for (const byte of bytes) hex += byte.toString(16).padStart(2, "0");
+	return `cmd-${hex}`;
+}
+
 export type FetchFunction = (
 	input: RequestInfo | URL,
 	init?: RequestInit,
@@ -199,7 +211,7 @@ export class CadmusClient {
 		type: string,
 		payload?: Record<string, unknown>,
 	): Promise<CommandResultFrame<T>> {
-		const id = `cmd-${crypto.randomUUID().slice(0, 8)}`;
+		const id = newCommandId();
 		const route = routeFor(type);
 		let url = joinBase(this.baseUrl, route.path);
 		const headers = this.buildHeaders();

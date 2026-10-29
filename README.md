@@ -59,7 +59,7 @@ In a second terminal, start the Web UI development server:
 bun run web:dev
 ```
 
-Open [http://localhost:5173](http://localhost:5173) in your browser. `/api`, `/rpc`, `/events`, `/health`, `/protocol/schema`, and `/ws` are proxied to the local Worker at `http://localhost:8787`.
+Open [http://localhost:5173](http://localhost:5173) in your browser. The dev server proxies the same paths as `assets.run_worker_first` in `wrangler.jsonc` (`/health`, `/protocol/schema`, `/ws`, `/events`, `/rpc`, `/api/*`, `/tools-env/*`) to the local Worker at `http://localhost:8787`.
 
 #### Option B: Standalone TUI
 

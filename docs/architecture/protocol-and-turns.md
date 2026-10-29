@@ -106,7 +106,7 @@ Every `/api/*` response (success, error, **401**, **404**, **405**, and `HEAD`) 
 
 A successful `/api` body is the unwrapped `result`. The client adds `id`, `type: "command.result"`, `command`, and `ok: true`. Only REST `{ error }` bodies and auth `protocol.error` frames resolve as `{ ok: false, error }`.
 
-The Vite dev server proxies `/api` to the Worker along with `/rpc`, `/events`, `/health`, `/protocol/schema`, and `/ws`. The TUI still speaks `/rpc`.
+The Vite dev server proxies the `assets.run_worker_first` paths from `wrangler.jsonc` (`/health`, `/protocol/schema`, `/ws`, `/events`, `/rpc`, `/api/*`, `/tools-env/*`) to the Worker. The TUI still speaks `/rpc`.
 
 ### OpenAPI and AsyncAPI (internal artifacts)
 

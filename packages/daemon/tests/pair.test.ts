@@ -48,6 +48,27 @@ describe("daemon pairing logic", () => {
 		expect(() => parsePairingToken(token)).toThrow("Missing required fields");
 	});
 
+	it("refuses a confined daemon before redeeming the token when bwrap is missing", async () => {
+		const token = encodeToken({ ...validPayload, confine: true });
+		let fetched = false;
+		const mockFetch = (async () => {
+			fetched = true;
+			return new Response("should not redeem", { status: 500 });
+		}) as unknown as typeof fetch;
+
+		await expect(
+			performPairing({
+				pairingToken: token,
+				workspacePath: "/tmp/from-cli",
+				fetchImpl: mockFetch,
+				detector: { bwrap: false, sandboxExec: false },
+			}),
+		).rejects.toThrow(
+			"No confinement mechanism (bwrap or sandbox-exec). Refusing to start.",
+		);
+		expect(fetched).toBe(false);
+	});
+
 	it("rejects expired tokens before making any network calls", async () => {
 		const expiredPayload: DecodedPairingToken = {
 			...validPayload,
@@ -106,5 +127,24 @@ describe("daemon pairing logic", () => {
 		expect(result.envId).toBe("ld_456");
 		expect(result.workspacePath).toBe("/tmp/from-cli");
 		expect(result.url).toBe("ws://example.com/tools-env/ws");
+	});
+
+	it("includes the pair URL and response body when pairing returns 404", async () => {
+		const token = encodeToken(validPayload);
+		const mockFetch = (async () =>
+			new Response("<html>not found</html>", {
+				status: 404,
+				statusText: "Not Found",
+			})) as unknown as typeof fetch;
+
+		await expect(
+			performPairing({
+				pairingToken: token,
+				workspacePath: "/tmp/from-cli",
+				fetchImpl: mockFetch,
+			}),
+		).rejects.toThrow(
+			"Pairing failed with status 404 Not Found at http://example.com/tools-env/pair: <html>not found</html>",
+		);
 	});
 });

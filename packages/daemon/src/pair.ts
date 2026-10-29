@@ -1,6 +1,11 @@
 import os from "node:os";
 import type { RunDaemonOptions } from "./cli.js";
 import { saveDaemonConfig } from "./config.js";
+import {
+	type ConfineDetector,
+	detectConfineMechanisms,
+	startupDecision,
+} from "./confine.js";
 import { type DaemonLogger, getDaemonLogger } from "./log.js";
 
 export const PAIRING_TOKEN_PREFIX = "cadmus_pt_";
@@ -58,6 +63,7 @@ export async function performPairing(input: {
 	customConfigPath?: string;
 	fetchImpl?: typeof fetch;
 	logger?: DaemonLogger;
+	detector?: ConfineDetector;
 }): Promise<RunDaemonOptions> {
 	const logger = input.logger ?? getDaemonLogger();
 	const payload = parsePairingToken(input.pairingToken);
@@ -66,6 +72,16 @@ export async function performPairing(input: {
 		throw new Error(
 			"Pairing token has expired (15-minute time limit exceeded). Please generate a fresh token in Cadmus.",
 		);
+	}
+
+	// The pair endpoint consumes the one-shot token. Refuse a confined daemon
+	// that cannot start before that redeem, so a missing bwrap does not burn it.
+	if (payload.confine) {
+		const decision = startupDecision({
+			confineToWorkspace: true,
+			detector: input.detector ?? detectConfineMechanisms(),
+		});
+		if (!decision.start) throw new Error(decision.reason);
 	}
 
 	const daemonName = input.name?.trim() || os.hostname() || "Daemon";
@@ -89,17 +105,28 @@ export async function performPairing(input: {
 	}
 
 	if (!response.ok) {
-		let message = `Pairing failed with status ${response.status}`;
-		try {
-			const errJson = (await response.json()) as {
-				error?: { code?: string; message?: string };
-			};
-			if (errJson.error?.message) {
-				message = errJson.error.message;
+		const statusLabel = response.statusText
+			? `${response.status} ${response.statusText}`
+			: String(response.status);
+		let detail = "";
+		const body = await response.text().catch(() => "");
+		if (body) {
+			try {
+				const errJson = JSON.parse(body) as {
+					error?: { code?: string; message?: string };
+				};
+				if (errJson.error?.message) {
+					detail = errJson.error.code
+						? `${errJson.error.code}: ${errJson.error.message}`
+						: errJson.error.message;
+				}
+			} catch {
+				detail = body.replace(/\s+/g, " ").trim().slice(0, 200);
 			}
-		} catch {
-			// ignore json parse error
 		}
+		const message = detail
+			? `Pairing failed with status ${statusLabel} at ${pairUrl}: ${detail}`
+			: `Pairing failed with status ${statusLabel} at ${pairUrl}`;
 		throw new Error(message);
 	}
 
