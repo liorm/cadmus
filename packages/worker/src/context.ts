@@ -27,6 +27,12 @@ export interface CadmusServices {
 		tools?: string[];
 		soul?: string;
 		memory?: string;
+		knowledge?: {
+			slug: string;
+			description: string;
+			category?: string;
+			body: string;
+		}[];
 		toolsEnv?: ToolsEnvSetting | null;
 	}): Promise<BotRecord>;
 	prepareCodingTools(conversationId: number): Promise<void>;

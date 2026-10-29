@@ -31,15 +31,45 @@ describe("Inter-Bot Co-Location Tools (create_bot, search_bot, message_bot)", ()
 			expect(createTurn.ok).toBe(true);
 			expect(createTurn.result?.reply).toContain('"id":"chef"');
 
+			const seeded = await wsClient.send<{ reply: string }>("turn.submit", {
+				chatKey: "coord-chat",
+				text: `Seed a peer with its own knowledge [tool:create_bot ${JSON.stringify({
+					slug: "ha",
+					name: "HA",
+					soul: "Home assistant host.",
+					knowledge: [
+						{
+							slug: "host",
+							description: "Host notes",
+							body: "The host is 192.168.0.115.",
+						},
+					],
+				})}]`,
+			});
+			expect(seeded.ok).toBe(true);
+			expect(seeded.result?.reply).toContain('"id":"ha"');
+
+			const peer = await sendRpc<{
+				knowledge: { slug: string; body?: string; description: string }[];
+			}>("bot.get", { botId: "ha" }, scope);
+			expect(peer.frame.result?.knowledge.map((doc) => doc.slug)).toEqual([
+				"host",
+			]);
+			const caller = await sendRpc<{
+				knowledge: { slug: string }[];
+			}>("bot.get", { botId: "coordinator" }, scope);
+			expect(caller.frame.result?.knowledge).toEqual([]);
+
 			// Verify `chef` now exists in the family's bot catalog
 			const botsRes = await sendRpc<{ bots: BotRecord[] }>(
 				"bot.list",
 				{},
 				scope,
 			);
-			expect(botsRes.frame.result?.bots.map((b) => b.id)).toEqual([
-				"coordinator",
+			expect(botsRes.frame.result?.bots.map((b) => b.id).sort()).toEqual([
 				"chef",
+				"coordinator",
+				"ha",
 			]);
 
 			// 3. Have coordinator invoke `search_bot` to find the bot that knows about pasta & espresso

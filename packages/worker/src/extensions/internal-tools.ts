@@ -282,7 +282,7 @@ export function internalToolsExtension() {
 			defineTool({
 				name: "create_bot",
 				description:
-					"Create a new peer bot in this Bot Family with its own persona (SOUL.md), memory, model, and tool policy.",
+					"Create a new peer bot in this Bot Family with its own persona (SOUL.md), memory, knowledge documents, model, and tool policy. Knowledge and memory passed here are stored on the new bot only. Do not follow this call with knowledge_update or memory_update to copy those documents: those tools write the caller, not the peer.",
 				parameters: Type.Object({
 					slug: Type.Optional(Type.String()),
 					name: Type.String({ minLength: 1 }),
@@ -290,7 +290,35 @@ export function internalToolsExtension() {
 					thinking: Type.Optional(ThinkingLevelSchema),
 					tools: Type.Optional(Type.Array(Type.String())),
 					soul: Type.Optional(Type.String()),
-					memory: Type.Optional(Type.String()),
+					memory: Type.Optional(
+						Type.String({
+							description:
+								"Initial MEMORY.md body stored on the new bot, not on you.",
+						}),
+					),
+					knowledge: Type.Optional(
+						Type.Array(
+							Type.Object({
+								slug: Type.String({
+									description:
+										"Knowledge slug on the new bot (lowercase letters, digits, hyphens, 1-64 chars).",
+								}),
+								description: Type.String({
+									description:
+										"One-line summary stored on the new bot (<= 240 chars).",
+								}),
+								category: Type.Optional(Type.String()),
+								body: Type.String({
+									description:
+										"Markdown body stored on the new bot, without a --- frontmatter fence.",
+								}),
+							}),
+							{
+								description:
+									"Initial knowledge documents created on the new bot. This is the only way for you to attach knowledge to a peer at creation. knowledge_update cannot target them.",
+							},
+						),
+					),
 					toolsEnv: Type.Optional(ToolsEnvSettingSchema),
 				}),
 				replay: "safe",
@@ -316,6 +344,7 @@ export function internalToolsExtension() {
 							tools: expandCodingOnlyAllowlist(args.tools),
 							soul: args.soul,
 							memory: args.memory,
+							knowledge: args.knowledge,
 							toolsEnv: args.toolsEnv,
 						});
 						getLogger().info("peer bot created via create_bot tool", {
@@ -430,7 +459,7 @@ export function internalToolsExtension() {
 			defineTool({
 				name: "message_bot",
 				description:
-					"Send a message to another bot in this Bot Family and await its response.",
+					"Send a message to another bot in this Bot Family and await its response. This does not copy knowledge or memory onto that bot. Give a new bot its documents through create_bot knowledge and memory.",
 				parameters: Type.Object({
 					botId: Type.Optional(Type.String()),
 					slug: Type.Optional(Type.String()),
