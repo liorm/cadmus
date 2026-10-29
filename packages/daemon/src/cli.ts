@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 import { resolve } from "node:path";
+import { stdout } from "node:process";
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
 import { daemonCliArgs, formatDaemonHelp, parseDaemonArgs } from "./args.js";
 import { createBackoff, noteAttempt } from "./backoff.js";
@@ -9,6 +10,7 @@ import {
 	detectConfineMechanisms,
 	startupDecision,
 } from "./confine.js";
+import { type DaemonLogger, getDaemonLogger } from "./log.js";
 import { performPairing } from "./pair.js";
 import { DaemonSession } from "./session.js";
 import { type DaemonSocket, openDaemonSocket } from "./socket.js";
@@ -23,6 +25,7 @@ export interface RunDaemonOptions {
 	persist: boolean;
 	confineToWorkspace: boolean;
 	detector?: ConfineDetector;
+	logger?: DaemonLogger;
 	configStamp?: string;
 	signal?: AbortSignal;
 	onWarning?: (line: string) => void;
@@ -35,6 +38,7 @@ export interface RunDaemonOptions {
 }
 
 export async function runDaemon(options: RunDaemonOptions): Promise<void> {
+	const logger = options.logger ?? getDaemonLogger();
 	const detector = options.detector ?? detectConfineMechanisms();
 	const decision = startupDecision({
 		confineToWorkspace: options.confineToWorkspace,
@@ -45,7 +49,7 @@ export async function runDaemon(options: RunDaemonOptions): Promise<void> {
 	}
 	if (decision.warning) {
 		if (options.onWarning) options.onWarning(decision.warning);
-		else console.log(decision.warning);
+		else logger.warn(decision.warning);
 	}
 	const state = createBackoff(options.configStamp ?? configStamp(options));
 	const dial = options.dial ?? openDaemonSocket;
@@ -75,19 +79,35 @@ export async function runDaemon(options: RunDaemonOptions): Promise<void> {
 		let opened: { status: number; socket?: DaemonSocket };
 		try {
 			opened = await dial({ url: url.toString(), headers });
-		} catch {
+		} catch (error) {
 			// ECONNREFUSED, DNS, reset, and the connect timeout reject the dial.
 			// Those are retryable (status 0), same backoff as a non-101 response.
 			if (options.signal?.aborted) return;
 			const failed = noteAttempt(state, 0, random);
 			if (failed.action === "stop") return;
-			if (failed.action === "wait") await sleep(failed.delayMs);
+			if (failed.action === "wait") {
+				logger.warn("daemon.connectFailed", {
+					error: error instanceof Error ? error.message : String(error),
+					retryInMs: failed.delayMs,
+				});
+				await sleep(failed.delayMs);
+			}
 			continue;
 		}
 		if (options.signal?.aborted) return;
 		const step = noteAttempt(state, opened.status, random);
-		if (step.action === "stop") return;
+		if (step.action === "stop") {
+			logger.error("daemon.stopped", {
+				status: opened.status,
+				reason: step.reason,
+			});
+			return;
+		}
 		if (step.action === "wait") {
+			logger.warn("daemon.connectRejected", {
+				status: opened.status,
+				retryInMs: step.delayMs,
+			});
 			await sleep(step.delayMs);
 			continue;
 		}
@@ -103,15 +123,21 @@ async function runSocket(
 	options: RunDaemonOptions,
 	detector: ConfineDetector,
 ): Promise<void> {
+	const logger = options.logger ?? getDaemonLogger();
+	logger.info("session.connected", { cwd });
 	const session = new DaemonSession(execution, {
 		cwd,
 		ephemeralDir: options.persist ? undefined : cwd,
 		confineToWorkspace: options.confineToWorkspace,
 		mechanism: detector,
+		logger,
 	});
 	session.attach(socket);
 	socket.onMessage((text) => session.handleText(text));
-	socket.onClose(() => session.dispose());
+	socket.onClose(() => {
+		logger.info("session.disconnected");
+		session.dispose();
+	});
 	await socket.closed;
 	session.dispose();
 }
@@ -126,13 +152,14 @@ function configStamp(options: RunDaemonOptions): string {
 }
 
 async function main(): Promise<void> {
+	const logger = getDaemonLogger();
 	const parsed = parseDaemonArgs(daemonCliArgs(process.argv));
 	if (parsed.kind === "help") {
-		console.log(formatDaemonHelp());
+		stdout.write(`${formatDaemonHelp()}\n`);
 		return;
 	}
 	if (parsed.kind === "version") {
-		console.log(DAEMON_VERSION);
+		stdout.write(`${DAEMON_VERSION}\n`);
 		return;
 	}
 	if (parsed.kind === "error") {
@@ -141,11 +168,14 @@ async function main(): Promise<void> {
 	if (parsed.kind === "deregister") {
 		const removed = await deleteDaemonConfig(parsed.configPath);
 		if (removed) {
-			console.log(
-				"\x1b[32m✔ Local daemon credentials and registration removed.\x1b[0m",
-			);
+			logger.info("daemon.deregistered", {
+				configPath: parsed.configPath,
+			});
 		} else {
-			console.log("No local configuration found to remove.");
+			logger.info("daemon.deregisterSkipped", {
+				reason: "no_local_config",
+				configPath: parsed.configPath,
+			});
 		}
 		return;
 	}
@@ -156,6 +186,14 @@ async function main(): Promise<void> {
 			name: parsed.name,
 			workspacePath,
 			customConfigPath: parsed.configPath,
+			logger,
+		});
+		logger.info("daemon.starting", {
+			envId: options.envId,
+			workspace: workspacePath,
+			url: options.url,
+			persist: options.persist,
+			confineToWorkspace: options.confineToWorkspace,
 		});
 		await runDaemon(options);
 		return;
@@ -163,18 +201,21 @@ async function main(): Promise<void> {
 	if (parsed.kind === "start") {
 		const loaded = await loadDaemonConfig(parsed.configPath);
 		if (!loaded) {
-			console.error(
-				"\x1b[31m✖ No paired daemon found.\x1b[0m\n" +
-					"Pair this machine with a 15-minute token from the Cadmus Web UI:\n\n" +
-					"  cadmus-daemon pair <token> [--name 'My Machine']\n",
-			);
+			logger.error("daemon.notPaired", {
+				hint: "cadmus-daemon pair <token> [--name 'My Machine']",
+			});
 			process.exitCode = 1;
 			return;
 		}
 		const workspacePath = resolveDaemonWorkspace(parsed.workspace);
-		console.log(
-			`Starting Cadmus daemon "${loaded.config.name || loaded.config.envId}" (workspace: ${workspacePath})...`,
-		);
+		logger.info("daemon.starting", {
+			name: loaded.config.name || loaded.config.envId,
+			envId: loaded.config.envId,
+			workspace: workspacePath,
+			url: loaded.config.url,
+			persist: loaded.config.persist,
+			confineToWorkspace: loaded.config.confineToWorkspace,
+		});
 		await runDaemon({
 			url: loaded.config.url,
 			token: loaded.token,
@@ -182,6 +223,7 @@ async function main(): Promise<void> {
 			workspacePath,
 			persist: loaded.config.persist,
 			confineToWorkspace: loaded.config.confineToWorkspace,
+			logger,
 		});
 		return;
 	}
@@ -195,7 +237,7 @@ export function resolveDaemonWorkspace(flag: string | undefined): string {
 if (import.meta.main) {
 	void main().catch((error: unknown) => {
 		const message = error instanceof Error ? error.message : String(error);
-		console.error(message);
+		getDaemonLogger().error("daemon.fatal", { error: message });
 		process.exitCode = 1;
 	});
 }

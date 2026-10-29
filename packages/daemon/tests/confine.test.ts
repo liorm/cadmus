@@ -103,8 +103,49 @@ describe("daemon confinement", () => {
 		});
 		expect(argv[0]).toBe("sandbox-exec");
 		expect(argv[1]).toBe("-p");
-		expect(argv[2]).toContain('(allow file-write* (subpath "/tmp/cadmus-ws"))');
+		expect(argv[2]).toContain('(deny file-read-data (subpath "/Users")');
+		expect(argv[2]).toContain(
+			'(allow file-read-data (subpath "/tmp/cadmus-ws"))',
+		);
+		expect(argv[2]).toContain('(allow file-write* (subpath "/tmp/cadmus-ws")');
 		expect(argv.slice(3)).toEqual(["sh", "-c", "true"]);
+	});
+
+	it("blocks reading outside workspace under sandbox-exec on macOS", () => {
+		if (process.platform !== "darwin") return;
+		const parent = scratch();
+		const workspace = join(parent, "ws");
+		mkdirSync(workspace, { recursive: true });
+		writeFileSync(join(parent, "secret.txt"), "top-secret");
+		writeFileSync(join(workspace, "allowed.txt"), "ok");
+		try {
+			const escapeArgv = confinedExecArgv({
+				mechanism: "sandbox-exec",
+				workspace,
+				command: "ls ..",
+			});
+			const escaped = Bun.spawnSync(escapeArgv, {
+				cwd: workspace,
+				stdout: "pipe",
+				stderr: "pipe",
+			});
+			expect(escaped.exitCode).not.toBe(0);
+
+			const insideArgv = confinedExecArgv({
+				mechanism: "sandbox-exec",
+				workspace,
+				command: "ls . && cat allowed.txt",
+			});
+			const inside = Bun.spawnSync(insideArgv, {
+				cwd: workspace,
+				stdout: "pipe",
+				stderr: "pipe",
+			});
+			expect(inside.exitCode).toBe(0);
+			expect(inside.stdout.toString()).toContain("allowed.txt");
+		} finally {
+			rmSync(parent, { recursive: true, force: true });
+		}
 	});
 
 	it("refuses to start when confinement is on and no mechanism exists", () => {

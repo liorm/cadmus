@@ -1,6 +1,7 @@
 import os from "node:os";
 import type { RunDaemonOptions } from "./cli.js";
 import { saveDaemonConfig } from "./config.js";
+import { type DaemonLogger, getDaemonLogger } from "./log.js";
 
 export const PAIRING_TOKEN_PREFIX = "cadmus_pt_";
 
@@ -56,7 +57,9 @@ export async function performPairing(input: {
 	workspacePath: string;
 	customConfigPath?: string;
 	fetchImpl?: typeof fetch;
+	logger?: DaemonLogger;
 }): Promise<RunDaemonOptions> {
+	const logger = input.logger ?? getDaemonLogger();
 	const payload = parsePairingToken(input.pairingToken);
 	const now = Date.now();
 	if (now >= payload.exp) {
@@ -117,24 +120,25 @@ export async function performPairing(input: {
 		);
 	}
 
+	const finalName = result.name || daemonName;
 	const { configPath, storageMethod } = await saveDaemonConfig(
 		{
 			url: result.wsUrl || payload.wsUrl,
 			envId: result.envId || payload.envId,
 			persist: result.persist ?? payload.persist,
 			confineToWorkspace: result.confineToWorkspace ?? payload.confine,
-			name: result.name || daemonName,
+			name: finalName,
 			token: result.token,
 		},
 		input.customConfigPath,
 	);
 
-	console.log(
-		`\x1b[32m✔ Successfully paired as "${result.name || daemonName}"!\x1b[0m`,
-	);
-	console.log(
-		`Saved configuration to ${configPath} (token stored in ${storageMethod}).`,
-	);
+	logger.info("daemon.paired", {
+		name: finalName,
+		envId: result.envId || payload.envId,
+		configPath,
+		storageMethod,
+	});
 
 	return {
 		url: result.wsUrl || payload.wsUrl,
@@ -143,5 +147,6 @@ export async function performPairing(input: {
 		workspacePath: input.workspacePath,
 		persist: result.persist ?? payload.persist,
 		confineToWorkspace: result.confineToWorkspace ?? payload.confine,
+		logger: input.logger,
 	};
 }

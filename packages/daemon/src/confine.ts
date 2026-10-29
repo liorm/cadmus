@@ -177,6 +177,32 @@ export function confinedExecArgv(input: {
 			...inner,
 		];
 	}
-	const profile = `(version 1)(deny default)(allow process*)(allow file-read*)(allow file-write* (subpath "${input.workspace}"))(allow sysctl-read)`;
+	let realWorkspace = input.workspace;
+	try {
+		realWorkspace = realpathSync(input.workspace);
+	} catch {
+		// Keep input.workspace if it does not resolve yet.
+	}
+	const readPaths = new Set([input.workspace, realWorkspace]);
+	const readSubpaths = [...readPaths]
+		.map((p) => `(subpath ${sbplString(p)})`)
+		.join(" ");
+	const writeSubpaths = [...readPaths, "/dev/fd"]
+		.map((p) => `(subpath ${sbplString(p)})`)
+		.join(" ");
+	const profile = [
+		"(version 1)",
+		"(deny default)",
+		"(allow process*)",
+		"(allow file-read*)",
+		'(deny file-read-data (subpath "/Users") (subpath "/home") (subpath "/Volumes") (subpath "/tmp") (subpath "/private/tmp") (subpath "/var/folders") (subpath "/private/var/folders"))',
+		`(allow file-read-data ${readSubpaths})`,
+		`(allow file-write* ${writeSubpaths} (literal "/dev/null") (literal "/dev/zero") (literal "/dev/tty"))`,
+		"(allow sysctl-read)",
+	].join("");
 	return ["sandbox-exec", "-p", profile, ...inner];
+}
+
+function sbplString(value: string): string {
+	return `"${value.replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`;
 }

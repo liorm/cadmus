@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
 import { runDaemon } from "../src/cli.js";
 import { TRUST_WARNING } from "../src/confine.js";
+import type { DaemonLogger } from "../src/log.js";
 import { DaemonSession } from "../src/session.js";
 import { openDaemonSocket } from "../src/socket.js";
 import { prepareWorkspace } from "../src/workspace.js";
@@ -410,5 +411,80 @@ describe("daemon dial", () => {
 		}
 		expect(dials).toBe(2);
 		expect(delays).toEqual([1_000]);
+	});
+
+	it("logs daemon operations with operational details", async () => {
+		const root = await mkdtemp(join(tmpdir(), "cadmus-log-test-"));
+		const cwd = prepareWorkspace(root, false);
+		const env = new NodeExecutionEnv({ cwd });
+		const logs: Array<{
+			level: string;
+			message: string;
+			meta?: Record<string, unknown>;
+		}> = [];
+		const testLogger: DaemonLogger = {
+			debug(message, meta) {
+				logs.push({ level: "debug", message, meta });
+			},
+			info(message, meta) {
+				logs.push({ level: "info", message, meta });
+			},
+			warn(message, meta) {
+				logs.push({ level: "warn", message, meta });
+			},
+			error(message, meta) {
+				logs.push({ level: "error", message, meta });
+			},
+			child() {
+				return testLogger;
+			},
+		};
+		const session = new DaemonSession(env, {
+			cwd,
+			ephemeralDir: cwd,
+			logger: testLogger,
+		});
+		session.attach({
+			send() {},
+			close() {},
+		});
+
+		session.handleText(
+			JSON.stringify({
+				id: "w-1",
+				method: "writeFile",
+				args: { path: "hello.txt", content: "hello world" },
+			}),
+		);
+		await waitFor(async () => logs.some((l) => l.message === "file.write"));
+		const writeLog = logs.find((l) => l.message === "file.write");
+		expect(writeLog?.meta?.path).toBe("hello.txt");
+		expect(writeLog?.meta?.bytes).toBe(11);
+
+		session.handleText(
+			JSON.stringify({
+				id: "r-1",
+				method: "readTextFile",
+				args: { path: "hello.txt" },
+			}),
+		);
+		await waitFor(async () => logs.some((l) => l.message === "file.readText"));
+		const readLog = logs.find((l) => l.message === "file.readText");
+		expect(readLog?.meta?.path).toBe("hello.txt");
+
+		session.handleText(
+			JSON.stringify({
+				id: "e-1",
+				method: "exec",
+				args: { command: "echo test" },
+			}),
+		);
+		await waitFor(async () => logs.some((l) => l.message === "exec.finish"));
+		const execStart = logs.find((l) => l.message === "exec.start");
+		expect(execStart?.meta?.command).toBe("echo test");
+		const execFinish = logs.find((l) => l.message === "exec.finish");
+		expect(execFinish?.meta?.exitCode).toBe(0);
+
+		session.dispose();
 	});
 });
