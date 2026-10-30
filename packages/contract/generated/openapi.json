@@ -1635,6 +1635,19 @@
 									"harvest": {
 										"type": "boolean",
 										"description": "Idle harvest switch for this chat. Omitted or true arms harvest after turns. False leaves harvest off. Group-chat sessions are created off."
+									},
+									"kind": {
+										"anyOf": [
+											{
+												"type": "string",
+												"const": "direct"
+											},
+											{
+												"type": "string",
+												"const": "scheduled"
+											}
+										],
+										"description": "Kind of chat to create. Defaults to 'direct'."
 									}
 								},
 								"description": "Parameters for creating a new chat session."
@@ -1677,7 +1690,7 @@
 		"/api/chat/list": {
 			"get": {
 				"operationId": "chat.list",
-				"summary": "List chat conversation sessions in this bot family, optionally filtered by botId.",
+				"summary": "List chat conversation sessions in this bot family, optionally filtered by botId and kinds.",
 				"parameters": [
 					{
 						"name": "botId",
@@ -1688,6 +1701,19 @@
 							"description": "Optional bot identifier to filter chat sessions."
 						},
 						"description": "Optional bot identifier to filter chat sessions."
+					},
+					{
+						"name": "kinds",
+						"in": "query",
+						"required": false,
+						"schema": {
+							"type": "array",
+							"items": {
+								"$ref": "#/components/schemas/ChatKind"
+							},
+							"description": "Kinds of chat sessions to include. Defaults to ['direct'] (user-created chats)."
+						},
+						"description": "Kinds of chat sessions to include. Defaults to ['direct'] (user-created chats)."
 					}
 				],
 				"responses": {
@@ -1723,7 +1749,7 @@
 			},
 			"head": {
 				"operationId": "chat.list.head",
-				"summary": "List chat conversation sessions in this bot family, optionally filtered by botId.",
+				"summary": "List chat conversation sessions in this bot family, optionally filtered by botId and kinds.",
 				"parameters": [
 					{
 						"name": "botId",
@@ -1734,6 +1760,19 @@
 							"description": "Optional bot identifier to filter chat sessions."
 						},
 						"description": "Optional bot identifier to filter chat sessions."
+					},
+					{
+						"name": "kinds",
+						"in": "query",
+						"required": false,
+						"schema": {
+							"type": "array",
+							"items": {
+								"$ref": "#/components/schemas/ChatKind"
+							},
+							"description": "Kinds of chat sessions to include. Defaults to ['direct'] (user-created chats)."
+						},
+						"description": "Kinds of chat sessions to include. Defaults to ['direct'] (user-created chats)."
 					}
 				],
 				"responses": {
@@ -4597,6 +4636,27 @@
 				},
 				"description": "Full chat session state including recent messages, transcript entries, and harvest audit notes."
 			},
+			"ChatKind": {
+				"anyOf": [
+					{
+						"type": "string",
+						"const": "direct"
+					},
+					{
+						"type": "string",
+						"const": "group"
+					},
+					{
+						"type": "string",
+						"const": "group-member"
+					},
+					{
+						"type": "string",
+						"const": "scheduled"
+					}
+				],
+				"description": "direct is a user-created 1-on-1 session. group is a bot-created group chat. group-member is an internal per-bot group execution session. scheduled is an automated session created by a schedule."
+			},
 			"ChatListResult": {
 				"type": "object",
 				"required": ["chats"],
@@ -4646,21 +4706,7 @@
 						"$ref": "#/components/schemas/ToolsEnvSetting"
 					},
 					"kind": {
-						"anyOf": [
-							{
-								"type": "string",
-								"const": "chat"
-							},
-							{
-								"type": "string",
-								"const": "group"
-							},
-							{
-								"type": "string",
-								"const": "legacy-peer"
-							}
-						],
-						"description": "chat is a normal session. group is a bot-created group chat. legacy-peer is a historical peer:<from>:<to> chat."
+						"$ref": "#/components/schemas/ChatKind"
 					},
 					"members": {
 						"type": "array",
@@ -4675,7 +4721,7 @@
 					},
 					"readOnly": {
 						"type": "boolean",
-						"description": "When true, the user can view the chat but cannot post. Group chats and legacy peer chats are read-only."
+						"description": "When true, the user can view the chat but cannot post. Group chats and group member chats are read-only."
 					},
 					"toolsReadOnly": {
 						"type": "boolean",

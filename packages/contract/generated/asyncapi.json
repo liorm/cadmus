@@ -1111,6 +1111,19 @@
 							"harvest": {
 								"type": "boolean",
 								"description": "Idle harvest switch for this chat. Omitted or true arms harvest after turns. False leaves harvest off. Group-chat sessions are created off."
+							},
+							"kind": {
+								"anyOf": [
+									{
+										"type": "string",
+										"const": "direct"
+									},
+									{
+										"type": "string",
+										"const": "scheduled"
+									}
+								],
+								"description": "Kind of chat to create. Defaults to 'direct'."
 							}
 						},
 						"description": "Parameters for creating a new chat session."
@@ -1178,6 +1191,27 @@
 				"readOnly": true,
 				"description": "Retrieve chat session metadata, active busy flag, recent messages, entries, and harvest notes."
 			},
+			"ChatKind": {
+				"anyOf": [
+					{
+						"type": "string",
+						"const": "direct"
+					},
+					{
+						"type": "string",
+						"const": "group"
+					},
+					{
+						"type": "string",
+						"const": "group-member"
+					},
+					{
+						"type": "string",
+						"const": "scheduled"
+					}
+				],
+				"description": "direct is a user-created 1-on-1 session. group is a bot-created group chat. group-member is an internal per-bot group execution session. scheduled is an automated session created by a schedule."
+			},
 			"ChatListCommand": {
 				"type": "object",
 				"required": ["id", "type"],
@@ -1198,13 +1232,20 @@
 							"botId": {
 								"type": "string",
 								"description": "Optional bot identifier to filter chat sessions."
+							},
+							"kinds": {
+								"type": "array",
+								"items": {
+									"$ref": "#/components/schemas/ChatKind"
+								},
+								"description": "Kinds of chat sessions to include. Defaults to ['direct'] (user-created chats)."
 							}
 						},
 						"description": "Filters for listing chat sessions."
 					}
 				},
 				"readOnly": true,
-				"description": "List chat conversation sessions in this bot family, optionally filtered by botId."
+				"description": "List chat conversation sessions in this bot family, optionally filtered by botId and kinds."
 			},
 			"ChatMessagesCommand": {
 				"type": "object",

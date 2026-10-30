@@ -126,7 +126,7 @@ describe("message_bot readOnly", () => {
 					members?: string[];
 					harvest?: boolean;
 				}[];
-			}>("chat.list", {}, scope);
+			}>("chat.list", { kinds: ["group"] }, scope);
 			const group = listed.frame.result?.chats.find(
 				(chat) => chat.kind === "group",
 			);
@@ -274,7 +274,7 @@ describe("message_bot readOnly", () => {
 
 		const after = await sendRpc<{
 			chats: { key: string; kind?: string }[];
-		}>("chat.list", {}, scope);
+		}>("chat.list", { kinds: ["direct", "group"] }, scope);
 		const keys = (after.frame.result?.chats ?? [])
 			.map((chat) => chat.key)
 			.sort();
@@ -347,7 +347,7 @@ describe("message_bot readOnly", () => {
 		expect(woken[0]?.text).toContain("cinnamon later");
 		const listed = await sendRpc<{
 			chats: { kind?: string; toolsReadOnly?: boolean; groupStatus?: string }[];
-		}>("chat.list", {}, scope);
+		}>("chat.list", { kinds: ["group"] }, scope);
 		const group = listed.frame.result?.chats.find(
 			(chat) => chat.kind === "group",
 		);
@@ -393,7 +393,7 @@ describe("message_bot readOnly", () => {
 			}
 			const listed = await sendRpc<{
 				chats: { kind?: string; members?: string[]; toolsReadOnly?: boolean }[];
-			}>("chat.list", {}, scope);
+			}>("chat.list", { kinds: ["group"] }, scope);
 			const group = listed.frame.result?.chats.find(
 				(chat) => chat.kind === "group",
 			);
@@ -455,7 +455,7 @@ describe("message_bot readOnly", () => {
 			}
 			const listed = await sendRpc<{
 				chats: { kind?: string; toolsReadOnly?: boolean; readOnly?: boolean }[];
-			}>("chat.list", {}, scope);
+			}>("chat.list", { kinds: ["group"] }, scope);
 			const group = listed.frame.result?.chats.find(
 				(chat) => chat.kind === "group",
 			);

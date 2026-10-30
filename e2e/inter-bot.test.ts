@@ -124,7 +124,7 @@ describe("Inter-Bot Co-Location Tools (create_bot, search_bot, message_bot)", ()
 					readOnly?: boolean;
 					harvest?: boolean;
 				}[];
-			}>("chat.list", {}, scope);
+			}>("chat.list", { kinds: ["group"] }, scope);
 			const group = listed.frame.result?.chats.find(
 				(chat) => chat.kind === "group",
 			);
@@ -245,7 +245,7 @@ describe("Inter-Bot Co-Location Tools (create_bot, search_bot, message_bot)", ()
 		expect(turn.frame.result?.reply).toContain("[[hang]]");
 		const listed = await sendRpc<{
 			chats: { kind?: string; groupStatus?: string }[];
-		}>("chat.list", {}, scope);
+		}>("chat.list", { kinds: ["group"] }, scope);
 		expect(
 			listed.frame.result?.chats.some(
 				(chat) => chat.kind === "group" && chat.groupStatus === "timed_out",
@@ -275,7 +275,7 @@ describe("Inter-Bot Co-Location Tools (create_bot, search_bot, message_bot)", ()
 		expect(turn.frame.result?.reply).toContain('"status":"capped"');
 		const listed = await sendRpc<{
 			chats: { kind?: string; groupStatus?: string }[];
-		}>("chat.list", {}, scope);
+		}>("chat.list", { kinds: ["group"] }, scope);
 		expect(
 			listed.frame.result?.chats.some(
 				(chat) => chat.kind === "group" && chat.groupStatus === "capped",
@@ -330,7 +330,7 @@ describe("Inter-Bot Co-Location Tools (create_bot, search_bot, message_bot)", ()
 		expect(budget.frame.result?.reply).toContain("peer action 6");
 		const listed = await sendRpc<{
 			chats: { topic?: string; kind?: string }[];
-		}>("chat.list", {}, scope);
+		}>("chat.list", { kinds: ["group"] }, scope);
 		const topics = (listed.frame.result?.chats ?? [])
 			.filter((chat) => chat.kind === "group")
 			.map((chat) => chat.topic);
@@ -403,7 +403,7 @@ describe("Inter-Bot Co-Location Tools (create_bot, search_bot, message_bot)", ()
 		).toHaveLength(1);
 		const listed = await sendRpc<{ chats: { key: string; kind?: string }[] }>(
 			"chat.list",
-			{},
+			{ kinds: ["group"] },
 			scope,
 		);
 		const group = listed.frame.result?.chats.find(
@@ -421,34 +421,78 @@ describe("Inter-Bot Co-Location Tools (create_bot, search_bot, message_bot)", ()
 		).toHaveLength(1);
 	});
 
-	it("keeps legacy peer chats readable and read-only", async () => {
+	it("filters chats by kind and defaults chat.list to direct chats", async () => {
 		const scope = {
-			accountId: uniqueAccountId("group-legacy"),
+			accountId: uniqueAccountId("chat-kinds"),
 			familyId: "default",
 		};
 		await bots(["a", "b"], scope);
 		await sendRpc(
 			"chat.create",
-			{ botId: "b", key: "peer:a:b", title: "old peer" },
+			{ botId: "b", key: "direct-1", title: "User Chat" },
 			scope,
 		);
-		const listed = await sendRpc<{
-			chats: { key: string; kind?: string; readOnly?: boolean }[];
-		}>("chat.list", {}, scope);
-		const legacy = listed.frame.result?.chats.find(
-			(chat) => chat.key === "peer:a:b",
+		await sendRpc(
+			"turn.submit",
+			{
+				chatKey: "direct-1",
+				text: `[tool:message_bot ${JSON.stringify({
+					botId: "a",
+					topic: "discuss",
+					text: "hello from b",
+				})}]`,
+			},
+			scope,
 		);
-		expect(legacy?.kind).toBe("legacy-peer");
-		expect(legacy?.readOnly).toBe(true);
-		const read = await sendRpc("chat.get", { chatKey: "peer:a:b" }, scope);
-		expect(read.frame.ok).toBe(true);
+
+		// Default chat.list -> only "direct" chats
+		const defaultListed = await sendRpc<{
+			chats: { key: string; kind?: string }[];
+		}>("chat.list", {}, scope);
+		expect(defaultListed.frame.result?.chats.map((c) => c.key).sort()).toEqual(
+			["direct-1", "root"].sort(),
+		);
+		expect(
+			defaultListed.frame.result?.chats.every((c) => c.kind === "direct"),
+		).toBe(true);
+
+		// kinds: ["group"] -> only group chat
+		const groupListed = await sendRpc<{
+			chats: { key: string; kind?: string }[];
+		}>("chat.list", { kinds: ["group"] }, scope);
+		expect(groupListed.frame.result?.chats).toHaveLength(1);
+		expect(groupListed.frame.result?.chats[0]?.kind).toBe("group");
+		const groupKey = groupListed.frame.result?.chats[0]?.key;
+
+		// kinds: ["group-member"] -> internal member chats (gmem:...)
+		const memberListed = await sendRpc<{
+			chats: { key: string; kind?: string; readOnly?: boolean }[];
+		}>("chat.list", { kinds: ["group-member"] }, scope);
+		expect(memberListed.frame.result?.chats.length).toBeGreaterThanOrEqual(2);
+		expect(
+			memberListed.frame.result?.chats.every((c) => c.kind === "group-member"),
+		).toBe(true);
+		expect(
+			memberListed.frame.result?.chats.every((c) => c.readOnly === true),
+		).toBe(true);
+
+		// Submitting a user turn to group-member chat is forbidden
+		const memberKey = memberListed.frame.result?.chats[0]?.key;
 		const posted = await sendRpc(
 			"turn.submit",
-			{ chatKey: "peer:a:b", text: "nope" },
+			{ chatKey: memberKey, text: "nope" },
 			scope,
 		);
 		expect(posted.frame.ok).toBe(false);
 		expect(posted.frame.error?.code).toBe("forbidden");
+
+		// kinds: ["direct", "group"] -> both
+		const bothListed = await sendRpc<{
+			chats: { key: string; kind?: string }[];
+		}>("chat.list", { kinds: ["direct", "group"] }, scope);
+		expect(bothListed.frame.result?.chats.map((c) => c.key).sort()).toEqual(
+			["direct-1", "root", groupKey].sort(),
+		);
 	});
 
 	it("deletes unlisted group member chats when a member bot is deleted", async () => {

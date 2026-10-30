@@ -8,6 +8,7 @@ import type {
 	BotFileStore,
 	BotRecord,
 	BotStore,
+	ChatKind,
 	ChatRecord,
 	ChatStore,
 	ConversationRoute,
@@ -603,27 +604,32 @@ class SqliteBotFileStore implements BotFileStore {
 class SqliteChatStore implements ChatStore {
 	constructor(private readonly sql: SqlStorage) {}
 
-	listChats(botId?: string): ChatRecord[] {
+	listChats(
+		filter?: string | { botId?: string; kinds?: readonly ChatKind[] },
+	): ChatRecord[] {
+		const botId = typeof filter === "string" ? filter : filter?.botId;
+		const kinds = typeof filter === "object" ? filter?.kinds : undefined;
+
+		const conditions: string[] = [];
+		const params: (string | number)[] = [];
+
 		if (botId) {
-			const rows = this.sql
-				.exec<{
-					key: string;
-					bot_id: string;
-					conversation_id: number;
-					title: string | null;
-					thinking: string | null;
-					closed: number;
-					created_at: number;
-				}>(
-					`SELECT key, bot_id, conversation_id, title, thinking, closed, tools_env_json, created_at, harvest_enabled
-           FROM cadmus_chats
-           WHERE bot_id = ? AND listed = 1
-           ORDER BY created_at ASC, key ASC`,
-					botId,
-				)
-				.toArray();
-			return rows.map((r) => this.mapRow(r));
+			conditions.push("bot_id = ?");
+			params.push(botId);
 		}
+
+		if (kinds && kinds.length > 0) {
+			const placeholders = kinds.map(() => "?").join(", ");
+			conditions.push(`kind IN (${placeholders})`);
+			params.push(...kinds);
+		}
+
+		const whereClause =
+			conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+		const sql = `SELECT key, bot_id, conversation_id, title, thinking, closed, tools_env_json, created_at, harvest_enabled, kind
+         FROM cadmus_chats
+         ${whereClause}
+         ORDER BY created_at ASC, key ASC`;
 
 		const rows = this.sql
 			.exec<{
@@ -633,14 +639,13 @@ class SqliteChatStore implements ChatStore {
 				title: string | null;
 				thinking: string | null;
 				closed: number;
+				tools_env_json?: string | null;
 				created_at: number;
-			}>(
-				`SELECT key, bot_id, conversation_id, title, thinking, closed, tools_env_json, created_at, harvest_enabled
-         FROM cadmus_chats
-         WHERE listed = 1
-         ORDER BY created_at ASC, key ASC`,
-			)
+				harvest_enabled?: number | null;
+				kind?: string | null;
+			}>(sql, ...params)
 			.toArray();
+
 		return rows.map((r) => this.mapRow(r));
 	}
 
@@ -653,9 +658,12 @@ class SqliteChatStore implements ChatStore {
 				title: string | null;
 				thinking: string | null;
 				closed: number;
+				tools_env_json?: string | null;
 				created_at: number;
+				harvest_enabled?: number | null;
+				kind?: string | null;
 			}>(
-				`SELECT key, bot_id, conversation_id, title, thinking, closed, tools_env_json, created_at, harvest_enabled
+				`SELECT key, bot_id, conversation_id, title, thinking, closed, tools_env_json, created_at, harvest_enabled, kind
          FROM cadmus_chats
          WHERE key = ?`,
 				key,
@@ -673,9 +681,12 @@ class SqliteChatStore implements ChatStore {
 				title: string | null;
 				thinking: string | null;
 				closed: number;
+				tools_env_json?: string | null;
 				created_at: number;
+				harvest_enabled?: number | null;
+				kind?: string | null;
 			}>(
-				`SELECT key, bot_id, conversation_id, title, thinking, closed, tools_env_json, created_at, harvest_enabled
+				`SELECT key, bot_id, conversation_id, title, thinking, closed, tools_env_json, created_at, harvest_enabled, kind
          FROM cadmus_chats
          WHERE conversation_id = ?
          LIMIT 1`,
@@ -685,14 +696,15 @@ class SqliteChatStore implements ChatStore {
 		return rows[0] ? this.mapRow(rows[0]) : undefined;
 	}
 
-	upsertChat(chat: ChatRecord, options?: { listed?: boolean }): void {
+	upsertChat(chat: ChatRecord): void {
 		const toolsEnvJson =
 			chat.toolsEnv !== undefined && chat.toolsEnv !== null
 				? JSON.stringify(chat.toolsEnv)
 				: null;
-		const listed = options?.listed === false ? 0 : 1;
+		const kind =
+			chat.kind ?? (chat.key.startsWith("gmem:") ? "group-member" : "direct");
 		this.sql.exec(
-			`INSERT INTO cadmus_chats (key, bot_id, conversation_id, title, thinking, closed, tools_env_json, created_at, harvest_enabled, listed)
+			`INSERT INTO cadmus_chats (key, bot_id, conversation_id, title, thinking, closed, tools_env_json, created_at, harvest_enabled, kind)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(key) DO UPDATE SET
          bot_id = excluded.bot_id,
@@ -701,7 +713,8 @@ class SqliteChatStore implements ChatStore {
          thinking = excluded.thinking,
          closed = excluded.closed,
          tools_env_json = excluded.tools_env_json,
-         harvest_enabled = excluded.harvest_enabled`,
+         harvest_enabled = excluded.harvest_enabled,
+         kind = excluded.kind`,
 			chat.key,
 			chat.botId,
 			chat.conversationId,
@@ -711,7 +724,7 @@ class SqliteChatStore implements ChatStore {
 			toolsEnvJson,
 			chat.createdAt,
 			chat.harvest === false ? 0 : 1,
-			listed,
+			kind,
 		);
 	}
 
@@ -747,12 +760,19 @@ class SqliteChatStore implements ChatStore {
 		thinking: string | null;
 		closed: number;
 		created_at: number;
+		kind?: string | null;
+		tools_env_json?: string | null;
+		harvest_enabled?: number | null;
 	}): ChatRecord {
+		const kind: ChatKind =
+			(row.kind as ChatKind) ||
+			(row.key.startsWith("gmem:") ? "group-member" : "direct");
 		const rec: ChatRecord = {
 			key: row.key,
 			botId: row.bot_id,
 			conversationId: Number(row.conversation_id),
 			createdAt: Number(row.created_at),
+			kind,
 		};
 		if (row.title !== null) {
 			rec.title = row.title;
@@ -763,15 +783,11 @@ class SqliteChatStore implements ChatStore {
 		if (row.closed) {
 			rec.closed = true;
 		}
-		const toolsEnv = parseToolsEnv(
-			(row as { tools_env_json?: string | null }).tools_env_json,
-		);
+		const toolsEnv = parseToolsEnv(row.tools_env_json);
 		if (toolsEnv) rec.toolsEnv = toolsEnv;
-		const harvestEnabled = (row as { harvest_enabled?: number | null })
-			.harvest_enabled;
+		const harvestEnabled = row.harvest_enabled;
 		if (harvestEnabled === 0) rec.harvest = false;
-		if (row.key.startsWith("peer:")) {
-			rec.kind = "legacy-peer";
+		if (kind === "group-member") {
 			rec.readOnly = true;
 		}
 		return rec;
@@ -1457,7 +1473,7 @@ export class SqliteFamilyStore implements FamilyStore {
         tools_env_json TEXT,
         created_at INTEGER NOT NULL,
         harvest_enabled INTEGER NOT NULL DEFAULT 1,
-        listed INTEGER NOT NULL DEFAULT 1
+        kind TEXT NOT NULL DEFAULT 'direct'
       );
 
       CREATE INDEX IF NOT EXISTS idx_cadmus_chats_bot
@@ -1576,7 +1592,11 @@ export class SqliteFamilyStore implements FamilyStore {
       );
     `);
 		ensureChatColumn(this.sql, "harvest_enabled", "INTEGER NOT NULL DEFAULT 1");
-		ensureChatColumn(this.sql, "listed", "INTEGER NOT NULL DEFAULT 1");
+		ensureChatColumn(this.sql, "kind", "TEXT NOT NULL DEFAULT 'direct'");
+		this.sql.exec(
+			"CREATE INDEX IF NOT EXISTS idx_cadmus_chats_kind ON cadmus_chats(kind);",
+		);
+		dropChatColumn(this.sql, "listed");
 		ensureGroupColumn(this.sql, "mode", "TEXT NOT NULL DEFAULT 'wait'");
 		ensureGroupColumn(this.sql, "wake_not_before", "INTEGER");
 		ensureGroupColumn(this.sql, "wake_admitted", "INTEGER NOT NULL DEFAULT 0");
@@ -1605,6 +1625,14 @@ function ensureGroupColumn(sql: SqlStorage, name: string, ddl: string): void {
 		.toArray();
 	if (cols.some((col) => col.name === name)) return;
 	sql.exec(`ALTER TABLE cadmus_group_chats ADD COLUMN ${name} ${ddl}`);
+}
+
+function dropChatColumn(sql: SqlStorage, name: string): void {
+	const cols = sql
+		.exec<{ name: string }>(`PRAGMA table_info(cadmus_chats)`)
+		.toArray();
+	if (!cols.some((col) => col.name === name)) return;
+	sql.exec(`ALTER TABLE cadmus_chats DROP COLUMN ${name}`);
 }
 
 function ensureChatColumn(sql: SqlStorage, name: string, ddl: string): void {

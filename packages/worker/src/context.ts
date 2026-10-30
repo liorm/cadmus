@@ -8,6 +8,7 @@ import type { Harness } from "@earendil-works/pi-durable";
 import type { GroupRunResult } from "./group-chat/drive.js";
 import type {
 	BotRecord,
+	ChatKind,
 	ChatRecord,
 	ServerEvent,
 	ThinkingLevel,
@@ -57,7 +58,7 @@ export interface CadmusServices {
 		thinking?: ThinkingLevel;
 		toolsEnv?: ToolsEnvSetting | null;
 		harvest?: boolean;
-		listed?: boolean;
+		kind?: ChatKind;
 	}): Promise<ChatRecord>;
 	submitChatTurn(input: {
 		chatKey: string;

@@ -380,6 +380,20 @@ export const BotRecordSchema = Type.Object(
 );
 export type BotRecord = Static<typeof BotRecordSchema>;
 
+export const ChatKindSchema = Type.Union(
+	[
+		Type.Literal("direct"),
+		Type.Literal("group"),
+		Type.Literal("group-member"),
+		Type.Literal("scheduled"),
+	],
+	{
+		description:
+			"direct is a user-created 1-on-1 session. group is a bot-created group chat. group-member is an internal per-bot group execution session. scheduled is an automated session created by a schedule.",
+	},
+);
+export type ChatKind = Static<typeof ChatKindSchema>;
+
 /**
  * Chat session record tracking an active or archived conversation with a bot.
  */
@@ -412,19 +426,7 @@ export const ChatRecordSchema = Type.Object(
 				"Epoch timestamp in milliseconds when the chat session was created.",
 		}),
 		toolsEnv: Type.Optional(ToolsEnvSettingSchema),
-		kind: Type.Optional(
-			Type.Union(
-				[
-					Type.Literal("chat"),
-					Type.Literal("group"),
-					Type.Literal("legacy-peer"),
-				],
-				{
-					description:
-						"chat is a normal session. group is a bot-created group chat. legacy-peer is a historical peer:<from>:<to> chat.",
-				},
-			),
-		),
+		kind: Type.Optional(ChatKindSchema),
 		members: Type.Optional(
 			Type.Array(Type.String(), {
 				description: "Bot ids that belong to a group chat, in join order.",
@@ -438,7 +440,7 @@ export const ChatRecordSchema = Type.Object(
 		readOnly: Type.Optional(
 			Type.Boolean({
 				description:
-					"When true, the user can view the chat but cannot post. Group chats and legacy peer chats are read-only.",
+					"When true, the user can view the chat but cannot post. Group chats and group member chats are read-only.",
 			}),
 		),
 		toolsReadOnly: Type.Optional(

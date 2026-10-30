@@ -50,7 +50,7 @@ export interface GroupDriveDeps {
 		key: string;
 		title: string;
 		harvest: false;
-		listed: false;
+		kind: "group-member";
 	}): Promise<ChatRecord>;
 	submitTurn(input: {
 		chatKey: string;
@@ -238,7 +238,7 @@ async function openGroup(
 		key: callerKey,
 		title: `Group: ${topic}`,
 		harvest: false,
-		listed: false,
+		kind: "group-member",
 	});
 	deps.store.groups.bindMember(
 		group.id,
@@ -253,7 +253,7 @@ async function openGroup(
 			key: targetKey,
 			title: `Group: ${topic}`,
 			harvest: false,
-			listed: false,
+			kind: "group-member",
 		});
 		deps.store.groups.bindMember(group.id, targetBotId, targetKey, "member");
 	}

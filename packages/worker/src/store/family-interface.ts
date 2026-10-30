@@ -1,5 +1,6 @@
 import type {
 	BotRecord,
+	ChatKind,
 	ChatRecord,
 	HarvestFileDiff,
 	HarvestNote,
@@ -16,6 +17,7 @@ export interface ConversationRoute {
 
 export type {
 	BotRecord,
+	ChatKind,
 	ChatRecord,
 	HarvestFileDiff,
 	HarvestNote,
@@ -83,10 +85,12 @@ export interface BotFileStore {
 }
 
 export interface ChatStore {
-	listChats(botId?: string): ChatRecord[];
+	listChats(
+		filter?: string | { botId?: string; kinds?: readonly ChatKind[] },
+	): ChatRecord[];
 	getChat(key: string): ChatRecord | undefined;
 	getChatByConversationId(conversationId: number): ChatRecord | undefined;
-	upsertChat(chat: ChatRecord, options?: { listed?: boolean }): void;
+	upsertChat(chat: ChatRecord): void;
 	deleteChat(key: string): void;
 	setTurnRoot(chatKey: string, rootRequestId: string): void;
 	getTurnRoot(chatKey: string): string | undefined;

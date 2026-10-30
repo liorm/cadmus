@@ -69,7 +69,7 @@ async function groupMessages(scope: Scope) {
 			groupStatus?: string;
 			members?: string[];
 		}[];
-	}>("chat.list", {}, scope);
+	}>("chat.list", { kinds: ["group"] }, scope);
 	const group = listed.frame.result?.chats.find(
 		(chat) => chat.kind === "group",
 	);
@@ -325,7 +325,7 @@ describe("group chats with more than two bots", () => {
 		expect(turn.frame.result?.reply).toContain('"status":"timed_out"');
 		const listed = await sendRpc<{
 			chats: { kind?: string; groupStatus?: string; members?: string[] }[];
-		}>("chat.list", {}, hangScope);
+		}>("chat.list", { kinds: ["group"] }, hangScope);
 		const group = listed.frame.result?.chats.find(
 			(chat) => chat.kind === "group",
 		);
@@ -354,7 +354,7 @@ describe("group chats with more than two bots", () => {
 		expect(missing.frame.result?.reply).toContain("not found in this family");
 		const none = await sendRpc<{ chats: { kind?: string }[] }>(
 			"chat.list",
-			{},
+			{ kinds: ["group"] },
 			scope,
 		);
 		expect(none.frame.result?.chats.some((chat) => chat.kind === "group")).toBe(

@@ -7,6 +7,7 @@ import {
 	AccountOAuthSubmitCommandSchema,
 } from "./oauth.js";
 import {
+	ChatKindSchema,
 	CredentialInputSchema,
 	ScheduleTargetSchema,
 	ThinkingLevelSchema,
@@ -777,6 +778,11 @@ export const ChatCreateCommandSchema = Type.Object(
 							"Idle harvest switch for this chat. Omitted or true arms harvest after turns. False leaves harvest off. Group-chat sessions are created off.",
 					}),
 				),
+				kind: Type.Optional(
+					Type.Union([Type.Literal("direct"), Type.Literal("scheduled")], {
+						description: "Kind of chat to create. Defaults to 'direct'.",
+					}),
+				),
 			},
 			{ description: "Parameters for creating a new chat session." },
 		),
@@ -809,6 +815,12 @@ export const ChatListCommandSchema = Type.Object(
 							description: "Optional bot identifier to filter chat sessions.",
 						}),
 					),
+					kinds: Type.Optional(
+						Type.Array(ChatKindSchema, {
+							description:
+								"Kinds of chat sessions to include. Defaults to ['direct'] (user-created chats).",
+						}),
+					),
 				},
 				{ description: "Filters for listing chat sessions." },
 			),
@@ -817,7 +829,7 @@ export const ChatListCommandSchema = Type.Object(
 	{
 		readOnly: true,
 		description:
-			"List chat conversation sessions in this bot family, optionally filtered by botId.",
+			"List chat conversation sessions in this bot family, optionally filtered by botId and kinds.",
 	},
 );
 export type ChatListCommand = Static<typeof ChatListCommandSchema>;

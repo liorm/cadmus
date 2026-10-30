@@ -81,6 +81,7 @@ import {
 import { OAuthFlowManager } from "./oauth.js";
 import {
 	type BotRecord,
+	type ChatKind,
 	type ChatRecord,
 	type ClientCommand,
 	type CommandResultFrame,
@@ -1565,12 +1566,28 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 			},
 			"chat.list": async (command) => {
 				const botId = command.payload?.botId;
-				const chats = this.familyStore.chats.listChats(botId);
-				const groups = this.familyStore.groups
-					.list()
-					.filter((group) => !botId || group.members.includes(botId))
-					.map((group) => this.groupAsChat(group));
-				return { chats: [...chats, ...groups] };
+				const requestedKinds =
+					command.payload?.kinds && command.payload.kinds.length > 0
+						? new Set<ChatKind>(command.payload.kinds)
+						: new Set<ChatKind>(["direct"]);
+
+				const chats: ChatRecord[] = [];
+				const storeKinds = Array.from(requestedKinds).filter(
+					(k): k is "direct" | "group-member" | "scheduled" => k !== "group",
+				);
+				if (storeKinds.length > 0) {
+					chats.push(
+						...this.familyStore.chats.listChats({ botId, kinds: storeKinds }),
+					);
+				}
+				if (requestedKinds.has("group")) {
+					const groups = this.familyStore.groups
+						.list()
+						.filter((group) => !botId || group.members.includes(botId))
+						.map((group) => this.groupAsChat(group));
+					chats.push(...groups);
+				}
+				return { chats };
 			},
 			"chat.create": async (command) => {
 				const chat = await this.createChatInternal({
@@ -1582,6 +1599,7 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 					...(command.payload.harvest !== undefined
 						? { harvest: command.payload.harvest }
 						: {}),
+					kind: command.payload.kind,
 				});
 				return { chat };
 			},
@@ -2568,7 +2586,7 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 	private rejectUserPost(chatKey: string): void {
 		const group = this.familyStore.groups.getById(chatKey);
 		const chat = this.familyStore.chats.getChat(chatKey);
-		if (group || chat?.readOnly || chat?.kind === "legacy-peer") {
+		if (group || chat?.readOnly || chat?.kind === "group-member") {
 			throw new ProtocolValidationError(
 				`Chat '${chatKey}' is read-only.`,
 				"forbidden",
@@ -2640,14 +2658,14 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 				key: string;
 				title: string;
 				harvest: false;
-				listed: false;
+				kind: "group-member";
 			}) =>
 				this.createChatInternal({
 					botId: chat.botId,
 					key: chat.key,
 					title: chat.title,
 					harvest: false,
-					listed: false,
+					kind: "group-member",
 				}),
 			submitTurn: async (turn: {
 				chatKey: string;
@@ -2836,7 +2854,7 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 		thinking?: ThinkingLevel;
 		toolsEnv?: ToolsEnvSetting | null;
 		harvest?: boolean;
-		listed?: boolean;
+		kind?: ChatKind;
 	}): Promise<ChatRecord> {
 		const bot = this.familyStore.bots.getBot(input.botId);
 		if (!bot) {
@@ -2896,11 +2914,10 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 			...(input.thinking ? { thinking: input.thinking } : {}),
 			...(toolsEnv ? { toolsEnv } : {}),
 			...(input.harvest === false ? { harvest: false } : {}),
+			kind: input.kind ?? "direct",
 			createdAt: Date.now(),
 		};
-		this.familyStore.chats.upsertChat(chat, {
-			...(input.listed === false ? { listed: false } : {}),
-		});
+		this.familyStore.chats.upsertChat(chat);
 		this.familyStore.chats.recordConversationRoute({
 			conversationId: chat.conversationId,
 			chatKey: chat.key,

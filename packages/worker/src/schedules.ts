@@ -251,6 +251,7 @@ async function executeScheduleTarget(
 			botId: schedule.botId,
 			title: schedule.name ?? "Scheduled Chat",
 			thinking: schedule.thinking,
+			kind: "scheduled",
 		});
 		log.debug("schedule fire into new chat", { chat: chat.key });
 		await services.submitChatTurn({

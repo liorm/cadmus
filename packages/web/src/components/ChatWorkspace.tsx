@@ -613,7 +613,9 @@ export function ChatWorkspace({
 	const refreshChats = useCallback(async () => {
 		setIsLoadingChats(true);
 		try {
-			const res = await client.callRpc("chat.list");
+			const res = await client.callRpc("chat.list", {
+				kinds: ["direct", "group"],
+			});
 			if (res.ok && res.result?.chats) {
 				const chatList = res.result.chats;
 				setChats(chatList);

@@ -230,7 +230,7 @@ cadmus chat.messages --chatKey notes
 Group chats are read-only (\`kind\` \`group\`). Listing and reading them does not post.
 
 \`\`\`bash
-cadmus chat.list
+cadmus chat.list --kinds group
 cadmus chat.get --chatKey <groupKey>
 cadmus events --types bot.message --chat <groupKey>
 \`\`\`

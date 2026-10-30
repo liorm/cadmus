@@ -100,7 +100,7 @@ describe("fire-and-forget message_bot", () => {
 				groupStatus?: string;
 				members?: string[];
 			}[];
-		}>("chat.list", {}, scope);
+		}>("chat.list", { kinds: ["group"] }, scope);
 		const group = listed.frame.result?.chats.find(
 			(chat) => chat.kind === "group",
 		);
@@ -137,7 +137,7 @@ describe("fire-and-forget message_bot", () => {
 		expect(woken[0]?.text).toContain("pong");
 		const after = await sendRpc<{
 			chats: { key: string; kind?: string; groupStatus?: string }[];
-		}>("chat.list", {}, scope);
+		}>("chat.list", { kinds: ["group"] }, scope);
 		expect(
 			after.frame.result?.chats.find((chat) => chat.key === group?.key)
 				?.groupStatus,
@@ -182,7 +182,7 @@ describe("fire-and-forget message_bot", () => {
 		await waitFor(async () => {
 			const listed = await sendRpc<{
 				chats: { kind?: string; groupStatus?: string }[];
-			}>("chat.list", {}, scope);
+			}>("chat.list", { kinds: ["group"] }, scope);
 			return Boolean(
 				listed.frame.result?.chats.some(
 					(chat) => chat.kind === "group" && chat.groupStatus === "ended",
@@ -353,7 +353,7 @@ describe("fire-and-forget message_bot", () => {
 		expect(budgetText).toContain('"status":"pending"');
 		const listed = await sendRpc<{
 			chats: { topic?: string; kind?: string }[];
-		}>("chat.list", {}, scope);
+		}>("chat.list", { kinds: ["group"] }, scope);
 		const topics = (listed.frame.result?.chats ?? [])
 			.filter((chat) => chat.kind === "group")
 			.map((chat) => chat.topic);
@@ -390,7 +390,7 @@ describe("fire-and-forget message_bot", () => {
 		});
 		const back = await sendRpc<{
 			chats: { topic?: string; kind?: string }[];
-		}>("chat.list", {}, scope);
+		}>("chat.list", { kinds: ["group"] }, scope);
 		expect(back.frame.result?.chats.some((chat) => chat.topic === "back")).toBe(
 			false,
 		);
@@ -447,14 +447,14 @@ describe("fire-and-forget message_bot", () => {
 		await waitFor(async () => {
 			const chats = await sendRpc<{
 				chats: { topic?: string; kind?: string }[];
-			}>("chat.list", {}, scope);
+			}>("chat.list", { kinds: ["group"] }, scope);
 			return Boolean(
 				chats.frame.result?.chats.some((chat) => chat.topic === "side"),
 			);
 		});
 		const finalList = await sendRpc<{
 			chats: { topic?: string; kind?: string }[];
-		}>("chat.list", {}, scope);
+		}>("chat.list", { kinds: ["group"] }, scope);
 		expect(
 			finalList.frame.result?.chats.some((chat) => chat.topic === "again"),
 		).toBe(false);
