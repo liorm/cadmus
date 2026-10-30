@@ -167,7 +167,7 @@ async function openGroup(
 	if (!topic) return { ok: false, error: "topic is required." };
 	const targets = normalizeTargets(input);
 	if (targets.length === 0) {
-		return { ok: false, error: "botId (or slug) is required." };
+		return { ok: false, error: "slug is required." };
 	}
 	if (targets.includes(input.callerBotId)) {
 		return { ok: false, error: "Refusing to message the calling bot." };

@@ -47,7 +47,7 @@ export function knowledgeExtension() {
 			defineTool({
 				name: "knowledge_read",
 				description:
-					"Read one knowledge entry that belongs to you, the bot running this turn. There is no botId argument: this never reads a peer. Returns slug, version, and when it exists, description, optional category, and body. A missing entry returns exists: false and version: 0. To seed a new peer, pass knowledge on create_bot.",
+					"Read one knowledge entry that belongs to you, the bot running this turn. This never reads a peer. Returns slug, version, and when it exists, description, optional category, and body. A missing entry returns exists: false and version: 0. To seed a new peer, pass knowledge on create_bot.",
 				parameters: Type.Object({
 					slug: Type.String({
 						description:
@@ -95,7 +95,7 @@ export function knowledgeExtension() {
 			defineTool({
 				name: "knowledge_update",
 				description:
-					"Create or replace one knowledge entry on you, the bot running this turn. There is no botId or target argument; a slug that names another bot still writes your own knowledge. Pass expectedVersion (or version) from knowledge_read (0 when creating), a 1-line description (<= 240 chars), optional 1-line category (<= 64 chars), and markdown body. To give a new peer its own documents, pass them as create_bot knowledge instead of calling this tool.",
+					"Create or replace one knowledge entry on you, the bot running this turn. There is no target argument; a slug that names another bot still writes your own knowledge. Pass expectedVersion (or version) from knowledge_read (0 when creating), a 1-line description (<= 240 chars), optional 1-line category (<= 64 chars), and markdown body. To give a new peer its own documents, pass them as create_bot knowledge instead of calling this tool.",
 				parameters: Type.Object({
 					slug: Type.String(),
 					description: Type.String(),
@@ -234,7 +234,7 @@ export function knowledgeExtension() {
 
 			defineTool({
 				name: "memory_update",
-				description: `Create or replace MEMORY.md for you, the bot running this turn, with optimistic concurrency (CAS). There is no botId argument. Pass expectedVersion (or version) from memory_read (0 when creating) and content (or body) up to ${MAX_MEMORY_BYTES} bytes without a leading --- frontmatter fence. To seed a new peer's memory, pass memory on create_bot.`,
+				description: `Create or replace MEMORY.md for you, the bot running this turn, with optimistic concurrency (CAS). This never updates a peer. Pass expectedVersion (or version) from memory_read (0 when creating) and content (or body) up to ${MAX_MEMORY_BYTES} bytes without a leading --- frontmatter fence. To seed a new peer's memory, pass memory on create_bot.`,
 				parameters: Type.Object({
 					content: Type.Optional(Type.String()),
 					body: Type.Optional(Type.String()),

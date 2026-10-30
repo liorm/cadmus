@@ -353,9 +353,12 @@ export function internalToolsExtension() {
 							bot: created.id,
 							model: created.model,
 						});
-						const record = created as unknown as JsonValue;
+						const record = {
+							...created,
+							slug: created.id,
+						} as unknown as JsonValue;
 						await api.memo("result", record, context);
-						return toolText(JSON.stringify(created));
+						return toolText(JSON.stringify(record));
 					} catch (error) {
 						return toolError((error as Error).message);
 					}
@@ -480,14 +483,18 @@ export function internalToolsExtension() {
 			defineTool({
 				name: "message_bot",
 				description:
-					"Open a new group chat in this family. Pass botId or slug for one target, or to: [slug, ...] for several. topic is required. With exactly two members, every message gets a reply from the other member. With more than two, only @mentioned members reply (the opening message mentions every target when it names nobody). wait defaults to true and blocks until you call end_conversation, the 10-turn cap, or the watchdog. wait false returns immediately with the group chat id and topic. A two-member fire-and-forget chat ends on the target's first reply. A larger one ends when every bot mentioned in the opening has replied once (or on cap or timeout). That result is delivered later as a new turn in this chat. Same family only. Legacy peer chats are not reused. Cost is charged to you. readOnly defaults to false. readOnly true still opens a normal group chat (topic required, visible, user read-only, same limits) but each target session is offered only knowledge_read and memory_read. Harvest stays off. Your own session in that chat keeps its tools, including end_conversation.",
+					"Open a new group chat in this family. Pass slug for one target, or to: [slug, ...] for several. topic is required. With exactly two members, every message gets a reply from the other member. With more than two, only @mentioned members reply (the opening message mentions every target when it names nobody). wait defaults to true and blocks until you call end_conversation, the 10-turn cap, or the watchdog. wait false returns immediately with the group chat id and topic. A two-member fire-and-forget chat ends on the target's first reply. A larger one ends when every bot mentioned in the opening has replied once (or on cap or timeout). That result is delivered later as a new turn in this chat. Same family only. Legacy peer chats are not reused. Cost is charged to you. readOnly defaults to false. readOnly true still opens a normal group chat (topic required, visible, user read-only, same limits) but each target session is offered only knowledge_read and memory_read. Harvest stays off. Your own session in that chat keeps its tools, including end_conversation.",
 				parameters: Type.Object({
-					botId: Type.Optional(Type.String()),
-					slug: Type.Optional(Type.String()),
+					slug: Type.Optional(
+						Type.String({
+							description:
+								"Target bot slug. Creates a group chat with you and this bot. Omit when passing to.",
+						}),
+					),
 					to: Type.Optional(
 						Type.Array(Type.String({ minLength: 1 }), {
 							description:
-								"Target bot slugs. Creates one group chat with you and these bots. Omit this and pass botId or slug for a single target.",
+								"Target bot slugs. Creates one group chat with you and these bots. Omit this and pass slug for a single target.",
 						}),
 					),
 					topic: Type.String({
@@ -531,14 +538,15 @@ export function internalToolsExtension() {
 					const listed = (args.to ?? [])
 						.map((id) => id.trim())
 						.filter((id) => id.length > 0);
-					const single = (args.botId ?? args.slug ?? "").trim();
+					const rawArgs = args as { slug?: string; botId?: string };
+					const single = (rawArgs.slug ?? rawArgs.botId ?? "").trim();
 					if (listed.length > 0 && single) {
-						return toolError("Pass botId (or slug) or to, not both.");
+						return toolError("Pass slug or to, not both.");
 					}
 					const targetBotIds =
 						listed.length > 0 ? listed : single ? [single] : [];
 					if (targetBotIds.length === 0) {
-						return toolError("botId (or slug) is required.");
+						return toolError("slug is required.");
 					}
 					const topic = args.topic.trim();
 					const services = requireCadmusServices(context);
