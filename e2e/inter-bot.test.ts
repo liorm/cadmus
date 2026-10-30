@@ -87,6 +87,21 @@ describe("Inter-Bot Co-Location Tools (create_bot, search_bot, message_bot)", ()
 			expect(searchTurn.ok).toBe(true);
 			expect(searchTurn.result?.reply).toContain('"slug":"chef"');
 
+			// 3b. Have coordinator invoke `list_bots` to list all bots in the family
+			const listTurn = await wsClient.send<{ reply: string }>("turn.submit", {
+				chatKey: "coord-chat",
+				text: "List all bots [tool:list_bots {}]",
+			});
+			expect(listTurn.ok).toBe(true);
+			const listJson = JSON.parse(
+				listTurn.result?.reply.split(" -> ")[1] ?? "{}",
+			) as { bots: { slug: string; name: string }[] };
+			expect(listJson.bots).toEqual([
+				{ slug: "coordinator", name: "Coordinator" },
+				{ slug: "chef", name: "Master Chef" },
+				{ slug: "ha", name: "HA" },
+			]);
+
 			const ask = `[tool:message_bot ${JSON.stringify({
 				botId: "chef",
 				topic: "pasta",

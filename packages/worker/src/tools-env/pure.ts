@@ -501,9 +501,9 @@ export function resolvePublicUrls(
 	request?: Request,
 	clientOrigin?: string,
 ): { url: string; wsUrl: string } {
-	let base = env.CADMUS_PUBLIC_URL?.trim();
-	if (!base && clientOrigin?.trim()) {
-		base = clientOrigin.trim();
+	let base = clientOrigin?.trim();
+	if (!base) {
+		base = env.CADMUS_PUBLIC_URL?.trim();
 	}
 	if (!base && request) {
 		const forwardedHost = request.headers.get("x-forwarded-host");

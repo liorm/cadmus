@@ -458,6 +458,26 @@ export function internalToolsExtension() {
 			}),
 
 			defineTool({
+				name: "list_bots",
+				description:
+					"List all bots in this Bot Family. Returns the slug and display name of each bot.",
+				parameters: Type.Object({}),
+				replay: "safe",
+				async execute(_args, _api, context) {
+					const services = requireCadmusServices(context);
+					const bots = services.familyStore.bots.listBots();
+					return toolText(
+						JSON.stringify({
+							bots: bots.map((bot) => ({
+								slug: bot.id,
+								name: bot.name,
+							})),
+						}),
+					);
+				},
+			}),
+
+			defineTool({
 				name: "message_bot",
 				description:
 					"Open a new group chat in this family. Pass botId or slug for one target, or to: [slug, ...] for several. topic is required. With exactly two members, every message gets a reply from the other member. With more than two, only @mentioned members reply (the opening message mentions every target when it names nobody). wait defaults to true and blocks until you call end_conversation, the 10-turn cap, or the watchdog. wait false returns immediately with the group chat id and topic. A two-member fire-and-forget chat ends on the target's first reply. A larger one ends when every bot mentioned in the opening has replied once (or on cap or timeout). That result is delivered later as a new turn in this chat. Same family only. Legacy peer chats are not reused. Cost is charged to you. readOnly defaults to false. readOnly true still opens a normal group chat (topic required, visible, user read-only, same limits) but each target session is offered only knowledge_read and memory_read. Harvest stays off. Your own session in that chat keeps its tools, including end_conversation.",

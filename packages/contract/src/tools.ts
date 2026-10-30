@@ -17,6 +17,7 @@ export const DEFAULT_CADMUS_TOOL_NAMES = [
 	"schedule_delete",
 	"create_bot",
 	"search_bot",
+	"list_bots",
 	"message_bot",
 	"end_conversation",
 	"web.fetch",
