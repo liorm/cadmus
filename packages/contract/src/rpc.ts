@@ -28,6 +28,8 @@ import type {
 	ChatResetCommand,
 	ChatStatusCommand,
 	ChatSubscribeCommand,
+	ChatTasksGetCommand,
+	ChatTasksListCommand,
 	ChatUpdateCommand,
 	CommandType,
 	FamilyCreateCommand,
@@ -93,6 +95,8 @@ import type {
 	ChatResetResult,
 	ChatStatusResult,
 	ChatSubscribeResult,
+	ChatTasksGetResult,
+	ChatTasksListResult,
 	ChatUpdateResult,
 	FamilyCreateResult,
 	FamilyDeleteResult,
@@ -323,6 +327,10 @@ export type ScheduleDeleteRpc = Rpc<
 >;
 
 export type ChatUpdateRpc = Rpc<ChatUpdateCommand, ChatUpdateResult>;
+
+export type ChatTasksListRpc = Rpc<ChatTasksListCommand, ChatTasksListResult>;
+
+export type ChatTasksGetRpc = Rpc<ChatTasksGetCommand, ChatTasksGetResult>;
 export type AccountToolsEnvsListRpc = Rpc<
 	AccountToolsEnvsListCommand,
 	AccountToolsEnvsListResult
@@ -398,6 +406,8 @@ export interface RpcMap {
 	"schedule.update": ScheduleUpdateRpc;
 	"schedule.delete": ScheduleDeleteRpc;
 	"chat.update": ChatUpdateRpc;
+	"chat.tasks.list": ChatTasksListRpc;
+	"chat.tasks.get": ChatTasksGetRpc;
 	"account.toolsEnvs.list": AccountToolsEnvsListRpc;
 	"account.toolsEnvs.create": AccountToolsEnvsCreateRpc;
 	"account.toolsEnvs.update": AccountToolsEnvsUpdateRpc;

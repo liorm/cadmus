@@ -15,6 +15,11 @@ export const DEFAULT_CADMUS_TOOL_NAMES = [
 	"schedule_list",
 	"schedule_update",
 	"schedule_delete",
+	"task_add",
+	"task_remove",
+	"task_get",
+	"task_finish",
+	"task_list",
 	"create_bot",
 	"search_bot",
 	"list_bots",
@@ -29,6 +34,20 @@ export const DEFAULT_CADMUS_TOOL_NAMES = [
 export const CODING_TOOL_NAMES = ["bash", "read", "write", "edit"] as const;
 
 export const CODE_EXECUTE_TOOL_NAME = "code.execute";
+
+export const TASK_TOOL_NAMES = [
+	"task_add",
+	"task_remove",
+	"task_get",
+	"task_finish",
+	"task_list",
+] as const;
+
+export type TaskToolName = (typeof TASK_TOOL_NAMES)[number];
+
+export function isTaskTool(name: string): boolean {
+	return (TASK_TOOL_NAMES as readonly string[]).includes(name);
+}
 
 /**
  * Tools a `message_bot` `readOnly` target may use. Memory and knowledge

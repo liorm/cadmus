@@ -7,7 +7,6 @@ import {
 	MAX_PEER_ACTIONS,
 	parseMentions,
 	reservePeerAction,
-	resolveGroupTimeoutMs,
 	routeGroupRecipients,
 } from "../../packages/worker/src/group-chat/limits.js";
 
@@ -119,12 +118,5 @@ describe("group chat limits", () => {
 		).toBe(
 			'[group "pasta" · reply from @chef · chat grp_1] timed_out\n@a: hello',
 		);
-	});
-
-	it("clamps timeout overrides and keeps the default for blank values", () => {
-		expect(resolveGroupTimeoutMs(undefined, 120_000)).toBe(120_000);
-		expect(resolveGroupTimeoutMs("nope", 120_000)).toBe(120_000);
-		expect(resolveGroupTimeoutMs("10", 120_000)).toBe(50);
-		expect(resolveGroupTimeoutMs("1500", 120_000)).toBe(1500);
 	});
 });

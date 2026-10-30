@@ -73,11 +73,19 @@ export async function syncDurableObjectAlarm(
 	}
 
 	for (const group of familyStore.groups.listOpen()) {
-		const wake = Math.min(
-			group.replyDeadline ?? group.overallDeadline,
-			group.overallDeadline,
-		);
+		const candidates = [
+			group.replyDeadline,
+			group.overallDeadline > 0 ? group.overallDeadline : undefined,
+		].filter((value): value is number => value !== undefined);
+		if (candidates.length === 0) continue;
+		const wake = Math.min(...candidates);
 		if (earliest === undefined || wake < earliest) earliest = wake;
+	}
+
+	for (const row of familyStore.tasks.listRunDeadlines()) {
+		if (earliest === undefined || row.runDeadline < earliest) {
+			earliest = row.runDeadline;
+		}
 	}
 
 	const currentAlarm = await storage.getAlarm();

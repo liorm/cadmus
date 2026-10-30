@@ -47,6 +47,8 @@ const READONLY = [
 	"chat.list",
 	"chat.messages",
 	"chat.status",
+	"chat.tasks.get",
+	"chat.tasks.list",
 	"family.get",
 	"family.list",
 	"file.list",

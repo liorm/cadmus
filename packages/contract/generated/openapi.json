@@ -2357,7 +2357,7 @@
 		"/api/chat/update": {
 			"post": {
 				"operationId": "chat.update",
-				"summary": "Update a chat's tools env setting or its per-chat harvest switch.",
+				"summary": "Update a chat's tools env setting, per-chat harvest switch, or deadline overrides. deadlines null resets overrides. 0 on a field means no limit.",
 				"requestBody": {
 					"required": true,
 					"content": {
@@ -2376,6 +2376,17 @@
 									"harvest": {
 										"type": "boolean",
 										"description": "Set the per-chat idle harvest switch. Omitted leaves it unchanged."
+									},
+									"deadlines": {
+										"anyOf": [
+											{
+												"$ref": "#/components/schemas/Deadlines"
+											},
+											{
+												"type": "null",
+												"description": "Clear per-chat deadline overrides and restore kind defaults."
+											}
+										]
 									}
 								},
 								"additionalProperties": false
@@ -2410,6 +2421,194 @@
 						"$ref": "#/components/responses/ApiError"
 					},
 					"500": {
+						"$ref": "#/components/responses/ApiError"
+					}
+				}
+			}
+		},
+		"/api/chat/tasks/list": {
+			"get": {
+				"operationId": "chat.tasks.list",
+				"summary": "List tasks for a chat, including details and summaries.",
+				"parameters": [
+					{
+						"name": "chatKey",
+						"in": "query",
+						"required": true,
+						"schema": {
+							"type": "string",
+							"minLength": 1,
+							"description": "Unique routing key of the chat session."
+						},
+						"description": "Unique routing key of the chat session."
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "Command result",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ChatTasksListResult"
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"401": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"404": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"405": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"409": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"500": {
+						"$ref": "#/components/responses/ApiError"
+					}
+				}
+			},
+			"head": {
+				"operationId": "chat.tasks.list.head",
+				"summary": "List tasks for a chat, including details and summaries.",
+				"parameters": [
+					{
+						"name": "chatKey",
+						"in": "query",
+						"required": true,
+						"schema": {
+							"type": "string",
+							"minLength": 1,
+							"description": "Unique routing key of the chat session."
+						},
+						"description": "Unique routing key of the chat session."
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "Same as GET with an empty body"
+					},
+					"400": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"401": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"404": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"405": {
+						"$ref": "#/components/responses/ApiError"
+					}
+				}
+			}
+		},
+		"/api/chat/tasks/get": {
+			"get": {
+				"operationId": "chat.tasks.get",
+				"summary": "Get one chat task by index, including details and summary.",
+				"parameters": [
+					{
+						"name": "chatKey",
+						"in": "query",
+						"required": true,
+						"schema": {
+							"type": "string",
+							"minLength": 1,
+							"description": "Unique routing key of the chat session."
+						},
+						"description": "Unique routing key of the chat session."
+					},
+					{
+						"name": "index",
+						"in": "query",
+						"required": true,
+						"schema": {
+							"type": "integer",
+							"minimum": 1,
+							"description": "Per-chat task index."
+						},
+						"description": "Per-chat task index."
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "Command result",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ChatTasksGetResult"
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"401": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"404": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"405": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"409": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"500": {
+						"$ref": "#/components/responses/ApiError"
+					}
+				}
+			},
+			"head": {
+				"operationId": "chat.tasks.get.head",
+				"summary": "Get one chat task by index, including details and summary.",
+				"parameters": [
+					{
+						"name": "chatKey",
+						"in": "query",
+						"required": true,
+						"schema": {
+							"type": "string",
+							"minLength": 1,
+							"description": "Unique routing key of the chat session."
+						},
+						"description": "Unique routing key of the chat session."
+					},
+					{
+						"name": "index",
+						"in": "query",
+						"required": true,
+						"schema": {
+							"type": "integer",
+							"minimum": 1,
+							"description": "Per-chat task index."
+						},
+						"description": "Per-chat task index."
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "Same as GET with an empty body"
+					},
+					"400": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"401": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"404": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"405": {
 						"$ref": "#/components/responses/ApiError"
 					}
 				}
@@ -4591,6 +4790,16 @@
 						},
 						"description": "Historical harvest notes recording memory and knowledge updates from this chat."
 					},
+					"tasks": {
+						"type": "array",
+						"items": {
+							"$ref": "#/components/schemas/ChatTask"
+						},
+						"description": "Chat tasks for this session."
+					},
+					"taskLoop": {
+						"$ref": "#/components/schemas/ChatTaskLoop"
+					},
 					"toolsEnvEnabled": {
 						"type": "boolean"
 					},
@@ -4751,6 +4960,26 @@
 							}
 						],
 						"description": "Lifecycle status of a group chat."
+					},
+					"deadlines": {
+						"$ref": "#/components/schemas/Deadlines"
+					},
+					"effectiveDeadlines": {
+						"type": "object",
+						"required": ["turnMs", "runMs"],
+						"properties": {
+							"turnMs": {
+								"type": "integer",
+								"minimum": 0,
+								"description": "Resolved turn limit in milliseconds. 0 means no limit."
+							},
+							"runMs": {
+								"type": "integer",
+								"minimum": 0,
+								"description": "Resolved run limit in milliseconds. 0 means no limit."
+							}
+						},
+						"additionalProperties": false
 					}
 				},
 				"description": "Chat session record tracking a conversation thread with a specific bot, or a read-only group chat shared by bots."
@@ -4867,6 +5096,28 @@
 						},
 						"description": "Aggregated token and prompt usage statistics for this chat session."
 					},
+					"tasks": {
+						"type": "object",
+						"required": ["open", "done", "loopRound"],
+						"properties": {
+							"open": {
+								"type": "integer",
+								"minimum": 0,
+								"description": "Pending plus in-progress task count."
+							},
+							"done": {
+								"type": "integer",
+								"minimum": 0,
+								"description": "Finished task count still on the chat."
+							},
+							"loopRound": {
+								"type": "integer",
+								"minimum": 0,
+								"description": "Current auto-continue round."
+							}
+						},
+						"additionalProperties": false
+					},
 					"toolsEnv": {
 						"type": "object",
 						"required": ["enabled", "enabledSource"],
@@ -4924,6 +5175,135 @@
 					}
 				},
 				"description": "Out-of-band status result produced by /status without appending to the conversation transcript."
+			},
+			"ChatTask": {
+				"type": "object",
+				"required": [
+					"index",
+					"title",
+					"details",
+					"status",
+					"createdAt",
+					"updatedAt"
+				],
+				"properties": {
+					"index": {
+						"type": "integer",
+						"minimum": 1,
+						"description": "Per-chat task index. Never reused after removal."
+					},
+					"title": {
+						"type": "string",
+						"minLength": 1,
+						"maxLength": 120,
+						"description": "Short task title."
+					},
+					"details": {
+						"type": "string",
+						"minLength": 1,
+						"maxLength": 8000,
+						"description": "Task details for the bot."
+					},
+					"status": {
+						"$ref": "#/components/schemas/ChatTaskStatus"
+					},
+					"summary": {
+						"type": "string",
+						"maxLength": 500,
+						"description": "Optional result summary from task_finish."
+					},
+					"createdAt": {
+						"type": "number",
+						"description": "Epoch timestamp in milliseconds when the task was created."
+					},
+					"updatedAt": {
+						"type": "number",
+						"description": "Epoch timestamp in milliseconds when the task last changed."
+					}
+				},
+				"description": "A semi-autonomous chat task."
+			},
+			"ChatTaskLoop": {
+				"type": "object",
+				"required": ["round", "max", "state"],
+				"properties": {
+					"round": {
+						"type": "integer",
+						"minimum": 0,
+						"description": "Auto-continue rounds since the last user message."
+					},
+					"max": {
+						"type": "integer",
+						"minimum": 0,
+						"description": "Round cap for this loop."
+					},
+					"state": {
+						"$ref": "#/components/schemas/ChatTaskLoopState"
+					}
+				},
+				"description": "Task auto-continue loop snapshot."
+			},
+			"ChatTaskLoopState": {
+				"anyOf": [
+					{
+						"type": "string",
+						"const": "running"
+					},
+					{
+						"type": "string",
+						"const": "idle"
+					},
+					{
+						"type": "string",
+						"const": "paused"
+					},
+					{
+						"type": "string",
+						"const": "capped"
+					}
+				],
+				"description": "Auto-continue loop state."
+			},
+			"ChatTaskStatus": {
+				"anyOf": [
+					{
+						"type": "string",
+						"const": "pending"
+					},
+					{
+						"type": "string",
+						"const": "in_progress"
+					},
+					{
+						"type": "string",
+						"const": "done"
+					}
+				],
+				"description": "Lifecycle status of a chat task."
+			},
+			"ChatTasksGetResult": {
+				"type": "object",
+				"required": ["task"],
+				"properties": {
+					"task": {
+						"$ref": "#/components/schemas/ChatTask"
+					}
+				},
+				"description": "Result of chat.tasks.get."
+			},
+			"ChatTasksListResult": {
+				"type": "object",
+				"required": ["tasks"],
+				"properties": {
+					"tasks": {
+						"type": "array",
+						"items": {
+							"$ref": "#/components/schemas/ChatTask"
+						},
+						"description": "All tasks for the chat, including details."
+					}
+				},
+				"description": "Result of chat.tasks.list."
 			},
 			"ChatUpdateResult": {
 				"type": "object",
@@ -5008,6 +5388,25 @@
 					}
 				},
 				"description": "Sanitized metadata summarizing a configured AI provider credential without revealing secret values."
+			},
+			"Deadlines": {
+				"type": "object",
+				"properties": {
+					"turnMs": {
+						"type": "integer",
+						"minimum": 0,
+						"maximum": 86400000,
+						"description": "Limit for one turn in milliseconds. Omitted inherits the default. 0 means no limit. Values above 24 hours are rejected."
+					},
+					"runMs": {
+						"type": "integer",
+						"minimum": 0,
+						"maximum": 86400000,
+						"description": "Limit for an autonomous run (task loop or group chat) in milliseconds. Omitted inherits the default. 0 means no limit. Values above 24 hours are rejected."
+					}
+				},
+				"additionalProperties": false,
+				"description": "Per-chat deadline overrides. Omitted fields inherit defaults. 0 means no limit."
 			},
 			"EffectiveToolsEnv": {
 				"type": "object",

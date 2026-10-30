@@ -496,7 +496,6 @@ export function echoResponse(
 	);
 	const userText = lastUserText(context);
 	const userCount = visibleUserMessages(context);
-
 	const groupTurn = userText.includes("[group ");
 	// Ignore the marker when it is only the argument of a tool directive.
 	// The caller prompt must still run that tool. Group sessions and a
@@ -587,6 +586,32 @@ export function echoResponse(
 	// 3. Check if this is an Idle Harvest forked turn
 	if (userText.startsWith("[HARVEST]")) {
 		return handleHarvestPrompt(context);
+	}
+
+	if (userText.startsWith("[tasks · auto-continue")) {
+		// Lets e2e pin the stuck guard: a task titled with this marker is not touched.
+		if (userText.includes("[[no-progress]]")) {
+			return fauxAssistantMessage(`echo(${userCount}): ${userText}`);
+		}
+		const inProgress = /#(\d+) \[in_progress\]/.exec(userText);
+		const pending = /#(\d+) \[pending\]/.exec(userText);
+		const index = inProgress?.[1] ?? pending?.[1];
+		if (index) {
+			const n = Number(index);
+			const calls: { name: string; args: JsonObject }[] = inProgress
+				? [{ name: "task_finish", args: { index: n, summary: "done" } }]
+				: [
+						{ name: "task_get", args: { index: n } },
+						{ name: "task_finish", args: { index: n, summary: "done" } },
+					];
+			return fauxAssistantMessage(
+				[
+					fauxText(`Calling ${calls.map((call) => call.name).join(", ")}...`),
+					...calls.map((call) => fauxToolCall(call.name, call.args)),
+				],
+				{ stopReason: "toolUse" },
+			);
+		}
 	}
 
 	// 4. Check for explicit `[tool:name {...}]` or `[think:...]` directives in user prompt

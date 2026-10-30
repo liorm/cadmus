@@ -197,7 +197,7 @@ describe("group chats with more than two bots", () => {
 		await runInDurableObject(stub, async (_instance, state) => {
 			state.storage.sql.exec(
 				`UPDATE cadmus_group_chats
-         SET reply_deadline = 1, overall_deadline = 1
+         SET reply_deadline = 1
          WHERE status = 'open'`,
 			);
 			await state.storage.setAlarm(Date.now());
@@ -311,7 +311,7 @@ describe("group chats with more than two bots", () => {
 				if (due.length === 0) return false;
 				state.storage.sql.exec(
 					`UPDATE cadmus_group_chats
-           SET reply_deadline = 1, overall_deadline = 1
+           SET reply_deadline = 1
            WHERE status = 'open'`,
 				);
 				await state.storage.setAlarm(Date.now());

@@ -29,6 +29,8 @@ import {
 	ChatResetCommandSchema,
 	ChatStatusCommandSchema,
 	ChatSubscribeCommandSchema,
+	ChatTasksGetCommandSchema,
+	ChatTasksListCommandSchema,
 	ChatUpdateCommandSchema,
 	FamilyCreateCommandSchema,
 	FamilyDeleteCommandSchema,
@@ -89,6 +91,8 @@ import {
 	ChatRenameResultSchema,
 	ChatResetResultSchema,
 	ChatStatusResultSchema,
+	ChatTasksGetResultSchema,
+	ChatTasksListResultSchema,
 	ChatUpdateResultSchema,
 	FamilyCreateResultSchema,
 	FamilyDeleteResultSchema,
@@ -250,6 +254,14 @@ export const commandCatalog = {
 	"chat.update": {
 		command: ChatUpdateCommandSchema,
 		result: ChatUpdateResultSchema,
+	},
+	"chat.tasks.list": {
+		command: ChatTasksListCommandSchema,
+		result: ChatTasksListResultSchema,
+	},
+	"chat.tasks.get": {
+		command: ChatTasksGetCommandSchema,
+		result: ChatTasksGetResultSchema,
 	},
 	"turn.submit": {
 		command: TurnSubmitCommandSchema,

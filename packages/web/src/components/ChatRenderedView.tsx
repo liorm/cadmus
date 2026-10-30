@@ -1,10 +1,12 @@
 import type {
+	ChatTask,
+	ChatTaskLoop,
 	HarvestNote,
 	TranscriptContentBlock,
 	TranscriptMessageView,
 	TranscriptToolCallView,
 } from "@cadmus/contract/types";
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { useAutoScroll } from "../hooks/useAutoScroll.js";
 
 export interface ChatRenderedViewProps {
@@ -31,6 +33,9 @@ export interface ChatRenderedViewProps {
 	}>;
 	chatKey?: string;
 	onOpenChat?: (chatKey: string) => void;
+	tasks?: ChatTask[];
+	taskLoop?: ChatTaskLoop;
+	runMs?: number;
 }
 
 // ─── Lightweight Safe Markdown Renderer ───────────────────────────────────────
@@ -249,6 +254,18 @@ function ToolCallCard({
 			: (toolCall as { args?: Record<string, unknown> }).args || {};
 	const result = toolCall.result;
 
+	const compact = compactTaskToolLabel(toolCall);
+	if (compact) {
+		return (
+			<div className="tool-call-compact">
+				{compact}
+				{result?.isError ? (
+					<span className="badge badge-rose">Error</span>
+				) : null}
+			</div>
+		);
+	}
+
 	return (
 		<details className="tool-call-card" open={defaultOpen ? true : undefined}>
 			<summary className="tool-call-header">
@@ -283,6 +300,113 @@ function ToolCallCard({
 				)}
 			</div>
 		</details>
+	);
+}
+
+function isTasksContinueMessage(msg: TranscriptMessageView): boolean {
+	return msg.text.startsWith("[tasks · auto-continue");
+}
+
+function AutoContinueDivider({ text }: { text: string }) {
+	const round = /round (\d+)\//.exec(text)?.[1];
+	const open = (text.match(/#\d+ \[/g) ?? []).length;
+	return (
+		<div className="task-continue-divider">
+			↻ auto-continue round {round ?? "?"} · {open} open tasks
+		</div>
+	);
+}
+
+function compactTaskToolLabel(toolCall: {
+	name?: string;
+	toolName?: string;
+	arguments?: unknown;
+	args?: Record<string, unknown>;
+}): string | null {
+	const name = toolCall.name ?? toolCall.toolName ?? "";
+	const args = (toolCall.arguments ?? toolCall.args ?? {}) as {
+		index?: number;
+		title?: string;
+	};
+	if (name === "task_finish") {
+		return `✓ finished #${args.index ?? "?"}`;
+	}
+	if (name === "task_get") {
+		return `▶ started #${args.index ?? "?"}`;
+	}
+	if (name === "task_add") {
+		return `＋ added ${args.title ?? "task"}`;
+	}
+	if (name === "task_remove") {
+		return `✕ removed #${args.index ?? "?"}`;
+	}
+	if (name === "task_list") {
+		return "☰ listed tasks";
+	}
+	return null;
+}
+
+function TaskStrip({
+	tasks,
+	loop,
+	runMs,
+}: {
+	tasks: ChatTask[];
+	loop?: ChatTaskLoop;
+	runMs?: number;
+}) {
+	const [open, setOpen] = useState(false);
+	const [detail, setDetail] = useState<ChatTask | null>(null);
+	const done = tasks.filter((task) => task.status === "done").length;
+	const active = tasks.find((task) => task.status === "in_progress");
+	const loopLabel =
+		loop?.state === "capped"
+			? "capped"
+			: loop?.state === "paused"
+				? "paused"
+				: loop?.state === "running"
+					? `running ${loop.round}/${loop.max}`
+					: "idle";
+	const timeLabel =
+		runMs === 0 ? "∞" : runMs ? `${Math.round(runMs / 60000)}m run` : "";
+	return (
+		<div className="task-strip">
+			<button
+				type="button"
+				className="task-strip-summary"
+				onClick={() => setOpen((value) => !value)}
+			>
+				Tasks {done}/{tasks.length}
+				{active ? ` · ▶ #${active.index} ${active.title}` : ""}
+				<span className="badge badge-cyan">{loopLabel}</span>
+				{timeLabel ? (
+					<span className="badge badge-ghost">{timeLabel}</span>
+				) : null}
+			</button>
+			{open ? (
+				<ul className="task-strip-list">
+					{tasks.map((task) => (
+						<li key={task.index}>
+							<button
+								type="button"
+								className="task-strip-item"
+								onClick={() =>
+									setDetail(detail?.index === task.index ? null : task)
+								}
+							>
+								#{task.index} [{task.status}] {task.title}
+							</button>
+							{detail?.index === task.index ? (
+								<div className="task-strip-detail">
+									<p>{task.details}</p>
+									{task.summary ? <p>Summary: {task.summary}</p> : null}
+								</div>
+							) : null}
+						</li>
+					))}
+				</ul>
+			) : null}
+		</div>
 	);
 }
 
@@ -552,6 +676,9 @@ export function ChatRenderedView({
 	botMessages,
 	chatKey,
 	onOpenChat,
+	tasks,
+	taskLoop,
+	runMs,
 }: ChatRenderedViewProps) {
 	const prevMessagesLengthRef = useRef(messages.length);
 	const hasNewUserMessage =
@@ -607,6 +734,9 @@ export function ChatRenderedView({
 			ref={scrollRef}
 			onScroll={handleScroll}
 		>
+			{tasks && tasks.length > 0 ? (
+				<TaskStrip tasks={tasks} loop={taskLoop} runMs={runMs} />
+			) : null}
 			{displayMessages.length === 0 && !isStreamingActive && (
 				<div className="empty-state">
 					<span className="empty-icon">💬</span>
@@ -621,6 +751,19 @@ export function ChatRenderedView({
 				const entryNotes = entryIds.flatMap((id) => notesByAt.get(id) ?? []);
 
 				if (msg.role === "user") {
+					if (isTasksContinueMessage(msg)) {
+						return (
+							<div key={msg.id} className="chat-message-row">
+								<AutoContinueDivider text={msg.text} />
+								{entryNotes.map((note) => (
+									<HarvestNoteCard
+										key={`note-${note.at}-${note.when}`}
+										note={note}
+									/>
+								))}
+							</div>
+						);
+					}
 					return (
 						<div key={msg.id} className="chat-message-row user">
 							<div className="message-meta user">

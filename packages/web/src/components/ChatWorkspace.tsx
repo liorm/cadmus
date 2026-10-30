@@ -1,6 +1,8 @@
 import type {
 	ChatRecord,
 	ChatStatusRecord,
+	ChatTask,
+	ChatTaskLoop,
 	HarvestNote,
 	RawTranscriptEntry,
 	ServerEvent,
@@ -360,13 +362,74 @@ function StatusDrawer({
 	isOpen,
 	record,
 	text,
+	chat,
 	onClose,
+	onSaveChat,
 }: {
 	isOpen: boolean;
 	record?: ChatStatusRecord;
 	text?: string;
+	chat?: ChatRecord;
 	onClose: () => void;
+	onSaveChat?: (patch: {
+		harvest?: boolean;
+		deadlines?: { turnMs?: number; runMs?: number } | null;
+	}) => void | Promise<void>;
 }) {
+	const [harvestOn, setHarvestOn] = useState(chat?.harvest !== false);
+	const [turnNoLimit, setTurnNoLimit] = useState(chat?.deadlines?.turnMs === 0);
+	const [runNoLimit, setRunNoLimit] = useState(chat?.deadlines?.runMs === 0);
+	const [turnMs, setTurnMs] = useState(
+		chat?.deadlines?.turnMs && chat.deadlines.turnMs > 0
+			? String(chat.deadlines.turnMs)
+			: "",
+	);
+	const [runMs, setRunMs] = useState(
+		chat?.deadlines?.runMs && chat.deadlines.runMs > 0
+			? String(chat.deadlines.runMs)
+			: "",
+	);
+	const explicitTurnMs = (): number | undefined => {
+		if (turnNoLimit) return 0;
+		if (turnMs.trim() === "") return undefined;
+		const n = Number(turnMs);
+		return Number.isFinite(n) ? n : undefined;
+	};
+	const explicitRunMs = (): number | undefined => {
+		if (runNoLimit) return 0;
+		if (runMs.trim() === "") return undefined;
+		const n = Number(runMs);
+		return Number.isFinite(n) ? n : undefined;
+	};
+	const clearOneDeadline = (
+		keep: number | undefined,
+		field: "turnMs" | "runMs",
+	) => {
+		if (!onSaveChat) return;
+		void (async () => {
+			await onSaveChat({ deadlines: null });
+			if (keep !== undefined) {
+				await onSaveChat({ deadlines: { [field]: keep } });
+			}
+		})();
+	};
+
+	useEffect(() => {
+		setHarvestOn(chat?.harvest !== false);
+		setTurnNoLimit(chat?.deadlines?.turnMs === 0);
+		setRunNoLimit(chat?.deadlines?.runMs === 0);
+		setTurnMs(
+			chat?.deadlines?.turnMs && chat.deadlines.turnMs > 0
+				? String(chat.deadlines.turnMs)
+				: "",
+		);
+		setRunMs(
+			chat?.deadlines?.runMs && chat.deadlines.runMs > 0
+				? String(chat.deadlines.runMs)
+				: "",
+		);
+	}, [chat]);
+
 	if (!isOpen) return null;
 
 	return (
@@ -437,6 +500,102 @@ function StatusDrawer({
 							<pre className="code-block status-pre">{text}</pre>
 						</div>
 					)}
+
+					{onSaveChat && chat && (
+						<div className="status-text-section">
+							<div className="inner-block-title">Chat settings</div>
+							<label className="form-label">
+								<input
+									type="checkbox"
+									checked={harvestOn}
+									onChange={(e) => {
+										setHarvestOn(e.target.checked);
+										onSaveChat({ harvest: e.target.checked });
+									}}
+								/>{" "}
+								Idle harvest
+							</label>
+							<div className="form-label">Turn deadline (ms)</div>
+							<label className="form-hint">
+								<input
+									type="checkbox"
+									checked={turnNoLimit}
+									onChange={(e) => {
+										setTurnNoLimit(e.target.checked);
+										if (e.target.checked) {
+											onSaveChat({ deadlines: { turnMs: 0 } });
+										}
+									}}
+								/>{" "}
+								No limit
+							</label>
+							<input
+								className="form-input"
+								placeholder="default"
+								value={turnNoLimit ? "" : turnMs}
+								disabled={turnNoLimit}
+								onChange={(e) => setTurnMs(e.target.value)}
+								onBlur={() => {
+									if (turnNoLimit) return;
+									if (turnMs.trim() === "") {
+										clearOneDeadline(explicitRunMs(), "runMs");
+										return;
+									}
+									const n = Number(turnMs);
+									if (Number.isFinite(n))
+										onSaveChat({ deadlines: { turnMs: n } });
+								}}
+							/>
+							<div className="form-label">Run deadline (ms)</div>
+							<label className="form-hint">
+								<input
+									type="checkbox"
+									checked={runNoLimit}
+									onChange={(e) => {
+										setRunNoLimit(e.target.checked);
+										if (e.target.checked) {
+											onSaveChat({ deadlines: { runMs: 0 } });
+										}
+									}}
+								/>{" "}
+								No limit
+							</label>
+							<input
+								className="form-input"
+								placeholder="default"
+								value={runNoLimit ? "" : runMs}
+								disabled={runNoLimit}
+								onChange={(e) => setRunMs(e.target.value)}
+								onBlur={() => {
+									if (runNoLimit) return;
+									if (runMs.trim() === "") {
+										clearOneDeadline(explicitTurnMs(), "turnMs");
+										return;
+									}
+									const n = Number(runMs);
+									if (Number.isFinite(n))
+										onSaveChat({ deadlines: { runMs: n } });
+								}}
+							/>
+							<p className="form-hint">
+								Blank inherits the default. 0 / No limit means unlimited. Null
+								reset uses the Reset deadlines button.
+							</p>
+							<button
+								type="button"
+								className="btn btn-ghost btn-sm"
+								onClick={() => {
+									setTurnNoLimit(false);
+									setRunNoLimit(false);
+									setTurnMs("");
+									setRunMs("");
+									onSaveChat({ deadlines: null });
+								}}
+							>
+								Reset deadlines
+							</button>
+						</div>
+					)}
 				</div>
 			</div>
 		</div>
@@ -474,6 +633,8 @@ export interface ChatWorkspaceProps {
 		messages: TranscriptMessageView[];
 		entries: RawTranscriptEntry[];
 		notes: HarvestNote[];
+		tasks?: ChatTask[];
+		taskLoop?: ChatTaskLoop;
 		toolsEnvEnabled?: boolean;
 		toolsEnvEnabledSource?: string;
 		toolsEnvBindingSource?: string;
@@ -506,6 +667,8 @@ export function ChatWorkspace({
 		messages: TranscriptMessageView[];
 		entries: RawTranscriptEntry[];
 		notes: HarvestNote[];
+		tasks?: ChatTask[];
+		taskLoop?: ChatTaskLoop;
 		toolsEnvEnabled?: boolean;
 		toolsEnvEnabledSource?: string;
 		toolsEnvBindingSource?: string;
@@ -648,6 +811,8 @@ export function ChatWorkspace({
 						messages: res.result.messages,
 						entries: res.result.entries,
 						notes: res.result.notes,
+						tasks: res.result.tasks,
+						taskLoop: res.result.taskLoop,
 						toolsEnvEnabled: res.result.toolsEnvEnabled,
 						toolsEnvEnabledSource: res.result.toolsEnvEnabledSource,
 						toolsEnvBindingSource: res.result.toolsEnvBindingSource,
@@ -816,6 +981,35 @@ export function ChatWorkspace({
 				}
 			} else if (event.type === "harvest.note") {
 				if (event.payload.chatKey === currentKey) {
+					loadChat(currentKey);
+				}
+			} else if (event.type === "chat.tasks") {
+				if (event.payload.chatKey === currentKey) {
+					setChatData((prev) =>
+						prev
+							? {
+									...prev,
+									taskLoop: event.payload.loop,
+									tasks: event.payload.tasks.map((next) => {
+										const existing = (prev.tasks ?? []).find(
+											(task) => task.index === next.index,
+										);
+										return existing
+											? {
+													...existing,
+													title: next.title,
+													status: next.status,
+												}
+											: {
+													...next,
+													details: "",
+													createdAt: 0,
+													updatedAt: 0,
+												};
+									}),
+								}
+							: prev,
+					);
 					loadChat(currentKey);
 				}
 			} else if (event.type === "bot.message") {
@@ -1286,7 +1480,20 @@ export function ChatWorkspace({
 								isOpen={statusDrawer.open}
 								record={statusDrawer.record}
 								text={statusDrawer.text}
+								chat={chatData.chat}
 								onClose={() => setStatusDrawer({ open: false })}
+								onSaveChat={async (patch) => {
+									const res = await client.callRpc("chat.update", {
+										chatKey: chatData.chat.key,
+										...patch,
+									});
+									const next = res.ok ? res.result?.chat : undefined;
+									if (next) {
+										setChatData((prev) =>
+											prev ? { ...prev, chat: next } : prev,
+										);
+									}
+								}}
 							/>
 
 							{isLoadingChat && (
@@ -1303,6 +1510,9 @@ export function ChatWorkspace({
 									chatKey={chatData.chat.key}
 									messages={chatData.messages}
 									notes={chatData.notes}
+									tasks={chatData.tasks}
+									taskLoop={chatData.taskLoop}
+									runMs={chatData.chat.effectiveDeadlines?.runMs}
 									streamingState={streamingState}
 									botMessages={botMessages}
 									onOpenChat={(key) => setSelectedChatKey(key)}

@@ -9,6 +9,7 @@ import {
 import {
 	ChatKindSchema,
 	CredentialInputSchema,
+	DeadlinesSchema,
 	ScheduleTargetSchema,
 	ThinkingLevelSchema,
 	ToolsEnvBindingSchema,
@@ -882,16 +883,83 @@ export const ChatUpdateCommandSchema = Type.Object(
 							"Set the per-chat idle harvest switch. Omitted leaves it unchanged.",
 					}),
 				),
+				deadlines: Type.Optional(
+					Type.Union([
+						DeadlinesSchema,
+						Type.Null({
+							description:
+								"Clear per-chat deadline overrides and restore kind defaults.",
+						}),
+					]),
+				),
 			},
 			{ additionalProperties: false },
 		),
 	},
 	{
 		description:
-			"Update a chat's tools env setting or its per-chat harvest switch.",
+			"Update a chat's tools env setting, per-chat harvest switch, or deadline overrides. deadlines null resets overrides. 0 on a field means no limit.",
 	},
 );
 export type ChatUpdateCommand = Static<typeof ChatUpdateCommandSchema>;
+
+export const ChatTasksListCommandSchema = Type.Object(
+	{
+		id: Type.String({
+			minLength: 1,
+			description:
+				"Non-empty unique correlation identifier for this command request.",
+		}),
+		type: Type.Literal("chat.tasks.list", {
+			description: "Command type identifier.",
+		}),
+		payload: Type.Object(
+			{
+				chatKey: Type.String({
+					minLength: 1,
+					description: "Unique routing key of the chat session.",
+				}),
+			},
+			{ additionalProperties: false },
+		),
+	},
+	{
+		readOnly: true,
+		description: "List tasks for a chat, including details and summaries.",
+	},
+);
+export type ChatTasksListCommand = Static<typeof ChatTasksListCommandSchema>;
+
+export const ChatTasksGetCommandSchema = Type.Object(
+	{
+		id: Type.String({
+			minLength: 1,
+			description:
+				"Non-empty unique correlation identifier for this command request.",
+		}),
+		type: Type.Literal("chat.tasks.get", {
+			description: "Command type identifier.",
+		}),
+		payload: Type.Object(
+			{
+				chatKey: Type.String({
+					minLength: 1,
+					description: "Unique routing key of the chat session.",
+				}),
+				index: Type.Integer({
+					minimum: 1,
+					description: "Per-chat task index.",
+				}),
+			},
+			{ additionalProperties: false },
+		),
+	},
+	{
+		readOnly: true,
+		description: "Get one chat task by index, including details and summary.",
+	},
+);
+export type ChatTasksGetCommand = Static<typeof ChatTasksGetCommandSchema>;
 
 const ToolsEnvKindSchema = Type.Union([
 	Type.Literal("just-bash"),
@@ -1963,6 +2031,8 @@ export const ClientCommandSchema = Type.Union(
 		ScheduleUpdateCommandSchema,
 		ScheduleDeleteCommandSchema,
 		ChatUpdateCommandSchema,
+		ChatTasksListCommandSchema,
+		ChatTasksGetCommandSchema,
 		AccountToolsEnvsListCommandSchema,
 		AccountToolsEnvsCreateCommandSchema,
 		AccountToolsEnvsUpdateCommandSchema,

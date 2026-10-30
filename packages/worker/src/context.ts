@@ -91,6 +91,8 @@ export interface CadmusServices {
 	ensureScheduleTask(scheduleId: string): Promise<void>;
 	syncAlarm(): Promise<number | undefined>;
 	broadcast(event: ServerEvent): void;
+	broadcastChatTasks(chatKey: string): void;
+	deliverTaskContinue(chatKey: string, round: number): Promise<void>;
 }
 
 export const cadmusServicesKey =

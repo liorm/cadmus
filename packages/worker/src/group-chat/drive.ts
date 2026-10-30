@@ -1,3 +1,4 @@
+import { TurnDeadlineError } from "../deadlines.js";
 import type { ChatRecord } from "../protocol.js";
 import type {
 	FamilyStore,
@@ -13,7 +14,7 @@ import {
 	routeGroupRecipients,
 } from "./limits.js";
 
-export class GroupReplyTimeout extends Error {
+export class GroupReplyTimeout extends TurnDeadlineError {
 	constructor() {
 		super("group reply timed out");
 		this.name = "GroupReplyTimeout";
@@ -226,7 +227,7 @@ async function openGroup(
 		openingText: input.text,
 		createdAt: now,
 		updatedAt: now,
-		overallDeadline: now + deps.overallMs,
+		overallDeadline: deps.overallMs > 0 ? now + deps.overallMs : 0,
 		delivered,
 	};
 	deps.store.groups.insert(group);
@@ -311,8 +312,8 @@ export async function drive(
 	const passed = new Set<string>();
 	while (group.status === "open") {
 		const now = deps.now();
-		if (now >= group.overallDeadline) {
-			return finish(deps, group, "timed_out");
+		if (group.overallDeadline > 0 && now >= group.overallDeadline) {
+			return finish(deps, group, "capped");
 		}
 		if (group.turnCount >= MAX_GROUP_TURNS) {
 			return finish(deps, group, "capped");
@@ -330,7 +331,7 @@ export async function drive(
 			.join("\n\n");
 		group.turnCount += 1;
 		const replyBudget = deps.replyMs;
-		group.replyDeadline = now + replyBudget;
+		group.replyDeadline = replyBudget > 0 ? now + replyBudget : undefined;
 		group.updatedAt = now;
 		const deliveredThrough = pending[pending.length - 1]?.seq ?? 0;
 		group.delivered = { ...group.delivered, [next]: deliveredThrough };
@@ -349,14 +350,22 @@ export async function drive(
 			});
 			reply = settled.reply.trim();
 		} catch (error) {
-			if (error instanceof GroupReplyTimeout) {
-				return finish(deps, reload(deps, group.id), "timed_out");
-			}
 			const current = reload(deps, group.id);
+			const overallDue =
+				current.overallDeadline > 0 && deps.now() >= current.overallDeadline;
+			const replyDue =
+				current.replyDeadline !== undefined &&
+				deps.now() >= current.replyDeadline;
 			if (
-				current.status === "timed_out" ||
-				deps.now() >= (current.replyDeadline ?? current.overallDeadline)
+				error instanceof GroupReplyTimeout ||
+				error instanceof TurnDeadlineError
 			) {
+				return finish(deps, current, overallDue ? "capped" : "timed_out");
+			}
+			if (current.status === "capped" || overallDue) {
+				return finish(deps, current, "capped");
+			}
+			if (current.status === "timed_out" || replyDue) {
 				return finish(deps, current, "timed_out");
 			}
 			throw error;
@@ -460,10 +469,12 @@ async function waitForWatchdog(
 	deps: GroupDriveDeps,
 	group: GroupChatRecord,
 ): Promise<GroupRunResult> {
-	const deadline = Math.min(
-		group.replyDeadline ?? group.overallDeadline,
-		group.overallDeadline,
-	);
+	const candidates = [
+		group.replyDeadline,
+		group.overallDeadline > 0 ? group.overallDeadline : undefined,
+	].filter((value): value is number => value !== undefined);
+	const deadline =
+		candidates.length > 0 ? Math.min(...candidates) : Number.POSITIVE_INFINITY;
 	while (deps.now() < deadline) {
 		const current = reload(deps, group.id);
 		if (current.status !== "open") return resultOf(deps, current);
@@ -474,6 +485,12 @@ async function waitForWatchdog(
 	}
 	const current = reload(deps, group.id);
 	if (current.status !== "open") return resultOf(deps, current);
+	const overallDue =
+		current.overallDeadline > 0 && deps.now() >= current.overallDeadline;
+	const replyDue =
+		current.replyDeadline !== undefined && deps.now() >= current.replyDeadline;
+	if (overallDue) return finish(deps, current, "capped");
+	if (replyDue) return finish(deps, current, "timed_out");
 	return finish(deps, current, "timed_out");
 }
 

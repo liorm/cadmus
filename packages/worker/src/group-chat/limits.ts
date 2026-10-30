@@ -18,8 +18,6 @@
 export const MAX_HOP_DEPTH = 3;
 export const MAX_PEER_ACTIONS = 5;
 export const MAX_GROUP_TURNS = 10;
-export const DEFAULT_GROUP_REPLY_MS = 120_000;
-export const DEFAULT_GROUP_OVERALL_MS = 10 * 60_000;
 
 export type HopAdmit =
 	| { ok: true; chain: string[]; depth: number }
@@ -175,16 +173,6 @@ export function formatGroupWake(input: {
 	const head = `[group "${input.topic}" · reply from @${input.fromBotId} · chat ${input.groupId}]`;
 	if (input.status === "ended") return `${head} ${input.text}`.trim();
 	return `${head} ${input.status}\n${input.text}`.trim();
-}
-
-export function resolveGroupTimeoutMs(
-	raw: string | undefined,
-	fallback: number,
-): number {
-	if (raw === undefined || raw.trim() === "") return fallback;
-	const value = Number(raw);
-	if (!Number.isFinite(value)) return fallback;
-	return Math.min(Math.max(Math.floor(value), 50), 3_600_000);
 }
 
 export const GROUP_REPLY_OPEN = "[[group-reply]]";

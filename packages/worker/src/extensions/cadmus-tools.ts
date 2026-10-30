@@ -4,6 +4,7 @@ import { identityExtension } from "./identity.js";
 import { internalToolsExtension } from "./internal-tools.js";
 import { knowledgeExtension } from "./knowledge-tools.js";
 import { schedulesToolsExtension } from "./schedules-tools.js";
+import { tasksToolsExtension } from "./tasks-tools.js";
 import { toolGateExtension } from "./tool-gate.js";
 import { webToolsExtension } from "./web-tools.js";
 
@@ -17,6 +18,7 @@ export function cadmusDefaultExtensions(): Extension[] {
 		identityExtension(),
 		knowledgeExtension(),
 		schedulesToolsExtension(),
+		tasksToolsExtension(),
 		internalToolsExtension(),
 		toolGateExtension(),
 		webToolsExtension(),

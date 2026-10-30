@@ -214,6 +214,18 @@ export const API_ROUTES = {
 		allow: "POST",
 		readOnly: false,
 	},
+	"chat.tasks.list": {
+		method: "GET",
+		path: "/api/chat/tasks/list",
+		allow: "GET, HEAD",
+		readOnly: true,
+	},
+	"chat.tasks.get": {
+		method: "GET",
+		path: "/api/chat/tasks/get",
+		allow: "GET, HEAD",
+		readOnly: true,
+	},
 	"turn.submit": {
 		method: "POST",
 		path: "/api/turn/submit",

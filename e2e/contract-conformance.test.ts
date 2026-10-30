@@ -226,6 +226,12 @@ describe("contract conformance", () => {
 		await call("chat.messages", { chatKey: "main" });
 		await call("chat.entries", { chatKey: "main" });
 		await call("chat.status", { chatKey: "main" });
+		await call("turn.submit", {
+			chatKey: "main",
+			text: '[tool:task_add {"title":"Contract","details":"seed"}]',
+		});
+		await call("chat.tasks.list", { chatKey: "main" });
+		await call("chat.tasks.get", { chatKey: "main", index: 1 });
 		await call("chat.subscribe", { chatKey: "main" });
 		await call("chat.rename", { chatKey: "main", title: "Renamed" });
 		await call("chat.update", {

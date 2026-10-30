@@ -4,6 +4,8 @@ import {
 	AccountRecordSchema,
 	BotRecordSchema,
 	ChatRecordSchema,
+	ChatTaskLoopSchema,
+	ChatTaskSchema,
 	CredentialSummarySchema,
 	EffectiveToolsEnvSchema,
 	FamilyRecordSchema,
@@ -417,6 +419,12 @@ export const ChatGetResultSchema = Type.Object(
 			description:
 				"Historical harvest notes recording memory and knowledge updates from this chat.",
 		}),
+		tasks: Type.Optional(
+			Type.Array(ChatTaskSchema, {
+				description: "Chat tasks for this session.",
+			}),
+		),
+		taskLoop: Type.Optional(ChatTaskLoopSchema),
 		toolsEnvEnabled: Type.Optional(Type.Boolean()),
 		toolsEnvEnabledSource: Type.Optional(Type.String()),
 		effectiveToolsEnv: Type.Optional(
@@ -495,6 +503,25 @@ export const ChatStatusRecordSchema = Type.Object(
 			description:
 				"Aggregated token and prompt usage statistics for this chat session.",
 		}),
+		tasks: Type.Optional(
+			Type.Object(
+				{
+					open: Type.Integer({
+						minimum: 0,
+						description: "Pending plus in-progress task count.",
+					}),
+					done: Type.Integer({
+						minimum: 0,
+						description: "Finished task count still on the chat.",
+					}),
+					loopRound: Type.Integer({
+						minimum: 0,
+						description: "Current auto-continue round.",
+					}),
+				},
+				{ additionalProperties: false },
+			),
+		),
 		toolsEnv: Type.Optional(
 			Type.Object(
 				{
@@ -994,6 +1021,24 @@ export const ChatUpdateResultSchema = Type.Object({
 	chat: ChatRecordSchema,
 });
 export type ChatUpdateResult = Static<typeof ChatUpdateResultSchema>;
+
+export const ChatTasksListResultSchema = Type.Object(
+	{
+		tasks: Type.Array(ChatTaskSchema, {
+			description: "All tasks for the chat, including details.",
+		}),
+	},
+	{ description: "Result of chat.tasks.list." },
+);
+export type ChatTasksListResult = Static<typeof ChatTasksListResultSchema>;
+
+export const ChatTasksGetResultSchema = Type.Object(
+	{
+		task: ChatTaskSchema,
+	},
+	{ description: "Result of chat.tasks.get." },
+);
+export type ChatTasksGetResult = Static<typeof ChatTasksGetResultSchema>;
 
 export const ToolsEnvRecordSchema = Type.Object({
 	envId: Type.String(),

@@ -1,7 +1,11 @@
 import { type Static, Type } from "typebox";
 import { type ProtocolError, ProtocolErrorSchema } from "./common.js";
 import { OAuthFlowRecordSchema } from "./oauth.js";
-import { HarvestNoteSchema, TurnBlockSchema } from "./records.js";
+import {
+	ChatTaskLoopSchema,
+	HarvestNoteSchema,
+	TurnBlockSchema,
+} from "./records.js";
 
 // ─── Outbound Server Frames ──────────────────────────────────────────────────
 
@@ -307,6 +311,42 @@ export const HarvestNoteEventSchema = Type.Object(
 );
 export type HarvestNoteEvent = Static<typeof HarvestNoteEventSchema>;
 
+export const ChatTasksEventSchema = Type.Object(
+	{
+		type: Type.Literal("chat.tasks", {
+			description: "Event type identifier for chat task list and loop updates.",
+		}),
+		payload: Type.Object(
+			{
+				chatKey: Type.String({
+					description: "Chat session routing key.",
+				}),
+				tasks: Type.Array(
+					Type.Object(
+						{
+							index: Type.Integer({ minimum: 1 }),
+							title: Type.String(),
+							status: Type.Union([
+								Type.Literal("pending"),
+								Type.Literal("in_progress"),
+								Type.Literal("done"),
+							]),
+						},
+						{ additionalProperties: false },
+					),
+				),
+				loop: ChatTaskLoopSchema,
+			},
+			{ additionalProperties: false },
+		),
+	},
+	{
+		description:
+			"Event emitted when chat tasks change or the auto-continue loop starts or stops.",
+	},
+);
+export type ChatTasksEvent = Static<typeof ChatTasksEventSchema>;
+
 /**
  * Event emitted when an inter-bot message is sent between bots in the family.
  */
@@ -456,6 +496,7 @@ export const ServerEventSchema = Type.Union(
 		TurnCompletedEventSchema,
 		ChatStateEventSchema,
 		HarvestNoteEventSchema,
+		ChatTasksEventSchema,
 		BotMessageEventSchema,
 		AccountEventSchema,
 		AccountOAuthEventSchema,

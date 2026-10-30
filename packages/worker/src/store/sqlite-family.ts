@@ -11,7 +11,9 @@ import type {
 	ChatKind,
 	ChatRecord,
 	ChatStore,
+	ChatTask,
 	ConversationRoute,
+	Deadlines,
 	FamilyStore,
 	GroupChatRecord,
 	GroupMessage,
@@ -24,7 +26,11 @@ import type {
 	MemoryDoc,
 	ScheduleRecord,
 	ScheduleStore,
+	TaskLoopState,
+	TaskStore,
 } from "./family-interface.js";
+
+const CHAT_SELECT = `key, bot_id, conversation_id, title, thinking, closed, tools_env_json, created_at, harvest_enabled, kind, deadlines_json`;
 
 export const MAX_MEMORY_BYTES = 8192;
 export const SLUG_REGEX = /^[a-z0-9][a-z0-9-]{0,63}$/;
@@ -626,7 +632,7 @@ class SqliteChatStore implements ChatStore {
 
 		const whereClause =
 			conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
-		const sql = `SELECT key, bot_id, conversation_id, title, thinking, closed, tools_env_json, created_at, harvest_enabled, kind
+		const sql = `SELECT ${CHAT_SELECT}
          FROM cadmus_chats
          ${whereClause}
          ORDER BY created_at ASC, key ASC`;
@@ -643,6 +649,7 @@ class SqliteChatStore implements ChatStore {
 				created_at: number;
 				harvest_enabled?: number | null;
 				kind?: string | null;
+				deadlines_json?: string | null;
 			}>(sql, ...params)
 			.toArray();
 
@@ -662,8 +669,9 @@ class SqliteChatStore implements ChatStore {
 				created_at: number;
 				harvest_enabled?: number | null;
 				kind?: string | null;
+				deadlines_json?: string | null;
 			}>(
-				`SELECT key, bot_id, conversation_id, title, thinking, closed, tools_env_json, created_at, harvest_enabled, kind
+				`SELECT ${CHAT_SELECT}
          FROM cadmus_chats
          WHERE key = ?`,
 				key,
@@ -685,8 +693,9 @@ class SqliteChatStore implements ChatStore {
 				created_at: number;
 				harvest_enabled?: number | null;
 				kind?: string | null;
+				deadlines_json?: string | null;
 			}>(
-				`SELECT key, bot_id, conversation_id, title, thinking, closed, tools_env_json, created_at, harvest_enabled, kind
+				`SELECT ${CHAT_SELECT}
          FROM cadmus_chats
          WHERE conversation_id = ?
          LIMIT 1`,
@@ -752,6 +761,14 @@ class SqliteChatStore implements ChatStore {
 		this.sql.exec(`DELETE FROM cadmus_chats WHERE key = ?`, key);
 	}
 
+	setDeadlines(chatKey: string, deadlines: Deadlines | null): void {
+		this.sql.exec(
+			`UPDATE cadmus_chats SET deadlines_json = ? WHERE key = ?`,
+			deadlines ? JSON.stringify(deadlines) : null,
+			chatKey,
+		);
+	}
+
 	private mapRow(row: {
 		key: string;
 		bot_id: string;
@@ -763,6 +780,7 @@ class SqliteChatStore implements ChatStore {
 		kind?: string | null;
 		tools_env_json?: string | null;
 		harvest_enabled?: number | null;
+		deadlines_json?: string | null;
 	}): ChatRecord {
 		const kind: ChatKind =
 			(row.kind as ChatKind) ||
@@ -789,6 +807,14 @@ class SqliteChatStore implements ChatStore {
 		if (harvestEnabled === 0) rec.harvest = false;
 		if (kind === "group-member") {
 			rec.readOnly = true;
+		}
+		if (row.deadlines_json) {
+			try {
+				const parsed = JSON.parse(row.deadlines_json) as Deadlines;
+				if (parsed && typeof parsed === "object") rec.deadlines = parsed;
+			} catch {
+				// ignore
+			}
 		}
 		return rec;
 	}
@@ -1043,6 +1069,238 @@ class SqliteScheduleStore implements ScheduleStore {
 		return rec;
 	}
 }
+
+class SqliteTaskStore implements TaskStore {
+	constructor(private readonly sql: SqlStorage) {}
+
+	add(chatKey: string, title: string, details: string, now: number): ChatTask {
+		const idxRow = this.sql
+			.exec<{ next_task_idx: number | null }>(
+				`SELECT next_task_idx FROM cadmus_chats WHERE key = ?`,
+				chatKey,
+			)
+			.toArray()[0];
+		const index = Number(idxRow?.next_task_idx ?? 1);
+		this.sql.exec(
+			`INSERT INTO cadmus_chat_tasks (chat_key, idx, title, details, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, 'pending', ?, ?)`,
+			chatKey,
+			index,
+			title,
+			details,
+			now,
+			now,
+		);
+		this.sql.exec(
+			`UPDATE cadmus_chats SET next_task_idx = ? WHERE key = ?`,
+			index + 1,
+			chatKey,
+		);
+		return {
+			index,
+			title,
+			details,
+			status: "pending",
+			createdAt: now,
+			updatedAt: now,
+		};
+	}
+
+	remove(chatKey: string, index: number): ChatTask | undefined {
+		const existing = this.get(chatKey, index);
+		if (!existing) return undefined;
+		this.sql.exec(
+			`DELETE FROM cadmus_chat_tasks WHERE chat_key = ? AND idx = ?`,
+			chatKey,
+			index,
+		);
+		return existing;
+	}
+
+	get(chatKey: string, index: number): ChatTask | undefined {
+		const row = this.sql
+			.exec<TaskRow>(
+				`SELECT * FROM cadmus_chat_tasks WHERE chat_key = ? AND idx = ?`,
+				chatKey,
+				index,
+			)
+			.toArray()[0];
+		return row ? this.mapTask(row) : undefined;
+	}
+
+	start(chatKey: string, index: number, now: number): ChatTask | undefined {
+		const existing = this.get(chatKey, index);
+		if (!existing) return undefined;
+		this.sql.exec(
+			`UPDATE cadmus_chat_tasks SET status = 'in_progress', updated_at = ? WHERE chat_key = ? AND idx = ?`,
+			now,
+			chatKey,
+			index,
+		);
+		return { ...existing, status: "in_progress", updatedAt: now };
+	}
+
+	finish(
+		chatKey: string,
+		index: number,
+		now: number,
+		summary?: string,
+	): ChatTask | undefined {
+		const existing = this.get(chatKey, index);
+		if (!existing) return undefined;
+		this.sql.exec(
+			`UPDATE cadmus_chat_tasks SET status = 'done', summary = ?, updated_at = ? WHERE chat_key = ? AND idx = ?`,
+			summary ?? null,
+			now,
+			chatKey,
+			index,
+		);
+		return {
+			...existing,
+			status: "done",
+			updatedAt: now,
+			...(summary ? { summary } : {}),
+		};
+	}
+
+	list(chatKey: string): ChatTask[] {
+		return this.sql
+			.exec<TaskRow>(
+				`SELECT * FROM cadmus_chat_tasks WHERE chat_key = ? ORDER BY idx ASC`,
+				chatKey,
+			)
+			.toArray()
+			.map((row) => this.mapTask(row));
+	}
+
+	clear(chatKey: string): void {
+		this.sql.exec(`DELETE FROM cadmus_chat_tasks WHERE chat_key = ?`, chatKey);
+		this.sql.exec(
+			`UPDATE cadmus_chats SET next_task_idx = 1, loop_round = 0, loop_started_at = NULL,
+         tasks_paused = 0, tasks_capped = 0, run_deadline = NULL, stuck_rounds = 0,
+         continue_admitted_round = NULL
+       WHERE key = ?`,
+			chatKey,
+		);
+	}
+
+	openCount(chatKey: string): number {
+		const row = this.sql
+			.exec<{ n: number }>(
+				`SELECT COUNT(*) AS n FROM cadmus_chat_tasks WHERE chat_key = ? AND status IN ('pending','in_progress')`,
+				chatKey,
+			)
+			.toArray()[0];
+		return Number(row?.n ?? 0);
+	}
+
+	inProgress(chatKey: string): ChatTask | undefined {
+		const row = this.sql
+			.exec<TaskRow>(
+				`SELECT * FROM cadmus_chat_tasks WHERE chat_key = ? AND status = 'in_progress' ORDER BY idx ASC LIMIT 1`,
+				chatKey,
+			)
+			.toArray()[0];
+		return row ? this.mapTask(row) : undefined;
+	}
+
+	lowestPending(chatKey: string): ChatTask | undefined {
+		const row = this.sql
+			.exec<TaskRow>(
+				`SELECT * FROM cadmus_chat_tasks WHERE chat_key = ? AND status = 'pending' ORDER BY idx ASC LIMIT 1`,
+				chatKey,
+			)
+			.toArray()[0];
+		return row ? this.mapTask(row) : undefined;
+	}
+
+	getLoop(chatKey: string): TaskLoopState {
+		const row = this.sql
+			.exec<{
+				loop_round: number | null;
+				loop_started_at: number | null;
+				tasks_paused: number | null;
+				tasks_capped: number | null;
+				run_deadline: number | null;
+				stuck_rounds: number | null;
+				continue_admitted_round: number | null;
+			}>(
+				`SELECT loop_round, loop_started_at, tasks_paused, tasks_capped, run_deadline, stuck_rounds, continue_admitted_round
+         FROM cadmus_chats WHERE key = ?`,
+				chatKey,
+			)
+			.toArray()[0];
+		return {
+			round: Number(row?.loop_round ?? 0),
+			paused: row?.tasks_paused === 1,
+			capped: row?.tasks_capped === 1,
+			stuckRounds: Number(row?.stuck_rounds ?? 0),
+			...(row?.loop_started_at != null
+				? { startedAt: Number(row.loop_started_at) }
+				: {}),
+			...(row?.run_deadline != null
+				? { runDeadline: Number(row.run_deadline) }
+				: {}),
+			...(row?.continue_admitted_round != null
+				? { continueAdmittedRound: Number(row.continue_admitted_round) }
+				: {}),
+		};
+	}
+
+	setLoop(chatKey: string, loop: TaskLoopState): void {
+		this.sql.exec(
+			`UPDATE cadmus_chats SET loop_round = ?, loop_started_at = ?, tasks_paused = ?, tasks_capped = ?,
+         run_deadline = ?, stuck_rounds = ?, continue_admitted_round = ?
+       WHERE key = ?`,
+			loop.round,
+			loop.startedAt ?? null,
+			loop.paused ? 1 : 0,
+			loop.capped ? 1 : 0,
+			loop.runDeadline ?? null,
+			loop.stuckRounds,
+			loop.continueAdmittedRound ?? null,
+			chatKey,
+		);
+	}
+
+	listRunDeadlines(): { chatKey: string; runDeadline: number }[] {
+		return this.sql
+			.exec<{ key: string; run_deadline: number }>(
+				`SELECT key, run_deadline FROM cadmus_chats
+         WHERE run_deadline IS NOT NULL AND run_deadline > 0
+           AND tasks_capped = 0 AND tasks_paused = 0`,
+			)
+			.toArray()
+			.map((row) => ({
+				chatKey: row.key,
+				runDeadline: Number(row.run_deadline),
+			}));
+	}
+
+	private mapTask(row: TaskRow): ChatTask {
+		const rec: ChatTask = {
+			index: Number(row.idx),
+			title: row.title,
+			details: row.details,
+			status: row.status as ChatTask["status"],
+			createdAt: Number(row.created_at),
+			updatedAt: Number(row.updated_at),
+		};
+		if (row.summary) rec.summary = row.summary;
+		return rec;
+	}
+}
+
+type TaskRow = {
+	chat_key: string;
+	idx: number;
+	title: string;
+	details: string;
+	status: string;
+	summary: string | null;
+	created_at: number;
+	updated_at: number;
+};
 
 class SqliteHarvestStore implements HarvestStore {
 	constructor(private readonly sql: SqlStorage) {}
@@ -1408,6 +1666,7 @@ export class SqliteFamilyStore implements FamilyStore {
 	readonly schedules: ScheduleStore;
 	readonly harvest: HarvestStore;
 	readonly groups: GroupStore;
+	readonly tasks: TaskStore;
 	private initialized = false;
 
 	constructor(private readonly sql: SqlStorage) {
@@ -1417,6 +1676,7 @@ export class SqliteFamilyStore implements FamilyStore {
 		this.schedules = new SqliteScheduleStore(sql);
 		this.harvest = new SqliteHarvestStore(sql);
 		this.groups = new SqliteGroupStore(sql);
+		this.tasks = new SqliteTaskStore(sql);
 	}
 
 	ensureSchema(): void {
@@ -1590,9 +1850,31 @@ export class SqliteFamilyStore implements FamilyStore {
         root_request_id TEXT PRIMARY KEY,
         chain_json TEXT NOT NULL
       );
+
+      CREATE TABLE IF NOT EXISTS cadmus_chat_tasks (
+        chat_key TEXT NOT NULL REFERENCES cadmus_chats(key) ON DELETE CASCADE,
+        idx INTEGER NOT NULL,
+        title TEXT NOT NULL,
+        details TEXT NOT NULL,
+        status TEXT NOT NULL CHECK(status IN ('pending','in_progress','done')),
+        summary TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        PRIMARY KEY (chat_key, idx)
+      );
     `);
 		ensureChatColumn(this.sql, "harvest_enabled", "INTEGER NOT NULL DEFAULT 1");
 		ensureChatColumn(this.sql, "kind", "TEXT NOT NULL DEFAULT 'direct'");
+		ensureChatColumn(this.sql, "next_task_idx", "INTEGER NOT NULL DEFAULT 1");
+		ensureChatColumn(this.sql, "loop_round", "INTEGER NOT NULL DEFAULT 0");
+		ensureChatColumn(this.sql, "loop_started_at", "INTEGER");
+		ensureChatColumn(this.sql, "tasks_paused", "INTEGER NOT NULL DEFAULT 0");
+		ensureChatColumn(this.sql, "tasks_capped", "INTEGER NOT NULL DEFAULT 0");
+		ensureChatColumn(this.sql, "run_deadline", "INTEGER");
+		ensureChatColumn(this.sql, "stuck_rounds", "INTEGER NOT NULL DEFAULT 0");
+		ensureChatColumn(this.sql, "continue_admitted_round", "INTEGER");
+		ensureChatColumn(this.sql, "deadlines_json", "TEXT");
+		dropChatColumn(this.sql, "continue_hold");
 		this.sql.exec(
 			"CREATE INDEX IF NOT EXISTS idx_cadmus_chats_kind ON cadmus_chats(kind);",
 		);

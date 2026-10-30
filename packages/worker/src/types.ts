@@ -11,10 +11,12 @@ export interface Env {
 	CADMUS_ENCRYPTION_KEY?: string;
 	CADMUS_DEFAULT_TIMEZONE?: string;
 	CADMUS_HARVEST_DELAY_MS?: string;
-	/** Per-reply group-chat watchdog. Unset means 120000. */
-	CADMUS_GROUP_REPLY_MS?: string;
-	/** Overall group-chat watchdog. Unset means 600000. */
-	CADMUS_GROUP_OVERALL_MS?: string;
+	/** Per-turn deadline in ms. Unset uses kind defaults. 0 means no limit. */
+	CADMUS_TURN_MS?: string;
+	/** Autonomous run deadline in ms. Unset uses kind defaults. 0 means no limit. */
+	CADMUS_RUN_MS?: string;
+	/** Auto-continue round cap. Unset means 20. */
+	CADMUS_TASK_MAX_ROUNDS?: string;
 	/**
 	 * Daemon heartbeat interval in milliseconds. Unset means 30000.
 	 * See `resolveHeartbeatMs`.

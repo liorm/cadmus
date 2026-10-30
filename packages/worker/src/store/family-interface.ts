@@ -2,6 +2,8 @@ import type {
 	BotRecord,
 	ChatKind,
 	ChatRecord,
+	ChatTask,
+	Deadlines,
 	HarvestFileDiff,
 	HarvestNote,
 	KnowledgeSearchResult,
@@ -19,6 +21,8 @@ export type {
 	BotRecord,
 	ChatKind,
 	ChatRecord,
+	ChatTask,
+	Deadlines,
 	HarvestFileDiff,
 	HarvestNote,
 	KnowledgeSearchResult,
@@ -105,6 +109,7 @@ export interface ChatStore {
 	deleteConversationRoutesForChat(chatKey: string): void;
 	deleteConversationRoutesForBot(botId: string): void;
 	copyConversationRoute(parentId: number, childId: number): void;
+	setDeadlines(chatKey: string, deadlines: Deadlines | null): void;
 }
 
 export interface ScheduleStore {
@@ -114,6 +119,37 @@ export interface ScheduleStore {
 	deleteSchedule(id: string): void;
 	recordFire(scheduleId: string, fireTime: number): void;
 	hasFired(scheduleId: string, fireTime: number): boolean;
+}
+
+export type TaskLoopState = {
+	round: number;
+	startedAt?: number;
+	paused: boolean;
+	capped: boolean;
+	runDeadline?: number;
+	stuckRounds: number;
+	continueAdmittedRound?: number;
+};
+
+export interface TaskStore {
+	add(chatKey: string, title: string, details: string, now: number): ChatTask;
+	remove(chatKey: string, index: number): ChatTask | undefined;
+	get(chatKey: string, index: number): ChatTask | undefined;
+	start(chatKey: string, index: number, now: number): ChatTask | undefined;
+	finish(
+		chatKey: string,
+		index: number,
+		now: number,
+		summary?: string,
+	): ChatTask | undefined;
+	list(chatKey: string): ChatTask[];
+	clear(chatKey: string): void;
+	openCount(chatKey: string): number;
+	inProgress(chatKey: string): ChatTask | undefined;
+	lowestPending(chatKey: string): ChatTask | undefined;
+	getLoop(chatKey: string): TaskLoopState;
+	setLoop(chatKey: string, loop: TaskLoopState): void;
+	listRunDeadlines(): { chatKey: string; runDeadline: number }[];
 }
 
 export interface HarvestStore {
@@ -226,4 +262,5 @@ export interface FamilyStore {
 	readonly schedules: ScheduleStore;
 	readonly harvest: HarvestStore;
 	readonly groups: GroupStore;
+	readonly tasks: TaskStore;
 }

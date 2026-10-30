@@ -1,6 +1,7 @@
 import {
 	CODE_EXECUTE_TOOL_NAME,
 	isReadOnlyGroupTool,
+	isTaskTool,
 	readOnlyGroupToolNames,
 } from "@cadmus/contract/tools";
 import {
@@ -83,6 +84,19 @@ export function toolGateExtension() {
 						if (!offerEnd) {
 							messages = omitProviderTools(messages, ["end_conversation"]);
 						}
+						const groupSession =
+							chat?.kind === "group" ||
+							chat?.kind === "group-member" ||
+							Boolean(chat?.key.startsWith("gmem:"));
+						if (groupSession) {
+							messages = omitProviderTools(messages, [
+								"task_add",
+								"task_remove",
+								"task_get",
+								"task_finish",
+								"task_list",
+							]);
+						}
 					}
 					noteProviderTools(botId, providerToolNames(messages));
 					if (messages === request.messages) return undefined;
@@ -107,6 +121,20 @@ export function toolGateExtension() {
 						};
 					}
 					const services = requireCadmusServices(context);
+					if (isTaskTool(call.name)) {
+						const chat = services.familyStore.chats.getChatByConversationId(
+							api.conversationId as unknown as number,
+						);
+						const groupSession =
+							chat?.kind === "group" ||
+							chat?.kind === "group-member" ||
+							Boolean(chat?.key.startsWith("gmem:"));
+						if (groupSession) {
+							return {
+								block: "Task tools are not available in group chats.",
+							};
+						}
+					}
 					if (
 						consultMember(services, api.conversationId as unknown as number) &&
 						!isReadOnlyGroupTool(call.name)

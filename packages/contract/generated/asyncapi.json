@@ -1452,6 +1452,171 @@
 				},
 				"description": "Subscribe the current connection (WebSocket or SSE) to real-time streaming deltas, tool calls, and state events for a chat."
 			},
+			"ChatTaskLoop": {
+				"type": "object",
+				"required": ["round", "max", "state"],
+				"properties": {
+					"round": {
+						"type": "integer",
+						"minimum": 0,
+						"description": "Auto-continue rounds since the last user message."
+					},
+					"max": {
+						"type": "integer",
+						"minimum": 0,
+						"description": "Round cap for this loop."
+					},
+					"state": {
+						"$ref": "#/components/schemas/ChatTaskLoopState"
+					}
+				},
+				"description": "Task auto-continue loop snapshot."
+			},
+			"ChatTaskLoopState": {
+				"anyOf": [
+					{
+						"type": "string",
+						"const": "running"
+					},
+					{
+						"type": "string",
+						"const": "idle"
+					},
+					{
+						"type": "string",
+						"const": "paused"
+					},
+					{
+						"type": "string",
+						"const": "capped"
+					}
+				],
+				"description": "Auto-continue loop state."
+			},
+			"ChatTasksEvent": {
+				"type": "object",
+				"required": ["type", "payload"],
+				"properties": {
+					"type": {
+						"type": "string",
+						"const": "chat.tasks",
+						"description": "Event type identifier for chat task list and loop updates."
+					},
+					"payload": {
+						"type": "object",
+						"required": ["chatKey", "tasks", "loop"],
+						"properties": {
+							"chatKey": {
+								"type": "string",
+								"description": "Chat session routing key."
+							},
+							"tasks": {
+								"type": "array",
+								"items": {
+									"type": "object",
+									"required": ["index", "title", "status"],
+									"properties": {
+										"index": {
+											"type": "integer",
+											"minimum": 1
+										},
+										"title": {
+											"type": "string"
+										},
+										"status": {
+											"anyOf": [
+												{
+													"type": "string",
+													"const": "pending"
+												},
+												{
+													"type": "string",
+													"const": "in_progress"
+												},
+												{
+													"type": "string",
+													"const": "done"
+												}
+											]
+										}
+									},
+									"additionalProperties": false
+								}
+							},
+							"loop": {
+								"$ref": "#/components/schemas/ChatTaskLoop"
+							}
+						},
+						"additionalProperties": false
+					}
+				},
+				"description": "Event emitted when chat tasks change or the auto-continue loop starts or stops."
+			},
+			"ChatTasksGetCommand": {
+				"type": "object",
+				"required": ["id", "type", "payload"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Non-empty unique correlation identifier for this command request."
+					},
+					"type": {
+						"type": "string",
+						"const": "chat.tasks.get",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"required": ["chatKey", "index"],
+						"properties": {
+							"chatKey": {
+								"type": "string",
+								"minLength": 1,
+								"description": "Unique routing key of the chat session."
+							},
+							"index": {
+								"type": "integer",
+								"minimum": 1,
+								"description": "Per-chat task index."
+							}
+						},
+						"additionalProperties": false
+					}
+				},
+				"readOnly": true,
+				"description": "Get one chat task by index, including details and summary."
+			},
+			"ChatTasksListCommand": {
+				"type": "object",
+				"required": ["id", "type", "payload"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Non-empty unique correlation identifier for this command request."
+					},
+					"type": {
+						"type": "string",
+						"const": "chat.tasks.list",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"required": ["chatKey"],
+						"properties": {
+							"chatKey": {
+								"type": "string",
+								"minLength": 1,
+								"description": "Unique routing key of the chat session."
+							}
+						},
+						"additionalProperties": false
+					}
+				},
+				"readOnly": true,
+				"description": "List tasks for a chat, including details and summaries."
+			},
 			"ChatUpdateCommand": {
 				"type": "object",
 				"required": ["id", "type", "payload"],
@@ -1478,12 +1643,23 @@
 							"harvest": {
 								"type": "boolean",
 								"description": "Set the per-chat idle harvest switch. Omitted leaves it unchanged."
+							},
+							"deadlines": {
+								"anyOf": [
+									{
+										"$ref": "#/components/schemas/Deadlines"
+									},
+									{
+										"type": "null",
+										"description": "Clear per-chat deadline overrides and restore kind defaults."
+									}
+								]
 							}
 						},
 						"additionalProperties": false
 					}
 				},
-				"description": "Update a chat's tools env setting or its per-chat harvest switch."
+				"description": "Update a chat's tools env setting, per-chat harvest switch, or deadline overrides. deadlines null resets overrides. 0 on a field means no limit."
 			},
 			"ClientCommand": {
 				"anyOf": [
@@ -1632,6 +1808,12 @@
 						"$ref": "#/components/schemas/ChatUpdateCommand"
 					},
 					{
+						"$ref": "#/components/schemas/ChatTasksListCommand"
+					},
+					{
+						"$ref": "#/components/schemas/ChatTasksGetCommand"
+					},
+					{
 						"$ref": "#/components/schemas/AccountToolsEnvsListCommand"
 					},
 					{
@@ -1759,6 +1941,25 @@
 					}
 				},
 				"description": "Sanitized metadata summarizing a configured AI provider credential without revealing secret values."
+			},
+			"Deadlines": {
+				"type": "object",
+				"properties": {
+					"turnMs": {
+						"type": "integer",
+						"minimum": 0,
+						"maximum": 86400000,
+						"description": "Limit for one turn in milliseconds. Omitted inherits the default. 0 means no limit. Values above 24 hours are rejected."
+					},
+					"runMs": {
+						"type": "integer",
+						"minimum": 0,
+						"maximum": 86400000,
+						"description": "Limit for an autonomous run (task loop or group chat) in milliseconds. Omitted inherits the default. 0 means no limit. Values above 24 hours are rejected."
+					}
+				},
+				"additionalProperties": false,
+				"description": "Per-chat deadline overrides. Omitted fields inherit defaults. 0 means no limit."
 			},
 			"FamilyCreateCommand": {
 				"type": "object",
@@ -2696,6 +2897,9 @@
 					},
 					{
 						"$ref": "#/components/schemas/HarvestNoteEvent"
+					},
+					{
+						"$ref": "#/components/schemas/ChatTasksEvent"
 					},
 					{
 						"$ref": "#/components/schemas/BotMessageEvent"

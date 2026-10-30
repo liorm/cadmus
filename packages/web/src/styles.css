@@ -972,6 +972,61 @@ body,
 	color: #fda4af;
 }
 
+.task-strip {
+	position: sticky;
+	top: 0;
+	z-index: 2;
+	background: var(--bg-surface-1);
+	border: 1px solid var(--border-default);
+	border-radius: var(--radius-sm);
+	padding: 8px 10px;
+	margin-bottom: 8px;
+}
+.task-strip-summary {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+	align-items: center;
+	width: 100%;
+	background: none;
+	border: 0;
+	color: var(--text-primary);
+	cursor: pointer;
+	font-size: 12px;
+}
+.task-strip-list {
+	list-style: none;
+	margin: 8px 0 0;
+	padding: 0;
+}
+.task-strip-item {
+	background: none;
+	border: 0;
+	color: var(--text-secondary);
+	cursor: pointer;
+	font-size: 12px;
+	padding: 2px 0;
+}
+.task-strip-detail {
+	color: var(--text-muted);
+	font-size: 12px;
+	padding: 4px 0 8px;
+}
+.task-continue-divider {
+	width: 100%;
+	text-align: center;
+	font-size: 12px;
+	color: var(--text-muted);
+	border-top: 1px dashed var(--border-default);
+	padding: 8px 0;
+	margin: 8px 0;
+}
+.tool-call-compact {
+	font-size: 12px;
+	color: var(--text-secondary);
+	padding: 2px 0;
+}
+
 /* Harvest Note Card */
 .harvest-note-card {
 	background-color: rgba(16, 185, 129, 0.05);

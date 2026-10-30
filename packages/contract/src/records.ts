@@ -394,6 +394,108 @@ export const ChatKindSchema = Type.Union(
 );
 export type ChatKind = Static<typeof ChatKindSchema>;
 
+export const MAX_DEADLINE_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Per-chat turn and run limits. A field omitted inherits the default.
+ * `0` means no limit. A positive value is a limit in milliseconds and
+ * must not exceed 24 hours.
+ */
+export const DeadlinesSchema = Type.Object(
+	{
+		turnMs: Type.Optional(
+			Type.Integer({
+				minimum: 0,
+				maximum: MAX_DEADLINE_MS,
+				description:
+					"Limit for one turn in milliseconds. Omitted inherits the default. 0 means no limit. Values above 24 hours are rejected.",
+			}),
+		),
+		runMs: Type.Optional(
+			Type.Integer({
+				minimum: 0,
+				maximum: MAX_DEADLINE_MS,
+				description:
+					"Limit for an autonomous run (task loop or group chat) in milliseconds. Omitted inherits the default. 0 means no limit. Values above 24 hours are rejected.",
+			}),
+		),
+	},
+	{
+		additionalProperties: false,
+		description:
+			"Per-chat deadline overrides. Omitted fields inherit defaults. 0 means no limit.",
+	},
+);
+export type Deadlines = Static<typeof DeadlinesSchema>;
+
+export const ChatTaskStatusSchema = Type.Union(
+	[Type.Literal("pending"), Type.Literal("in_progress"), Type.Literal("done")],
+	{ description: "Lifecycle status of a chat task." },
+);
+export type ChatTaskStatus = Static<typeof ChatTaskStatusSchema>;
+
+export const ChatTaskSchema = Type.Object(
+	{
+		index: Type.Integer({
+			minimum: 1,
+			description: "Per-chat task index. Never reused after removal.",
+		}),
+		title: Type.String({
+			minLength: 1,
+			maxLength: 120,
+			description: "Short task title.",
+		}),
+		details: Type.String({
+			minLength: 1,
+			maxLength: 8000,
+			description: "Task details for the bot.",
+		}),
+		status: ChatTaskStatusSchema,
+		summary: Type.Optional(
+			Type.String({
+				maxLength: 500,
+				description: "Optional result summary from task_finish.",
+			}),
+		),
+		createdAt: Type.Number({
+			description: "Epoch timestamp in milliseconds when the task was created.",
+		}),
+		updatedAt: Type.Number({
+			description:
+				"Epoch timestamp in milliseconds when the task last changed.",
+		}),
+	},
+	{ description: "A semi-autonomous chat task." },
+);
+export type ChatTask = Static<typeof ChatTaskSchema>;
+
+export const ChatTaskLoopStateSchema = Type.Union(
+	[
+		Type.Literal("running"),
+		Type.Literal("idle"),
+		Type.Literal("paused"),
+		Type.Literal("capped"),
+	],
+	{ description: "Auto-continue loop state." },
+);
+export type ChatTaskLoopState = Static<typeof ChatTaskLoopStateSchema>;
+
+export const ChatTaskLoopSchema = Type.Object(
+	{
+		round: Type.Integer({
+			minimum: 0,
+			description: "Auto-continue rounds since the last user message.",
+		}),
+		max: Type.Integer({
+			minimum: 0,
+			description: "Round cap for this loop.",
+		}),
+		state: ChatTaskLoopStateSchema,
+	},
+	{ description: "Task auto-continue loop snapshot." },
+);
+export type ChatTaskLoop = Static<typeof ChatTaskLoopSchema>;
+
 /**
  * Chat session record tracking an active or archived conversation with a bot.
  */
@@ -466,6 +568,24 @@ export const ChatRecordSchema = Type.Object(
 				{
 					description: "Lifecycle status of a group chat.",
 				},
+			),
+		),
+		deadlines: Type.Optional(DeadlinesSchema),
+		effectiveDeadlines: Type.Optional(
+			Type.Object(
+				{
+					turnMs: Type.Integer({
+						minimum: 0,
+						description:
+							"Resolved turn limit in milliseconds. 0 means no limit.",
+					}),
+					runMs: Type.Integer({
+						minimum: 0,
+						description:
+							"Resolved run limit in milliseconds. 0 means no limit.",
+					}),
+				},
+				{ additionalProperties: false },
 			),
 		),
 	},
