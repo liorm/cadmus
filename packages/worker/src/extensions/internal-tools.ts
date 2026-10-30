@@ -368,10 +368,20 @@ export function internalToolsExtension() {
 			defineTool({
 				name: "search_bot",
 				description:
-					"Search for peer bots in this Bot Family matching a query or description. Evaluates bot names, SOUL.md personas, MEMORY.md, and knowledge summaries.",
+					"Search for peer bots in this Bot Family matching a query, topic, or description. Evaluates bot names, SOUL.md personas, MEMORY.md, and knowledge summaries to identify the single most relevant bot. Always use this tool first when looking for information that might be held by other bots or determining which bot is responsible for a domain, device, or task.",
 				parameters: Type.Object({
-					query: Type.Optional(Type.String()),
-					description: Type.Optional(Type.String()),
+					query: Type.Optional(
+						Type.String({
+							description:
+								"Topic, subject, keywords, or question to search peer bots for (e.g. 'Logitech mouse', 'home automation', 'networking').",
+						}),
+					),
+					description: Type.Optional(
+						Type.String({
+							description:
+								"Alternative description of the role, capability, or knowledge domain needed.",
+						}),
+					),
 				}),
 				replay: "safe",
 				async execute(args, api, context) {
@@ -463,7 +473,7 @@ export function internalToolsExtension() {
 			defineTool({
 				name: "list_bots",
 				description:
-					"List all bots in this Bot Family. Returns the slug and display name of each bot.",
+					"List all bots in this Bot Family. Returns only the slug and display name of each bot. Do NOT use this tool to search for a bot to answer a question or check for specific information—use search_bot instead, which inspects bot personas, memories, and knowledge summaries. Only use list_bots when the user explicitly requests an exhaustive roster or inventory of all bots.",
 				parameters: Type.Object({}),
 				replay: "safe",
 				async execute(_args, _api, context) {
@@ -483,18 +493,18 @@ export function internalToolsExtension() {
 			defineTool({
 				name: "message_bot",
 				description:
-					"Open a new group chat in this family. Pass slug for one target, or to: [slug, ...] for several. topic is required. With exactly two members, every message gets a reply from the other member. With more than two, only @mentioned members reply (the opening message mentions every target when it names nobody). wait defaults to true and blocks until you call end_conversation, the 10-turn cap, or the watchdog. wait false returns immediately with the group chat id and topic. A two-member fire-and-forget chat ends on the target's first reply. A larger one ends when every bot mentioned in the opening has replied once (or on cap or timeout). That result is delivered later as a new turn in this chat. Same family only. Legacy peer chats are not reused. Cost is charged to you. readOnly defaults to false. readOnly true still opens a normal group chat (topic required, visible, user read-only, same limits) but each target session is offered only knowledge_read and memory_read. Harvest stays off. Your own session in that chat keeps its tools, including end_conversation.",
+					"Open a new group chat in this family. Pass slug for one target, or to: [slug, ...] for several. topic is required. When seeking answers or checking records from other bots, NEVER message all bots at once—use search_bot first to find the single relevant bot, then message that bot with slug and pass readOnly: true. In a two-member chat with wait: true, every message gets a reply from the other member; when you receive the needed information (or confirmation that none exists), call end_conversation immediately to finish rather than sending back-and-forth chit-chat or acknowledgments. wait defaults to true and blocks until you call end_conversation, the 10-turn cap, or the watchdog. wait false returns immediately with the group chat id and topic. A two-member fire-and-forget chat ends on the target's first reply. A larger one ends when every bot mentioned in the opening has replied once (or on cap or timeout). That result is delivered later as a new turn in this chat. Same family only. Legacy peer chats are not reused. Cost is charged to you. readOnly defaults to false. readOnly true still opens a normal group chat (topic required, visible, user read-only, same limits) but each target session is offered only knowledge_read and memory_read. Harvest stays off. Your own session in that chat keeps its tools, including end_conversation.",
 				parameters: Type.Object({
 					slug: Type.Optional(
 						Type.String({
 							description:
-								"Target bot slug. Creates a group chat with you and this bot. Omit when passing to.",
+								"Target bot slug. Creates a group chat with you and this bot. Omit when passing to. Prefer this over to when asking a specific bot for information.",
 						}),
 					),
 					to: Type.Optional(
 						Type.Array(Type.String({ minLength: 1 }), {
 							description:
-								"Target bot slugs. Creates one group chat with you and these bots. Omit this and pass slug for a single target.",
+								"Target bot slugs. Creates one group chat with you and these bots. Omit this and pass slug for a single target. Do not pass all bots in the family.",
 						}),
 					),
 					topic: Type.String({
@@ -512,7 +522,7 @@ export function internalToolsExtension() {
 					readOnly: Type.Optional(
 						Type.Boolean({
 							description:
-								"When true, each target is offered only knowledge_read and memory_read. Writes, schedules, messaging, and coding tools are refused. Defaults to false.",
+								"When true, each target is offered only knowledge_read and memory_read. Writes, schedules, messaging, and coding tools are refused. Recommended when querying peer bots for information. Defaults to false.",
 						}),
 					),
 				}),
@@ -598,9 +608,13 @@ export function internalToolsExtension() {
 			defineTool({
 				name: "end_conversation",
 				description:
-					"End the group chat you started and return this response to your waiting message_bot call. Offered only in that caller session. Fire-and-forget chats end on the target's first reply (two members) or when every bot mentioned in the opening has replied once (more members).",
+					"End the group chat you started and return this response to your waiting message_bot call. Offered only in that caller session. When you initiated a group chat with message_bot, you MUST call end_conversation immediately once the target bot provides the answer or confirms it has no information. Do NOT reply with chit-chat, 'Understood', 'Got it', or pleasantries as regular messages, because each message requires another turn from the peer until hitting the 10-turn cap.",
 				parameters: Type.Object({
-					response: Type.String({ minLength: 1 }),
+					response: Type.String({
+						minLength: 1,
+						description:
+							"Summary or final response to return to the waiting caller session.",
+					}),
 				}),
 				replay: "safe",
 				executionMode: "sequential",
