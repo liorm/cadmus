@@ -286,7 +286,13 @@ describe("Bots, Virtual Files (SOUL.md, MEMORY.md, knowledge/<slug>.md), CAS & T
 			"turn.submit",
 			{
 				chatKey: "scribe-chat-1",
-				text: 'Hello V1 [remember: Scribe V1 secret fact] [tool:message_bot {"botId":"helper","text":"ping from v1"}]',
+				text: `Hello V1 [remember: Scribe V1 secret fact] [tool:message_bot ${JSON.stringify(
+					{
+						botId: "helper",
+						topic: "ping",
+						text: '[[group-reply]][tool:end_conversation {"response":"pong"}][[/group-reply]]',
+					},
+				)}]`,
 			},
 			scope,
 		);
@@ -518,13 +524,13 @@ describe("Bots, Virtual Files (SOUL.md, MEMORY.md, knowledge/<slug>.md), CAS & T
 			"turn.submit",
 			{
 				chatKey: "alpha-chat",
-				text: 'Message beta using alpha-chat [tool:message_bot {"botId":"beta","chatKey":"alpha-chat","text":"hello"}]',
+				text: 'Message beta using alpha-chat [tool:message_bot {"botId":"beta","topic":"cross","chatKey":"alpha-chat","text":"hello"}]',
 			},
 			scope,
 		);
 		expect(badMessageBotTurn.status).toBe(200);
 		expect(badMessageBotTurn.frame.result?.reply).toContain(
-			"Chat 'alpha-chat' belongs to bot 'alpha', not 'beta'",
+			"chatKey is not used",
 		);
 	});
 });

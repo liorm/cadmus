@@ -12,6 +12,9 @@ import type {
 	ChatStore,
 	ConversationRoute,
 	FamilyStore,
+	GroupChatRecord,
+	GroupMessage,
+	GroupStore,
 	HarvestFileDiff,
 	HarvestNote,
 	HarvestStore,
@@ -612,9 +615,9 @@ class SqliteChatStore implements ChatStore {
 					closed: number;
 					created_at: number;
 				}>(
-					`SELECT key, bot_id, conversation_id, title, thinking, closed, tools_env_json, created_at
+					`SELECT key, bot_id, conversation_id, title, thinking, closed, tools_env_json, created_at, harvest_enabled
            FROM cadmus_chats
-           WHERE bot_id = ?
+           WHERE bot_id = ? AND listed = 1
            ORDER BY created_at ASC, key ASC`,
 					botId,
 				)
@@ -632,8 +635,9 @@ class SqliteChatStore implements ChatStore {
 				closed: number;
 				created_at: number;
 			}>(
-				`SELECT key, bot_id, conversation_id, title, thinking, closed, tools_env_json, created_at
+				`SELECT key, bot_id, conversation_id, title, thinking, closed, tools_env_json, created_at, harvest_enabled
          FROM cadmus_chats
+         WHERE listed = 1
          ORDER BY created_at ASC, key ASC`,
 			)
 			.toArray();
@@ -651,7 +655,7 @@ class SqliteChatStore implements ChatStore {
 				closed: number;
 				created_at: number;
 			}>(
-				`SELECT key, bot_id, conversation_id, title, thinking, closed, tools_env_json, created_at
+				`SELECT key, bot_id, conversation_id, title, thinking, closed, tools_env_json, created_at, harvest_enabled
          FROM cadmus_chats
          WHERE key = ?`,
 				key,
@@ -671,7 +675,7 @@ class SqliteChatStore implements ChatStore {
 				closed: number;
 				created_at: number;
 			}>(
-				`SELECT key, bot_id, conversation_id, title, thinking, closed, tools_env_json, created_at
+				`SELECT key, bot_id, conversation_id, title, thinking, closed, tools_env_json, created_at, harvest_enabled
          FROM cadmus_chats
          WHERE conversation_id = ?
          LIMIT 1`,
@@ -681,21 +685,23 @@ class SqliteChatStore implements ChatStore {
 		return rows[0] ? this.mapRow(rows[0]) : undefined;
 	}
 
-	upsertChat(chat: ChatRecord): void {
+	upsertChat(chat: ChatRecord, options?: { listed?: boolean }): void {
 		const toolsEnvJson =
 			chat.toolsEnv !== undefined && chat.toolsEnv !== null
 				? JSON.stringify(chat.toolsEnv)
 				: null;
+		const listed = options?.listed === false ? 0 : 1;
 		this.sql.exec(
-			`INSERT INTO cadmus_chats (key, bot_id, conversation_id, title, thinking, closed, tools_env_json, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+			`INSERT INTO cadmus_chats (key, bot_id, conversation_id, title, thinking, closed, tools_env_json, created_at, harvest_enabled, listed)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(key) DO UPDATE SET
          bot_id = excluded.bot_id,
          conversation_id = excluded.conversation_id,
          title = excluded.title,
          thinking = excluded.thinking,
          closed = excluded.closed,
-         tools_env_json = excluded.tools_env_json`,
+         tools_env_json = excluded.tools_env_json,
+         harvest_enabled = excluded.harvest_enabled`,
 			chat.key,
 			chat.botId,
 			chat.conversationId,
@@ -704,7 +710,29 @@ class SqliteChatStore implements ChatStore {
 			chat.closed ? 1 : 0,
 			toolsEnvJson,
 			chat.createdAt,
+			chat.harvest === false ? 0 : 1,
+			listed,
 		);
+	}
+
+	setTurnRoot(chatKey: string, rootRequestId: string): void {
+		this.sql.exec(
+			`INSERT INTO cadmus_turn_roots (chat_key, root_request_id)
+       VALUES (?, ?)
+       ON CONFLICT(chat_key) DO UPDATE SET root_request_id = excluded.root_request_id`,
+			chatKey,
+			rootRequestId,
+		);
+	}
+
+	getTurnRoot(chatKey: string): string | undefined {
+		const rows = this.sql
+			.exec<{ root_request_id: string }>(
+				`SELECT root_request_id FROM cadmus_turn_roots WHERE chat_key = ?`,
+				chatKey,
+			)
+			.toArray();
+		return rows[0]?.root_request_id;
 	}
 
 	deleteChat(key: string): void {
@@ -739,6 +767,13 @@ class SqliteChatStore implements ChatStore {
 			(row as { tools_env_json?: string | null }).tools_env_json,
 		);
 		if (toolsEnv) rec.toolsEnv = toolsEnv;
+		const harvestEnabled = (row as { harvest_enabled?: number | null })
+			.harvest_enabled;
+		if (harvestEnabled === 0) rec.harvest = false;
+		if (row.key.startsWith("peer:")) {
+			rec.kind = "legacy-peer";
+			rec.readOnly = true;
+		}
 		return rec;
 	}
 
@@ -1051,12 +1086,312 @@ class SqliteHarvestStore implements HarvestStore {
 	}
 }
 
+class SqliteGroupStore implements GroupStore {
+	constructor(private readonly sql: SqlStorage) {}
+
+	getById(id: string): GroupChatRecord | undefined {
+		return this.map(
+			this.sql
+				.exec<GroupRow>(`SELECT * FROM cadmus_group_chats WHERE id = ?`, id)
+				.toArray()[0],
+		);
+	}
+
+	getByTaskId(taskId: string): GroupChatRecord | undefined {
+		return this.map(
+			this.sql
+				.exec<GroupRow>(
+					`SELECT * FROM cadmus_group_chats WHERE task_id = ?`,
+					taskId,
+				)
+				.toArray()[0],
+		);
+	}
+
+	findByMemberKey(
+		chatKey: string,
+	):
+		| { group: GroupChatRecord; botId: string; role: "caller" | "member" }
+		| undefined {
+		const row = this.sql
+			.exec<{ group_id: string; bot_id: string; role: string }>(
+				`SELECT group_id, bot_id, role FROM cadmus_group_members WHERE chat_key = ?`,
+				chatKey,
+			)
+			.toArray()[0];
+		if (!row) return undefined;
+		const group = this.getById(row.group_id);
+		if (!group) return undefined;
+		return {
+			group,
+			botId: row.bot_id,
+			role: row.role === "caller" ? "caller" : "member",
+		};
+	}
+
+	insert(group: GroupChatRecord): void {
+		this.sql.exec(
+			`INSERT INTO cadmus_group_chats (
+        id, topic, members_json, creator_bot_id, root_request_id, human_read_only,
+        hop_chain_json, turn_count, status, mode, origin_chat_key, task_id, opening_text,
+        end_response, created_at, updated_at, overall_deadline, reply_deadline,
+        delivered_json, tools_read_only
+      ) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			group.id,
+			group.topic,
+			JSON.stringify(group.members),
+			group.creatorBotId,
+			group.rootRequestId,
+			JSON.stringify(group.hopChain),
+			group.turnCount,
+			group.status,
+			group.mode,
+			group.originChatKey,
+			group.taskId,
+			group.openingText,
+			group.endResponse ?? null,
+			group.createdAt,
+			group.updatedAt,
+			group.overallDeadline,
+			group.replyDeadline ?? null,
+			JSON.stringify(group.delivered),
+			group.toolsReadOnly === true ? 1 : 0,
+		);
+	}
+
+	save(group: GroupChatRecord): void {
+		this.sql.exec(
+			`UPDATE cadmus_group_chats SET
+        turn_count = ?, status = ?, end_response = ?,
+        updated_at = ?, reply_deadline = ?, delivered_json = ?, hop_chain_json = ?
+       WHERE id = ?`,
+			group.turnCount,
+			group.status,
+			group.endResponse ?? null,
+			group.updatedAt,
+			group.replyDeadline ?? null,
+			JSON.stringify(group.delivered),
+			JSON.stringify(group.hopChain),
+			group.id,
+		);
+	}
+
+	list(): GroupChatRecord[] {
+		return this.sql
+			.exec<GroupRow>(
+				`SELECT * FROM cadmus_group_chats ORDER BY created_at ASC, id ASC`,
+			)
+			.toArray()
+			.flatMap((row) => {
+				const mapped = this.map(row);
+				return mapped ? [mapped] : [];
+			});
+	}
+
+	listOpen(): GroupChatRecord[] {
+		return this.list().filter((group) => group.status === "open");
+	}
+
+	appendMessage(
+		groupId: string,
+		fromBotId: string,
+		text: string,
+		at: number,
+	): GroupMessage {
+		const next = this.sql
+			.exec<{ seq: number }>(
+				`SELECT COALESCE(MAX(seq), 0) + 1 AS seq FROM cadmus_group_messages WHERE group_id = ?`,
+				groupId,
+			)
+			.toArray()[0];
+		const seq = Number(next?.seq ?? 1);
+		this.sql.exec(
+			`INSERT INTO cadmus_group_messages (group_id, seq, from_bot_id, text, at_ms)
+       VALUES (?, ?, ?, ?, ?)`,
+			groupId,
+			seq,
+			fromBotId,
+			text,
+			at,
+		);
+		return { seq, fromBotId, text, at };
+	}
+
+	listMessages(groupId: string): GroupMessage[] {
+		return this.sql
+			.exec<{ seq: number; from_bot_id: string; text: string; at_ms: number }>(
+				`SELECT seq, from_bot_id, text, at_ms FROM cadmus_group_messages
+         WHERE group_id = ? ORDER BY seq ASC`,
+				groupId,
+			)
+			.toArray()
+			.map((row) => ({
+				seq: Number(row.seq),
+				fromBotId: row.from_bot_id,
+				text: row.text,
+				at: Number(row.at_ms),
+			}));
+	}
+
+	peerActions(rootRequestId: string): number {
+		const row = this.sql
+			.exec<{ used: number }>(
+				`SELECT used FROM cadmus_peer_actions WHERE root_request_id = ?`,
+				rootRequestId,
+			)
+			.toArray()[0];
+		return row ? Number(row.used) : 0;
+	}
+
+	setPeerActions(rootRequestId: string, used: number): void {
+		this.sql.exec(
+			`INSERT INTO cadmus_peer_actions (root_request_id, used) VALUES (?, ?)
+       ON CONFLICT(root_request_id) DO UPDATE SET used = excluded.used`,
+			rootRequestId,
+			used,
+		);
+	}
+
+	setHopContext(rootRequestId: string, chain: readonly string[]): void {
+		this.sql.exec(
+			`INSERT INTO cadmus_hop_context (root_request_id, chain_json) VALUES (?, ?)
+       ON CONFLICT(root_request_id) DO UPDATE SET chain_json = excluded.chain_json`,
+			rootRequestId,
+			JSON.stringify(chain),
+		);
+	}
+
+	hopContext(rootRequestId: string): string[] | undefined {
+		const row = this.sql
+			.exec<{ chain_json: string }>(
+				`SELECT chain_json FROM cadmus_hop_context WHERE root_request_id = ?`,
+				rootRequestId,
+			)
+			.toArray()[0];
+		if (!row) return undefined;
+		return JSON.parse(row.chain_json) as string[];
+	}
+
+	wakeHold(id: string): number | undefined {
+		const row = this.sql
+			.exec<{ wake_not_before: number | null }>(
+				`SELECT wake_not_before FROM cadmus_group_chats WHERE id = ?`,
+				id,
+			)
+			.toArray()[0];
+		if (!row || row.wake_not_before == null) return undefined;
+		return Number(row.wake_not_before);
+	}
+
+	wakeAdmitted(id: string): boolean {
+		const row = this.sql
+			.exec<{ wake_admitted: number }>(
+				`SELECT wake_admitted FROM cadmus_group_chats WHERE id = ?`,
+				id,
+			)
+			.toArray()[0];
+		return Number(row?.wake_admitted ?? 0) === 1;
+	}
+
+	markWakeAdmitted(id: string): void {
+		this.sql.exec(
+			`UPDATE cadmus_group_chats SET wake_admitted = 1 WHERE id = ?`,
+			id,
+		);
+	}
+
+	delete(id: string): void {
+		this.sql.exec(`DELETE FROM cadmus_group_messages WHERE group_id = ?`, id);
+		this.sql.exec(`DELETE FROM cadmus_group_members WHERE group_id = ?`, id);
+		this.sql.exec(`DELETE FROM cadmus_group_chats WHERE id = ?`, id);
+	}
+
+	memberChatKeys(groupId: string): string[] {
+		return this.sql
+			.exec<{ chat_key: string }>(
+				`SELECT chat_key FROM cadmus_group_members WHERE group_id = ?`,
+				groupId,
+			)
+			.toArray()
+			.map((row) => row.chat_key);
+	}
+
+	bindMember(
+		groupId: string,
+		botId: string,
+		chatKey: string,
+		role: "caller" | "member",
+	): void {
+		this.sql.exec(
+			`INSERT INTO cadmus_group_members (group_id, bot_id, chat_key, role)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(group_id, bot_id) DO UPDATE SET chat_key = excluded.chat_key, role = excluded.role`,
+			groupId,
+			botId,
+			chatKey,
+			role,
+		);
+	}
+
+	private map(row: GroupRow | undefined): GroupChatRecord | undefined {
+		if (!row) return undefined;
+		const record: GroupChatRecord = {
+			id: row.id,
+			topic: row.topic,
+			members: JSON.parse(row.members_json) as string[],
+			creatorBotId: row.creator_bot_id,
+			rootRequestId: row.root_request_id,
+			humanReadOnly: true,
+			...(Number(row.tools_read_only) === 1 ? { toolsReadOnly: true } : {}),
+			hopChain: JSON.parse(row.hop_chain_json) as string[],
+			turnCount: Number(row.turn_count),
+			status: row.status as GroupChatRecord["status"],
+			mode: row.mode === "forget" ? "forget" : "wait",
+			originChatKey: row.origin_chat_key,
+			taskId: row.task_id,
+			openingText: row.opening_text,
+			createdAt: Number(row.created_at),
+			updatedAt: Number(row.updated_at),
+			overallDeadline: Number(row.overall_deadline),
+			delivered: JSON.parse(row.delivered_json) as Record<string, number>,
+		};
+		if (row.end_response != null) record.endResponse = row.end_response;
+		if (row.reply_deadline != null) {
+			record.replyDeadline = Number(row.reply_deadline);
+		}
+		return record;
+	}
+}
+
+type GroupRow = {
+	id: string;
+	topic: string;
+	members_json: string;
+	creator_bot_id: string;
+	root_request_id: string;
+	hop_chain_json: string;
+	turn_count: number;
+	status: string;
+	mode?: string | null;
+	origin_chat_key: string;
+	task_id: string;
+	opening_text: string;
+	end_response: string | null;
+	created_at: number;
+	updated_at: number;
+	overall_deadline: number;
+	reply_deadline: number | null;
+	delivered_json: string;
+	tools_read_only?: number | null;
+};
+
 export class SqliteFamilyStore implements FamilyStore {
 	readonly bots: BotStore;
 	readonly files: BotFileStore;
 	readonly chats: ChatStore;
 	readonly schedules: ScheduleStore;
 	readonly harvest: HarvestStore;
+	readonly groups: GroupStore;
 	private initialized = false;
 
 	constructor(private readonly sql: SqlStorage) {
@@ -1065,6 +1400,7 @@ export class SqliteFamilyStore implements FamilyStore {
 		this.chats = new SqliteChatStore(sql);
 		this.schedules = new SqliteScheduleStore(sql);
 		this.harvest = new SqliteHarvestStore(sql);
+		this.groups = new SqliteGroupStore(sql);
 	}
 
 	ensureSchema(): void {
@@ -1119,7 +1455,9 @@ export class SqliteFamilyStore implements FamilyStore {
         thinking TEXT,
         closed INTEGER NOT NULL DEFAULT 0,
         tools_env_json TEXT,
-        created_at INTEGER NOT NULL
+        created_at INTEGER NOT NULL,
+        harvest_enabled INTEGER NOT NULL DEFAULT 1,
+        listed INTEGER NOT NULL DEFAULT 1
       );
 
       CREATE INDEX IF NOT EXISTS idx_cadmus_chats_bot
@@ -1176,8 +1514,103 @@ export class SqliteFamilyStore implements FamilyStore {
 
       CREATE INDEX IF NOT EXISTS idx_cadmus_harvest_notes_chat
         ON cadmus_harvest_notes(chat_key, id);
+
+      CREATE TABLE IF NOT EXISTS cadmus_turn_roots (
+        chat_key TEXT PRIMARY KEY,
+        root_request_id TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS cadmus_group_chats (
+        id TEXT PRIMARY KEY,
+        topic TEXT NOT NULL,
+        members_json TEXT NOT NULL,
+        creator_bot_id TEXT NOT NULL,
+        root_request_id TEXT NOT NULL,
+        human_read_only INTEGER NOT NULL DEFAULT 1,
+        hop_chain_json TEXT NOT NULL,
+        turn_count INTEGER NOT NULL DEFAULT 0,
+        status TEXT NOT NULL,
+        mode TEXT NOT NULL DEFAULT 'wait',
+        origin_chat_key TEXT NOT NULL,
+        task_id TEXT NOT NULL UNIQUE,
+        opening_text TEXT NOT NULL,
+        end_response TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        overall_deadline INTEGER NOT NULL,
+        reply_deadline INTEGER,
+        delivered_json TEXT NOT NULL,
+        wake_not_before INTEGER,
+        wake_admitted INTEGER NOT NULL DEFAULT 0,
+        tools_read_only INTEGER NOT NULL DEFAULT 0
+      );
+
+      CREATE TABLE IF NOT EXISTS cadmus_group_members (
+        group_id TEXT NOT NULL,
+        bot_id TEXT NOT NULL,
+        chat_key TEXT NOT NULL,
+        role TEXT NOT NULL,
+        PRIMARY KEY (group_id, bot_id)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_cadmus_group_members_chat
+        ON cadmus_group_members(chat_key);
+
+      CREATE TABLE IF NOT EXISTS cadmus_group_messages (
+        group_id TEXT NOT NULL,
+        seq INTEGER NOT NULL,
+        from_bot_id TEXT NOT NULL,
+        text TEXT NOT NULL,
+        at_ms INTEGER NOT NULL,
+        PRIMARY KEY (group_id, seq)
+      );
+
+      CREATE TABLE IF NOT EXISTS cadmus_peer_actions (
+        root_request_id TEXT PRIMARY KEY,
+        used INTEGER NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS cadmus_hop_context (
+        root_request_id TEXT PRIMARY KEY,
+        chain_json TEXT NOT NULL
+      );
     `);
+		ensureChatColumn(this.sql, "harvest_enabled", "INTEGER NOT NULL DEFAULT 1");
+		ensureChatColumn(this.sql, "listed", "INTEGER NOT NULL DEFAULT 1");
+		ensureGroupColumn(this.sql, "mode", "TEXT NOT NULL DEFAULT 'wait'");
+		ensureGroupColumn(this.sql, "wake_not_before", "INTEGER");
+		ensureGroupColumn(this.sql, "wake_admitted", "INTEGER NOT NULL DEFAULT 0");
+		ensureGroupColumn(
+			this.sql,
+			"tools_read_only",
+			"INTEGER NOT NULL DEFAULT 0",
+		);
+		dropGroupColumn(this.sql, "replay_armed");
 
 		this.initialized = true;
 	}
+}
+
+function dropGroupColumn(sql: SqlStorage, name: string): void {
+	const cols = sql
+		.exec<{ name: string }>(`PRAGMA table_info(cadmus_group_chats)`)
+		.toArray();
+	if (!cols.some((col) => col.name === name)) return;
+	sql.exec(`ALTER TABLE cadmus_group_chats DROP COLUMN ${name}`);
+}
+
+function ensureGroupColumn(sql: SqlStorage, name: string, ddl: string): void {
+	const cols = sql
+		.exec<{ name: string }>(`PRAGMA table_info(cadmus_group_chats)`)
+		.toArray();
+	if (cols.some((col) => col.name === name)) return;
+	sql.exec(`ALTER TABLE cadmus_group_chats ADD COLUMN ${name} ${ddl}`);
+}
+
+function ensureChatColumn(sql: SqlStorage, name: string, ddl: string): void {
+	const cols = sql
+		.exec<{ name: string }>(`PRAGMA table_info(cadmus_chats)`)
+		.toArray();
+	if (cols.some((col) => col.name === name)) return;
+	sql.exec(`ALTER TABLE cadmus_chats ADD COLUMN ${name} ${ddl}`);
 }

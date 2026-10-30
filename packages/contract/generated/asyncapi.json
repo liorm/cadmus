@@ -965,6 +965,10 @@
 							"when": {
 								"type": "number",
 								"description": "Epoch timestamp in milliseconds when the message was dispatched."
+							},
+							"groupChatKey": {
+								"type": "string",
+								"description": "Group chat that holds the exchange. Clients link the inter-bot card here."
 							}
 						},
 						"description": "Inter-bot message exchange payload."
@@ -1103,6 +1107,10 @@
 							},
 							"toolsEnv": {
 								"$ref": "#/components/schemas/ToolsEnvSetting"
+							},
+							"harvest": {
+								"type": "boolean",
+								"description": "Idle harvest switch for this chat. Omitted or true arms harvest after turns. False leaves harvest off. Group-chat sessions are created off."
 							}
 						},
 						"description": "Parameters for creating a new chat session."
@@ -1417,7 +1425,7 @@
 					},
 					"payload": {
 						"type": "object",
-						"required": ["chatKey", "toolsEnv"],
+						"required": ["chatKey"],
 						"properties": {
 							"chatKey": {
 								"type": "string",
@@ -1425,12 +1433,16 @@
 							},
 							"toolsEnv": {
 								"$ref": "#/components/schemas/ToolsEnvSetting"
+							},
+							"harvest": {
+								"type": "boolean",
+								"description": "Set the per-chat idle harvest switch. Omitted leaves it unchanged."
 							}
 						},
 						"additionalProperties": false
 					}
 				},
-				"description": "Update a chat's tools env setting."
+				"description": "Update a chat's tools env setting or its per-chat harvest switch."
 			},
 			"ClientCommand": {
 				"anyOf": [

@@ -771,6 +771,12 @@ export const ChatCreateCommandSchema = Type.Object(
 				),
 				thinking: Type.Optional(ThinkingLevelSchema),
 				toolsEnv: Type.Optional(ToolsEnvSettingSchema),
+				harvest: Type.Optional(
+					Type.Boolean({
+						description:
+							"Idle harvest switch for this chat. Omitted or true arms harvest after turns. False leaves harvest off. Group-chat sessions are created off.",
+					}),
+				),
 			},
 			{ description: "Parameters for creating a new chat session." },
 		),
@@ -857,12 +863,21 @@ export const ChatUpdateCommandSchema = Type.Object(
 		payload: Type.Object(
 			{
 				chatKey: Type.String({ minLength: 1 }),
-				toolsEnv: ToolsEnvSettingSchema,
+				toolsEnv: Type.Optional(ToolsEnvSettingSchema),
+				harvest: Type.Optional(
+					Type.Boolean({
+						description:
+							"Set the per-chat idle harvest switch. Omitted leaves it unchanged.",
+					}),
+				),
 			},
 			{ additionalProperties: false },
 		),
 	},
-	{ description: "Update a chat's tools env setting." },
+	{
+		description:
+			"Update a chat's tools env setting or its per-chat harvest switch.",
+	},
 );
 export type ChatUpdateCommand = Static<typeof ChatUpdateCommandSchema>;
 

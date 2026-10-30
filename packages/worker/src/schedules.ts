@@ -360,7 +360,9 @@ async function executeHarvestFork(
 	});
 
 	const chat = services.familyStore.chats.getChat(chatKey);
-	if (!chat || chat.botId !== schedule.botId) return;
+	if (!chat || chat.harvest === false || chat.botId !== schedule.botId) {
+		return;
+	}
 	const parent = await services.harness.conversation(
 		chat.conversationId as ConversationId,
 		context,

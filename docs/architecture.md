@@ -45,7 +45,7 @@ flowchart TD
 
 4. **Unified Durable Schedules, Alarms & Inter-Bot Collaboration**
    - Cron (`5-field` timezone-aware), one-shot (`when`), and idle-harvest (`harvest:<chatKey>`) timers all share a single durable task primitive (`ScheduleTask` / `"cadmus.schedule"`) backed by `cadmus_schedules` and the Durable Object's hardware alarm (`ctx.storage.setAlarm`).
-   - Bots within the same family can discover (`search_bot`), inspect (`list_bots`), spawn (`create_bot`), and converse (`chat_with_bot`) with sibling bots via durable `pi-durable` sub-tasks.
+   - Bots within the same family can discover (`search_bot`), inspect (`list_bots`), spawn (`create_bot`), and converse (`message_bot`) with sibling bots. `message_bot` opens a durable group chat. It waits for the chat to finish, or with `wait: false` returns immediately and later wakes the caller with the target's reply. `readOnly: true` limits each target to memory and knowledge read tools.
    - See **[Schedules, Alarms & Inter-Bot Collaboration](./architecture/schedules-alarms-and-bots.md)**.
 
 ---

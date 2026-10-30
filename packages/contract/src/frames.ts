@@ -340,6 +340,12 @@ export const BotMessageEventSchema = Type.Object(
 					description:
 						"Epoch timestamp in milliseconds when the message was dispatched.",
 				}),
+				groupChatKey: Type.Optional(
+					Type.String({
+						description:
+							"Group chat that holds the exchange. Clients link the inter-bot card here.",
+					}),
+				),
 			},
 			{ description: "Inter-bot message exchange payload." },
 		),

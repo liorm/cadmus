@@ -13,6 +13,7 @@ import {
 } from "@earendil-works/pi-durable";
 import { Type } from "typebox";
 import { requireCadmusServices } from "../context.js";
+import { GroupDriveTask } from "../group-chat/task.js";
 import { getLogger } from "../log.js";
 import { parseThinkingLevel } from "../models.js";
 import { ThinkingLevelSchema, ToolsEnvSettingSchema } from "../protocol.js";
@@ -277,7 +278,7 @@ function rejectToolsEnvBindingExtras(toolsEnv: unknown): void {
 export function internalToolsExtension() {
 	return defineExtension({
 		name: "cadmus.internal-tools",
-		tasks: [SearchBotTask],
+		tasks: [SearchBotTask, GroupDriveTask],
 		tools: [
 			defineTool({
 				name: "create_bot",
@@ -459,12 +460,34 @@ export function internalToolsExtension() {
 			defineTool({
 				name: "message_bot",
 				description:
-					"Send a message to another bot in this Bot Family and await its response. This does not copy knowledge or memory onto that bot. Give a new bot its documents through create_bot knowledge and memory.",
+					"Open a new group chat in this family. Pass botId or slug for one target, or to: [slug, ...] for several. topic is required. With exactly two members, every message gets a reply from the other member. With more than two, only @mentioned members reply (the opening message mentions every target when it names nobody). wait defaults to true and blocks until you call end_conversation, the 10-turn cap, or the watchdog. wait false returns immediately with the group chat id and topic. A two-member fire-and-forget chat ends on the target's first reply. A larger one ends when every bot mentioned in the opening has replied once (or on cap or timeout). That result is delivered later as a new turn in this chat. Same family only. Legacy peer chats are not reused. Cost is charged to you. readOnly defaults to false. readOnly true still opens a normal group chat (topic required, visible, user read-only, same limits) but each target session is offered only knowledge_read and memory_read. Harvest stays off. Your own session in that chat keeps its tools, including end_conversation.",
 				parameters: Type.Object({
 					botId: Type.Optional(Type.String()),
 					slug: Type.Optional(Type.String()),
+					to: Type.Optional(
+						Type.Array(Type.String({ minLength: 1 }), {
+							description:
+								"Target bot slugs. Creates one group chat with you and these bots. Omit this and pass botId or slug for a single target.",
+						}),
+					),
+					topic: Type.String({
+						minLength: 1,
+						description: "Topic of the group chat.",
+					}),
 					text: Type.String({ minLength: 1 }),
 					chatKey: Type.Optional(Type.String()),
+					wait: Type.Optional(
+						Type.Boolean({
+							description:
+								"True waits for the group chat to finish. False returns the group chat id immediately.",
+						}),
+					),
+					readOnly: Type.Optional(
+						Type.Boolean({
+							description:
+								"When true, each target is offered only knowledge_read and memory_read. Writes, schedules, messaging, and coding tools are refused. Defaults to false.",
+						}),
+					),
 				}),
 				replay: "safe",
 				executionMode: "sequential",
@@ -473,68 +496,109 @@ export function internalToolsExtension() {
 					if (prior !== undefined) {
 						return toolText(JSON.stringify(prior));
 					}
-					const scope = await resolveBotScope(api, context);
-					if (!scope) {
-						return toolError("Conversation is not bound to a bot.");
-					}
-					const targetBotId = (args.botId ?? args.slug ?? "").trim();
-					if (!targetBotId) {
-						return toolError("botId (or slug) is required.");
-					}
-					const services = requireCadmusServices(context);
-					const targetBot = services.familyStore.bots.getBot(targetBotId);
-					if (!targetBot) {
-						return toolError(`Bot '${targetBotId}' not found in this family.`);
-					}
-
-					const peerChatKey =
-						args.chatKey ?? `peer:${scope.botId}:${targetBotId}`;
-					let peerChat = services.familyStore.chats.getChat(peerChatKey);
-					if (peerChat && peerChat.botId !== targetBotId) {
+					if (args.chatKey) {
 						return toolError(
-							`Chat '${peerChatKey}' belongs to bot '${peerChat.botId}', not '${targetBotId}'.`,
+							"chatKey is not used. message_bot always creates a new group chat. Do not target another bot's chat.",
 						);
 					}
-					if (!peerChat) {
-						peerChat = await services.createChat({
-							botId: targetBotId,
-							key: peerChatKey,
-							title: `Peer chat: ${scope.botId} -> ${targetBotId}`,
-						});
+					if (!args.topic?.trim()) {
+						return toolError("topic is required.");
 					}
-
-					getLogger().debug("inter-bot message sent", {
-						fromBot: scope.botId,
-						toBot: targetBotId,
-						chat: peerChat.key,
-					});
-
-					const { reply } = await services.submitChatTurn({
-						chatKey: peerChat.key,
+					const scope = await resolveBotScope(api, context);
+					if (!scope?.chatKey) {
+						return toolError("Conversation is not bound to a bot.");
+					}
+					const listed = (args.to ?? [])
+						.map((id) => id.trim())
+						.filter((id) => id.length > 0);
+					const single = (args.botId ?? args.slug ?? "").trim();
+					if (listed.length > 0 && single) {
+						return toolError("Pass botId (or slug) or to, not both.");
+					}
+					const targetBotIds =
+						listed.length > 0 ? listed : single ? [single] : [];
+					if (targetBotIds.length === 0) {
+						return toolError("botId (or slug) is required.");
+					}
+					const topic = args.topic.trim();
+					const services = requireCadmusServices(context);
+					await services.adoptGroupWakeRoot(scope.chatKey);
+					const result = await services.runMessageBot({
+						taskId: String(api.taskId),
+						callerBotId: scope.botId,
+						targetBotIds,
+						topic,
 						text: args.text,
-						requestId: `peer:${api.taskId}`,
+						originChatKey: scope.chatKey,
+						wait: args.wait !== false,
+						readOnly: args.readOnly === true,
 					});
-
-					services.broadcast({
-						type: "bot.message",
-						payload: {
-							fromBotId: scope.botId,
-							toBotId: targetBotId,
-							chatKey: peerChat.key,
-							text: args.text,
-							reply,
-							when: Date.now(),
-						},
-					});
-
-					const result = {
-						fromBotId: scope.botId,
-						toBotId: targetBotId,
-						chatKey: peerChat.key,
-						reply,
-					};
-					await api.memo("result", result, context);
+					if (!result.ok) return toolError(result.error);
+					if (result.status === "pending") {
+						const driveId = String(api.taskId);
+						await api.commit(async (tx) => {
+							let cursor: Cursor | undefined;
+							for (;;) {
+								const page = await tx.scanTasks(
+									{ kind: GroupDriveTask.definition.name },
+									50,
+									cursor,
+								);
+								const found = page.items.find((item) => {
+									const input = item.input as { taskId?: string };
+									return input.taskId === driveId;
+								});
+								if (found) return found.id;
+								if (!page.next) break;
+								cursor = page.next;
+							}
+							return tx.createTask(
+								GroupDriveTask,
+								{ taskId: driveId },
+								{
+									ownership: { kind: "conversation" },
+									background: true,
+								},
+							);
+						}, context);
+					}
+					const payload = result as unknown as JsonValue;
+					await api.memo("result", payload, context);
 					return toolText(JSON.stringify(result));
+				},
+			}),
+			defineTool({
+				name: "end_conversation",
+				description:
+					"End the group chat you started and return this response to your waiting message_bot call. Offered only in that caller session. Fire-and-forget chats end on the target's first reply (two members) or when every bot mentioned in the opening has replied once (more members).",
+				parameters: Type.Object({
+					response: Type.String({ minLength: 1 }),
+				}),
+				replay: "safe",
+				executionMode: "sequential",
+				async execute(args, api, context) {
+					const prior = await api.memo<JsonValue>("result", context);
+					if (prior !== undefined) return toolText(JSON.stringify(prior));
+					const scope = await resolveBotScope(api, context);
+					if (!scope?.chatKey) {
+						return toolError("Conversation is not bound to a bot.");
+					}
+					const services = requireCadmusServices(context);
+					if (!services.isGroupCallerSession(scope.chatKey)) {
+						return toolError(
+							"end_conversation is only available in a group chat you started.",
+						);
+					}
+					const ended = services.endGroupConversation(
+						scope.chatKey,
+						args.response,
+					);
+					if (!ended) {
+						return toolError("This group chat is not open.");
+					}
+					const payload = { response: args.response, ended: true };
+					await api.memo("result", payload, context);
+					return toolText(JSON.stringify(payload));
 				},
 			}),
 		],

@@ -18,6 +18,7 @@ export const DEFAULT_CADMUS_TOOL_NAMES = [
 	"create_bot",
 	"search_bot",
 	"message_bot",
+	"end_conversation",
 	"web.fetch",
 	"web.search",
 	"x.search",
@@ -27,6 +28,34 @@ export const DEFAULT_CADMUS_TOOL_NAMES = [
 export const CODING_TOOL_NAMES = ["bash", "read", "write", "edit"] as const;
 
 export const CODE_EXECUTE_TOOL_NAME = "code.execute";
+
+/**
+ * Tools a `message_bot` `readOnly` target may use. Memory and knowledge
+ * reads only. Writes, schedules, messaging, coding, and bot management
+ * stay off this list.
+ */
+export const READONLY_GROUP_TOOL_NAMES = [
+	"knowledge_read",
+	"memory_read",
+] as const;
+
+export type ReadOnlyGroupToolName = (typeof READONLY_GROUP_TOOL_NAMES)[number];
+
+export function isReadOnlyGroupTool(name: string): boolean {
+	return (READONLY_GROUP_TOOL_NAMES as readonly string[]).includes(name);
+}
+
+/**
+ * Intersection of a bot's tool list with {@link READONLY_GROUP_TOOL_NAMES}.
+ * An omitted list is the default Cadmus set. Order follows that source.
+ * Coding tools are never included.
+ */
+export function readOnlyGroupToolNames(
+	tools: readonly string[] | undefined,
+): string[] {
+	const source = tools ?? DEFAULT_CADMUS_TOOL_NAMES;
+	return source.filter((name) => isReadOnlyGroupTool(name));
+}
 
 export type DefaultCadmusToolName = (typeof DEFAULT_CADMUS_TOOL_NAMES)[number];
 export type CodingToolName = (typeof CODING_TOOL_NAMES)[number];

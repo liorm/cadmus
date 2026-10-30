@@ -1,5 +1,8 @@
 import { DurableObject } from "cloudflare:workers";
-import { effectiveToolNames } from "@cadmus/contract/tools";
+import {
+	effectiveToolNames,
+	readOnlyGroupToolNames,
+} from "@cadmus/contract/tools";
 import type { Context } from "@earendil-works/chord/context";
 import type {
 	AssistantMessage,
@@ -49,6 +52,17 @@ import { cadmusDefaultExtensions } from "./extensions/cadmus-tools.js";
 import { createCadmusCodingTools } from "./extensions/coding-tools.js";
 import { DEFAULT_SOUL } from "./extensions/identity.js";
 import {
+	driveGroupChat,
+	GroupReplyTimeout,
+	groupWakeText,
+	runGroupMessage,
+} from "./group-chat/drive.js";
+import {
+	DEFAULT_GROUP_OVERALL_MS,
+	DEFAULT_GROUP_REPLY_MS,
+	resolveGroupTimeoutMs,
+} from "./group-chat/limits.js";
+import {
 	chatFields,
 	ensureLogger,
 	familyFields,
@@ -94,7 +108,7 @@ import {
 } from "./schedules.js";
 import { defaultJsonShim, type ProtocolShim } from "./shim.js";
 import { D1AdminStore, toDoName } from "./store/d1-admin.js";
-import type { FamilyStore } from "./store/family-interface.js";
+import type { FamilyStore, GroupChatRecord } from "./store/family-interface.js";
 import {
 	CasConflictError,
 	formatKnowledgeMarkdown,
@@ -132,6 +146,7 @@ const SEQUENTIAL_TOOLS = new Set([
 	"schedule_delete",
 	"create_bot",
 	"message_bot",
+	"end_conversation",
 ]);
 
 function toToolRegs(
@@ -493,6 +508,14 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 			createBot: (input) => this.createBotInternal(input),
 			createChat: (input) => this.createChatInternal(input),
 			submitChatTurn: (input) => this.submitChatTurnInternal(input),
+			runMessageBot: (input) => this.runMessageBotInternal(input),
+			adoptGroupWakeRoot: (chatKey) => this.adoptGroupWakeRoot(chatKey),
+			driveGroupChat: (taskId) => this.driveGroupChatInternal(taskId),
+			deliverGroupWake: (taskId) => this.deliverGroupWakeInternal(taskId),
+			groupWakeHold: (taskId) => this.groupWakeHold(taskId),
+			endGroupConversation: (chatKey, response) =>
+				this.endGroupConversationInternal(chatKey, response),
+			isGroupCallerSession: (chatKey) => this.isGroupCallerSession(chatKey),
 			ensureScheduleTask: (scheduleId) =>
 				this.ensureScheduleTaskInternal(scheduleId),
 			syncAlarm: () => this.syncAlarmInternal(),
@@ -715,6 +738,7 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 
 	override async alarm(): Promise<void> {
 		const now = Date.now();
+		await this.expireGroupChats(now);
 		const due = this.familyStore.schedules
 			.listSchedules(undefined, true)
 			.filter((sched) => sched.enabled && sched.nextRun <= now);
@@ -941,6 +965,24 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 				}
 			>,
 		) => {
+			const group = this.familyStore.groups.getById(command.payload.chatKey);
+			if (group) {
+				return {
+					chat: this.groupAsChat(group),
+					busy: group.status === "open",
+					messages: this.familyStore.groups
+						.listMessages(group.id)
+						.map((message) => ({
+							id: message.seq,
+							role: "user" as const,
+							text: message.text,
+							fromBotId: message.fromBotId,
+							timestamp: message.at,
+						})),
+					entries: [],
+					notes: [],
+				};
+			}
 			const chat = this.familyStore.chats.getChat(command.payload.chatKey);
 			if (!chat) {
 				throw new ProtocolValidationError(
@@ -1460,12 +1502,27 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 						"not_found",
 					);
 				}
+				const groupChatKeys: string[] = [];
+				for (const group of this.familyStore.groups.list()) {
+					if (group.creatorBotId === botId || group.members.includes(botId)) {
+						groupChatKeys.push(
+							...this.familyStore.groups.memberChatKeys(group.id),
+						);
+						this.familyStore.groups.delete(group.id);
+					}
+				}
 				const peerPrefix = `peer:${botId}:`;
-				const chatsToDelete = this.familyStore.chats
-					.listChats()
-					.filter(
-						(chat) => chat.botId === botId || chat.key.startsWith(peerPrefix),
-					);
+				const chatsToDelete = [
+					...this.familyStore.chats
+						.listChats()
+						.filter(
+							(chat) => chat.botId === botId || chat.key.startsWith(peerPrefix),
+						),
+					...groupChatKeys.flatMap((key) => {
+						const chat = this.familyStore.chats.getChat(key);
+						return chat ? [chat] : [];
+					}),
+				];
 				const scheduleIds = new Set(
 					this.familyStore.schedules
 						.listSchedules(botId, true)
@@ -1497,15 +1554,23 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 				}
 
 				await this.toolsEnvController.deleteScopesForBot(botId);
+				for (const chat of chatsToDelete) {
+					this.familyStore.chats.deleteConversationRoutesForChat(chat.key);
+					this.familyStore.chats.deleteChat(chat.key);
+				}
 				this.familyStore.bots.deleteBot(botId);
 				await this.abortScheduleTasksInternal(scheduleIds);
 				await this.syncAlarmInternal();
 				return { deleted: botId };
 			},
 			"chat.list": async (command) => {
-				return {
-					chats: this.familyStore.chats.listChats(command.payload?.botId),
-				};
+				const botId = command.payload?.botId;
+				const chats = this.familyStore.chats.listChats(botId);
+				const groups = this.familyStore.groups
+					.list()
+					.filter((group) => !botId || group.members.includes(botId))
+					.map((group) => this.groupAsChat(group));
+				return { chats: [...chats, ...groups] };
 			},
 			"chat.create": async (command) => {
 				const chat = await this.createChatInternal({
@@ -1514,6 +1579,9 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 					title: command.payload.title,
 					thinking: command.payload.thinking,
 					toolsEnv: command.payload.toolsEnv,
+					...(command.payload.harvest !== undefined
+						? { harvest: command.payload.harvest }
+						: {}),
 				});
 				return { chat };
 			},
@@ -1532,27 +1600,38 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 						"not_found",
 					);
 				}
-				const next = command.payload.toolsEnv;
-				await this.toolsEnvController.assertSetting(
-					next,
-					"chat",
-					bot.toolsEnv ?? null,
-				);
-				if (next === null) {
-					await this.toolsEnvController.dropChatNamespace(chat.key, bot);
-				} else {
-					await this.toolsEnvController.dropPreviousBinding({
-						previous: chat.toolsEnv ?? null,
-						next,
-						level: "chat",
-						bot,
-						chatKey: chat.key,
-					});
-				}
 				const updated: ChatRecord = { ...chat };
-				if (next) updated.toolsEnv = next;
-				else delete updated.toolsEnv;
+				if (command.payload.toolsEnv !== undefined) {
+					const next = command.payload.toolsEnv;
+					await this.toolsEnvController.assertSetting(
+						next,
+						"chat",
+						bot.toolsEnv ?? null,
+					);
+					if (next === null) {
+						await this.toolsEnvController.dropChatNamespace(chat.key, bot);
+					} else {
+						await this.toolsEnvController.dropPreviousBinding({
+							previous: chat.toolsEnv ?? null,
+							next,
+							level: "chat",
+							bot,
+							chatKey: chat.key,
+						});
+					}
+					if (next) updated.toolsEnv = next;
+					else delete updated.toolsEnv;
+				}
+				if (command.payload.harvest !== undefined) {
+					updated.harvest = command.payload.harvest;
+				}
 				this.familyStore.chats.upsertChat(updated);
+				if (updated.harvest === false) {
+					const harvestId = harvestScheduleId(chat.key);
+					this.familyStore.schedules.deleteSchedule(harvestId);
+					await this.abortScheduleTasksInternal(new Set([harvestId]));
+					await this.syncAlarmInternal();
+				}
 				return { chat: updated };
 			},
 			"chat.get": readChatSnapshot,
@@ -1608,6 +1687,7 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 				return { chat: updated };
 			},
 			"turn.submit": async (command) => {
+				this.rejectUserPost(command.payload.chatKey);
 				const trimmed = command.payload.text.trim();
 				if (trimmed === "/status") {
 					return this.handleOutOfBandStatus(command.payload.chatKey);
@@ -1637,6 +1717,7 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 				);
 			},
 			"turn.steer": async (command) => {
+				this.rejectUserPost(command.payload.chatKey);
 				return this.submitChatTurnInternal({
 					chatKey: command.payload.chatKey,
 					text: command.payload.text,
@@ -2271,9 +2352,14 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 			chat.conversationId,
 			bot,
 		);
-		const effectiveTools = effectiveToolNames(bot.tools, {
-			codingToolsOffered,
-		});
+		const member = this.familyStore.groups.findByMemberKey(chat.key);
+		const consult =
+			member?.role === "member" && member.group.toolsReadOnly === true;
+		const effectiveTools = consult
+			? readOnlyGroupToolNames(bot.tools)
+			: effectiveToolNames(bot.tools, {
+					codingToolsOffered,
+				});
 		const toolsEnvNest = await this.toolsEnvController.statusForChat(chat.key);
 		const toolsEnv = toolsEnvNest.enabled
 			? {
@@ -2479,12 +2565,278 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 		return bot;
 	}
 
+	private rejectUserPost(chatKey: string): void {
+		const group = this.familyStore.groups.getById(chatKey);
+		const chat = this.familyStore.chats.getChat(chatKey);
+		if (group || chat?.readOnly || chat?.kind === "legacy-peer") {
+			throw new ProtocolValidationError(
+				`Chat '${chatKey}' is read-only.`,
+				"forbidden",
+			);
+		}
+	}
+
+	private groupAsChat(group: GroupChatRecord): ChatRecord {
+		return {
+			key: group.id,
+			botId: group.creatorBotId,
+			conversationId: 0,
+			title: group.topic,
+			createdAt: group.createdAt,
+			kind: "group",
+			members: group.members,
+			topic: group.topic,
+			readOnly: true,
+			...(group.toolsReadOnly === true ? { toolsReadOnly: true } : {}),
+			harvest: false,
+			groupStatus: group.status,
+			...(group.status !== "open" ? { closed: true } : {}),
+		};
+	}
+
+	private isGroupCallerSession(chatKey: string): boolean {
+		const member = this.familyStore.groups.findByMemberKey(chatKey);
+		return Boolean(
+			member && member.role === "caller" && member.group.status === "open",
+		);
+	}
+
+	private endGroupConversationInternal(
+		chatKey: string,
+		response: string,
+	): boolean {
+		const member = this.familyStore.groups.findByMemberKey(chatKey);
+		if (member?.role !== "caller" || member.group.status !== "open") {
+			return false;
+		}
+		member.group.endResponse = response;
+		member.group.updatedAt = Date.now();
+		this.familyStore.groups.save(member.group);
+		return true;
+	}
+
+	private groupTimeouts(): { replyMs: number; overallMs: number } {
+		return {
+			replyMs: resolveGroupTimeoutMs(
+				this.env.CADMUS_GROUP_REPLY_MS,
+				DEFAULT_GROUP_REPLY_MS,
+			),
+			overallMs: resolveGroupTimeoutMs(
+				this.env.CADMUS_GROUP_OVERALL_MS,
+				DEFAULT_GROUP_OVERALL_MS,
+			),
+		};
+	}
+
+	private groupDeps() {
+		const timeouts = this.groupTimeouts();
+		return {
+			store: this.familyStore,
+			now: () => Date.now(),
+			replyMs: timeouts.replyMs,
+			overallMs: timeouts.overallMs,
+			createChat: async (chat: {
+				botId: string;
+				key: string;
+				title: string;
+				harvest: false;
+				listed: false;
+			}) =>
+				this.createChatInternal({
+					botId: chat.botId,
+					key: chat.key,
+					title: chat.title,
+					harvest: false,
+					listed: false,
+				}),
+			submitTurn: async (turn: {
+				chatKey: string;
+				text: string;
+				requestId: string;
+				replyTimeoutMs: number;
+			}) => {
+				try {
+					return await this.submitChatTurnInternal(turn);
+				} catch (error) {
+					if (error instanceof GroupReplyTimeout) {
+						await this.abortChatInternal(turn.chatKey);
+					}
+					throw error;
+				}
+			},
+			abortChat: (chatKey: string) => this.abortChatInternal(chatKey),
+			syncAlarm: async () => {
+				await this.syncAlarmInternal();
+			},
+			log: (message: string, fields?: Record<string, unknown>) => {
+				this.log().info(message, fields);
+			},
+		};
+	}
+
+	private async adoptGroupWakeRoot(chatKey: string): Promise<void> {
+		const chat = this.familyStore.chats.getChat(chatKey);
+		if (!chat || chat.key.startsWith("gmem:")) return;
+		const { harness, context } = await this.ensureHarness();
+		const conv = await harness.conversation(
+			chat.conversationId as ConversationId,
+			context,
+		);
+		if (!conv) return;
+		const view = await conv.context(context);
+		let text = "";
+		for (const entry of view.entries) {
+			const msg = entry.model?.[0];
+			if (msg?.role !== "user") continue;
+			text = messageContentToText((msg as { content?: unknown }).content);
+		}
+		const match = /· chat ([^\]\s]+)\]/.exec(text);
+		if (!match?.[1]) return;
+		const requestId = `group-wake:${match[1]}`;
+		if (!this.familyStore.groups.hopContext(requestId)) return;
+		this.familyStore.chats.setTurnRoot(chat.key, requestId);
+	}
+
+	private groupWakeHold(taskId: string): number | undefined {
+		const group = this.familyStore.groups.getByTaskId(taskId);
+		if (!group) return undefined;
+		return this.familyStore.groups.wakeHold(group.id);
+	}
+
+	private async driveGroupChatInternal(taskId: string): Promise<void> {
+		await driveGroupChat(this.groupDeps(), taskId);
+		await this.syncAlarmInternal();
+	}
+
+	/**
+	 * Admit the fire-and-forget result into the originating chat.
+	 * Request id `group-wake:<groupId>` is stable, so a replay of this method
+	 * after a crash attaches to the same submission instead of posting twice.
+	 * `wake_admitted` is set only after that submission has been waited, so a
+	 * restart before admission retries and a restart after it does not wait
+	 * again. The wake turn stores the group hop chain and uses a new root
+	 * request id, which starts a fresh 5-action peer budget.
+	 */
+	private async deliverGroupWakeInternal(taskId: string): Promise<void> {
+		const group = this.familyStore.groups.getByTaskId(taskId);
+		if (group?.mode !== "forget" || group?.status === "open") return;
+		if (!group) return;
+		if (this.familyStore.groups.wakeAdmitted(group.id)) return;
+		const requestId = `group-wake:${group.id}`;
+		const text = groupWakeText({ store: this.familyStore }, group);
+		await this.submitChatTurnInternal({
+			chatKey: group.originChatKey,
+			text,
+			requestId,
+			whenBusy: "queue",
+			hopChain: group.hopChain,
+		});
+		this.familyStore.groups.markWakeAdmitted(group.id);
+		const reply =
+			group.endResponse ??
+			this.familyStore.groups
+				.listMessages(group.id)
+				.map((line) => `@${line.fromBotId}: ${line.text}`)
+				.join("\n");
+		const peer =
+			group.members.find((id) => id !== group.creatorBotId) ??
+			group.creatorBotId;
+		this.broadcastEvent({
+			type: "bot.message",
+			payload: {
+				fromBotId: group.creatorBotId,
+				toBotId: peer,
+				chatKey: group.originChatKey,
+				text: group.openingText,
+				reply: group.status === "ended" ? reply : `${group.status}\n${reply}`,
+				when: Date.now(),
+				groupChatKey: group.id,
+			},
+		});
+	}
+
+	private async runMessageBotInternal(input: {
+		taskId: string;
+		callerBotId: string;
+		targetBotId?: string;
+		targetBotIds?: readonly string[];
+		topic: string;
+		text: string;
+		originChatKey: string;
+		wait?: boolean;
+		readOnly?: boolean;
+	}) {
+		const result = await runGroupMessage(this.groupDeps(), input);
+		if (result.ok && result.status !== "pending") {
+			const reply =
+				result.response ??
+				result.transcript
+					.map((line) => `@${line.fromBotId}: ${line.text}`)
+					.join("\n");
+			const toBotId =
+				input.targetBotIds?.find((id) => id.trim())?.trim() ||
+				input.targetBotId ||
+				input.callerBotId;
+			this.broadcastEvent({
+				type: "bot.message",
+				payload: {
+					fromBotId: input.callerBotId,
+					toBotId,
+					chatKey: result.groupId
+						? (this.familyStore.groups.getById(result.groupId)?.originChatKey ??
+							input.originChatKey)
+						: input.originChatKey,
+					text: input.text,
+					reply:
+						result.status === "ended" ? reply : `${result.status}\n${reply}`,
+					when: Date.now(),
+					groupChatKey: result.groupId,
+				},
+			});
+		}
+		await this.syncAlarmInternal();
+		return result;
+	}
+
+	private async abortChatInternal(chatKey: string): Promise<void> {
+		const chat = this.familyStore.chats.getChat(chatKey);
+		if (!chat) return;
+		const { harness, context } = await this.ensureHarness();
+		const conv = await harness.conversation(
+			chat.conversationId as ConversationId,
+			context,
+		);
+		await conv?.abort(context).catch(() => {});
+	}
+
+	private async expireGroupChats(now: number): Promise<void> {
+		for (const group of this.familyStore.groups.listOpen()) {
+			const replyDue =
+				group.replyDeadline !== undefined && now >= group.replyDeadline;
+			const overallDue = now >= group.overallDeadline;
+			if (!replyDue && !overallDue) continue;
+			group.status = "timed_out";
+			group.replyDeadline = undefined;
+			group.updatedAt = now;
+			this.familyStore.groups.save(group);
+			for (const botId of group.members) {
+				await this.abortChatInternal(`gmem:${group.id}:${botId}`);
+			}
+			this.log().info("group chat watchdog fired", {
+				group: group.id,
+				chargedTo: group.creatorBotId,
+			});
+		}
+	}
+
 	private async createChatInternal(input: {
 		botId: string;
 		key?: string;
 		title?: string;
 		thinking?: ThinkingLevel;
 		toolsEnv?: ToolsEnvSetting | null;
+		harvest?: boolean;
+		listed?: boolean;
 	}): Promise<ChatRecord> {
 		const bot = this.familyStore.bots.getBot(input.botId);
 		if (!bot) {
@@ -2543,9 +2895,12 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 			...(input.title ? { title: input.title } : {}),
 			...(input.thinking ? { thinking: input.thinking } : {}),
 			...(toolsEnv ? { toolsEnv } : {}),
+			...(input.harvest === false ? { harvest: false } : {}),
 			createdAt: Date.now(),
 		};
-		this.familyStore.chats.upsertChat(chat);
+		this.familyStore.chats.upsertChat(chat, {
+			...(input.listed === false ? { listed: false } : {}),
+		});
 		this.familyStore.chats.recordConversationRoute({
 			conversationId: chat.conversationId,
 			chatKey: chat.key,
@@ -2825,11 +3180,36 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 		}
 	}
 
+	private async waitForSubmission<T>(
+		pending: Promise<T>,
+		timeoutMs: number | undefined,
+		abort: () => Promise<unknown>,
+	): Promise<T> {
+		if (!timeoutMs) return pending;
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		const timeout = new Promise<never>((_, reject) => {
+			timer = setTimeout(() => reject(new GroupReplyTimeout()), timeoutMs);
+		});
+		try {
+			return await Promise.race([pending, timeout]);
+		} catch (error) {
+			if (error instanceof GroupReplyTimeout) {
+				pending.catch(() => {});
+				await abort().catch(() => {});
+			}
+			throw error;
+		} finally {
+			if (timer) clearTimeout(timer);
+		}
+	}
+
 	private async submitChatTurnInternal(input: {
 		chatKey: string;
 		text: string;
 		requestId?: string;
 		whenBusy?: "queue" | "steer" | "reject";
+		replyTimeoutMs?: number;
+		hopChain?: readonly string[];
 	}): Promise<{
 		chatKey: string;
 		conversationId: number;
@@ -2867,6 +3247,14 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 
 		const requestId =
 			input.requestId ?? `turn:${chat.key}:${crypto.randomUUID().slice(0, 8)}`;
+		if (input.hopChain) {
+			// Stored under the wake request id. The root pointer stays on the
+			// turn that is running now; adoptGroupWakeRoot moves it when the
+			// wake turn itself calls message_bot.
+			this.familyStore.groups.setHopContext(requestId, input.hopChain);
+		} else if (!chat.key.startsWith("gmem:")) {
+			this.familyStore.chats.setTurnRoot(chat.key, requestId);
+		}
 		const log = this.log().child(chatFields(chat, { requestId }));
 
 		const harvestId = harvestScheduleId(chat.key);
@@ -2894,7 +3282,11 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 			context,
 		);
 
-		const settled = await submission.wait(context);
+		const settled = await this.waitForSubmission(
+			submission.wait(context),
+			input.replyTimeoutMs,
+			() => conv.abort(context),
+		);
 		await conv.waitForIdle(context);
 
 		log.debug("chat turn settled", { status: settled.status });
@@ -2923,6 +3315,7 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 		const currentBot = this.familyStore.bots.getBot(chat.botId);
 		if (
 			delayMs > 0 &&
+			currentChat?.harvest !== false &&
 			latestEntryId !== undefined &&
 			currentChat?.conversationId === chat.conversationId &&
 			currentBot

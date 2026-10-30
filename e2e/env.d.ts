@@ -19,6 +19,8 @@ declare global {
 			CADMUS_ENCRYPTION_KEY?: string;
 			CADMUS_DEFAULT_TIMEZONE?: string;
 			CADMUS_HARVEST_DELAY_MS?: string;
+			CADMUS_GROUP_REPLY_MS?: string;
+			CADMUS_GROUP_OVERALL_MS?: string;
 			CADMUS_HEARTBEAT_MS?: string;
 			CADMUS_DAEMON_BRIDGE_HOST?: string;
 			CADMUS_DAEMON_BRIDGE_PORT?: string;

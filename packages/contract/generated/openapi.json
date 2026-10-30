@@ -1631,6 +1631,10 @@
 									},
 									"toolsEnv": {
 										"$ref": "#/components/schemas/ToolsEnvSetting"
+									},
+									"harvest": {
+										"type": "boolean",
+										"description": "Idle harvest switch for this chat. Omitted or true arms harvest after turns. False leaves harvest off. Group-chat sessions are created off."
 									}
 								},
 								"description": "Parameters for creating a new chat session."
@@ -2314,14 +2318,14 @@
 		"/api/chat/update": {
 			"post": {
 				"operationId": "chat.update",
-				"summary": "Update a chat's tools env setting.",
+				"summary": "Update a chat's tools env setting or its per-chat harvest switch.",
 				"requestBody": {
 					"required": true,
 					"content": {
 						"application/json": {
 							"schema": {
 								"type": "object",
-								"required": ["chatKey", "toolsEnv"],
+								"required": ["chatKey"],
 								"properties": {
 									"chatKey": {
 										"type": "string",
@@ -2329,6 +2333,10 @@
 									},
 									"toolsEnv": {
 										"$ref": "#/components/schemas/ToolsEnvSetting"
+									},
+									"harvest": {
+										"type": "boolean",
+										"description": "Set the per-chat idle harvest switch. Omitted leaves it unchanged."
 									}
 								},
 								"additionalProperties": false
@@ -4636,9 +4644,70 @@
 					},
 					"toolsEnv": {
 						"$ref": "#/components/schemas/ToolsEnvSetting"
+					},
+					"kind": {
+						"anyOf": [
+							{
+								"type": "string",
+								"const": "chat"
+							},
+							{
+								"type": "string",
+								"const": "group"
+							},
+							{
+								"type": "string",
+								"const": "legacy-peer"
+							}
+						],
+						"description": "chat is a normal session. group is a bot-created group chat. legacy-peer is a historical peer:<from>:<to> chat."
+					},
+					"members": {
+						"type": "array",
+						"items": {
+							"type": "string"
+						},
+						"description": "Bot ids that belong to a group chat, in join order."
+					},
+					"topic": {
+						"type": "string",
+						"description": "Topic of a group chat."
+					},
+					"readOnly": {
+						"type": "boolean",
+						"description": "When true, the user can view the chat but cannot post. Group chats and legacy peer chats are read-only."
+					},
+					"toolsReadOnly": {
+						"type": "boolean",
+						"description": "When true, this group chat was opened with message_bot readOnly. Target members are offered only memory and knowledge read tools. Absent or false keeps each member's normal tools. The user still cannot post."
+					},
+					"harvest": {
+						"type": "boolean",
+						"description": "Per-chat idle harvest switch. Omitted means on. Group-chat sessions default to off."
+					},
+					"groupStatus": {
+						"anyOf": [
+							{
+								"type": "string",
+								"const": "open"
+							},
+							{
+								"type": "string",
+								"const": "ended"
+							},
+							{
+								"type": "string",
+								"const": "timed_out"
+							},
+							{
+								"type": "string",
+								"const": "capped"
+							}
+						],
+						"description": "Lifecycle status of a group chat."
 					}
 				},
-				"description": "Chat session record tracking a conversation thread with a specific bot."
+				"description": "Chat session record tracking a conversation thread with a specific bot, or a read-only group chat shared by bots."
 			},
 			"ChatRenameResult": {
 				"type": "object",
@@ -6236,6 +6305,10 @@
 					},
 					"durationMs": {
 						"type": "number"
+					},
+					"fromBotId": {
+						"type": "string",
+						"description": "Bot that posted this group-chat message. Present on member-attributed group logs."
 					}
 				}
 			},

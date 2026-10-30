@@ -412,10 +412,64 @@ export const ChatRecordSchema = Type.Object(
 				"Epoch timestamp in milliseconds when the chat session was created.",
 		}),
 		toolsEnv: Type.Optional(ToolsEnvSettingSchema),
+		kind: Type.Optional(
+			Type.Union(
+				[
+					Type.Literal("chat"),
+					Type.Literal("group"),
+					Type.Literal("legacy-peer"),
+				],
+				{
+					description:
+						"chat is a normal session. group is a bot-created group chat. legacy-peer is a historical peer:<from>:<to> chat.",
+				},
+			),
+		),
+		members: Type.Optional(
+			Type.Array(Type.String(), {
+				description: "Bot ids that belong to a group chat, in join order.",
+			}),
+		),
+		topic: Type.Optional(
+			Type.String({
+				description: "Topic of a group chat.",
+			}),
+		),
+		readOnly: Type.Optional(
+			Type.Boolean({
+				description:
+					"When true, the user can view the chat but cannot post. Group chats and legacy peer chats are read-only.",
+			}),
+		),
+		toolsReadOnly: Type.Optional(
+			Type.Boolean({
+				description:
+					"When true, this group chat was opened with message_bot readOnly. Target members are offered only memory and knowledge read tools. Absent or false keeps each member's normal tools. The user still cannot post.",
+			}),
+		),
+		harvest: Type.Optional(
+			Type.Boolean({
+				description:
+					"Per-chat idle harvest switch. Omitted means on. Group-chat sessions default to off.",
+			}),
+		),
+		groupStatus: Type.Optional(
+			Type.Union(
+				[
+					Type.Literal("open"),
+					Type.Literal("ended"),
+					Type.Literal("timed_out"),
+					Type.Literal("capped"),
+				],
+				{
+					description: "Lifecycle status of a group chat.",
+				},
+			),
+		),
 	},
 	{
 		description:
-			"Chat session record tracking a conversation thread with a specific bot.",
+			"Chat session record tracking a conversation thread with a specific bot, or a read-only group chat shared by bots.",
 	},
 );
 export type ChatRecord = Static<typeof ChatRecordSchema>;
@@ -801,6 +855,12 @@ export const TranscriptMessageViewSchema = Type.Object({
 	usage: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
 	timestamp: Type.Optional(Type.Number()),
 	durationMs: Type.Optional(Type.Number()),
+	fromBotId: Type.Optional(
+		Type.String({
+			description:
+				"Bot that posted this group-chat message. Present on member-attributed group logs.",
+		}),
+	),
 });
 export type TranscriptMessageView = Static<typeof TranscriptMessageViewSchema>;
 

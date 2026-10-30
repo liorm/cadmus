@@ -601,6 +601,7 @@ export function ChatWorkspace({
 			text: string;
 			reply?: string;
 			when: number;
+			groupChatKey?: string;
 		}>
 	>([]);
 
@@ -819,11 +820,12 @@ export function ChatWorkspace({
 				if (event.payload.chatKey === currentKey) {
 					setBotMessages((prev) => [event.payload, ...prev]);
 				}
+				void refreshChats();
 			}
 		});
 
 		return () => unsub();
-	}, [subscribeEvents, loadChat]);
+	}, [subscribeEvents, loadChat, refreshChats]);
 
 	// Out-of-band /status command trigger
 	const handleTriggerStatus = async () => {
@@ -909,7 +911,7 @@ export function ChatWorkspace({
 	const handleSubmitPrompt = async (e?: React.FormEvent) => {
 		if (e) e.preventDefault();
 		const prompt = inputText.trim();
-		if (!prompt || !selectedChatKey) return;
+		if (!prompt || !selectedChatKey || chatData?.chat.readOnly) return;
 
 		// Intercept /status out-of-band
 		if (prompt === "/status") {
@@ -1013,7 +1015,11 @@ export function ChatWorkspace({
 	// Filtered chats list
 	const filteredChats = useMemo(() => {
 		if (botFilter === "all") return chats;
-		return chats.filter((c) => c.botId === botFilter);
+		return chats.filter(
+			(c) =>
+				c.botId === botFilter ||
+				(c.kind === "group" && c.members?.includes(botFilter)),
+		);
 	}, [chats, botFilter]);
 
 	const isToolsEnvChanged = Boolean(
@@ -1098,7 +1104,17 @@ export function ChatWorkspace({
 								<strong>{c.title || c.key}</strong>
 							</div>
 							<div className="chat-item-meta">
-								<span className="badge badge-indigo">{c.botId}</span>
+								<span className="badge badge-indigo">
+									{c.kind === "group" ? "group" : c.botId}
+								</span>
+								{c.kind === "group" && (
+									<span className="badge badge-cyan">
+										{c.members?.map((member) => `@${member}`).join(" ")}
+									</span>
+								)}
+								{c.kind === "group" && c.groupStatus && (
+									<span className="badge badge-amber">{c.groupStatus}</span>
+								)}
 								{c.closed && <span className="badge badge-rose">Closed</span>}
 								{c.thinking && (
 									<span className="badge badge-ghost">{c.thinking}</span>
@@ -1137,6 +1153,11 @@ export function ChatWorkspace({
 									<span className="badge badge-indigo">
 										bot: {chatData.chat.botId}
 									</span>
+									{chatData.chat.kind === "group" && (
+										<span className="badge badge-cyan">
+											{`topic: ${chatData.chat.topic ?? chatData.chat.title ?? ""} · ${chatData.chat.members?.map((member) => `@${member}`).join(" ")} · ${chatData.chat.groupStatus ?? "open"} · read-only${chatData.chat.toolsReadOnly ? " · tools read-only" : ""}`}
+										</span>
+									)}
 									{chatData.chat.thinking && (
 										<span className="badge badge-cyan">
 											thinking: {chatData.chat.thinking}
@@ -1282,6 +1303,7 @@ export function ChatWorkspace({
 									notes={chatData.notes}
 									streamingState={streamingState}
 									botMessages={botMessages}
+									onOpenChat={(key) => setSelectedChatKey(key)}
 								/>
 							) : (
 								<ChatRawView
@@ -1299,10 +1321,13 @@ export function ChatWorkspace({
 								<textarea
 									className="chat-textarea"
 									rows={2}
+									disabled={Boolean(chatData.chat.readOnly)}
 									placeholder={
-										chatData.busy
-											? "Turn in progress... Type guidance to Steer or type /status"
-											: "Type a prompt (Enter to send, Shift+Enter for newline, or /status for status)..."
+										chatData.chat.readOnly
+											? "This chat is read-only"
+											: chatData.busy
+												? "Turn in progress... Type guidance to Steer or type /status"
+												: "Type a prompt (Enter to send, Shift+Enter for newline, or /status for status)..."
 									}
 									value={inputText}
 									onChange={(e) => setInputText(e.target.value)}

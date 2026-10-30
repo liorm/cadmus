@@ -31,6 +31,8 @@ export default defineConfig({
 					CADMUS_DEFAULT_TIMEZONE: "UTC",
 					CADMUS_HARVEST_DELAY_MS: "200",
 					CADMUS_HEARTBEAT_MS: "200",
+					CADMUS_GROUP_REPLY_MS: "20000",
+					CADMUS_GROUP_OVERALL_MS: "120000",
 					CADMUS_DAEMON_BRIDGE_HOST: inject("daemonBridgeHost"),
 					CADMUS_DAEMON_BRIDGE_PORT: String(inject("daemonBridgePort")),
 					CADMUS_DAEMON_BRIDGE_EVENT_PORT: String(

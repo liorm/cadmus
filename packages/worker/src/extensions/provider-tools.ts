@@ -44,20 +44,26 @@ export function noteProviderTools(
 export function omitCodeExecuteFromProviderMessages(
 	messages: readonly Message[],
 ): readonly Message[] {
+	return omitProviderTools(messages, [CODE_EXECUTE_TOOL_NAME]);
+}
+
+/** Drop named tools from the provider-visible tool list. The registry still has them. */
+export function omitProviderTools(
+	messages: readonly Message[],
+	names: readonly string[],
+): readonly Message[] {
+	if (names.length === 0) return messages;
+	const blocked = new Set(names);
 	let changed = false;
 	const next = messages.map((message) => {
 		if (message.role !== "system" || !message.toolsAdded) return message;
-		if (
-			!message.toolsAdded.some((tool) => tool.name === CODE_EXECUTE_TOOL_NAME)
-		) {
+		if (!message.toolsAdded.some((tool) => blocked.has(tool.name))) {
 			return message;
 		}
 		changed = true;
 		return {
 			...message,
-			toolsAdded: message.toolsAdded.filter(
-				(tool) => tool.name !== CODE_EXECUTE_TOOL_NAME,
-			),
+			toolsAdded: message.toolsAdded.filter((tool) => !blocked.has(tool.name)),
 		};
 	});
 	return changed ? next : messages;

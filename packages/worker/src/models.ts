@@ -30,6 +30,7 @@ import {
 import { openaiProvider } from "@earendil-works/pi-ai/providers/openai";
 import { xaiProvider } from "@earendil-works/pi-ai/providers/xai";
 import type { ModelRef } from "@earendil-works/pi-durable";
+import { extractGroupReply } from "./group-chat/limits.js";
 import type { CredentialInput, ThinkingLevel } from "./protocol.js";
 import type { AdminStore } from "./store/admin-interface.js";
 import type { Env } from "./types.js";
@@ -482,7 +483,9 @@ function matchToolDirectives(text: string): { name: string; json: string }[] {
  * 3. Harvest fork prompts (`[HARVEST]` prefix): extracts `[remember: <fact>]` or `[learn:<slug> <body...>]`
  * 4. Bot search judge prompts (`[SEARCH_BOT_JUDGE]` prefix): matches query keywords against candidate blocks
  */
-export function echoResponse(context: TranscriptContext): AssistantMessage {
+export function echoResponse(
+	context: TranscriptContext,
+): AssistantMessage | Promise<AssistantMessage> {
 	const lastUserIdx = context.messages.findLastIndex(
 		(message) => message.role === "user",
 	);
@@ -494,14 +497,75 @@ export function echoResponse(context: TranscriptContext): AssistantMessage {
 	const userText = lastUserText(context);
 	const userCount = visibleUserMessages(context);
 
+	const groupTurn = userText.includes("[group ");
+	// Ignore the marker when it is only the argument of a tool directive.
+	// The caller prompt must still run that tool. Group sessions and a
+	// bare `[[hold:name]]` turn use it to pause the offline model.
+	// A scripted [[group-reply]] wins over a hold in the same prompt.
+	const scriptedFirst = groupTurn ? extractGroupReply(userText) : undefined;
+	const hold = /\[\[hold:([a-z0-9-]+)\]\]/.exec(userText);
+	if (
+		hold?.[1] &&
+		scriptedFirst === undefined &&
+		!userText.includes("[tool:")
+	) {
+		const name = hold[1];
+		return new Promise((resolve) => {
+			const gate = globalThis as unknown as {
+				__cadmusHolds?: Map<string, (text: string) => void>;
+			};
+			let holds = gate.__cadmusHolds;
+			if (!holds) {
+				holds = new Map();
+				gate.__cadmusHolds = holds;
+			}
+			holds.set(name, (text: string) => {
+				holds.delete(name);
+				resolve(fauxAssistantMessage(text));
+			});
+		});
+	}
+	if (groupTurn && userText.includes("[[hang]]")) {
+		return new Promise(() => {});
+	}
+	const scripted = scriptedFirst;
+	if (scripted !== undefined) {
+		// `[[route:slug]]` becomes `@slug` only in the posted reply, so the
+		// source post can hand the next turn to a member it did not mention.
+		const spoken = scripted.replaceAll(
+			/\[\[route:([A-Za-z0-9][A-Za-z0-9_-]{0,63})\]\]/g,
+			"@$1",
+		);
+		return fauxAssistantMessage(spoken);
+	}
+
+	// A read-only consultation turn records the tool result as the caller's
+	// end_conversation payload. The marker is only honored on a group inbound
+	// (`[group ...]`), so the originating chat still echoes message_bot.
+	if (
+		groupTurn &&
+		lastToolResult &&
+		lastToolResult.role === "toolResult" &&
+		userText.includes("[[consult]]")
+	) {
+		const results = messagesSinceUser
+			.filter((message) => message.role === "toolResult")
+			.map((message) => extractMessageText(message.content))
+			.join("\n");
+		return fauxAssistantMessage(
+			`[tool:end_conversation ${JSON.stringify({ response: results })}]`,
+		);
+	}
+
 	// 1. If a toolResult occurred after the last user message, summarize it and finish the turn
 	// (Even if pi-durable appended a positional system section update after the toolResult)
 	if (lastToolResult && lastToolResult.role === "toolResult") {
 		const resultText = extractMessageText(lastToolResult.content);
-		const cleanedText = userText.replace(/\[think:[^\]]+\]/gi, "").trim();
-		return fauxAssistantMessage(
-			`echo(${userCount}): ${cleanedText} -> ${resultText}`,
-		);
+		const cleanedText = userText.includes("[group ")
+			? ""
+			: userText.replace(/\[think:[^\]]+\]/gi, "").trim();
+		const prefix = cleanedText ? `${cleanedText} -> ` : "";
+		return fauxAssistantMessage(`echo(${userCount}): ${prefix}${resultText}`);
 	}
 
 	// 2. Check if this is a SearchBotTask judge call
@@ -674,6 +738,38 @@ export type FauxResponder = (
 	context: TranscriptContext,
 ) => AssistantMessage | Promise<AssistantMessage>;
 
+function settleWithSignal<T>(
+	result: T | Promise<T>,
+	signal: AbortSignal | undefined,
+): T | Promise<T> {
+	if (!(result instanceof Promise) || !signal) return result;
+	return new Promise<T>((resolve, reject) => {
+		const fail = () => {
+			reject(
+				signal.reason instanceof Error
+					? signal.reason
+					: new Error("The operation was aborted."),
+			);
+		};
+		if (signal.aborted) {
+			fail();
+			return;
+		}
+		const onAbort = () => fail();
+		signal.addEventListener("abort", onAbort, { once: true });
+		result.then(
+			(value) => {
+				signal.removeEventListener("abort", onAbort);
+				resolve(value);
+			},
+			(error: unknown) => {
+				signal.removeEventListener("abort", onAbort);
+				reject(error);
+			},
+		);
+	});
+}
+
 export function addFauxProvider(
 	models: MutableModels,
 	respond: FauxResponder = echoResponse,
@@ -681,9 +777,9 @@ export function addFauxProvider(
 	const faux = fauxProvider({
 		models: [{ id: "echo", contextWindow: 128_000, maxTokens: 8_192 }],
 	});
-	const step: FauxResponseStep = (context) => {
+	const step: FauxResponseStep = (context, options) => {
 		faux.appendResponses([step]);
-		return respond(context);
+		return settleWithSignal(respond(context), options?.signal);
 	};
 	faux.setResponses([step]);
 	models.setProvider(faux.provider);

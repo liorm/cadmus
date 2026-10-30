@@ -1,4 +1,8 @@
-import { CODE_EXECUTE_TOOL_NAME } from "@cadmus/contract/tools";
+import {
+	CODE_EXECUTE_TOOL_NAME,
+	isReadOnlyGroupTool,
+	readOnlyGroupToolNames,
+} from "@cadmus/contract/tools";
 import {
 	AgentDoc,
 	defineExtension,
@@ -12,11 +16,26 @@ import { isCodingTool } from "../tools-env/pure.js";
 import {
 	noteProviderTools,
 	omitCodeExecuteFromProviderMessages,
+	omitProviderTools,
 	providerToolNames,
 } from "./provider-tools.js";
 
 const CODE_EXECUTE_ENV_BLOCK =
 	"code.execute is disabled while the workspace tools env is on; use bash";
+
+const READONLY_GROUP_BLOCK =
+	"This group chat is read-only. Only knowledge_read and memory_read are available.";
+
+function consultMember(
+	services: ReturnType<typeof requireCadmusServices>,
+	conversationId: number,
+): boolean {
+	const chat =
+		services.familyStore.chats.getChatByConversationId(conversationId);
+	if (!chat) return false;
+	const member = services.familyStore.groups.findByMemberKey(chat.key);
+	return member?.role === "member" && member.group.toolsReadOnly === true;
+}
 
 /**
  * Enforces per-bot `bot.tools` allowlist on every tool execution.
@@ -40,9 +59,31 @@ export function toolGateExtension() {
 								botId,
 							)
 						: false;
-					const messages = offered
-						? omitCodeExecuteFromProviderMessages(request.messages)
-						: request.messages;
+					const conversationId = api.conversationId as unknown as number;
+					const chat =
+						services.familyStore.chats.getChatByConversationId(conversationId);
+					const consult = consultMember(services, conversationId);
+					const offerEnd = chat
+						? services.isGroupCallerSession(chat.key)
+						: false;
+					let messages = request.messages;
+					if (consult) {
+						const bot = botId
+							? services.familyStore.bots.getBot(botId)
+							: undefined;
+						const allowed = new Set(readOnlyGroupToolNames(bot?.tools));
+						const drop = providerToolNames(messages).filter(
+							(name) => !allowed.has(name),
+						);
+						messages = omitProviderTools(messages, drop);
+					} else {
+						messages = offered
+							? omitCodeExecuteFromProviderMessages(messages)
+							: messages;
+						if (!offerEnd) {
+							messages = omitProviderTools(messages, ["end_conversation"]);
+						}
+					}
 					noteProviderTools(botId, providerToolNames(messages));
 					if (messages === request.messages) return undefined;
 					return { messages };
@@ -66,6 +107,29 @@ export function toolGateExtension() {
 						};
 					}
 					const services = requireCadmusServices(context);
+					if (
+						consultMember(services, api.conversationId as unknown as number) &&
+						!isReadOnlyGroupTool(call.name)
+					) {
+						getLogger().warn("tool call blocked in read-only group chat", {
+							bot: botId,
+							tool: call.name,
+							session: api.conversationId,
+						});
+						return { block: READONLY_GROUP_BLOCK };
+					}
+					if (call.name === "end_conversation") {
+						const chat = services.familyStore.chats.getChatByConversationId(
+							api.conversationId as unknown as number,
+						);
+						if (!chat || !services.isGroupCallerSession(chat.key)) {
+							return {
+								block:
+									"end_conversation is only available in a group chat you started.",
+							};
+						}
+						return;
+					}
 					const bot = services.familyStore.bots.getBot(botId);
 					if (call.name === CODE_EXECUTE_TOOL_NAME && bot) {
 						const offered = await services.codingToolsOffered(

@@ -27,8 +27,10 @@ export interface ChatRenderedViewProps {
 		text: string;
 		reply?: string;
 		when: number;
+		groupChatKey?: string;
 	}>;
 	chatKey?: string;
+	onOpenChat?: (chatKey: string) => void;
 }
 
 // ─── Lightweight Safe Markdown Renderer ───────────────────────────────────────
@@ -549,6 +551,7 @@ export function ChatRenderedView({
 	streamingState,
 	botMessages,
 	chatKey,
+	onOpenChat,
 }: ChatRenderedViewProps) {
 	const prevMessagesLengthRef = useRef(messages.length);
 	const hasNewUserMessage =
@@ -622,6 +625,9 @@ export function ChatRenderedView({
 						<div key={msg.id} className="chat-message-row user">
 							<div className="message-meta user">
 								<span className="badge badge-indigo">{`#${msg.id}`}</span>
+								{msg.fromBotId && (
+									<span className="badge badge-cyan">{`@${msg.fromBotId}`}</span>
+								)}
 								{msg.timestamp && (
 									<span className="message-time">
 										{new Date(msg.timestamp).toLocaleTimeString()}
@@ -756,6 +762,15 @@ export function ChatRenderedView({
 									<p>
 										<strong>Reply:</strong> {bm.reply}
 									</p>
+								)}
+								{bm.groupChatKey && onOpenChat && (
+									<button
+										type="button"
+										className="btn btn-secondary btn-sm"
+										onClick={() => onOpenChat(bm.groupChatKey as string)}
+									>
+										Open group chat
+									</button>
 								)}
 							</div>
 						</div>
