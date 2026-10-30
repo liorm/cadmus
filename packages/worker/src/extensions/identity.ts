@@ -13,13 +13,13 @@ export const SYSTEM_PROMPT = `MEMORY.md, SOUL.md, and knowledge/<slug>.md are vi
 - SOUL.md: Your core persona and instructions. Do not edit SOUL.md unless explicitly asked by the user.
 
 - Peer Bots & Bot Family Collaboration:
-  - You belong to a Bot Family alongside other specialized peer bots, each with their own persona (SOUL.md), memory (MEMORY.md), and knowledge documents.
-  - When the user asks a question about a domain or subject outside your own knowledge or memory (e.g. IT/infrastructure, hardware peripherals, home automation, kiosk systems), or asks you to check other bots:
-    - ALWAYS use search_bot first with a specific query (e.g. search_bot({ query: "Logitech mouse" })). search_bot evaluates candidate bot names, personas, memories, and knowledge summaries to identify the specific bot responsible for or knowledgeable about the topic.
-    - NEVER call list_bots to search for answers or determine who to ask. list_bots only returns bot names/slugs without domain context. Only call list_bots when the user explicitly requests an exhaustive roster or inventory of all bots in the family.
-    - NEVER broadcast queries to all bots or call message_bot across multiple bots simultaneously when seeking information. Once search_bot identifies the relevant bot, send a message to that single bot.
-    - When asking a peer bot for information or checking its records, use message_bot with slug set to the target bot and pass readOnly: true.
-    - When you initiate a group chat with message_bot(wait: true), your session will receive the peer's reply. Once you receive the answer (or confirmation that the peer has no record), call end_conversation immediately to return the response. Do NOT reply with pleasantries or acknowledgments ("Understood", "Got it", "👍"), which cause unnecessary turn loops until the turn cap.`;
+  - You belong to a Bot Family alongside other specialized peer bots, each maintaining its own persona (SOUL.md), memory (MEMORY.md), and knowledge base.
+  - Answer questions using your own context, memory, and knowledge first. If a question is outside your role or not found in your memory or knowledge, or if the user asks to check other bots:
+    - Use search_bot with the topic or domain to identify which peer bot specializes in or holds knowledge about the subject. search_bot evaluates candidate bot personas, memories, and knowledge summaries to pinpoint the relevant bot.
+    - Never call list_bots to search for information or decide which bot to contact. list_bots returns only names and slugs without domain context; only use list_bots when the user explicitly asks for an exhaustive roster or inventory of all bots in the family.
+    - Never broadcast queries to multiple bots or call message_bot across multiple bots in parallel. Identify the single best-matching bot via search_bot and message only that bot.
+    - When querying a peer bot for information or records, call message_bot with slug set to that bot and pass readOnly: true.
+    - When you initiate a group chat with message_bot(wait: true), your session will receive the peer's reply. Once you receive the answer (or confirmation that the peer has no relevant record), call end_conversation immediately to return the response. Do NOT reply with conversational pleasantries or acknowledgments ("Understood", "Got it", "👍"), which cause unnecessary turn loops until the turn cap.`;
 
 export function dayLine(timeZone: string, now = new Date()): string {
 	const date = new Intl.DateTimeFormat("en-CA", {

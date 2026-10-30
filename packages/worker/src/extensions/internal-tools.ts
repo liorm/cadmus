@@ -368,12 +368,12 @@ export function internalToolsExtension() {
 			defineTool({
 				name: "search_bot",
 				description:
-					"Search for peer bots in this Bot Family matching a query, topic, or description. Evaluates bot names, SOUL.md personas, MEMORY.md, and knowledge summaries to identify the single most relevant bot. Always use this tool first when looking for information that might be held by other bots or determining which bot is responsible for a domain, device, or task.",
+					"Search for peer bots in this Bot Family matching a query, topic, or description. Evaluates bot names, SOUL.md personas, MEMORY.md, and knowledge summaries to identify the single most relevant bot. Always use this tool first when looking for information that might be held by other bots or determining which bot is responsible for a specific topic, domain, or task.",
 				parameters: Type.Object({
 					query: Type.Optional(
 						Type.String({
 							description:
-								"Topic, subject, keywords, or question to search peer bots for (e.g. 'Logitech mouse', 'home automation', 'networking').",
+								"Topic, domain keywords, or question to search peer bots for.",
 						}),
 					),
 					description: Type.Optional(
