@@ -13,9 +13,9 @@ Cadmus is the cloud-native V2 architecture of `pi-bot`, built on **Cloudflare Wo
   - Single durable `cadmus.schedule` task (`wait` -> `run`) driving 5-field cron schedules, one-shot `when` timers, and idle knowledge/memory harvest forks (`harvest:<chatKey>`) via a single Durable Object alarm (`ctx.storage.setAlarm`).
 - **Out-of-Band `/status`**:
   - Inspects live conversation, bot, usage, harvest watermark, and alarm state out-of-band without polluting conversation transcripts or invoking the LLM.
-- **Standalone TUI Client (`packages/tui/`) & Web UI (`packages/web/`)**:
-  - Independent TUI client package that drives the Worker/DO purely over the wire protocol (`POST /rpc` and `GET /ws`).
-  - React + Vite Web UI. `CadmusClient.callRpc` uses `GET`/`POST /api/*` (readonly vs mutating from the protocol `readOnly` flag), sends `Authorization: Bearer`, and keeps `CommandResultFrame` results. The token is not placed on `/api` URLs. Live events still arrive on `GET /ws` (query token).
+- **Agent CLI (`packages/cli/`) & Web UI (`packages/web/`)**:
+  - `cadmus` enumerates every protocol RPC from the contract. See [`packages/cli/README.md`](packages/cli/README.md).
+  - React + Vite Web UI. `CadmusClient.callRpc` uses `GET`/`POST /api/*` (readonly vs mutating from the protocol `readOnly` flag), sends `Authorization: Bearer`, and keeps `CommandResultFrame` results. The token is not placed on `/api` URLs. Live events still arrive on `GET /ws` (query token). Transport is `@cadmus/contract/client`.
 
 ---
 
@@ -25,7 +25,6 @@ Cadmus is the cloud-native V2 architecture of `pi-bot`, built on **Cloudflare Wo
 
 ```bash
 bun install
-bun install --cwd tui
 bun install --cwd web
 ```
 
@@ -37,7 +36,7 @@ All E2E tests execute inside the real Cloudflare Workers `workerd` runtime via `
 bun run test
 ```
 
-### 3. Typecheck Worker, Standalone TUI & Web UI
+### 3. Typecheck Worker, CLI & Web UI
 
 ```bash
 bun run typecheck
@@ -61,24 +60,18 @@ bun run web:dev
 
 Open [http://localhost:5173](http://localhost:5173) in your browser. The dev server proxies the same paths as `assets.run_worker_first` in `wrangler.jsonc` (`/health`, `/protocol/schema`, `/ws`, `/events`, `/rpc`, `/api/*`, `/tools-env/*`) to the local Worker at `http://localhost:8787`.
 
-#### Option B: Standalone TUI
+#### Option B: Agent CLI
 
-In a second terminal, launch the standalone TUI against your local Worker:
+In a second terminal, drive the local Worker with `cadmus`. Flags override `CADMUS_URL`, `CADMUS_TOKEN`, `CADMUS_ACCOUNT_ID`, and `CADMUS_FAMILY_ID`.
 
 ```bash
-bun run tui
-# Or pass explicit flags:
-bun run tui -- --url http://localhost:8787 --token dev-cadmus-secret --account default-account --family default
+bun run cli --help
+bun run cli --version
+bun run cli commands --token dev-cadmus-secret
+bun run cli bot.list --token dev-cadmus-secret --account default-account
 ```
 
-Inside the TUI:
-- `:bot new <slug> <name> [model]` — Create a bot (defaults to offline `faux/echo` model)
-- `:chat new <botId> [title]` — Create a chat and switch to it
-- `:use <chatKey>` — Switch active chat
-- `:status` (or `/status`) — Inspect live chat/bot status out-of-band
-- `:files <botId>` / `:read <botId> <path>` — Inspect `SOUL.md`, `MEMORY.md`, and `knowledge/<slug>.md`
-- `:cred set <provider> <apiKey>` — Configure an encrypted BYOK credential (`xai`, `openai`, `anthropic`)
-- `:help` — List all TUI meta-commands
+`cadmus --skill` prints a contract-generated SKILL.md. `cadmus send <chatKey> <text>` waits for the turn. Build targets are in [`packages/cli/README.md`](packages/cli/README.md).
 
 ### 5. Deployment (Cloudflare Workers)
 
@@ -163,18 +156,18 @@ curl http://localhost:8787/health
 # {"ok":true,"service":"cadmus","version":2}
 ```
 
-### 4. Connect with the Standalone TUI
+### 4. Connect with the Agent CLI
 
 From your host machine:
 
 ```bash
-bun run tui -- --url http://localhost:8787 --token your-secure-auth-secret
+bun run cli bot.list --url http://localhost:8787 --token your-secure-auth-secret
 ```
 
-Or run the TUI directly inside the running container:
+Or run the CLI directly inside the running container:
 
 ```bash
-docker exec -it cadmus bun run tui -- --url http://localhost:8787 --token your-secure-auth-secret
+docker exec -it cadmus bun run cli bot.list --url http://localhost:8787 --token your-secure-auth-secret
 ```
 
 ### Configuration Environment Variables

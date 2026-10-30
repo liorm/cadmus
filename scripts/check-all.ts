@@ -83,6 +83,12 @@ const stages: Stage[] = [
 		weight: 8,
 	},
 	{
+		name: "test:cli",
+		cmd: ["bun", "run", "test:cli"],
+		group: "static",
+		weight: 8,
+	},
+	{
 		name: "test:conformance",
 		cmd: ["bun", "test", "tests/conformance"],
 		group: "static",

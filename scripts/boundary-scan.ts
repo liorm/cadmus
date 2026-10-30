@@ -22,6 +22,7 @@ const ALLOWED_CLIENT_CONTRACT = new Set([
 	"@cadmus/contract/types",
 	"@cadmus/contract/routes",
 	"@cadmus/contract/tools",
+	"@cadmus/contract/client",
 ]);
 
 export function isAllowedClientContractSpecifier(specifier: string): boolean {
@@ -40,23 +41,29 @@ export function nonStaticSpecifierReason(
 }
 
 /**
- * Why a client (`web/` or `tui/`) must not import `specifier`.
+ * Why a client (`web/` or `cli/`) must not import `specifier`.
  * Returns undefined when the specifier is allowed.
+ * `allow` adds package specifiers for one client (the CLI may import schemas).
  * Pass `nonStatic` for an `import()` / `require()` template that interpolates.
  */
 export function clientImportReason(
 	specifier: string,
-	options?: { nonStatic?: boolean },
+	options?: { nonStatic?: boolean; allow?: readonly string[] },
 ): string | undefined {
 	const dynamic = nonStaticSpecifierReason(options?.nonStatic);
 	if (dynamic) return dynamic;
-	if (isAllowedClientContractSpecifier(specifier)) return undefined;
+	if (
+		isAllowedClientContractSpecifier(specifier) ||
+		options?.allow?.includes(specifier)
+	) {
+		return undefined;
+	}
 	if (
 		specifier === "@cadmus/contract" ||
 		specifier.startsWith("@cadmus/contract/") ||
 		specifier.startsWith("@cadmus/")
 	) {
-		return "clients may import only @cadmus/contract/types, @cadmus/contract/routes, and @cadmus/contract/tools";
+		return "clients may import only @cadmus/contract/types, @cadmus/contract/routes, @cadmus/contract/tools, and @cadmus/contract/client";
 	}
 	const normalized = specifier.replaceAll("\\", "/");
 	if (/(^|\/)(src|worker|daemon)(\/|$)/.test(normalized)) {

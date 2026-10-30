@@ -12,7 +12,8 @@
 			"!docs",
 			"!packages/web/dist",
 			"!packages/web/node_modules",
-			"!packages/daemon/dist"
+			"!packages/daemon/dist",
+			"!packages/cli/dist"
 		]
 	},
 	"formatter": {
@@ -40,7 +41,7 @@
 	},
 	"overrides": [
 		{
-			"includes": ["packages/web/**", "packages/tui/**"],
+			"includes": ["packages/web/**"],
 			"linter": {
 				"rules": {
 					"style": {
@@ -93,9 +94,75 @@
 											"@cadmus/contract/**",
 											"!@cadmus/contract/types",
 											"!@cadmus/contract/routes",
-											"!@cadmus/contract/tools"
+											"!@cadmus/contract/tools",
+											"!@cadmus/contract/client"
 										],
-										"message": "Clients may import only @cadmus/contract/types, @cadmus/contract/routes, and @cadmus/contract/tools."
+										"message": "Clients may import only @cadmus/contract/types, @cadmus/contract/routes, @cadmus/contract/tools, and @cadmus/contract/client."
+									}
+								]
+							}
+						}
+					}
+				}
+			}
+		},
+		{
+			"includes": ["packages/cli/src/**"],
+			"linter": {
+				"rules": {
+					"style": {
+						"noRestrictedImports": {
+							"level": "error",
+							"options": {
+								"patterns": [
+									{
+										"group": [
+											"src",
+											"src/**",
+											"worker",
+											"worker/**",
+											"daemon",
+											"daemon/**",
+											"../src",
+											"../src/**",
+											"../../src",
+											"../../src/**",
+											"../../../src",
+											"../../../src/**",
+											"../../../../src",
+											"../../../../src/**",
+											"../worker",
+											"../worker/**",
+											"../../worker",
+											"../../worker/**",
+											"../../../worker",
+											"../../../worker/**",
+											"../../../../worker",
+											"../../../../worker/**",
+											"../daemon",
+											"../daemon/**",
+											"../../daemon",
+											"../../daemon/**",
+											"../../../daemon",
+											"../../../daemon/**",
+											"../../../../daemon",
+											"../../../../daemon/**"
+										],
+										"message": "The CLI imports the contract only. Backend source is off limits."
+									},
+									{
+										"group": [
+											"@cadmus/contract",
+											"@cadmus/contract/openapi.json",
+											"@cadmus/contract/asyncapi.json",
+											"@cadmus/contract/**",
+											"!@cadmus/contract/types",
+											"!@cadmus/contract/routes",
+											"!@cadmus/contract/tools",
+											"!@cadmus/contract/client",
+											"!@cadmus/contract/schemas"
+										],
+										"message": "The CLI may import contract types, routes, tools, client, and schemas."
 									}
 								]
 							}

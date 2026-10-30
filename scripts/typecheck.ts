@@ -41,9 +41,9 @@ const projects: Project[] = [
 		weight: 10,
 	},
 	{
-		name: "tui",
-		cmd: ["bun", "run", "--cwd", "packages/tui", "typecheck"],
-		weight: 5,
+		name: "cli",
+		cmd: ["bunx", "tsc", "-p", "packages/cli/tsconfig.json", "--noEmit"],
+		weight: 10,
 	},
 ];
 

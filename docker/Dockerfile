@@ -21,7 +21,7 @@ WORKDIR /app
 COPY package.json bun.lock ./
 COPY packages/contract/package.json ./packages/contract/
 COPY packages/daemon/package.json ./packages/daemon/
-COPY packages/tui/package.json ./packages/tui/
+COPY packages/cli/package.json ./packages/cli/
 COPY packages/web/package.json ./packages/web/
 COPY packages/worker/package.json ./packages/worker/
 RUN bun install --frozen-lockfile
@@ -60,7 +60,7 @@ COPY --from=celld-bin /usr/local/bin/celld /usr/local/bin/celld
 COPY tsconfig.json wrangler.jsonc biome.json package.json bun.lock ./
 COPY packages/worker/ ./packages/worker/
 COPY packages/contract/ ./packages/contract/
-COPY packages/tui/ ./packages/tui/
+COPY packages/cli/ ./packages/cli/
 COPY packages/daemon/ ./packages/daemon/
 
 # Copy built Web UI assets from Stage 3

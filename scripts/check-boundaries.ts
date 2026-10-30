@@ -2,8 +2,10 @@
  * Fails when a client imports backend source, or when the contract package
  * imports anything other than `typebox`.
  *
- * web/ and tui/ may import `@cadmus/contract/types`, `@cadmus/contract/routes`,
- * and `@cadmus/contract/tools`. They may not import the bare package,
+ * web/ and cli/ may import `@cadmus/contract/types`, `@cadmus/contract/routes`,
+ * `@cadmus/contract/tools`, and `@cadmus/contract/client`. The CLI may also
+ * import `@cadmus/contract/schemas` to render help from the command schemas.
+ * They may not import the bare package,
  * `@cadmus/contract/schemas`, the generated OpenAPI or AsyncAPI documents,
  * `src/`, or `daemon/`.
  * `import()` and `require()` template literals that interpolate are rejected
@@ -21,7 +23,8 @@ import {
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
-const clientRoots = ["packages/web/src", "packages/tui/src"];
+const clientRoots = ["packages/web/src", "packages/cli/src"];
+const cliSchemaAllow = ["@cadmus/contract/schemas"];
 const contractRoots = ["packages/contract/src", "packages/contract/generated"];
 
 const sourceExtensions = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs"]);
@@ -86,7 +89,11 @@ for (const dir of clientRoots) {
 		for (const found of findImportSpecifiers(text)) {
 			const reason =
 				nonStaticSpecifierReason(found.nonStatic) ??
-				clientImportReason(found.specifier);
+				clientImportReason(found.specifier, {
+					allow: file.includes(`${sep}packages${sep}cli${sep}`)
+						? cliSchemaAllow
+						: undefined,
+				});
 			if (reason) {
 				violations.push({
 					file,

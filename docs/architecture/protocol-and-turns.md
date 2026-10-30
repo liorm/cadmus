@@ -1,6 +1,6 @@
 # Protocol, Shims & Out-of-Band Commands
 
-Cadmus is designed as a **headless, protocol-first runtime**. Any UI (the standalone TUI in `packages/tui/`, E2E tests in `e2e/`, or a future web/mobile client) interacts with the Worker exclusively over "the protocol".
+Cadmus is designed as a **headless, protocol-first runtime**. Any client (the `cadmus` CLI in `packages/cli/`, the web UI, or E2E tests in `e2e/`) interacts with the Worker exclusively over the protocol.
 
 ---
 
@@ -124,6 +124,6 @@ Control and inspection slash commands—specifically **`/status`**—do **not** 
 
 ---
 
-## Standalone TUI Boundary (`packages/tui/`)
+## CLI Boundary (`packages/cli/`)
 
-The terminal client in `packages/tui/` is an independent package with its own `packages/tui/package.json` and `packages/tui/tsconfig.json`. It imports **zero** files from `packages/worker/src/` and communicates with the Worker exclusively via HTTP `/rpc` and WebSocket `/ws`.
+The `cadmus` CLI is an independent package with its own `packages/cli/package.json` and `packages/cli/tsconfig.json`. It imports **zero** files from `packages/worker/src/`. REST commands use `/api`. `send` and `events` use `/ws`. Help text is generated from `@cadmus/contract` schemas and `API_ROUTES`.

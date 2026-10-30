@@ -38,6 +38,7 @@ export default defineConfig({
 					CADMUS_DAEMON_BRIDGE_EVENT_PORT: String(
 						inject("daemonBridgeEventPort"),
 					),
+					CADMUS_CLI_BRIDGE_PORT: String(inject("cliBridgePort")),
 				},
 			},
 		})),

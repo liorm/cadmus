@@ -1,11 +1,5 @@
 import { SELF } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
-import {
-	createTuiState,
-	handleServerEvent,
-	handleTurnSubmitResult,
-	type TuiOutput,
-} from "../packages/tui/src/handler.js";
 import type {
 	ChatGetResult,
 	ChatRecord,
@@ -182,29 +176,6 @@ describe("Turns, Streaming Protocol Events & Out-of-Band /status", () => {
 			if (completedEvent && completedEvent.type === "turn.completed") {
 				expect(completedEvent.payload.text).toBe(turnRes.result?.reply);
 			}
-
-			// Verify TUI consumer contract: deltas streamed + turn.submit result -> no duplicate output
-			const chunks: string[] = [];
-			const lines: string[] = [];
-			const tuiOut: TuiOutput = {
-				write: (t) => chunks.push(t),
-				writeLine: (t = "") => lines.push(t),
-			};
-			const tuiState = createTuiState("xai:71aa0dae");
-
-			for (const ev of wsClient.events) {
-				handleServerEvent(ev, tuiState, tuiOut);
-			}
-			handleTurnSubmitResult(turnRes, tuiState, tuiOut);
-
-			// Streamed output must contain the full assistant reply once
-			const fullTuiOutput = chunks.join("");
-			expect(fullTuiOutput).toContain("What do you want to do?");
-			const assistantPrefixes = (fullTuiOutput.match(/assistant>/g) || [])
-				.length;
-			expect(assistantPrefixes).toBe(1);
-			// No duplicate lines written by handleTurnSubmitResult
-			expect(lines).toHaveLength(0);
 		} finally {
 			wsClient.close();
 		}
@@ -262,28 +233,6 @@ describe("Turns, Streaming Protocol Events & Out-of-Band /status", () => {
 					),
 				).toBe(true);
 			}
-
-			// Render in TUI handler
-			const chunks: string[] = [];
-			const lines: string[] = [];
-			const tuiOut: TuiOutput = {
-				write: (t) => chunks.push(t),
-				writeLine: (t = "") => lines.push(t),
-			};
-			const tuiState = createTuiState("chip-chat-1");
-
-			for (const ev of wsClient.events) {
-				handleServerEvent(ev, tuiState, tuiOut);
-			}
-			handleTurnSubmitResult(turnRes, tuiState, tuiOut);
-
-			const combinedTuiOutput = chunks.join("");
-			// Verify chips appear on assistant message line
-			expect(combinedTuiOutput).toContain("[thinking]");
-			expect(combinedTuiOutput).toContain("[tool: memory_read]");
-			expect(combinedTuiOutput).toContain("echo(1):");
-			// Verify raw thinking text was NOT leaked into output
-			expect(combinedTuiOutput).not.toContain("reasoning deeply");
 		} finally {
 			wsClient.close();
 		}

@@ -1,3 +1,4 @@
+import { startCliBridge } from "./cli-bridge-host.js";
 import { startDaemonBridge } from "./daemon-bridge-host.js";
 import { DAEMON_BRIDGE_HOST } from "./daemon-bridge-port.js";
 
@@ -16,15 +17,22 @@ function runNeedsDaemonBridge(): boolean {
 export default async function setup(project: {
 	provide: (key: string, value: string | number) => void;
 }): Promise<() => Promise<void>> {
+	const cliBridge = await startCliBridge();
+	project.provide("cliBridgePort", cliBridge.port);
 	if (!runNeedsDaemonBridge()) {
 		project.provide("daemonBridgeHost", "");
 		project.provide("daemonBridgePort", 0);
 		project.provide("daemonBridgeEventPort", 0);
-		return async () => {};
+		return async () => {
+			await cliBridge.close();
+		};
 	}
 	const bridge = await startDaemonBridge();
 	project.provide("daemonBridgeHost", DAEMON_BRIDGE_HOST);
 	project.provide("daemonBridgePort", bridge.port);
 	project.provide("daemonBridgeEventPort", bridge.eventPort);
-	return () => bridge.close();
+	return async () => {
+		await cliBridge.close();
+		await bridge.close();
+	};
 }

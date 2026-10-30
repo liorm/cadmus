@@ -6,6 +6,7 @@ declare module "vitest" {
 		daemonBridgeHost: string;
 		daemonBridgePort: number;
 		daemonBridgeEventPort: number;
+		cliBridgePort: number;
 	}
 }
 
@@ -25,6 +26,7 @@ declare global {
 			CADMUS_DAEMON_BRIDGE_HOST?: string;
 			CADMUS_DAEMON_BRIDGE_PORT?: string;
 			CADMUS_DAEMON_BRIDGE_EVENT_PORT?: string;
+			CADMUS_CLI_BRIDGE_PORT?: string;
 		}
 	}
 }
