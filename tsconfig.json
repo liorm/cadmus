@@ -12,13 +12,6 @@
 		"esModuleInterop": true,
 		"resolveJsonModule": true
 	},
-	"include": [
-		"packages/worker/src/**/*",
-		"packages/worker/tests/*",
-		"e2e/**/*",
-		"tests/global-setup.ts",
-		"tests/cli/**/*",
-		"tests/daemon/**/*",
-		"tests/web/**/*"
-	]
+	"include": ["e2e/**/*", "packages/worker/**/*"],
+	"exclude": ["packages/worker/tests/unit/**/*"]
 }
