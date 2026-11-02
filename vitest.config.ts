@@ -26,6 +26,21 @@ export default defineConfig({
 			"tests/web/**/*.test.ts",
 		],
 		exclude: ["**/node_modules/**", "**/dist/**"],
+		coverage: {
+			provider: "v8",
+			include: [
+				"packages/worker/src/**",
+				"packages/contract/src/**",
+				"packages/contract/generated/**",
+			],
+			exclude: [
+				"packages/worker/tests/**",
+				"**/types.ts",
+				"**/node_modules/**",
+				"**/dist/**",
+			],
+			reporter: ["text", "json-summary", "html"],
+		},
 	},
 	plugins: [
 		cloudflareTest(({ inject }) => ({
