@@ -115,11 +115,14 @@ bun run format:check
 bun run check:all
 ```
 
-### How to Write E2E Tests
+### How to Write E2E & Worker Tests
 
-1. Place E2E tests under `e2e/*.test.ts`.
-2. Use [`sendRpc`](e2e/helpers.ts) (for `POST /rpc`) and [`connectTestWs`](e2e/helpers.ts) (for `GET /ws` WebSocket) over `SELF.fetch` from `cloudflare:test`.
-3. Provision a fresh Cadmus account per test with [`uniqueAccountId`](e2e/helpers.ts) (`crypto.randomUUID()`). Do not hardcode a shared account id (`acct-1`, `acct`, `default-account`, and the like). A Vitest worker reuses one workerd, so D1 rows, KV keys, Durable Object names (`cadmus:${accountId}:${familyId}`, `env:${accountId}:${envId}`), auth-token hashes, and isolate memo keys collide when two tests reuse an id. Compare assertions to the generated id. A tenant-isolation test uses two ids from the helper. Omitting `accountId` on a master-secret call authenticates as `default-account`; do not do that for a test that writes. Family and bot slugs stay scoped under that account.
+1. Place black-box E2E tests under `e2e/*.test.ts`.
+   - `e2e/` is strictly black-box: no file in `e2e/` may import from `packages/*` (`@cadmus/worker`, `@cadmus/web`, `@cadmus/cli`, `@cadmus/daemon`).
+   - Only [`e2e/helpers.ts`](e2e/helpers.ts) may import `@cadmus/contract/{types,routes,tools,client,schemas}` and `cloudflare:test` (`SELF`). Every `e2e/*.test.ts` file imports only from `./helpers.js` (and `vitest`), calls [`useWorkerFixture`](e2e/helpers.ts) inside `describe(...)` to start/stop the Worker fixture, and interacts with the system strictly via HTTP/WS contract calls (`callApi`, `sendRpc`, `connectTestWs`, `workerFetch`).
+   - Place white-box workerd tests (tests that inspect `env.CADMUS_BOT_FAMILY`, `env.CADMUS_ENV`, `env.CADMUS_ADMIN_DB`, `runDurableObjectAlarm`, `runInDurableObject`, `installProviderToolCapture`, or internal Worker modules) under `packages/worker/tests/*.test.ts` and pure Worker unit tests under `packages/worker/tests/unit/*.test.ts`.
+   - Place non-worker integration/conformance tests under `tests/{cli,daemon,web,contract,conformance,scripts}/`.
+2. Provision a fresh Cadmus account per test with [`uniqueAccountId`](e2e/helpers.ts) (`crypto.randomUUID()`). Do not hardcode a shared account id (`acct-1`, `acct`, `default-account`, and the like). A Vitest worker reuses one workerd, so D1 rows, KV keys, Durable Object names (`cadmus:${accountId}:${familyId}`, `env:${accountId}:${envId}`), auth-token hashes, and isolate memo keys collide when two tests reuse an id. Compare assertions to the generated id. A tenant-isolation test uses two ids from the helper. Omitting `accountId` on a master-secret call authenticates as `default-account`; do not do that for a test that writes. Family and bot slugs stay scoped under that account.
    Parallel-safety for the rest of the shared worker state:
    - Restore global stubs before the test returns: `globalThis.fetch`, `env.CADMUS_ADMIN_DB.prepare` / `batch`, and `setupLogger` (back to `{ type: "silent" }`). `afterEach` alone is not enough when a test replaces the stub mid-body.
    - Auth tokens stored in D1 are unique by hash for the whole database. Generate the token (`crypto.randomUUID()`). Do not reuse a literal member token.

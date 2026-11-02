@@ -17,8 +17,14 @@ export default defineConfig({
 		isolate: false,
 		fileParallelism: true,
 		maxWorkers: 2,
-		globalSetup: ["./e2e/global-setup.ts"],
-		include: ["e2e/**/*.test.ts"],
+		globalSetup: ["./tests/global-setup.ts"],
+		include: [
+			"e2e/**/*.test.ts",
+			"packages/worker/tests/*.test.ts",
+			"tests/cli/**/*.test.ts",
+			"tests/daemon/**/*.test.ts",
+			"tests/web/**/*.test.ts",
+		],
 		exclude: ["**/node_modules/**", "**/dist/**"],
 	},
 	plugins: [
@@ -26,6 +32,7 @@ export default defineConfig({
 			wrangler: { configPath: "./wrangler.jsonc" },
 			miniflare: {
 				bindings: {
+					CADMUS_LOG_LEVEL: "silent",
 					CADMUS_AUTH_SECRET: "test-cadmus-secret",
 					CADMUS_ENCRYPTION_KEY: "test-cadmus-encryption-key-32bytes!",
 					CADMUS_DEFAULT_TIMEZONE: "UTC",

@@ -83,7 +83,11 @@ export function setupLogger(options: LoggerSetup): Logger {
 /** Ensure a default logger is installed if none has been configured yet. */
 export function ensureLogger(level?: string): Logger {
 	if (!installed) {
-		setupLogger({ type: "console", level });
+		if ((level ?? "").trim().toLowerCase() === "silent") {
+			setupLogger({ type: "silent" });
+		} else {
+			setupLogger({ type: "console", level });
+		}
 	}
 	return active;
 }

@@ -1,22 +1,11 @@
-import { SELF } from "cloudflare:test";
-import { API_ROUTES } from "@cadmus/contract/routes";
-import { Type } from "typebox";
 import { describe, expect, it } from "vitest";
-import { type Logger, setupLogger } from "../packages/worker/src/log.js";
 import {
-	allowHeaderForCommand,
-	apiPathFromCommandType,
-	apiRouteForCommand,
-	type CommandType,
-	coerceQueryToSchema,
-	coerceSearchParamsToPayload,
-	commandTypeFromApiPath,
-	encodePayloadQuery,
-	httpStatusForProtocolCode,
-	isCommandReadOnly,
-	listCommandTypes,
-} from "../packages/worker/src/protocol.js";
-import { sendRpc, TEST_TOKEN, uniqueAccountId } from "./helpers.js";
+	sendRpc,
+	TEST_TOKEN,
+	uniqueAccountId,
+	useWorkerFixture,
+	workerFetch,
+} from "./helpers.js";
 
 const PRIVATE_API_CACHE = "private, no-store";
 const PRIVATE_API_VARY = "Authorization, Cookie, X-Cadmus-Family-Id";
@@ -25,74 +14,6 @@ function expectPrivateApiCache(response: Response): void {
 	expect(response.headers.get("Cache-Control")).toBe(PRIVATE_API_CACHE);
 	expect(response.headers.get("Vary")).toBe(PRIVATE_API_VARY);
 }
-
-/**
- * Snapshot of the deliberate readOnly decision for every command.
- * A new command must be added to exactly one list. Only side-effect-free
- * queries belong in READONLY; anything that writes, subscribes, or starts
- * a flow belongs in MUTATING so it cannot silently become GET.
- */
-const READONLY = [
-	"account.credentials.list",
-	"account.get",
-	"account.members.list",
-	"account.models.list",
-	"account.oauth.providers",
-	"account.oauth.status",
-	"account.toolsEnvs.list",
-	"bot.get",
-	"bot.list",
-	"chat.entries",
-	"chat.get",
-	"chat.list",
-	"chat.messages",
-	"chat.status",
-	"chat.tasks.get",
-	"chat.tasks.list",
-	"family.get",
-	"family.list",
-	"file.list",
-	"file.read",
-	"knowledge.search",
-	"schedule.list",
-] as const satisfies readonly CommandType[];
-
-const MUTATING = [
-	"account.credentials.delete",
-	"account.credentials.set",
-	"account.members.add",
-	"account.oauth.cancel",
-	"account.oauth.start",
-	"account.oauth.submit",
-	"account.toolsEnvs.create",
-	"account.toolsEnvs.delete",
-	"account.toolsEnvs.deregister",
-	"account.toolsEnvs.pair",
-	"account.toolsEnvs.update",
-	"account.update",
-	"bot.create",
-	"bot.delete",
-	"bot.update",
-	"chat.close",
-	"chat.create",
-	"chat.rename",
-	"chat.reset",
-	"chat.subscribe",
-	"chat.update",
-	"family.create",
-	"family.delete",
-	"family.update",
-	"file.delete",
-	"file.write",
-	"schedule.create",
-	"schedule.delete",
-	"schedule.update",
-	"turn.abort",
-	"turn.command",
-	"turn.interrupt",
-	"turn.steer",
-	"turn.submit",
-] as const satisfies readonly CommandType[];
 
 function authHeaders(
 	accountId: string,
@@ -108,96 +29,10 @@ function authHeaders(
 }
 
 describe("REST /api command translation", () => {
-	it("records an explicit readOnly decision for every command schema", () => {
-		const actual = [...listCommandTypes()].sort();
-		const expected = [...READONLY, ...MUTATING].sort();
-		expect(actual).toEqual(expected);
-		for (const type of READONLY) {
-			expect(isCommandReadOnly(type)).toBe(true);
-			expect(allowHeaderForCommand(type)).toBe("GET, HEAD");
-			expect(apiPathFromCommandType(type)).toBe(
-				`/api/${type.replaceAll(".", "/")}`,
-			);
-			expect(commandTypeFromApiPath(apiPathFromCommandType(type))).toBe(type);
-		}
-		for (const type of MUTATING) {
-			expect(isCommandReadOnly(type)).toBe(false);
-			expect(allowHeaderForCommand(type)).toBe("POST");
-		}
-
-		expect(Object.keys(API_ROUTES).sort()).toEqual(actual);
-		for (const type of listCommandTypes()) {
-			const route = API_ROUTES[type];
-			expect({
-				method: route.method,
-				path: route.path,
-				allow: route.allow,
-			}).toEqual(apiRouteForCommand(type));
-			expect(route.readOnly).toBe(isCommandReadOnly(type));
-		}
-	});
-
-	it("coerces query values against a payload schema and round-trips encodePayloadQuery", () => {
-		const schema = Type.Object({
-			n: Type.Number(),
-			i: Type.Integer(),
-			b: Type.Boolean(),
-			tags: Type.Array(Type.String()),
-			meta: Type.Object({ a: Type.String() }),
-		});
-		const params = new URLSearchParams();
-		params.append("n", "1.5");
-		params.append("i", "4");
-		params.append("b", "FALSE");
-		params.append("tags", "a");
-		params.append("tags", "b");
-		params.append("meta", JSON.stringify({ a: "z" }));
-		params.append("familyId", "alpha");
-		expect(coerceQueryToSchema(schema, params)).toEqual({
-			n: 1.5,
-			i: 4,
-			b: false,
-			tags: ["a", "b"],
-			meta: { a: "z" },
-		});
-		const withToken = new URLSearchParams(params);
-		withToken.append("token", "secret");
-		expect(() => coerceQueryToSchema(schema, withToken)).toThrow(
-			/Unknown query parameter 'token'/,
-		);
-
-		const encoded = encodePayloadQuery({
-			botId: "scribe",
-			includeInternal: false,
-		});
-		expect(coerceSearchParamsToPayload("schedule.list", encoded)).toEqual({
-			botId: "scribe",
-			includeInternal: false,
-		});
-
-		expect(() =>
-			coerceQueryToSchema(schema, new URLSearchParams("i=1.5")),
-		).toThrow(/not a valid integer/);
-		expect(() =>
-			coerceQueryToSchema(schema, new URLSearchParams("meta=nope")),
-		).toThrow(/JSON-encoded object/);
-		expect(() =>
-			coerceQueryToSchema(schema, new URLSearchParams("extra=1")),
-		).toThrow(/Unknown query parameter 'extra'/);
-
-		expect(httpStatusForProtocolCode("not_found")).toBe(404);
-		expect(httpStatusForProtocolCode("family_not_found")).toBe(404);
-		expect(httpStatusForProtocolCode("bot_not_found")).toBe(404);
-		expect(httpStatusForProtocolCode("cas_conflict")).toBe(409);
-		expect(httpStatusForProtocolCode("conflict")).toBe(409);
-		expect(httpStatusForProtocolCode("unauthorized")).toBe(401);
-		expect(httpStatusForProtocolCode("forbidden")).toBe(403);
-		expect(httpStatusForProtocolCode("invalid_command")).toBe(400);
-		expect(httpStatusForProtocolCode("command_failed")).toBe(500);
-	});
+	useWorkerFixture();
 
 	it("publishes readOnly on GET /protocol/schema", async () => {
-		const res = await SELF.fetch("http://example.com/protocol/schema");
+		const res = await workerFetch("http://example.com/protocol/schema");
 		expect(res.status).toBe(200);
 		const schema = (await res.json()) as {
 			clientCommand: {
@@ -220,12 +55,12 @@ describe("REST /api command translation", () => {
 	});
 
 	it("rejects anonymous /api requests with the same 401 body as /rpc", async () => {
-		const rpc = await SELF.fetch("http://example.com/rpc", {
+		const rpc = await workerFetch("http://example.com/rpc", {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({ id: "x", type: "bot.list", payload: {} }),
 		});
-		const api = await SELF.fetch("http://example.com/api/bot/list");
+		const api = await workerFetch("http://example.com/api/bot/list");
 		expect(api.status).toBe(401);
 		expect(rpc.status).toBe(401);
 		expectPrivateApiCache(api);
@@ -246,7 +81,7 @@ describe("REST /api command translation", () => {
 
 		const readUrl =
 			"http://example.com/api/file/read?botId=scribe&path=SOUL.md";
-		const apiRead = await SELF.fetch(readUrl, { headers });
+		const apiRead = await workerFetch(readUrl, { headers });
 		expect(apiRead.status).toBe(200);
 		expectPrivateApiCache(apiRead);
 		const apiBody = await apiRead.json();
@@ -258,12 +93,12 @@ describe("REST /api command translation", () => {
 		expect(rpcRead.status).toBe(200);
 		expect(apiBody).toEqual(rpcRead.frame.result);
 
-		const head = await SELF.fetch(readUrl, { method: "HEAD", headers });
+		const head = await workerFetch(readUrl, { method: "HEAD", headers });
 		expect(head.status).toBe(200);
 		expect(await head.text()).toBe("");
 		expect(head.headers.get("content-type")).toContain("application/json");
 
-		const wrongMethod = await SELF.fetch(readUrl, {
+		const wrongMethod = await workerFetch(readUrl, {
 			method: "POST",
 			headers: { ...headers, "Content-Type": "application/json" },
 			body: JSON.stringify({ botId: "scribe", path: "SOUL.md" }),
@@ -275,14 +110,14 @@ describe("REST /api command translation", () => {
 			error: { code: "method_not_allowed" },
 		});
 
-		const getWrite = await SELF.fetch(
+		const getWrite = await workerFetch(
 			"http://example.com/api/file/write?botId=scribe&path=MEMORY.md",
 			{ headers },
 		);
 		expect(getWrite.status).toBe(405);
 		expect(getWrite.headers.get("Allow")).toBe("POST");
 
-		const headWrite = await SELF.fetch("http://example.com/api/file/write", {
+		const headWrite = await workerFetch("http://example.com/api/file/write", {
 			method: "HEAD",
 			headers,
 		});
@@ -290,7 +125,7 @@ describe("REST /api command translation", () => {
 		expect(await headWrite.text()).toBe("");
 		expect(headWrite.headers.get("Allow")).toBe("POST");
 
-		const write = await SELF.fetch("http://example.com/api/file/write", {
+		const write = await workerFetch("http://example.com/api/file/write", {
 			method: "POST",
 			headers: { ...headers, "Content-Type": "application/json" },
 			body: JSON.stringify({
@@ -307,7 +142,7 @@ describe("REST /api command translation", () => {
 			content: "Remember the gate.",
 		});
 
-		const enveloped = await SELF.fetch("http://example.com/api/file/write", {
+		const enveloped = await workerFetch("http://example.com/api/file/write", {
 			method: "POST",
 			headers: { ...headers, "Content-Type": "application/json" },
 			body: JSON.stringify({
@@ -324,7 +159,7 @@ describe("REST /api command translation", () => {
 		expect(enveloped.status).toBe(200);
 		expect(await enveloped.json()).toMatchObject({ version: 2 });
 
-		const conflict = await SELF.fetch("http://example.com/api/file/write", {
+		const conflict = await workerFetch("http://example.com/api/file/write", {
 			method: "POST",
 			headers: { ...headers, "Content-Type": "application/json" },
 			body: JSON.stringify({
@@ -351,7 +186,7 @@ describe("REST /api command translation", () => {
 		expect(rpcConflict.status).toBe(400);
 		expect(rpcConflict.frame.error?.code).toBe("cas_conflict");
 
-		const missing = await SELF.fetch(
+		const missing = await workerFetch(
 			"http://example.com/api/file/read?botId=missing&path=SOUL.md",
 			{ headers },
 		);
@@ -360,14 +195,14 @@ describe("REST /api command translation", () => {
 			error: { code: "not_found" },
 		});
 
-		const headMissing = await SELF.fetch(
+		const headMissing = await workerFetch(
 			"http://example.com/api/bot/get?botId=missing",
 			{ method: "HEAD", headers },
 		);
 		expect(headMissing.status).toBe(404);
 		expect(await headMissing.text()).toBe("");
 
-		const badBool = await SELF.fetch(
+		const badBool = await workerFetch(
 			"http://example.com/api/schedule/list?includeInternal=yes",
 			{ headers },
 		);
@@ -376,7 +211,7 @@ describe("REST /api command translation", () => {
 			error: { code: "invalid_command" },
 		});
 
-		const listed = await SELF.fetch(
+		const listed = await workerFetch(
 			"http://example.com/api/schedule/list?includeInternal=false",
 			{ headers },
 		);
@@ -391,7 +226,7 @@ describe("REST /api command translation", () => {
 
 	it("returns 404 for unknown paths and preserves family routing", async () => {
 		const accountId = uniqueAccountId("api-route");
-		const unknown = await SELF.fetch("http://example.com/api/no/such", {
+		const unknown = await workerFetch("http://example.com/api/no/such", {
 			headers: authHeaders(accountId),
 		});
 		expect(unknown.status).toBe(404);
@@ -399,7 +234,7 @@ describe("REST /api command translation", () => {
 			error: { code: "not_found" },
 		});
 
-		const missingFamily = await SELF.fetch(
+		const missingFamily = await workerFetch(
 			"http://example.com/api/bot/list?familyId=missing-family",
 			{ headers: authHeaders(accountId) },
 		);
@@ -408,7 +243,7 @@ describe("REST /api command translation", () => {
 			error: { code: "family_not_found" },
 		});
 
-		const created = await SELF.fetch("http://example.com/api/family/create", {
+		const created = await workerFetch("http://example.com/api/family/create", {
 			method: "POST",
 			headers: {
 				...authHeaders(accountId),
@@ -421,7 +256,7 @@ describe("REST /api command translation", () => {
 			family: { familyId: "alpha", name: "Alpha" },
 		});
 
-		const bot = await SELF.fetch(
+		const bot = await workerFetch(
 			"http://example.com/api/bot/create?familyId=alpha",
 			{
 				method: "POST",
@@ -438,7 +273,7 @@ describe("REST /api command translation", () => {
 		);
 		expect(bot.status).toBe(200);
 
-		const viaQuery = await SELF.fetch(
+		const viaQuery = await workerFetch(
 			"http://example.com/api/bot/get?familyId=alpha&botId=scout",
 			{ headers: authHeaders(accountId) },
 		);
@@ -453,20 +288,20 @@ describe("REST /api command translation", () => {
 		);
 		expect(rpcBot.frame.result).toEqual(
 			await (
-				await SELF.fetch(
+				await workerFetch(
 					"http://example.com/api/bot/get?familyId=alpha&botId=scout",
 					{ headers: authHeaders(accountId) },
 				)
 			).json(),
 		);
 
-		const headerWins = await SELF.fetch(
+		const headerWins = await workerFetch(
 			"http://example.com/api/bot/get?familyId=alpha&botId=scout",
 			{ headers: authHeaders(accountId, "default") },
 		);
 		expect(headerWins.status).toBe(404);
 
-		const payloadWins = await SELF.fetch(
+		const payloadWins = await workerFetch(
 			"http://example.com/api/family/get?familyId=alpha",
 			{ headers: authHeaders(accountId, "default") },
 		);
@@ -475,7 +310,7 @@ describe("REST /api command translation", () => {
 			family: { familyId: "alpha", name: "Alpha" },
 		});
 
-		const badType = await SELF.fetch("http://example.com/api/file/write", {
+		const badType = await workerFetch("http://example.com/api/file/write", {
 			method: "POST",
 			headers: {
 				...authHeaders(accountId),
@@ -485,7 +320,7 @@ describe("REST /api command translation", () => {
 		});
 		expect(badType.status).toBe(400);
 
-		const unknownParam = await SELF.fetch(
+		const unknownParam = await workerFetch(
 			"http://example.com/api/bot/list?nope=1",
 			{ headers: authHeaders(accountId) },
 		);
@@ -496,14 +331,14 @@ describe("REST /api command translation", () => {
 		const accountId = uniqueAccountId("api-bearer");
 		const headers = authHeaders(accountId);
 
-		const listed = await SELF.fetch("http://example.com/api/bot/list", {
+		const listed = await workerFetch("http://example.com/api/bot/list", {
 			headers,
 		});
 		expect(listed.status).toBe(200);
 		expectPrivateApiCache(listed);
 		expect(await listed.json()).toMatchObject({ bots: [] });
 
-		const created = await SELF.fetch("http://example.com/api/family/create", {
+		const created = await workerFetch("http://example.com/api/family/create", {
 			method: "POST",
 			headers: { ...headers, "Content-Type": "application/json" },
 			body: JSON.stringify({ familyId: "bearer-fam", name: "Bearer" }),
@@ -521,44 +356,12 @@ describe("REST /api command translation", () => {
 		const rpcCookieAccountId = uniqueAccountId("rpc-cookie");
 		const eventsAccountId = uniqueAccountId("events-query");
 		const querySecret = `qtok-${crypto.randomUUID()}`;
-		const captured: {
-			level: string;
-			message: string;
-			fields?: Record<string, unknown>;
-		}[] = [];
-		const makeCustom = (bound: Record<string, unknown> = {}): Logger => ({
-			debug: (message, fields) =>
-				captured.push({
-					level: "debug",
-					message,
-					fields: { ...bound, ...fields },
-				}),
-			info: (message, fields) =>
-				captured.push({
-					level: "info",
-					message,
-					fields: { ...bound, ...fields },
-				}),
-			warn: (message, fields) =>
-				captured.push({
-					level: "warn",
-					message,
-					fields: { ...bound, ...fields },
-				}),
-			error: (message, fields) =>
-				captured.push({
-					level: "error",
-					message,
-					fields: { ...bound, ...fields },
-				}),
-			child: (fields) => makeCustom({ ...bound, ...fields }),
-		});
 
 		const expectQueryTokenRejected = async (
 			url: string,
 			init?: RequestInit,
 		) => {
-			const response = await SELF.fetch(url, init);
+			const response = await workerFetch(url, init);
 			expect(response.status).toBe(401);
 			expectPrivateApiCache(response);
 			if ((init?.method ?? "GET").toUpperCase() === "HEAD") {
@@ -577,52 +380,40 @@ describe("REST /api command translation", () => {
 			});
 		};
 
-		try {
-			setupLogger({ type: "custom", logger: makeCustom() });
-			await expectQueryTokenRejected(
-				`http://example.com/api/bot/list?token=${encodeURIComponent(querySecret)}&accountId=${encodeURIComponent(queryAccountId)}`,
-			);
-			await expectQueryTokenRejected(
-				`http://example.com/api/bot/list?token=${encodeURIComponent(querySecret)}`,
-				{ headers },
-			);
-			await expectQueryTokenRejected(
-				`http://example.com/api/family/create?token=${encodeURIComponent(querySecret)}`,
-				{
-					method: "POST",
-					headers: { ...headers, "Content-Type": "application/json" },
-					body: JSON.stringify({ familyId: "should-not-run", name: "No" }),
-				},
-			);
-			await expectQueryTokenRejected("http://example.com/api/bot/list?token=", {
-				headers,
-			});
-			// Auth runs before route and method checks, so ?token= is 401 here
-			// rather than 404 or 405.
-			await expectQueryTokenRejected(
-				"http://example.com/api/no/such/path?token=",
-			);
-			await expectQueryTokenRejected("http://example.com/api/bot/list?token=", {
-				method: "DELETE",
-			});
-			await expectQueryTokenRejected("http://example.com/api/bot/list?token=", {
+		await expectQueryTokenRejected(
+			`http://example.com/api/bot/list?token=${encodeURIComponent(querySecret)}&accountId=${encodeURIComponent(queryAccountId)}`,
+		);
+		await expectQueryTokenRejected(
+			`http://example.com/api/bot/list?token=${encodeURIComponent(querySecret)}`,
+			{ headers },
+		);
+		await expectQueryTokenRejected(
+			`http://example.com/api/family/create?token=${encodeURIComponent(querySecret)}`,
+			{
 				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({}),
-			});
-			await expectQueryTokenRejected("http://example.com/api/bot/list?token=", {
-				method: "HEAD",
-			});
+				headers: { ...headers, "Content-Type": "application/json" },
+				body: JSON.stringify({ familyId: "should-not-run", name: "No" }),
+			},
+		);
+		await expectQueryTokenRejected("http://example.com/api/bot/list?token=", {
+			headers,
+		});
+		await expectQueryTokenRejected(
+			"http://example.com/api/no/such/path?token=",
+		);
+		await expectQueryTokenRejected("http://example.com/api/bot/list?token=", {
+			method: "DELETE",
+		});
+		await expectQueryTokenRejected("http://example.com/api/bot/list?token=", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({}),
+		});
+		await expectQueryTokenRejected("http://example.com/api/bot/list?token=", {
+			method: "HEAD",
+		});
 
-			const logged = JSON.stringify(captured);
-			expect(logged).toContain("query_token_not_allowed");
-			expect(logged).toContain("/api/bot/list");
-			expect(logged).not.toContain(querySecret);
-		} finally {
-			setupLogger({ type: "silent" });
-		}
-
-		const viaCookie = await SELF.fetch("http://example.com/api/bot/list", {
+		const viaCookie = await workerFetch("http://example.com/api/bot/list", {
 			headers: {
 				Cookie: `cadmus_session=${encodeURIComponent(`${cookieAccountId}:owner:${TEST_TOKEN}`)}`,
 			},
@@ -637,7 +428,7 @@ describe("REST /api command translation", () => {
 			},
 		});
 
-		const headCookie = await SELF.fetch("http://example.com/api/bot/list", {
+		const headCookie = await workerFetch("http://example.com/api/bot/list", {
 			method: "HEAD",
 			headers: {
 				Cookie: `cadmus_session=${encodeURIComponent(`${cookieAccountId}:owner:${TEST_TOKEN}`)}`,
@@ -650,7 +441,7 @@ describe("REST /api command translation", () => {
 			"application/json",
 		);
 
-		const cookieIgnored = await SELF.fetch("http://example.com/api/bot/list", {
+		const cookieIgnored = await workerFetch("http://example.com/api/bot/list", {
 			headers: {
 				...headers,
 				Cookie: `cadmus_session=${encodeURIComponent(`${otherAccountId}:owner:not-the-header-token`)}`,
@@ -659,7 +450,7 @@ describe("REST /api command translation", () => {
 		expect(cookieIgnored.status).toBe(200);
 		expect(await cookieIgnored.json()).toMatchObject({ bots: [] });
 
-		const rpcQuery = await SELF.fetch(
+		const rpcQuery = await workerFetch(
 			`http://example.com/rpc?token=${encodeURIComponent(TEST_TOKEN)}&accountId=${encodeURIComponent(rpcQueryAccountId)}&userId=rpc-query-user`,
 			{
 				method: "POST",
@@ -684,7 +475,7 @@ describe("REST /api command translation", () => {
 		expect(rpcCookie.status).toBe(200);
 		expect(rpcCookie.frame.ok).toBe(true);
 
-		const eventsQuery = await SELF.fetch(
+		const eventsQuery = await workerFetch(
 			`http://example.com/events?token=${encodeURIComponent(TEST_TOKEN)}&accountId=${encodeURIComponent(eventsAccountId)}`,
 		);
 		expect(eventsQuery.status).toBe(200);
@@ -696,12 +487,14 @@ describe("REST /api command translation", () => {
 });
 
 describe("API document routes", () => {
+	useWorkerFixture();
+
 	const specs = ["/api/openapi.json", "/api/asyncapi.json"] as const;
 
 	it("treats OpenAPI and AsyncAPI paths as unknown /api commands", async () => {
 		const accountId = uniqueAccountId("docs");
 		for (const path of specs) {
-			const res = await SELF.fetch(`http://example.com${path}`, {
+			const res = await workerFetch(`http://example.com${path}`, {
 				headers: authHeaders(accountId),
 			});
 			expect(res.status).toBe(404);
@@ -710,7 +503,7 @@ describe("API document routes", () => {
 				error: { code: "not_found" },
 			});
 
-			const head = await SELF.fetch(`http://example.com${path}`, {
+			const head = await workerFetch(`http://example.com${path}`, {
 				method: "HEAD",
 				headers: authHeaders(accountId),
 			});
@@ -723,7 +516,7 @@ describe("API document routes", () => {
 	it("authenticates those paths as /api before 404", async () => {
 		const accountId = uniqueAccountId("docs-auth");
 		for (const path of specs) {
-			const anon = await SELF.fetch(`http://example.com${path}`);
+			const anon = await workerFetch(`http://example.com${path}`);
 			expect(anon.status).toBe(401);
 			expectPrivateApiCache(anon);
 			expect(await anon.json()).toMatchObject({
@@ -731,7 +524,7 @@ describe("API document routes", () => {
 				payload: { code: "unauthorized" },
 			});
 
-			const query = await SELF.fetch(
+			const query = await workerFetch(
 				`http://example.com${path}?token=${encodeURIComponent(TEST_TOKEN)}`,
 				{ headers: authHeaders(accountId) },
 			);
@@ -744,7 +537,7 @@ describe("API document routes", () => {
 				},
 			});
 
-			const headQuery = await SELF.fetch(
+			const headQuery = await workerFetch(
 				`http://example.com${path}?token=${encodeURIComponent(TEST_TOKEN)}`,
 				{ method: "HEAD", headers: authHeaders(accountId) },
 			);
@@ -752,7 +545,7 @@ describe("API document routes", () => {
 			expect(await headQuery.text()).toBe("");
 			expectPrivateApiCache(headQuery);
 
-			const cookie = await SELF.fetch(`http://example.com${path}`, {
+			const cookie = await workerFetch(`http://example.com${path}`, {
 				headers: {
 					Cookie: `cadmus_session=${encodeURIComponent(`${uniqueAccountId("docs")}:owner:${TEST_TOKEN}`)}`,
 				},

@@ -25,8 +25,22 @@ const ALLOWED_CLIENT_CONTRACT = new Set([
 	"@cadmus/contract/client",
 ]);
 
+const ALLOWED_E2E_HELPER_CONTRACT = new Set([
+	"@cadmus/contract/types",
+	"@cadmus/contract/routes",
+	"@cadmus/contract/tools",
+	"@cadmus/contract/client",
+	"@cadmus/contract/schemas",
+]);
+
 export function isAllowedClientContractSpecifier(specifier: string): boolean {
 	return ALLOWED_CLIENT_CONTRACT.has(specifier);
+}
+
+export function isAllowedE2eHelperContractSpecifier(
+	specifier: string,
+): boolean {
+	return ALLOWED_E2E_HELPER_CONTRACT.has(specifier);
 }
 
 /**
@@ -68,6 +82,56 @@ export function clientImportReason(
 	const normalized = specifier.replaceAll("\\", "/");
 	if (/(^|\/)(src|worker|daemon)(\/|$)/.test(normalized)) {
 		return "clients must not import backend source (src, worker, or daemon)";
+	}
+	return undefined;
+}
+
+/**
+ * Why an `e2e/` file must not import `specifier`.
+ * Returns undefined when the specifier is allowed.
+ *
+ * - No file in `e2e/` may import from `packages/` or `@cadmus/worker`, `@cadmus/web`, `@cadmus/cli`, `@cadmus/daemon`.
+ * - `e2e/helpers.ts` (`isHelper: true`) may import `@cadmus/contract/{types,routes,tools,client,schemas}`, `typebox`, `vitest`, `cloudflare:test`, and `node:*`.
+ * - `e2e/*.test.ts` (`isHelper: false`) must import `@cadmus/contract` subpaths and `cloudflare:test` via `./helpers.js` only.
+ */
+export function e2eImportReason(
+	specifier: string,
+	options?: { nonStatic?: boolean; isHelper?: boolean },
+): string | undefined {
+	const dynamic = nonStaticSpecifierReason(options?.nonStatic);
+	if (dynamic) return dynamic;
+	const normalized = specifier.replaceAll("\\", "/");
+	if (/(^|\/)(packages|src|worker|daemon|web|cli)(\/|$)/.test(normalized)) {
+		return "e2e must not import from packages/* or backend/client source";
+	}
+	if (options?.isHelper) {
+		if (isAllowedE2eHelperContractSpecifier(specifier)) {
+			return undefined;
+		}
+		if (
+			specifier === "@cadmus/contract" ||
+			specifier.startsWith("@cadmus/contract/") ||
+			specifier.startsWith("@cadmus/")
+		) {
+			return "e2e/helpers.ts may import only @cadmus/contract/types, @cadmus/contract/routes, @cadmus/contract/tools, @cadmus/contract/client, and @cadmus/contract/schemas";
+		}
+		if (specifier.startsWith("../")) {
+			return "e2e/helpers.ts must not import relative files outside e2e/";
+		}
+		return undefined;
+	}
+	if (
+		specifier === "@cadmus/contract" ||
+		specifier.startsWith("@cadmus/contract/") ||
+		specifier.startsWith("@cadmus/")
+	) {
+		return "e2e tests must import contract utilities through ./helpers.js, not directly from @cadmus/*";
+	}
+	if (specifier === "cloudflare:test") {
+		return "e2e tests must use the worker fixture in ./helpers.js instead of importing cloudflare:test directly";
+	}
+	if (specifier.startsWith("../")) {
+		return "e2e tests must not import relative files outside e2e/";
 	}
 	return undefined;
 }

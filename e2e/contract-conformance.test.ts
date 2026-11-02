@@ -1,24 +1,20 @@
-import { SELF } from "cloudflare:test";
-import {
-	API_ROUTES,
-	encodePayloadQuery as encodeClientQuery,
-} from "@cadmus/contract/routes";
-import {
-	ApiErrorEnvelopeSchema,
-	commandCatalog,
-	ERROR_CODES,
-	ServerToClientSchema,
-	SseEventSchema,
-} from "@cadmus/contract/schemas";
-import type { TSchema } from "typebox";
-import { Value } from "typebox/value";
 import { describe, expect, it } from "vitest";
 import {
-	apiPathFromCommandType,
+	API_ROUTES,
+	ApiErrorEnvelopeSchema,
+	assertMatchesSchema,
 	type CommandType,
-	coerceSearchParamsToPayload,
-} from "../packages/worker/src/protocol.js";
-import { connectTestWs, TEST_TOKEN, uniqueAccountId } from "./helpers.js";
+	commandCatalog,
+	connectTestWs,
+	ERROR_CODES,
+	encodePayloadQuery,
+	ServerToClientSchema,
+	SseEventSchema,
+	TEST_TOKEN,
+	uniqueAccountId,
+	useWorkerFixture,
+	workerFetch,
+} from "./helpers.js";
 
 const MAY_FAIL_OFFLINE = new Set<CommandType>([
 	"account.oauth.start",
@@ -28,22 +24,6 @@ const MAY_FAIL_OFFLINE = new Set<CommandType>([
 ]);
 
 type Payload = Record<string, unknown>;
-
-function schemaErrors(schema: TSchema, value: unknown): string {
-	const errors = [...Value.Errors(schema, value)].slice(0, 6);
-	if (errors.length === 0) return "no schema errors";
-	return errors
-		.map((error) => `${error.instancePath || "/"} ${error.message}`)
-		.join("; ");
-}
-
-function assertMatches(schema: TSchema, value: unknown, label: string): void {
-	if (!Value.Check(schema, value)) {
-		throw new Error(
-			`${label} does not match the contract: ${schemaErrors(schema, value)} body=${JSON.stringify(value).slice(0, 600)}`,
-		);
-	}
-}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -65,29 +45,13 @@ function requireString(body: unknown, path: string[]): string {
 	return current;
 }
 
-/**
- * The query encoder shipped to web and TUI, checked against the Worker decoder.
- * `callApi` sends that same query string to the running Worker.
- */
-function assertEncodingAgrees(command: CommandType, payload: Payload): void {
-	const route = API_ROUTES[command];
-	expect(route.readOnly, command).toBe(true);
-	expect(route.path, command).toBe(apiPathFromCommandType(command));
-	expect(route.method, command).toBe("GET");
-	const client = encodeClientQuery(payload);
-	expect(coerceSearchParamsToPayload(command, client), command).toEqual(
-		payload,
-	);
-}
-
-async function callApi(
+async function callContractApi(
 	accountId: string,
 	familyId: string,
 	command: CommandType,
 	payload: Payload,
 ): Promise<unknown> {
 	const route = API_ROUTES[command];
-	if (route.readOnly) assertEncodingAgrees(command, payload);
 	const headers: Record<string, string> = {
 		Authorization: `Bearer ${TEST_TOKEN}`,
 		"x-account-id": accountId,
@@ -96,20 +60,20 @@ async function callApi(
 	let url = `http://example.com${route.path}`;
 	const init: RequestInit = { method: route.method, headers };
 	if (route.readOnly) {
-		const query = encodeClientQuery(payload).toString();
+		const query = encodePayloadQuery(payload).toString();
 		if (query.length > 0) url += `?${query}`;
 	} else {
 		headers["Content-Type"] = "application/json";
 		init.body = JSON.stringify(payload);
 	}
-	const response = await SELF.fetch(url, init);
+	const response = await workerFetch(url, init);
 	const body: unknown = await response.json();
 	const entry = commandCatalog[command];
 	if (response.status === 200) {
-		assertMatches(entry.result, body, `${command} result`);
+		assertMatchesSchema(entry.result, body, `${command} result`);
 		return body;
 	}
-	assertMatches(ApiErrorEnvelopeSchema, body, `${command} error`);
+	assertMatchesSchema(ApiErrorEnvelopeSchema, body, `${command} error`);
 	if (
 		!isRecord(body) ||
 		!isRecord(body.error) ||
@@ -130,6 +94,8 @@ async function callApi(
 }
 
 describe("contract conformance", () => {
+	useWorkerFixture();
+
 	it("drives every command through /api and checks the contract schema", async () => {
 		const suffix = crypto.randomUUID();
 		const accountId = uniqueAccountId("contract");
@@ -139,7 +105,7 @@ describe("contract conformance", () => {
 
 		const call = async (command: CommandType, payload: Payload = {}) => {
 			covered.add(command);
-			return callApi(accountId, familyId, command, payload);
+			return callContractApi(accountId, familyId, command, payload);
 		};
 
 		const createdFamily = await call("family.create", {
@@ -299,17 +265,17 @@ describe("contract conformance", () => {
 		const suffix = crypto.randomUUID();
 		const accountId = uniqueAccountId("ws-contract");
 		const familyId = `fam-ws-${suffix}`;
-		await callApi(accountId, familyId, "family.create", {
+		await callContractApi(accountId, familyId, "family.create", {
 			familyId,
 			name: "WS",
 		});
 		const client = await connectTestWs({ accountId, familyId });
 		try {
 			const frame = await client.send("account.get", {});
-			assertMatches(ServerToClientSchema, frame, "ws command.result");
+			assertMatchesSchema(ServerToClientSchema, frame, "ws command.result");
 			expect(frame.ok).toBe(true);
 			if (frame.ok) {
-				assertMatches(
+				assertMatchesSchema(
 					commandCatalog["account.get"].result,
 					frame.result,
 					"ws account.get",
@@ -322,7 +288,7 @@ describe("contract conformance", () => {
 			}
 			expect(client.events.length).toBeGreaterThan(0);
 			const event = client.events[0];
-			assertMatches(ServerToClientSchema, event, "ws protocol.error");
+			assertMatchesSchema(ServerToClientSchema, event, "ws protocol.error");
 			expect(event?.type).toBe("protocol.error");
 			if (event?.type === "protocol.error") {
 				expect(
@@ -338,21 +304,21 @@ describe("contract conformance", () => {
 		const suffix = crypto.randomUUID();
 		const accountId = uniqueAccountId("sse-contract");
 		const familyId = `fam-sse-${suffix}`;
-		await callApi(accountId, familyId, "family.create", {
+		await callContractApi(accountId, familyId, "family.create", {
 			familyId,
 			name: "SSE",
 		});
-		await callApi(accountId, familyId, "bot.create", {
+		await callContractApi(accountId, familyId, "bot.create", {
 			slug: "echo",
 			name: "Echo",
 			model: "faux/echo",
 		});
-		await callApi(accountId, familyId, "chat.create", {
+		await callContractApi(accountId, familyId, "chat.create", {
 			botId: "echo",
 			key: "live",
 		});
 
-		const response = await SELF.fetch("http://example.com/events", {
+		const response = await workerFetch("http://example.com/events", {
 			headers: {
 				Authorization: `Bearer ${TEST_TOKEN}`,
 				"x-account-id": accountId,
@@ -377,13 +343,13 @@ describe("contract conformance", () => {
 			throw new Error(`SSE produced no data frame: ${buffer.slice(0, 200)}`);
 		})();
 
-		await callApi(accountId, familyId, "turn.submit", {
+		await callContractApi(accountId, familyId, "turn.submit", {
 			chatKey: "live",
 			text: "Hello",
 		});
 		try {
 			const event = await readData;
-			assertMatches(SseEventSchema, event, "sse data");
+			assertMatchesSchema(SseEventSchema, event, "sse data");
 			expect(isRecord(event) && event.type).not.toBe("command.result");
 		} finally {
 			await reader.cancel().catch(() => undefined);

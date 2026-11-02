@@ -1,15 +1,14 @@
+import { describe, expect, it } from "vitest";
 import {
 	CODING_TOOL_NAMES,
+	connectTestWs,
 	DEFAULT_CADMUS_TOOL_NAMES,
 	effectiveToolNames,
-} from "@cadmus/contract/tools";
-import { describe, expect, it } from "vitest";
-import type { ServerEvent } from "../packages/worker/src/protocol.js";
-import {
-	connectTestWs,
 	type RpcOptions,
+	type ServerEvent,
 	sendRpc,
 	uniqueAccountId,
+	useWorkerFixture,
 } from "./helpers.js";
 
 function scope(
@@ -29,6 +28,8 @@ function toolResults(events: ServerEvent[]) {
 }
 
 describe("default Cadmus tools plus coding tools", () => {
+	useWorkerFixture();
+
 	it("create, enable coding, then disable coding returns the default set", async () => {
 		const options = scope("round-trip");
 		await sendRpc("family.update", { harvestDelayMs: 0 }, options);

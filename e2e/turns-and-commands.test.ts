@@ -1,18 +1,19 @@
-import { SELF } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
-import type {
-	ChatGetResult,
-	ChatRecord,
-	TurnBlock,
-} from "../packages/worker/src/protocol.js";
 import {
+	type ChatGetResult,
+	type ChatRecord,
 	connectTestWs,
 	sendRpc,
 	TEST_TOKEN,
+	type TurnBlock,
 	uniqueAccountId,
+	useWorkerFixture,
+	workerFetch,
 } from "./helpers.js";
 
 describe("Turns, Streaming Protocol Events & Out-of-Band /status", () => {
+	useWorkerFixture();
+
 	it("streams turn.delta, turn.tool_call, turn.tool_result, chat.state, and turn.completed over WebSocket", async () => {
 		const scope = { accountId: uniqueAccountId("turns"), familyId: "default" };
 		const wsClient = await connectTestWs(scope);
@@ -245,9 +246,8 @@ describe("Turns, Streaming Protocol Events & Out-of-Band /status", () => {
 		};
 
 		// 1. Calling POST /rpc via sendRpc acts as a synchronous request-response where the server binds the response
-		// Verify with a specific request id over direct POST /rpc fetch
 		const customReqId = "req-custom-sync-check-42";
-		const directRes = await SELF.fetch("http://example.com/rpc", {
+		const directRes = await workerFetch("http://example.com/rpc", {
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",
@@ -275,7 +275,6 @@ describe("Turns, Streaming Protocol Events & Out-of-Band /status", () => {
 		expect(directFrame.command).toBe("bot.create");
 		expect(directFrame.ok).toBe(true);
 
-		// Also verify sendRpc behaves identically
 		const chatCreate = await sendRpc<{ chat: ChatRecord }>(
 			"chat.create",
 			{
@@ -361,7 +360,6 @@ describe("Turns, Streaming Protocol Events & Out-of-Band /status", () => {
 		const entries = chatEntries.frame.result?.entries ?? [];
 		expect(entries.length).toBeGreaterThanOrEqual(4);
 
-		// system entry with sections in model[0]
 		const systemEntry = entries.find((e) => {
 			const m = e.model?.[0] as
 				| { role?: string; sections?: Record<string, unknown> }
@@ -370,14 +368,12 @@ describe("Turns, Streaming Protocol Events & Out-of-Band /status", () => {
 		});
 		expect(systemEntry).toBeDefined();
 
-		// user entry
 		const userEntry = entries.find((e) => {
 			const m = e.model?.[0] as { role?: string } | undefined;
 			return m?.role === "user";
 		});
 		expect(userEntry).toBeDefined();
 
-		// assistant entries with inner content blocks
 		const assistantEntries = entries.filter((e) => {
 			const m = e.model?.[0] as
 				| { role?: string; content?: unknown[] }
@@ -386,7 +382,6 @@ describe("Turns, Streaming Protocol Events & Out-of-Band /status", () => {
 		});
 		expect(assistantEntries.length).toBeGreaterThanOrEqual(1);
 
-		// toolResult entry
 		const toolResultEntry = entries.find((e) => {
 			const m = e.model?.[0] as { role?: string } | undefined;
 			return m?.role === "toolResult";

@@ -17,6 +17,7 @@ import { dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
 	clientImportReason,
+	e2eImportReason,
 	findImportSpecifiers,
 	nonStaticSpecifierReason,
 } from "./boundary-scan.ts";
@@ -26,6 +27,8 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const clientRoots = ["packages/web/src", "packages/cli/src"];
 const cliSchemaAllow = ["@cadmus/contract/schemas"];
 const contractRoots = ["packages/contract/src", "packages/contract/generated"];
+const e2eRoots = ["e2e"];
+const e2eHelperFile = resolve(root, "e2e/helpers.ts");
 
 const sourceExtensions = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs"]);
 
@@ -113,6 +116,27 @@ for (const dir of contractRoots) {
 			const reason =
 				nonStaticSpecifierReason(found.nonStatic) ??
 				contractAllowed(file, found.specifier);
+			if (reason) {
+				violations.push({
+					file,
+					line: found.line,
+					specifier: found.specifier,
+					reason,
+				});
+			}
+		}
+	}
+}
+
+for (const dir of e2eRoots) {
+	for (const file of walk(dir)) {
+		const text = readFileSync(file, "utf8");
+		const isHelper = file === e2eHelperFile;
+		for (const found of findImportSpecifiers(text)) {
+			const reason = e2eImportReason(found.specifier, {
+				nonStatic: found.nonStatic,
+				isHelper,
+			});
 			if (reason) {
 				violations.push({
 					file,

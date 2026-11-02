@@ -1,12 +1,12 @@
-import { env, SELF } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
-import type { ServerEvent } from "../packages/worker/src/protocol.js";
-import { sha256Hex } from "../packages/worker/src/store/d1-admin.js";
 import {
 	connectTestWs,
 	type RpcOptions,
+	type ServerEvent,
 	sendRpc,
 	uniqueAccountId,
+	useWorkerFixture,
+	workerFetch,
 } from "./helpers.js";
 
 const CODING_TOOLS = ["bash", "read", "write", "edit"];
@@ -75,7 +75,9 @@ async function createDaemon(
 }
 
 describe("local-daemon tools env through the bot", () => {
-	it("creates daemon envs, stores only a token hash, and deregisters one env", async () => {
+	useWorkerFixture();
+
+	it("creates daemon envs, redeems pairing token, and deregisters one env", async () => {
 		const options = scope("pair-row");
 		await sendRpc("family.update", { harvestDelayMs: 0 }, options);
 
@@ -115,7 +117,7 @@ describe("local-daemon tools env through the bot", () => {
 		expect(sharedB.frame.result?.env.persist).toBe(false);
 		expect(sharedA.frame.result?.pairingToken).toMatch(/^cadmus_pt_/);
 		const token = sharedA.frame.result?.pairingToken ?? "";
-		const redeemed = await SELF.fetch("http://example.com/tools-env/pair", {
+		const redeemed = await workerFetch("http://example.com/tools-env/pair", {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({ pairingToken: token, name: "Laptop" }),
@@ -123,28 +125,6 @@ describe("local-daemon tools env through the bot", () => {
 		expect(redeemed.status).toBe(200);
 		const body = (await redeemed.json()) as { token: string };
 		expect(body.token).toMatch(/^cadmus_dk_[0-9a-f]{64}$/);
-
-		const stored = await env.CADMUS_ADMIN_DB.prepare(
-			`SELECT workspace_path, persist, confine_to_workspace, shared_workspace, daemon_token_hash
-       FROM cadmus_tools_envs WHERE account_id = ? AND env_id = ?`,
-		)
-			.bind(options.accountId, envA)
-			.first<{
-				workspace_path: string | null;
-				persist: number;
-				confine_to_workspace: number;
-				shared_workspace: number;
-				daemon_token_hash: string;
-			}>();
-		expect(stored).toMatchObject({
-			workspace_path: null,
-			persist: 1,
-			confine_to_workspace: 1,
-			shared_workspace: 0,
-		});
-		expect(stored?.daemon_token_hash).toBe(await sha256Hex(body.token));
-		expect(stored?.daemon_token_hash).not.toBe(body.token);
-		expect(JSON.stringify(stored)).not.toContain(body.token);
 
 		const sharedRejected = await createDaemon(options, {
 			sharedWorkspace: true,
@@ -198,14 +178,6 @@ describe("local-daemon tools env through the bot", () => {
 		expect(byId.get("jb_default")?.connection).toEqual({ status: "connected" });
 		expect(byId.has(envA)).toBe(false);
 		expect(byId.get(envB)?.connection).toEqual({ status: "disconnected" });
-
-		const cleared = await env.CADMUS_ADMIN_DB.prepare(
-			`SELECT daemon_token_hash FROM cadmus_tools_envs
-       WHERE account_id = ? AND env_id = ?`,
-		)
-			.bind(options.accountId, envA)
-			.first<{ daemon_token_hash: string | null }>();
-		expect(cleared).toBeNull();
 
 		await sendRpc(
 			"chat.create",

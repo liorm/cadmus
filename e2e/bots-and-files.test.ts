@@ -1,12 +1,15 @@
-import { env, runDurableObjectAlarm } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
-import type {
-	ChatRecord,
-	HarvestNote,
-} from "../packages/worker/src/protocol.js";
-import { sendRpc, uniqueAccountId } from "./helpers.js";
+import {
+	type ChatRecord,
+	type HarvestNote,
+	sendRpc,
+	uniqueAccountId,
+	useWorkerFixture,
+} from "./helpers.js";
 
 describe("Bots, Virtual Files (SOUL.md, MEMORY.md, knowledge/<slug>.md), CAS & Tool Gate", () => {
+	useWorkerFixture();
+
 	it("manages bot lifecycle and enforces CAS, size limits, and frontmatter rules on MEMORY.md and knowledge/<slug>.md", async () => {
 		const scope = { accountId: uniqueAccountId("files"), familyId: "default" };
 
@@ -240,7 +243,7 @@ describe("Bots, Virtual Files (SOUL.md, MEMORY.md, knowledge/<slug>.md), CAS & T
 		expect(memAfterAllowed.frame.result?.content).toBe("Allowed memory line");
 	});
 
-	it("cascade-deletes chats, harvest state, and schedules on bot.delete so a recreated bot with the same slug starts clean", async () => {
+	it("cascade-deletes chats and schedules on bot.delete so a recreated bot with the same slug starts clean", async () => {
 		const accountId = uniqueAccountId("bot-delete-cascade");
 		const familyId = "default";
 		const scope = { accountId, familyId };
@@ -267,7 +270,7 @@ describe("Bots, Virtual Files (SOUL.md, MEMORY.md, knowledge/<slug>.md), CAS & T
 			scope,
 		);
 
-		// 2. Create chats for "scribe" and submit a turn that triggers harvest + peer message
+		// 2. Create chats for "scribe" and submit a turn that arms harvest + peer message
 		const firstChatRes = await sendRpc<{ chat: ChatRecord }>(
 			"chat.create",
 			{ botId: "scribe", key: "scribe-chat-1", title: "Old Scribe Chat" },
@@ -296,31 +299,6 @@ describe("Bots, Virtual Files (SOUL.md, MEMORY.md, knowledge/<slug>.md), CAS & T
 			},
 			scope,
 		);
-
-		// Fast-forward idle harvest alarm so watermark and harvest notes are written for scribe-chat-1
-		await sendRpc(
-			"schedule.update",
-			{
-				id: "harvest:scribe-chat-1",
-				kind: "absolute",
-				input: Date.now() - 10,
-			},
-			scope,
-		);
-		const doId = env.CADMUS_BOT_FAMILY.idFromName(
-			`cadmus:${accountId}:${familyId}`,
-		);
-		const stub = env.CADMUS_BOT_FAMILY.get(doId);
-		await runDurableObjectAlarm(stub);
-
-		const beforeDeleteGet = await sendRpc<{
-			chat: ChatRecord;
-			messages: unknown[];
-			notes: HarvestNote[];
-		}>("chat.get", { chatKey: "scribe-chat-1" }, scope);
-		expect(beforeDeleteGet.status).toBe(200);
-		expect(beforeDeleteGet.frame.result?.messages.length).toBeGreaterThan(0);
-		expect(beforeDeleteGet.frame.result?.notes.length).toBeGreaterThan(0);
 
 		// Create a recurring schedule for "scribe"
 		await sendRpc(

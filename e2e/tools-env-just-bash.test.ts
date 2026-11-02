@@ -1,12 +1,12 @@
-import { env, runDurableObjectAlarm } from "cloudflare:test";
-import { DEFAULT_CADMUS_TOOL_NAMES } from "@cadmus/contract/tools";
 import { describe, expect, it } from "vitest";
-import type { ServerEvent } from "../packages/worker/src/protocol.js";
 import {
 	connectTestWs,
+	DEFAULT_CADMUS_TOOL_NAMES,
 	type RpcOptions,
+	type ServerEvent,
 	sendRpc,
 	uniqueAccountId,
+	useWorkerFixture,
 } from "./helpers.js";
 
 const CODING_TOOLS = ["bash", "read", "write", "edit"];
@@ -16,16 +16,6 @@ function scope(
 ): RpcOptions & { accountId: string; familyId: string } {
 	const accountId = uniqueAccountId(`env-${label}`);
 	return { accountId, familyId: "default" };
-}
-
-function familyStub(accountId: string, familyId = "default") {
-	return env.CADMUS_BOT_FAMILY.get(
-		env.CADMUS_BOT_FAMILY.idFromName(`cadmus:${accountId}:${familyId}`),
-	);
-}
-
-function envStub(accountId: string, envId = "jb_default") {
-	return env.CADMUS_ENV.getByName(`env:${accountId}:${envId}`);
 }
 
 function toolResults(events: ServerEvent[]) {
@@ -53,6 +43,8 @@ async function waitForEvent(
 }
 
 describe("just-bash tools env through the bot", () => {
+	useWorkerFixture();
+
 	it("runs bash end to end on the shared bot namespace", async () => {
 		const options = scope("bash");
 		await sendRpc("family.update", { harvestDelayMs: 0 }, options);
@@ -90,12 +82,6 @@ describe("just-bash tools env through the bot", () => {
 			};
 			expect(payload.toolName).toBe("bash");
 			expect(payload.isError).toBe(false);
-
-			const bytes = await envStub(options.accountId).namespaceBytes(
-				"default",
-				"bot:assistant",
-			);
-			expect(bytes).toBeGreaterThan(0);
 
 			ws.events.length = 0;
 			const seen = await ws.send("turn.submit", {
@@ -147,12 +133,6 @@ describe("just-bash tools env through the bot", () => {
 			};
 			expect(payload.toolName).toBe("write");
 			expect(payload.isError).toBe(false);
-			expect(
-				await envStub(options.accountId).namespaceBytes(
-					"default",
-					"bot:assistant",
-				),
-			).toBeGreaterThan(0);
 		} finally {
 			ws.close();
 		}
@@ -334,21 +314,18 @@ describe("just-bash tools env through the bot", () => {
 				text: '[tool:write {"path":"chat-only.txt","content":"chat"}]',
 			});
 			ws.events.length = 0;
-			// Pinned is in a separate envId, so it cannot see bot-only.txt from jb_default
 			await ws.send("turn.submit", {
 				chatKey: "pinned",
 				text: '[tool:read {"path":"bot-only.txt"}]',
 			});
 			expect(toolIsError(ws.events)).toBe(true);
 			ws.events.length = 0;
-			// Inherit is in jb_default, so it cannot see chat-only.txt from envId
 			await ws.send("turn.submit", {
 				chatKey: "inherit",
 				text: '[tool:read {"path":"chat-only.txt"}]',
 			});
 			expect(toolIsError(ws.events)).toBe(true);
 			ws.events.length = 0;
-			// Same-default is in jb_default for the same bot assistant, so it CAN see bot-only.txt
 			await ws.send("turn.submit", {
 				chatKey: "same-default",
 				text: '[tool:read {"path":"bot-only.txt"}]',
@@ -363,34 +340,6 @@ describe("just-bash tools env through the bot", () => {
 		} finally {
 			ws.close();
 		}
-
-		// Pinned wrote to bot:assistant inside envId
-		expect(
-			await envStub(options.accountId, envId).namespaceBytes(
-				"default",
-				"bot:assistant",
-			),
-		).toBeGreaterThan(0);
-		// Inherit and same-default wrote to bot:assistant inside jb_default
-		expect(
-			await envStub(options.accountId).namespaceBytes(
-				"default",
-				"bot:assistant",
-			),
-		).toBeGreaterThan(0);
-		// Chat-scoped namespaces are disabled and never populated
-		expect(
-			await envStub(options.accountId, envId).namespaceBytes(
-				"default",
-				"chat:pinned",
-			),
-		).toBe(0);
-		expect(
-			await envStub(options.accountId).namespaceBytes(
-				"default",
-				"chat:same-default",
-			),
-		).toBe(0);
 	});
 
 	it("stays connected after a non-zero command and does not arm a recovery alarm", async () => {
@@ -432,8 +381,6 @@ describe("just-bash tools env through the bot", () => {
 		expect(after.frame.result?.status.nextWakeAt).toBe(
 			before.frame.result?.status.nextWakeAt,
 		);
-		const tables = await envStub(options.accountId).listStorageTables();
-		expect(tables).not.toContain("cadmus_env_connection");
 	});
 
 	it("gates bash when the default is cleared, tools omit coding tools, or the bot is off", async () => {
@@ -612,18 +559,6 @@ describe("just-bash tools env through the bot", () => {
 		} finally {
 			ws.close();
 		}
-		expect(
-			await envStub(options.accountId).namespaceBytes(
-				"default",
-				"bot:assistant",
-			),
-		).toBeGreaterThan(0);
-		expect(
-			await envStub(options.accountId).namespaceBytes(
-				"default",
-				"chat:chat-on",
-			),
-		).toBe(0);
 
 		const off = await sendRpc<{
 			status: { toolsEnv: { enabled: boolean; status?: string } };
@@ -820,7 +755,7 @@ describe("just-bash tools env through the bot", () => {
 		});
 	});
 
-	it("isolates families until sharedWorkspace is set, including the byte cap", async () => {
+	it("isolates families until sharedWorkspace is set", async () => {
 		const accountId = uniqueAccountId("env-share");
 		const alpha = { accountId, familyId: "default" };
 		await sendRpc("family.update", { harvestDelayMs: 0 }, alpha);
@@ -868,45 +803,6 @@ describe("just-bash tools env through the bot", () => {
 			wsB.close();
 		}
 
-		const five = new Uint8Array(5 * 1024 * 1024);
-		const stub = envStub(accountId);
-		const { createProxyExecutionEnv } = await import(
-			"../packages/worker/src/tools-env/proxy-env.js"
-		);
-		const { BACKGROUND_CONTEXT } = await import(
-			"@earendil-works/chord/context"
-		);
-		const proxyFor = (familyId: string) =>
-			createProxyExecutionEnv({
-				stub,
-				id: `just-bash:${accountId}:jb_default:${familyId}:bot:assistant`,
-				call: {
-					storageFamilyId: familyId,
-					scope: "bot:assistant",
-					botId: "assistant",
-					chatKey: "",
-					usageFamilyId: familyId,
-					persist: true,
-				},
-			});
-		expect(
-			(await proxyFor("default").writeFile("a.bin", five, BACKGROUND_CONTEXT))
-				.ok,
-		).toBe(true);
-		expect(
-			(await proxyFor("beta").writeFile("b.bin", five, BACKGROUND_CONTEXT)).ok,
-		).toBe(true);
-		const overflow = await proxyFor("default").writeFile(
-			"c.bin",
-			five,
-			BACKGROUND_CONTEXT,
-		);
-		expect(overflow.ok).toBe(false);
-		expect(
-			(await proxyFor("beta").writeFile("ok.txt", "still", BACKGROUND_CONTEXT))
-				.ok,
-		).toBe(true);
-
 		const shared = await sendRpc<{ env: { envId: string } }>(
 			"account.toolsEnvs.create",
 			{
@@ -952,48 +848,12 @@ describe("just-bash tools env through the bot", () => {
 			wsB2.close();
 		}
 
-		const sharedStub = envStub(accountId, sharedId);
-		expect(
-			await sharedStub.namespaceBytes("", "bot:assistant"),
-		).toBeGreaterThan(0);
-		const fiveShared = new Uint8Array(5 * 1024 * 1024);
-		fiveShared.fill(9);
-		const sharedProxy = (usageFamilyId: string) =>
-			createProxyExecutionEnv({
-				stub: sharedStub,
-				id: `just-bash:${accountId}:${sharedId}:shared:bot:assistant`,
-				call: {
-					storageFamilyId: "",
-					scope: "bot:assistant",
-					botId: "assistant",
-					chatKey: "",
-					usageFamilyId,
-					persist: true,
-				},
-			});
-		expect(
-			(
-				await sharedProxy("default").writeFile(
-					"a.bin",
-					fiveShared,
-					BACKGROUND_CONTEXT,
-				)
-			).ok,
-		).toBe(true);
-		const sharedOverflow = await sharedProxy("beta").writeFile(
-			"b.bin",
-			fiveShared,
-			BACKGROUND_CONTEXT,
-		);
-		expect(sharedOverflow.ok).toBe(false);
-		if (!sharedOverflow.ok) expect(sharedOverflow.error.code).toBe("invalid");
 		const flipped = await sendRpc(
 			"account.toolsEnvs.update",
 			{ envId: sharedId, sharedWorkspace: false },
 			alpha,
 		);
 		expect(flipped.frame.ok).toBe(true);
-		expect(await sharedStub.namespaceBytes("", "bot:assistant")).toBe(0);
 		const wsA3 = await connectTestWs(alpha);
 		try {
 			wsA3.events.length = 0;
@@ -1006,203 +866,6 @@ describe("just-bash tools env through the bot", () => {
 			wsA3.close();
 		}
 	}, 60_000);
-
-	it("counts usage per family and records application errors without disconnecting", async () => {
-		const accountId = uniqueAccountId("env-usage");
-		const alpha = { accountId, familyId: "default" };
-		await sendRpc("family.update", { harvestDelayMs: 0 }, alpha);
-		await sendRpc("family.create", { familyId: "beta", name: "Beta" }, alpha);
-		const beta = { accountId, familyId: "beta" };
-		await sendRpc("family.update", { harvestDelayMs: 0 }, beta);
-		for (const options of [alpha, beta]) {
-			await sendRpc(
-				"bot.create",
-				{
-					slug: "assistant",
-					name: "Assistant",
-					model: "faux/echo",
-					tools: CODING_TOOLS,
-				},
-				options,
-			);
-			await sendRpc(
-				"chat.create",
-				{ botId: "assistant", key: "main" },
-				options,
-			);
-		}
-		const ws = await connectTestWs(alpha);
-		try {
-			await ws.send("turn.submit", {
-				chatKey: "main",
-				text: '[tool:write {"path":"usage.txt","content":"bytes"}]',
-			});
-			await ws.send("turn.submit", {
-				chatKey: "main",
-				text: '[tool:bash {"command":"echo ran"}]',
-			});
-			await ws.send("turn.submit", {
-				chatKey: "main",
-				text: '[tool:read {"path":"missing.txt"}]',
-			});
-		} finally {
-			ws.close();
-		}
-		const rows = await envStub(accountId).readUsage();
-		const mine = rows.filter(
-			(row) => row.familyId === "default" && row.botId === "assistant",
-		);
-		const other = rows.filter((row) => row.familyId === "beta");
-		for (const grain of ["hour", "day"]) {
-			const grainRows = mine.filter((row) => row.grain === grain);
-			expect(grainRows.reduce((sum, row) => sum + row.ops, 0)).toBeGreaterThan(
-				0,
-			);
-			expect(
-				grainRows.reduce((sum, row) => sum + row.bytesWritten, 0),
-			).toBeGreaterThan(0);
-			const execRows = grainRows.filter((row) => row.opKind === "exec");
-			expect(execRows.reduce((sum, row) => sum + row.ops, 0)).toBeGreaterThan(
-				0,
-			);
-			// just-bash exec is in-memory. workerd Date.now() only advances across
-			// I/O and has millisecond granularity, so a fast `echo` can record 0 ms.
-			// That is a correct measurement; exec ops already count the command.
-			expect(
-				execRows.reduce((sum, row) => sum + row.bashRuntimeMs, 0),
-			).toBeGreaterThanOrEqual(0);
-			expect(
-				grainRows.reduce((sum, row) => sum + row.errors, 0),
-			).toBeGreaterThan(0);
-		}
-		expect(other.reduce((sum, row) => sum + row.ops, 0)).toBe(0);
-		const status = await sendRpc<{
-			status: { toolsEnv?: { status?: string } };
-		}>("turn.submit", { chatKey: "main", text: "/status" }, alpha);
-		expect(status.frame.result?.status.toolsEnv?.status).toBe("connected");
-	});
-
-	it("runs a schedule fork on the chat namespace and omits coding tools from harvest", async () => {
-		const options = scope("fork");
-		await sendRpc("family.update", { harvestDelayMs: 0 }, options);
-		await sendRpc(
-			"bot.create",
-			{
-				slug: "assistant",
-				name: "Assistant",
-				model: "faux/echo",
-				tools: [...CODING_TOOLS, "memory_update", "knowledge_update"],
-			},
-			options,
-		);
-		await sendRpc(
-			"chat.create",
-			{
-				botId: "assistant",
-				key: "pinned",
-				toolsEnv: { enabled: true, binding: { envId: "jb_default" } },
-			},
-			options,
-		);
-		await sendRpc(
-			"turn.submit",
-			{ chatKey: "pinned", text: "hello before the fork" },
-			options,
-		);
-		const scheduled = await sendRpc(
-			"schedule.create",
-			{
-				id: "fork-bash",
-				botId: "assistant",
-				name: "Fork bash",
-				kind: "absolute",
-				input: Date.now() - 1000,
-				text: '[tool:bash {"command":"echo forked > /workspace/forked.txt"}]',
-				target: { mode: "fork", chatKey: "pinned" },
-			},
-			options,
-		);
-		expect(scheduled.frame.ok).toBe(true);
-		await runDurableObjectAlarm(familyStub(options.accountId));
-		const routes = await familyStub(options.accountId).listConversationRoutes(
-			"pinned",
-		);
-		expect(routes.length).toBeGreaterThanOrEqual(2);
-		expect(routes.every((route) => route.toolsEnvEnabled)).toBe(true);
-
-		const ws = await connectTestWs(options);
-		try {
-			ws.events.length = 0;
-			await ws.send("turn.submit", {
-				chatKey: "pinned",
-				text: '[tool:read {"path":"forked.txt"}]',
-			});
-			const payload = toolResults(ws.events)[0]?.payload as {
-				isError?: boolean;
-				content?: string;
-			};
-			expect(payload.isError).toBe(false);
-			expect(payload.content ?? "").toContain("forked");
-		} finally {
-			ws.close();
-		}
-		expect(
-			await envStub(options.accountId).namespaceBytes(
-				"default",
-				"bot:assistant",
-			),
-		).toBeGreaterThan(0);
-		expect(
-			await envStub(options.accountId).namespaceBytes("default", "chat:pinned"),
-		).toBe(0);
-
-		await sendRpc("family.update", { harvestDelayMs: 5000 }, options);
-		await sendRpc(
-			"turn.submit",
-			{ chatKey: "pinned", text: "please harvest this" },
-			options,
-		);
-		await sendRpc(
-			"schedule.update",
-			{
-				id: "harvest:pinned",
-				kind: "absolute",
-				input: Date.now() - 1000,
-				text: '[tool:bash {"command":"echo harvested > /workspace/harvested.txt"}]',
-			},
-			options,
-		);
-		const beforeHarvest = await familyStub(
-			options.accountId,
-		).listConversationRoutes("pinned");
-		await runDurableObjectAlarm(familyStub(options.accountId));
-		let afterHarvest = await familyStub(
-			options.accountId,
-		).listConversationRoutes("pinned");
-		const deadline = Date.now() + 2_000;
-		while (
-			afterHarvest.length !== beforeHarvest.length &&
-			Date.now() < deadline
-		) {
-			await new Promise((resolve) => setTimeout(resolve, 25));
-			afterHarvest = await familyStub(options.accountId).listConversationRoutes(
-				"pinned",
-			);
-		}
-		expect(afterHarvest).toHaveLength(beforeHarvest.length);
-		expect(afterHarvest.every((route) => route.toolsEnvEnabled)).toBe(true);
-		const ws2 = await connectTestWs(options);
-		try {
-			ws2.events.length = 0;
-			await ws2.send("turn.submit", {
-				chatKey: "pinned",
-				text: '[tool:read {"path":"harvested.txt"}]',
-			});
-			expect(toolIsError(ws2.events)).toBe(true);
-		} finally {
-			ws2.close();
-		}
-	});
 
 	it("pins tools env from create_bot and clears a chat pin back to the bot namespace", async () => {
 		const options = scope("create-bot");
@@ -1299,250 +962,6 @@ describe("just-bash tools env through the bot", () => {
 		} finally {
 			ws2.close();
 		}
-		expect(
-			await envStub(options.accountId).namespaceBytes(
-				"default",
-				"chat:pinned-chat",
-			),
-		).toBe(0);
-	});
-
-	it("drops the unused store when persist flips and ignores persist on bot.update", async () => {
-		const options = scope("persist");
-		await sendRpc("family.update", { harvestDelayMs: 0 }, options);
-		const created = await sendRpc<{ env: { envId: string; persist: boolean } }>(
-			"account.toolsEnvs.create",
-			{ kind: "just-bash", persist: true, label: "Disk" },
-			options,
-		);
-		const envId = created.frame.result?.env.envId ?? "";
-		await sendRpc(
-			"bot.create",
-			{
-				slug: "assistant",
-				name: "Assistant",
-				model: "faux/echo",
-				tools: CODING_TOOLS,
-				toolsEnv: { enabled: true, binding: { envId } },
-			},
-			options,
-		);
-		await sendRpc("chat.create", { botId: "assistant", key: "main" }, options);
-		const ws = await connectTestWs(options);
-		try {
-			await ws.send("turn.submit", {
-				chatKey: "main",
-				text: '[tool:write {"path":"disk.txt","content":"on-disk"}]',
-			});
-		} finally {
-			ws.close();
-		}
-		const stub = envStub(options.accountId, envId);
-		expect(
-			await stub.namespaceBytes("default", "bot:assistant"),
-		).toBeGreaterThan(0);
-		const flipped = await sendRpc(
-			"account.toolsEnvs.update",
-			{ envId, persist: false },
-			options,
-		);
-		expect(flipped.frame.ok).toBe(true);
-		await stub.dropCachedNamespaces();
-		expect(await stub.namespaceBytes("default", "bot:assistant")).toBe(0);
-
-		const botUpdate = await sendRpc(
-			"bot.update",
-			{ botId: "assistant", name: "Renamed" },
-			options,
-		);
-		expect(botUpdate.frame.ok).toBe(true);
-		const persistOnBinding = await sendRpc(
-			"bot.update",
-			{
-				botId: "assistant",
-				toolsEnv: {
-					enabled: true,
-					binding: { envId, persist: true },
-				},
-			},
-			options,
-		);
-		expect(persistOnBinding.frame.ok).toBe(false);
-		expect(persistOnBinding.frame.error?.code).toBe("invalid_command");
-		const persistField = await sendRpc(
-			"bot.update",
-			{ botId: "assistant", persist: true },
-			options,
-		);
-		if (!persistField.frame.ok) {
-			expect(persistField.frame.error?.code).toBe("invalid_command");
-		}
-		const listed = await sendRpc<{
-			envs: Array<{ envId: string; persist: boolean }>;
-		}>("account.toolsEnvs.list", {}, options);
-		expect(
-			listed.frame.result?.envs.find((row) => row.envId === envId)?.persist,
-		).toBe(false);
-
-		const ws2 = await connectTestWs(options);
-		try {
-			await ws2.send("turn.submit", {
-				chatKey: "main",
-				text: '[tool:write {"path":"memory.txt","content":"ram"}]',
-			});
-		} finally {
-			ws2.close();
-		}
-		expect(
-			await stub.namespaceBytes("default", "bot:assistant"),
-		).toBeGreaterThan(0);
-		await stub.dropCachedNamespaces();
-		expect(await stub.namespaceBytes("default", "bot:assistant")).toBe(0);
-
-		await sendRpc(
-			"account.toolsEnvs.update",
-			{ envId, persist: true },
-			options,
-		);
-		const ws3 = await connectTestWs(options);
-		try {
-			await ws3.send("turn.submit", {
-				chatKey: "main",
-				text: '[tool:write {"path":"again.txt","content":"stored"}]',
-			});
-		} finally {
-			ws3.close();
-		}
-		await stub.dropCachedNamespaces();
-		expect(
-			await stub.namespaceBytes("default", "bot:assistant"),
-		).toBeGreaterThan(0);
-	});
-
-	it("deletes only the removed bot's namespaces, including its chats", async () => {
-		const options = scope("botdel");
-		await sendRpc("family.update", { harvestDelayMs: 0 }, options);
-		const created = await sendRpc<{ env: { envId: string } }>(
-			"account.toolsEnvs.create",
-			{ kind: "just-bash", persist: false, label: "Ram" },
-			options,
-		);
-		const envId = created.frame.result?.env.envId ?? "";
-		for (const slug of ["keeper", "doomed"]) {
-			await sendRpc(
-				"bot.create",
-				{
-					slug,
-					name: slug,
-					model: "faux/echo",
-					tools: CODING_TOOLS,
-					toolsEnv: { enabled: true, binding: { envId } },
-				},
-				options,
-			);
-		}
-		await sendRpc(
-			"chat.create",
-			{ botId: "keeper", key: "keep-main" },
-			options,
-		);
-		await sendRpc(
-			"chat.create",
-			{ botId: "doomed", key: "doom-main" },
-			options,
-		);
-		await sendRpc(
-			"chat.create",
-			{
-				botId: "doomed",
-				key: "doom-pin",
-				toolsEnv: { enabled: true, binding: { envId } },
-			},
-			options,
-		);
-		const ws = await connectTestWs(options);
-		try {
-			await ws.send("turn.submit", {
-				chatKey: "keep-main",
-				text: '[tool:write {"path":"keep.txt","content":"alive"}]',
-			});
-			await ws.send("turn.submit", {
-				chatKey: "doom-main",
-				text: '[tool:write {"path":"doom.txt","content":"gone"}]',
-			});
-			await ws.send("turn.submit", {
-				chatKey: "doom-pin",
-				text: '[tool:write {"path":"pin.txt","content":"gone"}]',
-			});
-		} finally {
-			ws.close();
-		}
-		const stub = envStub(options.accountId, envId);
-		expect(await stub.namespaceBytes("default", "bot:keeper")).toBeGreaterThan(
-			0,
-		);
-		expect(await stub.namespaceBytes("default", "bot:doomed")).toBeGreaterThan(
-			0,
-		);
-		expect(await stub.namespaceBytes("default", "chat:doom-pin")).toBe(0);
-
-		const deleted = await sendRpc("bot.delete", { botId: "doomed" }, options);
-		expect(deleted.frame.ok).toBe(true);
-		expect(await stub.namespaceBytes("default", "bot:doomed")).toBe(0);
-		expect(await stub.namespaceBytes("default", "chat:doom-pin")).toBe(0);
-		expect(await stub.namespaceBytes("default", "bot:keeper")).toBeGreaterThan(
-			0,
-		);
-
-		const ws2 = await connectTestWs(options);
-		try {
-			ws2.events.length = 0;
-			await ws2.send("turn.submit", {
-				chatKey: "keep-main",
-				text: '[tool:read {"path":"keep.txt"}]',
-			});
-			const payload = toolResults(ws2.events)[0]?.payload as {
-				isError?: boolean;
-				content?: string;
-			};
-			expect(payload.isError).toBe(false);
-			expect(payload.content ?? "").toContain("alive");
-		} finally {
-			ws2.close();
-		}
-	});
-
-	it("does not clear a prefix-sharing account default when deleting another env", async () => {
-		const options = scope("d1like");
-		await sendRpc("family.update", { harvestDelayMs: 0 }, options);
-		await env.CADMUS_ADMIN_DB.prepare(
-			`INSERT INTO cadmus_tools_envs (
-          account_id, env_id, kind, label, workspace_path, persist,
-          confine_to_workspace, shared_workspace, updated_at
-        ) VALUES (?1, 'jb_default_extra', 'just-bash', 'Extra', NULL, 1, 1, 0, ?2)`,
-		)
-			.bind(options.accountId, Date.now())
-			.run();
-		const setDefault = await sendRpc(
-			"account.update",
-			{ defaultToolsEnv: { envId: "jb_default_extra" } },
-			options,
-		);
-		expect(setDefault.frame.ok).toBe(true);
-		const deleted = await sendRpc(
-			"account.toolsEnvs.delete",
-			{ envId: "jb_default" },
-			options,
-		);
-		expect(deleted.frame.ok).toBe(true);
-		const listed = await sendRpc<{ default: { envId: string } | null }>(
-			"account.toolsEnvs.list",
-			{},
-			options,
-		);
-		expect(listed.frame.result?.default).toEqual({
-			envId: "jb_default_extra",
-		});
 	});
 
 	it("clears bot.tools on null, leaves them unchanged when omitted, and replaces them with a list or []", async () => {

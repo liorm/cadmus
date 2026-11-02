@@ -1,16 +1,20 @@
 import { describe, expect, it } from "vitest";
-import type {
-	AccountModelsListResult,
-	BotCreateResult,
-	BotUpdateResult,
-	ChatCreateResult,
-	ChatStatusResult,
-	ScheduleCreateResult,
-	ScheduleUpdateResult,
-} from "../packages/worker/src/protocol.js";
-import { sendRpc, uniqueAccountId } from "./helpers.js";
+import {
+	type AccountModelsListResult,
+	type BotCreateResult,
+	type BotUpdateResult,
+	type ChatCreateResult,
+	type ChatStatusResult,
+	type ScheduleCreateResult,
+	type ScheduleUpdateResult,
+	sendRpc,
+	uniqueAccountId,
+	useWorkerFixture,
+} from "./helpers.js";
 
 describe("Thinking Levels in Models, Bots, Chats, and Schedules", () => {
+	useWorkerFixture();
+
 	it("reports supported thinkingLevels in account.models.list for reasoning models", async () => {
 		const scope = {
 			accountId: uniqueAccountId("thinking-models"),

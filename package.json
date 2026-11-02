@@ -31,11 +31,12 @@
 		"format:check": "biome format",
 		"test": "vitest run",
 		"test:watch": "vitest",
-		"test:e2e": "vitest run",
+		"test:e2e": "vitest run e2e",
+		"test:worker": "bun test packages/worker/tests/unit && vitest run packages/worker/tests",
 		"contract:gen": "bun scripts/generate-contract.ts",
 		"contract:check": "bun scripts/generate-contract.ts --check",
 		"boundaries": "bun scripts/check-boundaries.ts",
-		"test:conformance": "bun test tests/conformance && vitest run e2e/contract-conformance.test.ts",
+		"test:conformance": "bun test tests/conformance tests/contract && vitest run e2e/contract-conformance.test.ts",
 		"test:daemon": "bun test packages/daemon/tests",
 		"daemon": "bun packages/daemon/src/cli.ts",
 		"daemon:build:darwin-arm64": "mkdir -p packages/daemon/dist && bun build --compile --target=bun-darwin-arm64 packages/daemon/src/cli.ts --outfile packages/daemon/dist/cadmus-daemon-darwin-arm64",
@@ -47,7 +48,7 @@
 		"daemon:build:local": "mkdir -p packages/daemon/dist && bun build --compile packages/daemon/src/cli.ts --outfile packages/daemon/dist/cadmus-daemon",
 		"daemon:build:all": "bun run daemon:build:linux && bun run daemon:build:darwin",
 		"daemon:build": "bun run daemon:build:all",
-		"test:unit": "bun test scripts",
+		"test:unit": "bun test packages/worker/tests/unit tests/scripts tests/contract",
 		"check:all": "bun scripts/check-all.ts"
 	},
 	"dependencies": {
