@@ -35,6 +35,7 @@ import {
 	callerMetaFromHeader,
 	requireOwner,
 } from "./authz.js";
+import { assertBotMetadata, mergeMetadataPatch } from "./bot-metadata.js";
 import {
 	type CommandHandlerMap,
 	callCommandHandler,
@@ -124,6 +125,7 @@ import {
 	tasksContinueRequestId,
 } from "./tasks/message.js";
 import { TaskContinueTask } from "./tasks/task.js";
+import { assertValidIanaTimezone } from "./timezone.js";
 import {
 	chooseToolsEnvIdentity,
 	isCodingTool,
@@ -1102,6 +1104,9 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 						);
 					}
 				}
+				if (command.payload.timezone !== undefined) {
+					assertValidIanaTimezone(command.payload.timezone);
+				}
 				const updated = await this.adminStore.updateAccount(meta.accountId, {
 					...(command.payload.name !== undefined
 						? { name: command.payload.name }
@@ -1367,6 +1372,9 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 				return { family: record };
 			},
 			"family.update": async (command) => {
+				if (command.payload.timezone !== undefined) {
+					assertValidIanaTimezone(command.payload.timezone);
+				}
 				const updated = this.setFamilyMeta({
 					...(command.payload.name !== undefined
 						? { name: command.payload.name }
@@ -1433,12 +1441,27 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 					await checkModel(this.modelsInstance, modelRef);
 				}
 				const thinkingStr = command.payload.thinking ?? existing.thinking;
+				if (command.payload.timezone !== undefined) {
+					assertValidIanaTimezone(command.payload.timezone);
+				}
+				let metadata = existing.metadata;
+				if (command.payload.metadata !== undefined) {
+					assertBotMetadata(command.payload.metadata);
+					metadata = mergeMetadataPatch(
+						existing.metadata,
+						command.payload.metadata,
+					);
+					assertBotMetadata(metadata);
+				}
 				const updated: BotRecord = {
 					...existing,
 					name: command.payload.name ?? existing.name,
 					model: modelStr,
 					thinking: thinkingStr,
+					timezone: command.payload.timezone ?? existing.timezone,
 				};
+				if (metadata !== undefined) updated.metadata = metadata;
+				else delete updated.metadata;
 				// Omitted leaves the allowlist unchanged. null clears it (default set).
 				// An array, including [], replaces it. pi-durable treats configure
 				// tools: null as "delete the filter" (every registered tool). That is
@@ -1470,6 +1493,29 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 					else delete updated.toolsEnv;
 				}
 				this.familyStore.bots.upsertBot(updated);
+				if (
+					command.payload.timezone !== undefined &&
+					command.payload.timezone !== existing.timezone
+				) {
+					for (const sched of this.familyStore.schedules.listSchedules(
+						updated.id,
+						true,
+					)) {
+						if (sched.kind !== "cron" || !sched.enabled) continue;
+						const cronNext = nextCron(
+							String(sched.input),
+							Date.now(),
+							updated.timezone,
+						);
+						if (cronNext !== undefined) {
+							this.familyStore.schedules.upsertSchedule({
+								...sched,
+								nextRun: cronNext,
+							});
+						}
+					}
+					await this.syncAlarmInternal();
+				}
 				if (command.payload.soul !== undefined) {
 					this.familyStore.files.setSoul(updated.id, command.payload.soul);
 				}
@@ -2510,6 +2556,8 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 		soul?: string;
 		memory?: string;
 		toolsEnv?: ToolsEnvSetting | null;
+		timezone?: string;
+		metadata?: BotRecord["metadata"];
 		knowledge?: {
 			slug: string;
 			description: string;
@@ -2590,8 +2638,11 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 		);
 
 		const meta = this.getFamilyMeta();
-		const account = await this.adminStore.getAccount(meta.accountId);
-		const botTimezone = account?.timezone ?? meta.timezone;
+		const botTimezone = input.timezone ?? meta.timezone;
+		assertValidIanaTimezone(botTimezone);
+		if (input.metadata !== undefined) {
+			assertBotMetadata(input.metadata);
+		}
 
 		const bot: BotRecord = {
 			id: slug,
@@ -2601,6 +2652,9 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 			timezone: botTimezone,
 			...(input.tools !== undefined ? { tools: input.tools } : {}),
 			...(toolsEnv ? { toolsEnv } : {}),
+			...(input.metadata !== undefined && Object.keys(input.metadata).length > 0
+				? { metadata: input.metadata }
+				: {}),
 			rootConversationId: rootConv.id as unknown as number,
 			createdAt: Date.now(),
 		};

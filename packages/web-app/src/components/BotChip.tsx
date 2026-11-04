@@ -58,7 +58,7 @@ export function BotChip({
 export function BotPill({
 	bot,
 }: {
-	bot: { id: string; name: string; metadata?: { color?: unknown } | null };
+	bot: Pick<BotRecord, "id" | "name" | "metadata">;
 }) {
 	const slot = botColor(bot);
 	return (

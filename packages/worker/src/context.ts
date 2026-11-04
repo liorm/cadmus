@@ -36,6 +36,8 @@ export interface CadmusServices {
 			body: string;
 		}[];
 		toolsEnv?: ToolsEnvSetting | null;
+		timezone?: string;
+		metadata?: BotRecord["metadata"];
 	}): Promise<BotRecord>;
 	prepareCodingTools(conversationId: number): Promise<void>;
 	codingToolsOffered(conversationId: number, botId: string): Promise<boolean>;

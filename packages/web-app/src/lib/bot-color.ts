@@ -1,10 +1,9 @@
+import type { BotRecord } from "@cadmus/contract/types";
+
 export const BOT_PALETTE_SLOTS = [1, 2, 3, 4, 5, 6, 7, 8] as const;
 export type BotPaletteSlot = (typeof BOT_PALETTE_SLOTS)[number];
 
-export type BotColorSource = {
-	id: string;
-	metadata?: { color?: unknown } | null;
-};
+export type BotColorSource = Pick<BotRecord, "id" | "metadata">;
 
 function isSlot(value: number): value is BotPaletteSlot {
 	return Number.isInteger(value) && value >= 1 && value <= 8;
@@ -20,15 +19,13 @@ export function hashBotIdToSlot(id: string): BotPaletteSlot {
 	return slot as BotPaletteSlot;
 }
 
-function parseColor(value: unknown): BotPaletteSlot | undefined {
-	if (typeof value === "number" && isSlot(value)) return value;
-	if (typeof value === "string") {
-		const trimmed = value.trim();
-		const fromToken = /^bot-([1-8])$/.exec(trimmed);
-		if (fromToken?.[1]) return Number(fromToken[1]) as BotPaletteSlot;
-		const asNumber = Number(trimmed);
-		if (isSlot(asNumber)) return asNumber;
-	}
+function parseColor(value: string | undefined): BotPaletteSlot | undefined {
+	if (value === undefined) return undefined;
+	const trimmed = value.trim();
+	const fromToken = /^bot-([1-8])$/.exec(trimmed);
+	if (fromToken?.[1]) return Number(fromToken[1]) as BotPaletteSlot;
+	const asNumber = Number(trimmed);
+	if (isSlot(asNumber)) return asNumber;
 	return undefined;
 }
 

@@ -1,5 +1,6 @@
 import { createTwoFilesPatch } from "diff";
 import type {
+	BotMetadata,
 	ScheduleTarget,
 	ThinkingLevel,
 	ToolsEnvSetting,
@@ -43,6 +44,21 @@ function parseToolsEnv(
 		const parsed = JSON.parse(raw) as ToolsEnvSetting;
 		if (!parsed || typeof parsed !== "object") return undefined;
 		return parsed;
+	} catch {
+		return undefined;
+	}
+}
+
+function parseMetadata(
+	raw: string | null | undefined,
+): BotMetadata | undefined {
+	if (!raw) return undefined;
+	try {
+		const parsed = JSON.parse(raw) as BotMetadata;
+		if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+			return undefined;
+		}
+		return Object.keys(parsed).length > 0 ? parsed : undefined;
 	} catch {
 		return undefined;
 	}
@@ -173,10 +189,11 @@ class SqliteBotStore implements BotStore {
 				tools_json: string | null;
 				timezone?: string | null;
 				tools_env_json?: string | null;
+				metadata_json?: string | null;
 				root_conversation_id: number;
 				created_at: number;
 			}>(
-				`SELECT id, name, model, thinking, tools_json, timezone, tools_env_json, root_conversation_id, created_at
+				`SELECT id, name, model, thinking, tools_json, timezone, tools_env_json, metadata_json, root_conversation_id, created_at
          FROM cadmus_bots
          ORDER BY created_at ASC, id ASC`,
 			)
@@ -194,10 +211,11 @@ class SqliteBotStore implements BotStore {
 				tools_json: string | null;
 				timezone?: string | null;
 				tools_env_json?: string | null;
+				metadata_json?: string | null;
 				root_conversation_id: number;
 				created_at: number;
 			}>(
-				`SELECT id, name, model, thinking, tools_json, timezone, tools_env_json, root_conversation_id, created_at
+				`SELECT id, name, model, thinking, tools_json, timezone, tools_env_json, metadata_json, root_conversation_id, created_at
          FROM cadmus_bots
          WHERE id = ?`,
 				botId,
@@ -213,9 +231,13 @@ class SqliteBotStore implements BotStore {
 			bot.toolsEnv !== undefined && bot.toolsEnv !== null
 				? JSON.stringify(bot.toolsEnv)
 				: null;
+		const metadataJson =
+			bot.metadata !== undefined && Object.keys(bot.metadata).length > 0
+				? JSON.stringify(bot.metadata)
+				: null;
 		this.sql.exec(
-			`INSERT INTO cadmus_bots (id, name, model, thinking, tools_json, timezone, tools_env_json, root_conversation_id, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+			`INSERT INTO cadmus_bots (id, name, model, thinking, tools_json, timezone, tools_env_json, metadata_json, root_conversation_id, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          name = excluded.name,
          model = excluded.model,
@@ -223,6 +245,7 @@ class SqliteBotStore implements BotStore {
          tools_json = excluded.tools_json,
          timezone = excluded.timezone,
          tools_env_json = excluded.tools_env_json,
+         metadata_json = excluded.metadata_json,
          root_conversation_id = excluded.root_conversation_id`,
 			bot.id,
 			bot.name,
@@ -231,6 +254,7 @@ class SqliteBotStore implements BotStore {
 			toolsJson,
 			bot.timezone,
 			toolsEnvJson,
+			metadataJson,
 			bot.rootConversationId,
 			bot.createdAt,
 		);
@@ -252,6 +276,7 @@ class SqliteBotStore implements BotStore {
 		tools_json: string | null;
 		timezone?: string | null;
 		tools_env_json?: string | null;
+		metadata_json?: string | null;
 		root_conversation_id: number;
 		created_at: number;
 	}): BotRecord {
@@ -269,6 +294,8 @@ class SqliteBotStore implements BotStore {
 		}
 		const toolsEnv = parseToolsEnv(row.tools_env_json);
 		if (toolsEnv) record.toolsEnv = toolsEnv;
+		const metadata = parseMetadata(row.metadata_json);
+		if (metadata) record.metadata = metadata;
 		return record;
 	}
 }
@@ -1692,6 +1719,7 @@ export class SqliteFamilyStore implements FamilyStore {
         tools_json TEXT,
         timezone TEXT NOT NULL DEFAULT 'UTC',
         tools_env_json TEXT,
+        metadata_json TEXT,
         root_conversation_id INTEGER NOT NULL,
         created_at INTEGER NOT NULL
       );
@@ -1863,6 +1891,7 @@ export class SqliteFamilyStore implements FamilyStore {
         PRIMARY KEY (chat_key, idx)
       );
     `);
+		ensureBotColumn(this.sql, "metadata_json", "TEXT");
 		ensureChatColumn(this.sql, "harvest_enabled", "INTEGER NOT NULL DEFAULT 1");
 		ensureChatColumn(this.sql, "kind", "TEXT NOT NULL DEFAULT 'direct'");
 		ensureChatColumn(this.sql, "next_task_idx", "INTEGER NOT NULL DEFAULT 1");
@@ -1923,4 +1952,12 @@ function ensureChatColumn(sql: SqlStorage, name: string, ddl: string): void {
 		.toArray();
 	if (cols.some((col) => col.name === name)) return;
 	sql.exec(`ALTER TABLE cadmus_chats ADD COLUMN ${name} ${ddl}`);
+}
+
+function ensureBotColumn(sql: SqlStorage, name: string, ddl: string): void {
+	const cols = sql
+		.exec<{ name: string }>(`PRAGMA table_info(cadmus_bots)`)
+		.toArray();
+	if (cols.some((col) => col.name === name)) return;
+	sql.exec(`ALTER TABLE cadmus_bots ADD COLUMN ${name} ${ddl}`);
 }

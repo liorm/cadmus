@@ -230,13 +230,13 @@ export type FamilyDeleteRpc = Rpc<FamilyDeleteCommand, FamilyDeleteResult>;
 /** RPC contract for `bot.list`: lists all bot personas in the family. */
 export type BotListRpc = Rpc<BotListCommand, BotListResult>;
 
-/** RPC contract for `bot.create`: provisions a new bot persona with initial virtual files. */
+/** RPC contract for `bot.create`: provisions a new bot persona with initial virtual files, optional timezone, and optional metadata. */
 export type BotCreateRpc = Rpc<BotCreateCommand, BotCreateResult>;
 
-/** RPC contract for `bot.get`: retrieves bot metadata, SOUL.md prompt, memory, and knowledge base. */
+/** RPC contract for `bot.get`: retrieves bot record (including metadata), SOUL.md prompt, memory, and knowledge base. */
 export type BotGetRpc = Rpc<BotGetCommand, BotGetResult>;
 
-/** RPC contract for `bot.update`: updates bot configuration, model, thinking budget, tools, or soul. Omitted `tools` is unchanged. `null` clears the allowlist back to the default set. An array, including `[]`, replaces the allowlist. */
+/** RPC contract for `bot.update`: updates bot configuration, model, thinking budget, tools, soul, timezone, or metadata. Omitted `tools` is unchanged. `null` clears the allowlist back to the default set. An array, including `[]`, replaces the allowlist. `metadata` is a patch (`null` deletes a key). */
 export type BotUpdateRpc = Rpc<BotUpdateCommand, BotUpdateResult>;
 
 /** RPC contract for `bot.delete`: deletes a bot persona. */

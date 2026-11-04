@@ -7,6 +7,8 @@ import {
 	AccountOAuthSubmitCommandSchema,
 } from "./oauth.js";
 import {
+	BotMetadataPatchSchema,
+	BotMetadataSchema,
 	ChatKindSchema,
 	CredentialInputSchema,
 	DeadlinesSchema,
@@ -573,6 +575,14 @@ export const BotCreateCommandSchema = Type.Object(
 					}),
 				),
 				toolsEnv: Type.Optional(ToolsEnvSettingSchema),
+				timezone: Type.Optional(
+					Type.String({
+						minLength: 1,
+						description:
+							"Optional IANA timezone identifier for this bot (defaults to the family timezone when omitted).",
+					}),
+				),
+				metadata: Type.Optional(BotMetadataSchema),
 				knowledge: Type.Optional(
 					Type.Array(
 						Type.Object(
@@ -603,12 +613,15 @@ export const BotCreateCommandSchema = Type.Object(
 					),
 				),
 			},
-			{ description: "Parameters for creating a new bot persona." },
+			{
+				description:
+					"Parameters for creating a new bot persona, including optional timezone and metadata.",
+			},
 		),
 	},
 	{
 		description:
-			"Create a new bot persona with default model, thinking budget, tool access, and initial virtual workspace files.",
+			"Create a new bot persona with default model, thinking budget, tool access, optional timezone and metadata, and initial virtual workspace files.",
 	},
 );
 export type BotCreateCommand = Static<typeof BotCreateCommandSchema>;
@@ -695,13 +708,24 @@ export const BotUpdateCommandSchema = Type.Object(
 					}),
 				),
 				toolsEnv: Type.Optional(ToolsEnvSettingSchema),
+				timezone: Type.Optional(
+					Type.String({
+						minLength: 1,
+						description:
+							"Optional updated IANA timezone identifier for cron schedules and time context.",
+					}),
+				),
+				metadata: Type.Optional(BotMetadataPatchSchema),
 			},
-			{ description: "Parameters for updating bot configuration." },
+			{
+				description:
+					"Parameters for updating bot configuration. `metadata` is a patch: string values set keys, `null` deletes them.",
+			},
 		),
 	},
 	{
 		description:
-			"Update an existing bot's model, thinking budget, tool access, display name, or soul.",
+			"Update an existing bot's model, thinking budget, tool access, display name, soul, timezone, or metadata.",
 	},
 );
 export type BotUpdateCommand = Static<typeof BotUpdateCommandSchema>;

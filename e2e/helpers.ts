@@ -10,6 +10,8 @@ import {
 } from "@cadmus/contract/routes";
 import {
 	ApiErrorEnvelopeSchema,
+	BOT_METADATA_MAX_KEYS,
+	BOT_METADATA_MAX_VALUE_LENGTH,
 	commandCatalog,
 	ERROR_CODES,
 	ServerToClientSchema,
@@ -91,6 +93,8 @@ export type {
 export {
 	API_ROUTES,
 	ApiErrorEnvelopeSchema,
+	BOT_METADATA_MAX_KEYS,
+	BOT_METADATA_MAX_VALUE_LENGTH,
 	CODE_EXECUTE_TOOL_NAME,
 	CODING_TOOL_NAMES,
 	commandCatalog,

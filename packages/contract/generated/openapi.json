@@ -1263,7 +1263,7 @@
 		"/api/bot/create": {
 			"post": {
 				"operationId": "bot.create",
-				"summary": "Create a new bot persona with default model, thinking budget, tool access, and initial virtual workspace files.",
+				"summary": "Create a new bot persona with default model, thinking budget, tool access, optional timezone and metadata, and initial virtual workspace files.",
 				"requestBody": {
 					"required": true,
 					"content": {
@@ -1306,6 +1306,14 @@
 									"toolsEnv": {
 										"$ref": "#/components/schemas/ToolsEnvSetting"
 									},
+									"timezone": {
+										"type": "string",
+										"minLength": 1,
+										"description": "Optional IANA timezone identifier for this bot (defaults to the family timezone when omitted)."
+									},
+									"metadata": {
+										"$ref": "#/components/schemas/BotMetadata"
+									},
 									"knowledge": {
 										"type": "array",
 										"items": {
@@ -1334,7 +1342,7 @@
 										"description": "Optional array of initial knowledge documents to create for this bot."
 									}
 								},
-								"description": "Parameters for creating a new bot persona."
+								"description": "Parameters for creating a new bot persona, including optional timezone and metadata."
 							}
 						}
 					}
@@ -1457,7 +1465,7 @@
 		"/api/bot/update": {
 			"post": {
 				"operationId": "bot.update",
-				"summary": "Update an existing bot's model, thinking budget, tool access, display name, or soul.",
+				"summary": "Update an existing bot's model, thinking budget, tool access, display name, soul, timezone, or metadata.",
 				"requestBody": {
 					"required": true,
 					"content": {
@@ -1503,9 +1511,17 @@
 									},
 									"toolsEnv": {
 										"$ref": "#/components/schemas/ToolsEnvSetting"
+									},
+									"timezone": {
+										"type": "string",
+										"minLength": 1,
+										"description": "Optional updated IANA timezone identifier for cron schedules and time context."
+									},
+									"metadata": {
+										"$ref": "#/components/schemas/BotMetadataPatch"
 									}
 								},
-								"description": "Parameters for updating bot configuration."
+								"description": "Parameters for updating bot configuration. `metadata` is a patch: string values set keys, `null` deletes them."
 							}
 						}
 					}
@@ -4676,6 +4692,39 @@
 				},
 				"description": "Result payload returned by bot.list containing all bots in the family."
 			},
+			"BotMetadata": {
+				"type": "object",
+				"patternProperties": {
+					"^[a-z][a-z0-9_.-]{0,63}$": {
+						"type": "string",
+						"maxLength": 1024,
+						"description": "Opaque string value (≤ 1024 characters). The server does not interpret values."
+					}
+				},
+				"maxProperties": 32,
+				"additionalProperties": false,
+				"description": "Generic key-value map for per-bot presentation data (≤ 32 keys). Well-known key `color` is a palette slot name (`bot-1`…`bot-8`). Team Leader is a dedicated family field, not metadata."
+			},
+			"BotMetadataPatch": {
+				"type": "object",
+				"patternProperties": {
+					"^[a-z][a-z0-9_.-]{0,63}$": {
+						"anyOf": [
+							{
+								"type": "string",
+								"maxLength": 1024,
+								"description": "Opaque string value (≤ 1024 characters). The server does not interpret values."
+							},
+							{
+								"type": "null"
+							}
+						]
+					}
+				},
+				"maxProperties": 32,
+				"additionalProperties": false,
+				"description": "Metadata patch. A string value sets or overwrites the key; `null` deletes it; omitted keys are unchanged."
+			},
 			"BotRecord": {
 				"type": "object",
 				"required": [
@@ -4724,9 +4773,12 @@
 					},
 					"toolsEnv": {
 						"$ref": "#/components/schemas/ToolsEnvSetting"
+					},
+					"metadata": {
+						"$ref": "#/components/schemas/BotMetadata"
 					}
 				},
-				"description": "Bot persona configuration defining default model, thinking budget, tool access, and timezone."
+				"description": "Bot persona configuration defining default model, thinking budget, tool access, timezone, and optional client metadata."
 			},
 			"BotUpdateResult": {
 				"type": "object",

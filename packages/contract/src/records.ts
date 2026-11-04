@@ -337,6 +337,60 @@ export const FamilyRecordSchema = Type.Object(
 );
 export type FamilyRecord = Static<typeof FamilyRecordSchema>;
 
+/** Maximum number of keys in a bot metadata map. */
+export const BOT_METADATA_MAX_KEYS = 32;
+/** Maximum character length of a bot metadata value. */
+export const BOT_METADATA_MAX_VALUE_LENGTH = 1024;
+/**
+ * Metadata key pattern: starts with a letter, then letters, digits, `_`, `.`, or `-`,
+ * 1–64 characters total.
+ */
+export const BOT_METADATA_KEY_PATTERN = "^[a-z][a-z0-9_.-]{0,63}$";
+
+const BotMetadataKeySchema = Type.String({
+	pattern: BOT_METADATA_KEY_PATTERN,
+	description:
+		"Metadata key. Must match /^[a-z][a-z0-9_.-]{0,63}$/ (1–64 characters).",
+});
+
+const BotMetadataValueSchema = Type.String({
+	maxLength: BOT_METADATA_MAX_VALUE_LENGTH,
+	description: `Opaque string value (≤ ${BOT_METADATA_MAX_VALUE_LENGTH} characters). The server does not interpret values.`,
+});
+
+/**
+ * Generic per-bot key-value map for client presentation data.
+ * Well-known key `color`: palette slot names `"bot-1"`…`"bot-8"`.
+ * The store stays generic; well-known keys are not an enum.
+ */
+export const BotMetadataSchema = Type.Record(
+	BotMetadataKeySchema,
+	BotMetadataValueSchema,
+	{
+		maxProperties: BOT_METADATA_MAX_KEYS,
+		additionalProperties: false,
+		description:
+			"Generic key-value map for per-bot presentation data (≤ 32 keys). Well-known key `color` is a palette slot name (`bot-1`…`bot-8`). Team Leader is a dedicated family field, not metadata.",
+	},
+);
+export type BotMetadata = Static<typeof BotMetadataSchema>;
+
+/**
+ * Patch for `bot.update` metadata: string sets/overwrites a key, `null` deletes it,
+ * omitted keys are left unchanged.
+ */
+export const BotMetadataPatchSchema = Type.Record(
+	BotMetadataKeySchema,
+	Type.Union([BotMetadataValueSchema, Type.Null()]),
+	{
+		maxProperties: BOT_METADATA_MAX_KEYS,
+		additionalProperties: false,
+		description:
+			"Metadata patch. A string value sets or overwrites the key; `null` deletes it; omitted keys are unchanged.",
+	},
+);
+export type BotMetadataPatch = Static<typeof BotMetadataPatchSchema>;
+
 /**
  * Autonomous bot persona record within a bot family.
  */
@@ -372,10 +426,11 @@ export const BotRecordSchema = Type.Object(
 			description: "Epoch timestamp in milliseconds when the bot was created.",
 		}),
 		toolsEnv: Type.Optional(ToolsEnvSettingSchema),
+		metadata: Type.Optional(BotMetadataSchema),
 	},
 	{
 		description:
-			"Bot persona configuration defining default model, thinking budget, tool access, and timezone.",
+			"Bot persona configuration defining default model, thinking budget, tool access, timezone, and optional client metadata.",
 	},
 );
 export type BotRecord = Static<typeof BotRecordSchema>;
