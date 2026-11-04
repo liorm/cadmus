@@ -13,6 +13,7 @@ export function BottomSheet({
 	onOpenChange,
 	title,
 	description,
+	leading,
 	children,
 	cancelLabel = "Cancel",
 	trigger,
@@ -21,6 +22,7 @@ export function BottomSheet({
 	onOpenChange: (open: boolean) => void;
 	title: string;
 	description?: string;
+	leading?: ReactNode;
 	children?: ReactNode;
 	cancelLabel?: string;
 	trigger?: ReactNode;
@@ -29,9 +31,12 @@ export function BottomSheet({
 		<Sheet open={open} onOpenChange={onOpenChange}>
 			{trigger ? <SheetTrigger asChild>{trigger}</SheetTrigger> : null}
 			<SheetContent>
-				<SheetTitle className="text-[length:var(--fs-lg)] text-text">
-					{title}
-				</SheetTitle>
+				<div className="flex items-center gap-2">
+					{leading}
+					<SheetTitle className="min-w-0 flex-1 truncate text-[length:var(--fs-lg)] text-text">
+						{title}
+					</SheetTitle>
+				</div>
 				{description ? (
 					<SheetDescription className="mt-1 text-[length:var(--fs-sm)] text-text-muted">
 						{description}

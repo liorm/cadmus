@@ -21,5 +21,6 @@ Playwright journeys in `tests/flows/` against the real local worker (own account
 
 - Foundation: settings deep link, theme persist, composer grow/send, seeded bot list, composer `chat.create`.
 - Main / task chat: create-and-stream, busy queue/steer/stop, unread Needs-you + divider, failed Retry, swipe-archive + collapse persist.
+- Chat menu: harvest toggle persists, raw transcript role labels, archive then read-only reopen, rename save and cancel.
 
-Unit tests cover `needsYou`, `groupToolRuns`, and `taskProgress`. `bun run coverage:web-app` writes Istanbul to `coverage/web-app`.
+Unit tests cover `needsYou`, `groupToolRuns`, `taskProgress`, and `rawTranscriptLines`. `bun run coverage:web-app` writes Istanbul to `coverage/web-app`.

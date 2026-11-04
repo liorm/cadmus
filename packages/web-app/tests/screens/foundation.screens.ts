@@ -227,6 +227,108 @@ test("task-scrolled", async ({ page, accountId, baseURL }) => {
 	}
 });
 
+test("chat-menu", async ({ page, accountId, baseURL }) => {
+	const origin = baseURL ?? WORKER_BASE;
+	await seedBot(origin, accountId, "Echo Bot", "echo-bot");
+	const created = await sendAccountRpc<{ chat: { key: string } }>(
+		origin,
+		accountId,
+		"chat.create",
+		{ botId: "echo-bot", title: "Tune thermostat schedules" },
+	);
+	await sendAccountRpc(origin, accountId, "turn.submit", {
+		chatKey: created.chat.key,
+		text: "Hello",
+	});
+	for (const theme of THEMES) {
+		await openThemed(page, `/app/#/chat/${created.chat.key}`, theme);
+		await clickByRole(page, "button", "Chat menu");
+		await expect(
+			page.getByRole("button", { name: "View raw transcript" }),
+		).toBeVisible();
+		await page.screenshot({
+			path: resolve(OUT_DIR, `chat-menu-${theme}.png`),
+			animations: "disabled",
+		});
+		await page.keyboard.press("Escape");
+	}
+});
+
+test("raw-transcript", async ({ page, accountId, baseURL }) => {
+	const origin = baseURL ?? WORKER_BASE;
+	await seedBot(origin, accountId, "Echo Bot", "echo-bot");
+	const created = await sendAccountRpc<{ chat: { key: string } }>(
+		origin,
+		accountId,
+		"chat.create",
+		{ botId: "echo-bot", title: "Tune thermostat schedules" },
+	);
+	await sendAccountRpc(origin, accountId, "turn.submit", {
+		chatKey: created.chat.key,
+		text: "Hello",
+	});
+	for (const theme of THEMES) {
+		await openThemed(page, `/app/#/chat/${created.chat.key}?view=raw`, theme);
+		await expect(page.getByText("user", { exact: true }).first()).toBeVisible();
+		await page.screenshot({
+			path: resolve(OUT_DIR, `raw-transcript-${theme}.png`),
+			animations: "disabled",
+		});
+	}
+});
+
+test("archived-chat", async ({ page, accountId, baseURL }) => {
+	const origin = baseURL ?? WORKER_BASE;
+	await seedBot(origin, accountId, "Echo Bot", "echo-bot");
+	const created = await sendAccountRpc<{ chat: { key: string } }>(
+		origin,
+		accountId,
+		"chat.create",
+		{ botId: "echo-bot", title: "Tune thermostat schedules" },
+	);
+	await sendAccountRpc(origin, accountId, "turn.submit", {
+		chatKey: created.chat.key,
+		text: "Hello",
+	});
+	await sendAccountRpc(origin, accountId, "chat.close", {
+		chatKey: created.chat.key,
+	});
+	for (const theme of THEMES) {
+		await openThemed(page, `/app/#/chat/${created.chat.key}`, theme);
+		await expect(page.getByText("Archived · read-only")).toBeVisible();
+		await page.screenshot({
+			path: resolve(OUT_DIR, `archived-chat-${theme}.png`),
+			animations: "disabled",
+		});
+	}
+});
+
+test("task-rename", async ({ page, accountId, baseURL }) => {
+	const origin = baseURL ?? WORKER_BASE;
+	await seedBot(origin, accountId, "Echo Bot", "echo-bot");
+	const created = await sendAccountRpc<{ chat: { key: string } }>(
+		origin,
+		accountId,
+		"chat.create",
+		{ botId: "echo-bot", title: "Tune thermostat schedules" },
+	);
+	await sendAccountRpc(origin, accountId, "turn.submit", {
+		chatKey: created.chat.key,
+		text: "Hello",
+	});
+	for (const theme of THEMES) {
+		await openThemed(page, `/app/#/chat/${created.chat.key}`, theme);
+		await clickByRole(page, "button", "Chat menu");
+		await clickByRole(page, "button", "Rename");
+		await fillByLabel(page, "Chat title", "Thermostat: weekday");
+		await page.screenshot({
+			path: resolve(OUT_DIR, `task-rename-${theme}.png`),
+			animations: "disabled",
+		});
+		await clickByRole(page, "button", "Cancel rename");
+	}
+});
+
 test("settings", async ({ page, accountId, baseURL }) => {
 	await seedBot(baseURL ?? WORKER_BASE, accountId, "Echo Bot", "echo-bot");
 	for (const theme of THEMES) {

@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 export function AppShell({
 	title,
 	titleMuted,
+	titleNode,
 	subtitle,
 	backTo,
 	showBack = true,
@@ -12,6 +13,7 @@ export function AppShell({
 }: {
 	title: string;
 	titleMuted?: boolean;
+	titleNode?: ReactNode;
 	subtitle?: ReactNode;
 	backTo?: string;
 	showBack?: boolean;
@@ -43,12 +45,14 @@ export function AppShell({
 					<span className="inline-flex min-h-tap min-w-tap" />
 				)}
 				<div className="flex min-w-0 flex-1 flex-col">
-					<h1
-						className={`truncate text-[length:var(--fs-lg)] font-semibold ${titleMuted ? "text-text-muted" : ""}`}
-					>
-						{title}
-					</h1>
-					{subtitle}
+					{titleNode ?? (
+						<h1
+							className={`truncate text-[length:var(--fs-lg)] font-semibold ${titleMuted ? "text-text-muted" : ""}`}
+						>
+							{title}
+						</h1>
+					)}
+					{titleNode ? null : subtitle}
 				</div>
 				{actions}
 			</header>

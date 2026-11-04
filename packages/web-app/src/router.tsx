@@ -53,16 +53,7 @@ const chatRoute = createRoute({
 	}),
 	component: function ChatRoutePage() {
 		const { view } = chatRoute.useSearch();
-		const { chatKey } = chatRoute.useParams();
-		if (view === "raw") {
-			return (
-				<PlaceholderPage title="Raw transcript">
-					<p>chatKey: {chatKey}</p>
-					<p>view: {view}</p>
-				</PlaceholderPage>
-			);
-		}
-		return <ChatPage />;
+		return <ChatPage view={view} />;
 	},
 });
 

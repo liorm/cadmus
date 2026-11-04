@@ -7,12 +7,14 @@ export function SegmentedControl({
 	options,
 	ariaLabel,
 	scroll = false,
+	className,
 }: {
 	value: string;
 	onValueChange: (value: string) => void;
 	options: ReadonlyArray<{ value: string; label: string }>;
 	ariaLabel: string;
 	scroll?: boolean;
+	className?: string;
 }) {
 	return (
 		<ToggleGroup
@@ -25,6 +27,7 @@ export function SegmentedControl({
 			className={cn(
 				"flex gap-1 rounded-md bg-surface p-1",
 				scroll ? "overflow-x-auto" : "justify-center",
+				className,
 			)}
 		>
 			{options.map((option) => (

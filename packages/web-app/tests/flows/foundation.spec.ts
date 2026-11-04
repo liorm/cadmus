@@ -88,9 +88,11 @@ test("composer persists a chat through the worker", async ({
 		}),
 	).toBeVisible();
 	await page.reload();
+	// "New task" is only the gap before chat.get restores the first user
+	// message into lastUserText. The settled row label is that message.
 	await expect(
 		page.getByRole("navigation", { name: "Bots" }).getByRole("button", {
-			name: "New task",
+			name: "Morning notes",
 			exact: true,
 		}),
 	).toBeVisible();
