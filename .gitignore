@@ -9,4 +9,9 @@ auth.json
 auth.json.lock
 /.wrangler
 packages/*/node_modules/
+packages/web-app/.engine/
+packages/web-app/.screens/
+packages/web-app/.coverage-raw/
+packages/web-app/playwright-report/
+packages/web-app/test-results/
 .*.bun-build

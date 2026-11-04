@@ -30,6 +30,8 @@ bun run coverage
 
 # View generated HTML report in browser
 open coverage/index.html
+
+UI flow coverage (`@cadmus/web-app`) uses the same reporters and no threshold. `bun run coverage:web-app` instruments the Vite build (`CADMUS_COVERAGE=1`) and writes `coverage/web-app` (`text`, `json-summary`, `html`). CI's ui job sets `CADMUS_COVERAGE=1` on the existing flow run. The default `web-app:build` stays uninstrumented.
 ```
 
 ---

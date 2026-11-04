@@ -7,8 +7,9 @@
  * in its own stage leaves those CPUs to workerd. This stage runs the bun
  * conformance tests only. `bun run test:conformance` still runs both, on its own.
  *
- * `--group static` or `--group e2e` selects one half. The default runs both.
- * A static failure skips e2e, matching the old `&&` chain.
+ * `--group static`, `--group e2e`, or `--group ui` selects one slice.
+ * The default runs static, then e2e, then UI-flow tests. A static
+ * failure skips e2e and ui.
  */
 import { spawn } from "node:child_process";
 import {
@@ -18,7 +19,7 @@ import {
 	trackChild,
 } from "./child-close.ts";
 
-type Group = "static" | "e2e";
+type Group = "static" | "e2e" | "ui";
 
 type Stage = {
 	name: string;
@@ -59,6 +60,18 @@ const stages: Stage[] = [
 		weight: 40,
 	},
 	{
+		name: "web-app:test",
+		cmd: ["bun", "run", "--cwd", "packages/web-app", "test"],
+		group: "static",
+		weight: 8,
+	},
+	{
+		name: "web-app:build",
+		cmd: ["bun", "run", "web-app:build"],
+		group: "static",
+		weight: 40,
+	},
+	{
 		name: "format:check",
 		cmd: ["bun", "run", "format:check"],
 		group: "static",
@@ -95,6 +108,12 @@ const stages: Stage[] = [
 		weight: 30,
 	},
 	{ name: "test", cmd: ["bun", "run", "test"], group: "e2e", weight: 100 },
+	{
+		name: "test:ui",
+		cmd: ["bun", "run", "test:ui"],
+		group: "ui",
+		weight: 80,
+	},
 ];
 
 const staticConcurrency = 2;
@@ -112,10 +131,16 @@ function parseGroup(): "all" | Group {
 	if (args.length === 0) return "all";
 	if (args.length === 2 && args[0] === "--group") {
 		const value = args[1];
-		if (value === "all" || value === "static" || value === "e2e") return value;
+		if (
+			value === "all" ||
+			value === "static" ||
+			value === "e2e" ||
+			value === "ui"
+		)
+			return value;
 	}
 	process.stderr.write(
-		"usage: bun scripts/check-all.ts [--group all|static|e2e]\n",
+		"usage: bun scripts/check-all.ts [--group all|static|e2e|ui]\n",
 	);
 	process.exit(2);
 }
@@ -209,10 +234,22 @@ let exitCode = 0;
 try {
 	const staticStages = stages.filter((stage) => stage.group === "static");
 	const e2eStages = stages.filter((stage) => stage.group === "e2e");
+	const uiStages = stages.filter((stage) => stage.group === "ui");
 	const results: Result[] = [];
 
 	if (selected === "all" || selected === "static") {
-		results.push(...(await runPool(staticStages, staticConcurrency)));
+		const parallelStatic = staticStages.filter(
+			(stage) => stage.name !== "web-app:build",
+		);
+		results.push(...(await runPool(parallelStatic, staticConcurrency)));
+		const appBuild = staticStages.find(
+			(stage) => stage.name === "web-app:build",
+		);
+		if (appBuild) {
+			const appResult = await run(appBuild);
+			results.push(appResult);
+			printResult(appResult);
+		}
 	}
 
 	const staticFailed = results.some((result) => result.code !== 0);
@@ -231,6 +268,24 @@ try {
 			}
 		} else {
 			results.push(...(await runPool(e2eStages, 1)));
+		}
+	}
+
+	if (selected === "all" || selected === "ui") {
+		if (selected === "all" && staticFailed) {
+			for (const stage of uiStages) {
+				const skipped: Result = {
+					name: stage.name,
+					code: 1,
+					seconds: 0,
+					output: "skipped because a static stage failed\n",
+					skipped: true,
+				};
+				results.push(skipped);
+				printResult(skipped);
+			}
+		} else {
+			results.push(...(await runPool(uiStages, 1)));
 		}
 	}
 

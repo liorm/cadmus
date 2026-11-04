@@ -65,3 +65,45 @@ jobs:
 
       - name: Run tests
         run: bun scripts/check-all.ts --group e2e
+
+  ui:
+    name: ui flows
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.3
+
+      - name: Cache Bun install
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Cache Obscura
+        uses: actions/cache@v4
+        with:
+          path: packages/web-app/.engine
+          key: ${{ runner.os }}-obscura-v0.2.6
+
+      - name: Fetch Obscura
+        run: bun packages/web-app/scripts/fetch-obscura.ts
+
+      - name: Install Playwright OS deps
+        run: bunx playwright install-deps
+
+      - name: Run UI flow tests
+        env:
+          CADMUS_TEST_ENGINE: obscura
+          CADMUS_TEST_OBSCURA: ${{ github.workspace }}/packages/web-app/.engine/obscura
+          CADMUS_COVERAGE: "1"
+        run: bun scripts/check-all.ts --group ui

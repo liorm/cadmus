@@ -1,0 +1,76 @@
+@import "tailwindcss";
+@import "./tokens.css";
+
+@theme inline {
+	--color-bg: var(--bg);
+	--color-surface: var(--surface);
+	--color-surface-raised: var(--surface-raised);
+	--color-border: var(--border);
+	--color-text: var(--text);
+	--color-text-muted: var(--text-muted);
+	--color-accent: var(--accent);
+	--color-on-accent: var(--on-accent);
+	--color-status-running: var(--status-running);
+	--color-status-needs-you: var(--status-needs-you);
+	--color-status-failed: var(--status-failed);
+	--color-status-done: var(--status-done);
+	--color-unread: var(--unread);
+	--color-on-unread: var(--on-unread);
+	--color-bot-1: var(--bot-1);
+	--color-bot-2: var(--bot-2);
+	--color-bot-3: var(--bot-3);
+	--color-bot-4: var(--bot-4);
+	--color-bot-5: var(--bot-5);
+	--color-bot-6: var(--bot-6);
+	--color-bot-7: var(--bot-7);
+	--color-bot-8: var(--bot-8);
+	--color-background: var(--background);
+	--color-foreground: var(--foreground);
+	--color-card: var(--card);
+	--color-card-foreground: var(--card-foreground);
+	--color-popover: var(--popover);
+	--color-popover-foreground: var(--popover-foreground);
+	--color-primary: var(--primary);
+	--color-primary-foreground: var(--primary-foreground);
+	--color-secondary: var(--secondary);
+	--color-secondary-foreground: var(--secondary-foreground);
+	--color-muted: var(--muted);
+	--color-muted-foreground: var(--muted-foreground);
+	--color-destructive: var(--destructive);
+	--color-input: var(--input);
+	--color-ring: var(--ring);
+	--font-sans: var(--font);
+	--font-mono: var(--mono);
+	--radius-sm: var(--r-sm);
+	--radius-md: var(--r-md);
+	--radius-lg: var(--r-lg);
+	--spacing-1: var(--sp-1);
+	--spacing-2: var(--sp-2);
+	--spacing-3: var(--sp-3);
+	--spacing-4: var(--sp-4);
+	--spacing-5: var(--sp-5);
+	--spacing-tap: var(--tap);
+}
+
+html,
+body,
+#root {
+	min-height: 100dvh;
+	background: var(--bg);
+	color: var(--text);
+	font-family: var(--font);
+}
+
+body {
+	margin: 0;
+}
+
+@keyframes cadmus-spin {
+	to {
+		transform: rotate(360deg);
+	}
+}
+
+.cadmus-spin {
+	animation: cadmus-spin 0.8s linear infinite;
+}

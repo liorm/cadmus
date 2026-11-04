@@ -55,7 +55,7 @@ export function nonStaticSpecifierReason(
 }
 
 /**
- * Why a client (`web/` or `cli/`) must not import `specifier`.
+ * Why a client (`web/`, `app/`, or `cli/`) must not import `specifier`.
  * Returns undefined when the specifier is allowed.
  * `allow` adds package specifiers for one client (the CLI may import schemas).
  * Pass `nonStatic` for an `import()` / `require()` template that interpolates.

@@ -95,13 +95,13 @@ Every `/api/*` response (success, error, **401**, **404**, **405**, and `HEAD`) 
 
 ### Web UI client
 
-[`packages/web/src/client.ts`](../../packages/web/src/client.ts) (`CadmusClient`) is the browser caller. `callRpc` and `sendCommand` keep their signatures and return a `CommandResultFrame`. The HTTP request uses `@cadmus/contract/routes` (`API_ROUTES` from each command's `readOnly` flag → GET, otherwise POST) and `encodePayloadQuery`:
+`CadmusClient` in [`@cadmus/contract/client`](../../packages/contract/src/client.ts) is the browser caller. [`packages/web/src/client.ts`](../../packages/web/src/client.ts) re-exports it. `callRpc` and `sendCommand` keep their signatures and return a `CommandResultFrame`. The HTTP request uses `@cadmus/contract/routes` (`API_ROUTES` from each command's `readOnly` flag → GET, otherwise POST) and `encodePayloadQuery`:
 
 - Readonly commands are `GET /api/...`. The payload is `encodePayloadQuery` (the inverse of `coerceSearchParamsToPayload`). `undefined` fields are omitted. GET and HEAD do not send `Content-Type`.
 - Mutating commands are `POST /api/...` with the payload object as the JSON body and `Content-Type: application/json`.
 - `Authorization: Bearer`, `x-user-id`, `x-account-id`, and `X-Cadmus-Family-Id` are sent on every `/api` call. The bearer token is never copied into the `/api` URL. The WebSocket URL still carries `token` for `GET /ws`.
 - A `fetch` throw rejects with that error. A non-JSON body rejects from `response.json()`, same as the previous `/rpc` client. HTTP error JSON and `protocol.error` frames resolve as `{ ok: false, error }`.
-- The web bundle imports `@cadmus/contract/routes`, `@cadmus/contract/types`, and `@cadmus/contract/tools`. It does not import command schemas, OpenAPI, or AsyncAPI.
+- The web bundle imports `@cadmus/contract/client`, `@cadmus/contract/routes`, `@cadmus/contract/types`, and `@cadmus/contract/tools`. It does not import command schemas, OpenAPI, or AsyncAPI.
 - `GET /ws` is unchanged and carries `ServerEvent` frames only. Commands do not go over the socket.
 
 A successful `/api` body is the unwrapped `result`. The client adds `id`, `type: "command.result"`, `command`, and `ok: true`. Only REST `{ error }` bodies and auth `protocol.error` frames resolve as `{ ok: false, error }`.

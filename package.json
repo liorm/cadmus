@@ -7,7 +7,7 @@
 		"packages/*"
 	],
 	"scripts": {
-		"build": "bun run web:build",
+		"build": "bun run web:build && bun run web-app:build",
 		"dev": "wrangler dev",
 		"deploy": "wrangler deploy --keep-vars",
 		"deploy:preview": "wrangler preview",
@@ -25,6 +25,11 @@
 		"web:dev": "bun run --cwd packages/web dev",
 		"web:build": "bun run --cwd packages/web build",
 		"web:test": "bun run --cwd packages/web test",
+		"web-app:dev": "bun run --cwd packages/web-app dev",
+		"web-app:build": "bun run --cwd packages/web-app build",
+		"test:ui": "bun run --cwd packages/web-app test:ui",
+		"web-app:screens": "bun run --cwd packages/web-app screens",
+		"coverage:web-app": "CADMUS_COVERAGE=1 bun run test:ui",
 		"typecheck": "bun scripts/typecheck.ts",
 		"lint": "biome check",
 		"format": "biome check --write",
