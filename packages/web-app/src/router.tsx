@@ -9,7 +9,9 @@ import { BotBadge } from "@/components/BotBadge";
 import { Markdown } from "@/components/Markdown";
 import { SegmentedControl } from "@/components/SegmentedControl";
 import { CadmusProvider } from "@/context/CadmusContext";
+import { ChatPage } from "@/routes/chat";
 import { HomePage } from "@/routes/home";
+import { NewTaskPage } from "@/routes/new";
 import { PlaceholderPage } from "@/routes/placeholder";
 import { SettingsPage } from "@/routes/settings";
 
@@ -49,15 +51,18 @@ const chatRoute = createRoute({
 	): { view: "chat" | "raw" } => ({
 		view: search.view === "raw" ? "raw" : "chat",
 	}),
-	component: function ChatPlaceholder() {
-		const { chatKey } = chatRoute.useParams();
+	component: function ChatRoutePage() {
 		const { view } = chatRoute.useSearch();
-		return (
-			<PlaceholderPage title={view === "raw" ? "Raw transcript" : "Chat"}>
-				<p>chatKey: {chatKey}</p>
-				<p>view: {view}</p>
-			</PlaceholderPage>
-		);
+		const { chatKey } = chatRoute.useParams();
+		if (view === "raw") {
+			return (
+				<PlaceholderPage title="Raw transcript">
+					<p>chatKey: {chatKey}</p>
+					<p>view: {view}</p>
+				</PlaceholderPage>
+			);
+		}
+		return <ChatPage />;
 	},
 });
 
@@ -67,13 +72,9 @@ const newTaskRoute = createRoute({
 	validateSearch: (search: Record<string, unknown>): { bot?: string } => ({
 		bot: typeof search.bot === "string" ? search.bot : undefined,
 	}),
-	component: function NewTaskPlaceholder() {
+	component: function NewTaskRoutePage() {
 		const { bot } = newTaskRoute.useSearch();
-		return (
-			<PlaceholderPage title="New task">
-				{bot ? <p>bot: {bot}</p> : null}
-			</PlaceholderPage>
-		);
+		return <NewTaskPage botId={bot} />;
 	},
 });
 

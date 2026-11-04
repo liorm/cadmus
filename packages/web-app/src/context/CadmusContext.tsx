@@ -4,6 +4,7 @@ import type {
 	ChatRecord,
 	ServerEvent,
 } from "@cadmus/contract/types";
+import { useNavigate } from "@tanstack/react-router";
 import {
 	createContext,
 	type ReactNode,
@@ -13,6 +14,20 @@ import {
 	useMemo,
 	useState,
 } from "react";
+import type { ChatLiveSlice } from "@/lib/needs-you";
+import {
+	type CollapsedMap,
+	type FailedMap,
+	type LastSeenMap,
+	loadCollapsed,
+	loadFailed,
+	loadLastBotId,
+	loadLastSeen,
+	saveCollapsed,
+	saveFailed,
+	saveLastBotId,
+	saveLastSeen,
+} from "@/lib/storage";
 
 export interface DevAuthConfig {
 	userId: string;
@@ -47,17 +62,40 @@ function loadStoredConfig(): DevAuthConfig {
 	}
 }
 
+export type ChatLiveState = ChatLiveSlice & {
+	streamText?: string;
+	lastToolName?: string;
+};
+
 export interface CadmusContextValue {
 	client: CadmusClient;
 	authConfig: DevAuthConfig;
 	connectionStatus: ConnectionStatus;
 	bots: BotRecord[];
 	chats: ChatRecord[];
+	chatStates: Record<string, ChatLiveState>;
+	lastSeen: LastSeenMap;
+	collapsed: CollapsedMap;
+	lastBotId?: string;
 	refreshDirectory: () => Promise<void>;
 	subscribeEvents: (listener: (event: ServerEvent) => void) => () => void;
+	toggleCollapsed: (botId: string) => void;
+	markChatSeen: (chatKey: string) => number | undefined;
+	setLastBotId: (id: string) => void;
+	archiveChat: (chatKey: string) => Promise<void>;
+	retryChat: (chatKey: string) => Promise<void>;
+	noteUserText: (chatKey: string, text: string) => void;
+	markFailed: (chatKey: string, reason: string) => void;
+	createChatAndSubmit: (botId: string, text: string) => Promise<void>;
 }
 
 const CadmusContext = createContext<CadmusContextValue | null>(null);
+
+function isFailedTurn(status?: string, reason?: string): boolean {
+	if (status === "unanswered") return true;
+	if (!reason) return false;
+	return /abort|error|fail/i.test(reason);
+}
 
 export function CadmusProvider({
 	children,
@@ -83,24 +121,103 @@ export function CadmusProvider({
 		});
 	}, [authConfig, clientOverride]);
 
+	const navigate = useNavigate();
 	const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>(
 		client.getStatus(),
 	);
 	const [bots, setBots] = useState<BotRecord[]>([]);
 	const [chats, setChats] = useState<ChatRecord[]>([]);
+	const [chatStates, setChatStates] = useState<Record<string, ChatLiveState>>(
+		() => {
+			const failed = loadFailed();
+			const next: Record<string, ChatLiveState> = {};
+			for (const [key, value] of Object.entries(failed)) {
+				next[key] = {
+					failedReason: value.reason,
+					lastUserText: value.lastUserText,
+					lastBotAt: value.at,
+				};
+			}
+			return next;
+		},
+	);
+	const [lastSeen, setLastSeen] = useState<LastSeenMap>(loadLastSeen);
+	const [collapsed, setCollapsed] = useState<CollapsedMap>(loadCollapsed);
+	const [lastBotId, setLastBotIdState] = useState<string | undefined>(
+		loadLastBotId,
+	);
+
+	const patchState = useCallback((chatKey: string, patch: ChatLiveState) => {
+		setChatStates((prev) => ({
+			...prev,
+			[chatKey]: { ...prev[chatKey], ...patch },
+		}));
+	}, []);
+
+	const persistFailed = useCallback((map: FailedMap) => {
+		saveFailed(map);
+	}, []);
 
 	const refreshDirectory = useCallback(async () => {
 		const [botRes, chatRes] = await Promise.all([
 			client.callRpc<{ bots: BotRecord[] }>("bot.list"),
-			client.callRpc<{ chats: ChatRecord[] }>("chat.list"),
+			client.callRpc<{ chats: ChatRecord[] }>("chat.list", {
+				kinds: ["direct"],
+			}),
 		]);
 		if (botRes.ok && botRes.result?.bots) {
 			setBots(botRes.result.bots);
 		}
+		let listed: ChatRecord[] = [];
 		if (chatRes.ok && chatRes.result?.chats) {
-			setChats(chatRes.result.chats);
+			listed = chatRes.result.chats.filter((chat) => !chat.closed);
+			setChats(listed);
 		}
-	}, [client]);
+		await Promise.all(
+			listed.map(async (chat) => {
+				const status = await client.callRpc<{
+					status?: { busy?: boolean };
+				}>("chat.status", { chatKey: chat.key });
+				if (status.ok && status.result?.status) {
+					patchState(chat.key, { busy: Boolean(status.result.status.busy) });
+				}
+				const detail = await client.callRpc<{
+					messages?: Array<{
+						role: string;
+						text: string;
+						timestamp?: number;
+					}>;
+				}>("chat.get", { chatKey: chat.key });
+				const messages = detail.result?.messages;
+				const lastAssistant = messages?.findLast(
+					(message) => message.role === "assistant" && message.text.trim(),
+				);
+				const firstUser = messages?.find(
+					(message) => message.role === "user" && message.text.trim(),
+				);
+				if (lastAssistant) {
+					patchState(chat.key, {
+						lastBotText: lastAssistant.text,
+						...(lastAssistant.timestamp
+							? { lastBotAt: lastAssistant.timestamp }
+							: {}),
+					});
+				}
+				if (firstUser) {
+					setChatStates((prev) => {
+						if (prev[chat.key]?.lastUserText?.trim()) return prev;
+						return {
+							...prev,
+							[chat.key]: {
+								...prev[chat.key],
+								lastUserText: firstUser.text,
+							},
+						};
+					});
+				}
+			}),
+		);
+	}, [client, patchState]);
 
 	useEffect(() => {
 		const off = client.onStatusChange(setConnectionStatus);
@@ -112,6 +229,190 @@ export function CadmusProvider({
 		};
 	}, [client, refreshDirectory]);
 
+	useEffect(() => {
+		return client.subscribe((event: ServerEvent) => {
+			if (event.type === "chat.state") {
+				patchState(event.payload.chatKey, { busy: event.payload.busy });
+				if (!event.payload.busy) {
+					patchState(event.payload.chatKey, { streamText: "" });
+				}
+				return;
+			}
+			if (event.type === "turn.delta") {
+				if (event.payload.kind === "text") {
+					setChatStates((prev) => {
+						const current = prev[event.payload.chatKey];
+						return {
+							...prev,
+							[event.payload.chatKey]: {
+								...current,
+								busy: true,
+								streamText: `${current?.streamText ?? ""}${event.payload.delta}`,
+							},
+						};
+					});
+				} else {
+					patchState(event.payload.chatKey, { busy: true });
+				}
+				return;
+			}
+			if (event.type === "turn.tool_call") {
+				patchState(event.payload.chatKey, {
+					busy: true,
+					lastToolName: event.payload.toolName,
+				});
+				return;
+			}
+			if (event.type === "turn.completed") {
+				const failed = isFailedTurn(event.payload.status, event.payload.reason);
+				const at = Date.now();
+				setChatStates((prev) => {
+					const current = prev[event.payload.chatKey];
+					const next: ChatLiveState = {
+						...current,
+						busy: false,
+						streamText: "",
+						failedReason: failed
+							? (event.payload.reason ?? "unanswered")
+							: undefined,
+						lastBotText: failed
+							? current?.lastBotText
+							: (event.payload.text ?? current?.lastBotText),
+						lastBotAt: failed ? current?.lastBotAt : at,
+					};
+					const failedMap = loadFailed();
+					if (next.failedReason) {
+						failedMap[event.payload.chatKey] = {
+							reason: next.failedReason,
+							lastUserText: next.lastUserText ?? "",
+							at,
+						};
+					} else {
+						delete failedMap[event.payload.chatKey];
+					}
+					persistFailed(failedMap);
+					return { ...prev, [event.payload.chatKey]: next };
+				});
+				void refreshDirectory();
+				return;
+			}
+			if (event.type === "bot.message") {
+				patchState(event.payload.chatKey, {
+					lastBotText: event.payload.reply ?? event.payload.text,
+					lastBotAt: event.payload.when,
+				});
+			}
+		});
+	}, [client, patchState, persistFailed, refreshDirectory]);
+
+	const toggleCollapsed = useCallback((botId: string) => {
+		setCollapsed((prev) => {
+			const next = { ...prev, [botId]: !prev[botId] };
+			saveCollapsed(next);
+			return next;
+		});
+	}, []);
+
+	const markChatSeen = useCallback((chatKey: string) => {
+		const previous = loadLastSeen()[chatKey];
+		const next = { ...loadLastSeen(), [chatKey]: Date.now() };
+		saveLastSeen(next);
+		setLastSeen(next);
+		return previous;
+	}, []);
+
+	const setLastBotId = useCallback((id: string) => {
+		saveLastBotId(id);
+		setLastBotIdState(id);
+	}, []);
+
+	const archiveChat = useCallback(
+		async (chatKey: string) => {
+			await client.callRpc("chat.close", { chatKey });
+			setChats((prev) => prev.filter((chat) => chat.key !== chatKey));
+		},
+		[client],
+	);
+
+	const retryChat = useCallback(
+		async (chatKey: string) => {
+			const state = chatStates[chatKey];
+			const stored = loadFailed()[chatKey];
+			let text = (state?.lastUserText ?? stored?.lastUserText)?.trim();
+			if (!text) {
+				const detail = await client.callRpc<{
+					messages?: Array<{ role: string; text: string }>;
+				}>("chat.get", { chatKey });
+				const lastUser = detail.result?.messages?.findLast(
+					(message) => message.role === "user" && message.text.trim(),
+				);
+				text = lastUser?.text.trim();
+			}
+			if (!text) return;
+			patchState(chatKey, {
+				failedReason: undefined,
+				lastUserText: text,
+				busy: true,
+			});
+			void client.callRpc("turn.submit", { chatKey, text });
+			const failedMap = loadFailed();
+			delete failedMap[chatKey];
+			persistFailed(failedMap);
+		},
+		[chatStates, client, patchState, persistFailed],
+	);
+
+	const noteUserText = useCallback(
+		(chatKey: string, text: string) => {
+			patchState(chatKey, { lastUserText: text });
+		},
+		[patchState],
+	);
+
+	const createChatAndSubmit = useCallback(
+		async (botId: string, text: string) => {
+			setLastBotId(botId);
+			const created = await client.callRpc<{ chat: { key: string } }>(
+				"chat.create",
+				{ botId },
+			);
+			if (!created.ok || !created.result?.chat) return;
+			const chatKey = created.result.chat.key;
+			noteUserText(chatKey, text);
+			void client.callRpc("turn.submit", { chatKey, text });
+			await refreshDirectory();
+			await navigate({
+				to: "/chat/$chatKey",
+				params: { chatKey },
+				search: { view: "chat" },
+			});
+		},
+		[client, navigate, noteUserText, refreshDirectory, setLastBotId],
+	);
+
+	const markFailed = useCallback(
+		(chatKey: string, reason: string) => {
+			setChatStates((prev) => {
+				const current = prev[chatKey];
+				const next = {
+					...current,
+					busy: false,
+					failedReason: reason,
+					lastUserText: current?.lastUserText,
+				};
+				const failedMap = loadFailed();
+				failedMap[chatKey] = {
+					reason,
+					lastUserText: next.lastUserText ?? "",
+					at: Date.now(),
+				};
+				persistFailed(failedMap);
+				return { ...prev, [chatKey]: next };
+			});
+		},
+		[persistFailed],
+	);
+
 	const value = useMemo<CadmusContextValue>(
 		() => ({
 			client,
@@ -119,10 +420,41 @@ export function CadmusProvider({
 			connectionStatus,
 			bots,
 			chats,
+			chatStates,
+			lastSeen,
+			collapsed,
+			lastBotId,
 			refreshDirectory,
 			subscribeEvents: (listener) => client.subscribe(listener),
+			toggleCollapsed,
+			markChatSeen,
+			setLastBotId,
+			archiveChat,
+			retryChat,
+			noteUserText,
+			markFailed,
+			createChatAndSubmit,
 		}),
-		[authConfig, bots, chats, client, connectionStatus, refreshDirectory],
+		[
+			archiveChat,
+			createChatAndSubmit,
+			authConfig,
+			bots,
+			chatStates,
+			chats,
+			client,
+			collapsed,
+			connectionStatus,
+			lastBotId,
+			lastSeen,
+			markChatSeen,
+			markFailed,
+			noteUserText,
+			refreshDirectory,
+			retryChat,
+			setLastBotId,
+			toggleCollapsed,
+		],
 	);
 
 	return (

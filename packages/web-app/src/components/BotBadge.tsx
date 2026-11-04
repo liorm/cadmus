@@ -12,13 +12,12 @@ export function BotBadge({
 	const initial = (bot.name ?? bot.id).slice(0, 1).toUpperCase();
 	return (
 		<span
-			role="img"
 			className={cn(
 				"inline-flex size-tap items-center justify-center rounded-full text-[length:var(--fs-sm)] font-semibold text-on-accent",
 				className,
 			)}
 			style={{ background: botColorVar(slot) }}
-			aria-label={bot.name ?? bot.id}
+			aria-hidden="true"
 		>
 			{initial}
 		</span>

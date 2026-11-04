@@ -40,6 +40,42 @@ export async function clickByRole(
 	}
 }
 
+/** Horizontal swipe via DOM pointer events. Avoids CDP Input.setInterceptDrags. */
+export async function swipeLeft(page: Page, name: string): Promise<void> {
+	const locator = page.getByRole("button", { name, exact: true });
+	await locator.evaluate((node) => {
+		let target = node instanceof HTMLElement ? node : null;
+		while (target && !target.style.transform) {
+			target = target.parentElement;
+		}
+		if (!target) return;
+		const rect = target.getBoundingClientRect();
+		const y = rect.top + rect.height / 2;
+		const startX = rect.right - 24;
+		const fire = (type: string, x: number) => {
+			const event = new PointerEvent(type, {
+				bubbles: true,
+				cancelable: true,
+				pointerId: 1,
+				pointerType: "touch",
+				isPrimary: true,
+				clientX: x,
+				clientY: y,
+				buttons: type === "pointerup" ? 0 : 1,
+			});
+			if (event.clientX !== x) {
+				Object.defineProperty(event, "clientX", { value: x });
+				Object.defineProperty(event, "clientY", { value: y });
+			}
+			target?.dispatchEvent(event);
+		};
+		fire("pointerdown", startX);
+		fire("pointermove", startX - 40);
+		fire("pointermove", startX - 90);
+		fire("pointerup", startX - 90);
+	});
+}
+
 export async function fillByLabel(page: Page, name: string, value: string) {
 	const locator = page.getByRole("textbox", { name });
 	try {

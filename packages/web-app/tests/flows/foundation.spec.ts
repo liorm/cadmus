@@ -26,17 +26,19 @@ test("theme switch persists across reload with no flash", async ({ page }) => {
 	expect(themeAtStart).toBe("light");
 });
 
-test("bottom sheet opens, Esc closes, focus returns", async ({ page }) => {
+test("composer grows and submits on Send", async ({
+	page,
+	accountId,
+	baseURL,
+}) => {
+	await seedBot(
+		baseURL ?? "http://127.0.0.1:8799",
+		accountId,
+		"Echo Bot",
+		"echo-bot",
+	);
 	await page.goto("/app/#/");
-	await clickByRole(page, "button", "Open menu");
-	await expect(page.getByRole("dialog")).toBeVisible();
-	await page.keyboard.press("Escape");
-	await expect(page.getByRole("dialog")).toHaveCount(0);
-	await expect(page.getByRole("button", { name: "Open menu" })).toBeFocused();
-});
-
-test("composer grows and submits on Send", async ({ page }) => {
-	await page.goto("/app/#/");
+	await expect(page.getByRole("combobox", { name: "Bot" })).toBeVisible();
 	const boxBefore = await page
 		.getByRole("textbox", { name: "Message" })
 		.boundingBox();
@@ -50,7 +52,7 @@ test("composer grows and submits on Send", async ({ page }) => {
 		.boundingBox();
 	expect((boxAfter?.height ?? 0) >= (boxBefore?.height ?? 0)).toBe(true);
 	await clickByRole(page, "button", "Send");
-	await expect(page.getByText("Last sent: line one")).toBeVisible();
+	await expect(page.getByRole("heading", { name: "New task" })).toBeVisible();
 });
 
 const WORKER_BASE = "http://127.0.0.1:8799";
@@ -63,7 +65,7 @@ test("home lists a bot seeded over rpc", async ({
 	const origin = baseURL ?? WORKER_BASE;
 	await seedBot(origin, accountId, "Echo Bot", "echo-bot");
 	await page.goto("/app/#/");
-	await expect(page.getByRole("button", { name: "Echo Bot" })).toBeVisible();
+	await expect(page.getByRole("combobox", { name: "Bot" })).toBeVisible();
 });
 
 test("composer persists a chat through the worker", async ({
@@ -74,24 +76,26 @@ test("composer persists a chat through the worker", async ({
 	const origin = baseURL ?? WORKER_BASE;
 	await seedBot(origin, accountId, "Echo Bot", "echo-bot");
 	await page.goto("/app/#/");
-	await expect(page.getByRole("button", { name: "Echo Bot" })).toBeVisible();
+	await expect(page.getByRole("combobox", { name: "Bot" })).toBeVisible();
 	await fillByLabel(page, "Message", "Morning notes");
 	await clickByRole(page, "button", "Send");
+	await expect(page.getByRole("heading", { name: "New task" })).toBeVisible();
+	await clickByRole(page, "link", "Back");
 	await expect(
-		page.getByRole("navigation", { name: "Chats" }).getByRole("button", {
+		page.getByRole("navigation", { name: "Bots" }).getByRole("button", {
 			name: "Morning notes",
+			exact: true,
 		}),
 	).toBeVisible();
 	await page.reload();
 	await expect(
-		page.getByRole("navigation", { name: "Chats" }).getByRole("button", {
-			name: "Morning notes",
+		page.getByRole("navigation", { name: "Bots" }).getByRole("button", {
+			name: "New task",
+			exact: true,
 		}),
 	).toBeVisible();
 	const listed = await sendAccountRpc<{
 		chats: Array<{ title?: string }>;
 	}>(origin, accountId, "chat.list");
-	expect(listed.chats.some((chat) => chat.title === "Morning notes")).toBe(
-		true,
-	);
+	expect(listed.chats.some((chat) => !chat.title?.trim())).toBe(true);
 });

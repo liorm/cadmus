@@ -3,7 +3,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Page } from "@playwright/test";
 import { THEMES, type ThemeName } from "../../src/theme/theme.ts";
-import { seedBot } from "../support/account.ts";
+import { seedBot, sendAccountRpc } from "../support/account.ts";
 import { clickByRole, fillByLabel } from "../support/actions.ts";
 import { expect, test } from "../support/fixtures.ts";
 
@@ -12,83 +12,6 @@ const OUT_DIR = resolve(
 	"../../.screens",
 );
 const WORKER_BASE = "http://127.0.0.1:8799";
-
-type Shot = {
-	name: string;
-	path: string;
-	ready: string;
-	prepare?: (page: Page) => Promise<void>;
-};
-
-const shots: Shot[] = [
-	{
-		name: "home",
-		path: "/app/#/",
-		ready: "Cadmus",
-	},
-	{
-		name: "settings",
-		path: "/app/#/settings",
-		ready: "Settings",
-	},
-	{
-		name: "sheet",
-		path: "/app/#/",
-		ready: "Cadmus",
-		prepare: async (page) => {
-			await clickByRole(page, "button", "Open menu");
-			await expect(page.getByRole("dialog")).toBeVisible();
-		},
-	},
-	{
-		name: "composer",
-		path: "/app/#/",
-		ready: "Cadmus",
-		prepare: async (page) => {
-			await fillByLabel(page, "Message", "line one\nline two\nline three");
-		},
-	},
-	{
-		name: "search",
-		path: "/app/#/search",
-		ready: "Search",
-	},
-	{
-		name: "archive",
-		path: "/app/#/settings/archive",
-		ready: "Archive",
-	},
-	{
-		name: "chat",
-		path: "/app/#/chat/demo",
-		ready: "Chat",
-	},
-	{
-		name: "chat-raw",
-		path: "/app/#/chat/demo?view=raw",
-		ready: "Raw transcript",
-	},
-	{
-		name: "new-task",
-		path: "/app/#/new?bot=echo-bot",
-		ready: "New task",
-	},
-	{
-		name: "new-bot",
-		path: "/app/#/bot/new",
-		ready: "New bot",
-	},
-	{
-		name: "bot-memory",
-		path: "/app/#/bot/echo-bot/memory",
-		ready: "echo-bot",
-	},
-	{
-		name: "schedule",
-		path: "/app/#/bot/echo-bot/schedule/daily",
-		ready: "Schedule",
-	},
-];
 
 async function openThemed(page: Page, path: string, theme: ThemeName) {
 	await page.goto(path);
@@ -115,28 +38,203 @@ test.beforeEach(async ({ page }) => {
 	});
 });
 
-for (const shot of shots) {
-	test(shot.name, async ({ page, accountId, baseURL }) => {
-		await seedBot(baseURL ?? WORKER_BASE, accountId, "Echo Bot", "echo-bot");
-		for (const theme of THEMES) {
-			await openThemed(page, shot.path, theme);
-			await expect(
-				page.getByRole("heading", { name: shot.ready }),
-			).toBeVisible();
-			if (
-				shot.name === "home" ||
-				shot.name === "sheet" ||
-				shot.name === "composer"
-			) {
-				await expect(
-					page.getByRole("button", { name: "Echo Bot" }),
-				).toBeVisible();
-			}
-			await shot.prepare?.(page);
-			await page.screenshot({
-				path: resolve(OUT_DIR, `${shot.name}-${theme}.png`),
-				animations: "disabled",
-			});
-		}
+async function seedMain(origin: string, accountId: string) {
+	await seedBot(origin, accountId, "Echo Bot", "echo-bot");
+	await sendAccountRpc(origin, accountId, "chat.create", {
+		botId: "echo-bot",
+		title: "Morning notes",
 	});
 }
+
+test("main", async ({ page, accountId, baseURL }) => {
+	const origin = baseURL ?? WORKER_BASE;
+	await seedMain(origin, accountId);
+	for (const theme of THEMES) {
+		await openThemed(page, "/app/#/", theme);
+		await expect(page.getByRole("heading", { name: "Cadmus" })).toBeVisible();
+		await expect(page.getByRole("combobox", { name: "Bot" })).toBeVisible();
+		await expect(
+			page.getByRole("button", { name: "Morning notes", exact: true }),
+		).toBeVisible();
+		await page.screenshot({
+			path: resolve(OUT_DIR, `main-${theme}.png`),
+			animations: "disabled",
+		});
+	}
+});
+
+test("main-swipe", async ({ page, accountId, baseURL }) => {
+	const origin = baseURL ?? WORKER_BASE;
+	await seedMain(origin, accountId);
+	for (const theme of THEMES) {
+		await openThemed(page, "/app/#/", theme);
+		await expect(
+			page.getByRole("button", { name: "Morning notes", exact: true }),
+		).toBeVisible();
+		await page
+			.locator("button[aria-label='Archive chat Morning notes']")
+			.evaluate((node) => {
+				const row = node.parentElement?.querySelector("div[style]");
+				if (row instanceof HTMLElement) {
+					row.style.transform = "translateX(-88px)";
+				}
+			});
+		await page.screenshot({
+			path: resolve(OUT_DIR, `main-swipe-${theme}.png`),
+			animations: "disabled",
+		});
+	}
+});
+
+test("new-task", async ({ page, accountId, baseURL }) => {
+	await seedBot(baseURL ?? WORKER_BASE, accountId, "Echo Bot", "echo-bot");
+	for (const theme of THEMES) {
+		await openThemed(page, "/app/#/new?bot=echo-bot", theme);
+		await expect(page.getByRole("heading", { name: "New task" })).toBeVisible();
+		await fillByLabel(
+			page,
+			"Message",
+			"Redo the dashboard for the wall tablet.",
+		);
+		await page.screenshot({
+			path: resolve(OUT_DIR, `new-task-${theme}.png`),
+			animations: "disabled",
+		});
+	}
+});
+
+test("task", async ({ page, accountId, baseURL }) => {
+	const origin = baseURL ?? WORKER_BASE;
+	await seedBot(origin, accountId, "Echo Bot", "echo-bot");
+	const created = await sendAccountRpc<{ chat: { key: string } }>(
+		origin,
+		accountId,
+		"chat.create",
+		{ botId: "echo-bot", title: "Tune thermostat schedules" },
+	);
+	await sendAccountRpc(origin, accountId, "turn.submit", {
+		chatKey: created.chat.key,
+		text: "Hello",
+	});
+	for (const theme of THEMES) {
+		await openThemed(page, `/app/#/chat/${created.chat.key}`, theme);
+		await expect(
+			page.getByRole("heading", { name: "Tune thermostat schedules" }),
+		).toBeVisible();
+		await page.screenshot({
+			path: resolve(OUT_DIR, `task-${theme}.png`),
+			animations: "disabled",
+		});
+	}
+});
+
+test("task-queued", async ({ page, accountId, baseURL }) => {
+	const origin = baseURL ?? WORKER_BASE;
+	await seedBot(origin, accountId, "Echo Bot", "echo-bot");
+	await page.goto("/app/#/");
+	await fillByLabel(page, "Message", "stay busy [[hold:screen-queue]]");
+	await clickByRole(page, "button", "Send");
+	await expect(page.getByRole("region", { name: "Live card" })).toBeVisible({
+		timeout: 15_000,
+	});
+	await fillByLabel(
+		page,
+		"Message",
+		"Also keep the bathroom schedule unchanged.",
+	);
+	await clickByRole(page, "button", "Send");
+	await expect(page.getByText("Queued, runs after this step")).toBeVisible();
+	for (const theme of THEMES) {
+		await page.evaluate((themeName) => {
+			sessionStorage.setItem("cadmus.screenshot.theme", themeName);
+			localStorage.setItem("cadmus.theme", themeName);
+			document.documentElement.setAttribute("data-theme", themeName);
+		}, theme);
+		await page.screenshot({
+			path: resolve(OUT_DIR, `task-queued-${theme}.png`),
+			animations: "disabled",
+		});
+	}
+});
+
+test("task-collapsed", async ({ page, accountId, baseURL }) => {
+	const origin = baseURL ?? WORKER_BASE;
+	await seedBot(origin, accountId, "Echo Bot", "echo-bot");
+	await page.goto("/app/#/");
+	await fillByLabel(page, "Message", "stay busy [[hold:screen-collapse]]");
+	await clickByRole(page, "button", "Send");
+	await expect(page.getByRole("region", { name: "Live card" })).toBeVisible({
+		timeout: 15_000,
+	});
+	await clickByRole(page, "button", "Collapse live card");
+	for (const theme of THEMES) {
+		await page.evaluate((themeName) => {
+			document.documentElement.setAttribute("data-theme", themeName);
+		}, theme);
+		await page.screenshot({
+			path: resolve(OUT_DIR, `task-collapsed-${theme}.png`),
+			animations: "disabled",
+		});
+	}
+});
+
+test("task-scrolled", async ({ page, accountId, baseURL }) => {
+	const origin = baseURL ?? WORKER_BASE;
+	await seedBot(origin, accountId, "Echo Bot", "echo-bot");
+	const created = await sendAccountRpc<{ chat: { key: string } }>(
+		origin,
+		accountId,
+		"chat.create",
+		{ botId: "echo-bot", title: "Tune thermostat schedules" },
+	);
+	await sendAccountRpc(origin, accountId, "turn.submit", {
+		chatKey: created.chat.key,
+		text: "First line of a long thread",
+	});
+	await page.goto(`/app/#/chat/${created.chat.key}`);
+	await fillByLabel(page, "Message", "stay busy [[hold:screen-scroll]]");
+	await clickByRole(page, "button", "Send");
+	await expect(page.getByRole("region", { name: "Live card" })).toBeVisible({
+		timeout: 15_000,
+	});
+	await page.locator("#chat-scroller").evaluate((node) => {
+		const el = node as HTMLElement;
+		const pad = document.createElement("div");
+		pad.style.height = "1200px";
+		el.insertBefore(pad, el.firstChild);
+		el.scrollTop = 0;
+		el.dispatchEvent(new Event("scroll"));
+	});
+	await expect
+		.poll(async () =>
+			page.locator("#chat-scroller").evaluate((node) => {
+				const el = node as HTMLElement;
+				return el.scrollTop < 40 && el.scrollHeight > el.clientHeight + 40;
+			}),
+		)
+		.toBe(true);
+	await expect(page.getByRole("button", { name: "Jump to live" })).toBeVisible({
+		timeout: 10_000,
+	});
+	for (const theme of THEMES) {
+		await page.evaluate((themeName) => {
+			document.documentElement.setAttribute("data-theme", themeName);
+		}, theme);
+		await page.screenshot({
+			path: resolve(OUT_DIR, `task-scrolled-${theme}.png`),
+			animations: "disabled",
+		});
+	}
+});
+
+test("settings", async ({ page, accountId, baseURL }) => {
+	await seedBot(baseURL ?? WORKER_BASE, accountId, "Echo Bot", "echo-bot");
+	for (const theme of THEMES) {
+		await openThemed(page, "/app/#/settings", theme);
+		await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
+		await page.screenshot({
+			path: resolve(OUT_DIR, `settings-${theme}.png`),
+			animations: "disabled",
+		});
+	}
+});

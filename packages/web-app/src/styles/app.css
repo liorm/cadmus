@@ -74,3 +74,11 @@ body {
 .cadmus-spin {
 	animation: cadmus-spin 0.8s linear infinite;
 }
+
+.tint-needs {
+	background: color-mix(
+		in srgb,
+		var(--status-needs-you) var(--tint),
+		var(--surface)
+	);
+}
