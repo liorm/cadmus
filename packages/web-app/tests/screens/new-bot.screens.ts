@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import type { Page } from "@playwright/test";
 import { THEMES, type ThemeName } from "../../src/theme/theme.ts";
 import { seedBot, sendAccountRpc } from "../support/account.ts";
-import { fillByLabel } from "../support/actions.ts";
+import { clickByRole, fillByLabel } from "../support/actions.ts";
 import { expect, test } from "../support/fixtures.ts";
 
 const OUT_DIR = resolve(
@@ -74,11 +74,9 @@ test("05-newtask", async ({ page, accountId, baseURL }) => {
 	for (const theme of THEMES) {
 		await openThemed(page, "/new?bot=ha-agent", theme);
 		await expect(
-			page.getByRole("button", { name: "To: OnePlus HA Agent" }),
-		).toBeVisible();
-		await expect(
 			page.getByRole("button", { name: "Let TL route" }),
-		).toBeVisible();
+		).toHaveAttribute("aria-pressed", "true");
+		await expect(page.getByRole("button", { name: /To:/ })).toHaveCount(0);
 		await fillByLabel(
 			page,
 			"Message",
@@ -86,6 +84,17 @@ test("05-newtask", async ({ page, accountId, baseURL }) => {
 		);
 		await page.screenshot({
 			path: resolve(OUT_DIR, `05-newtask-${theme}.png`),
+			animations: "disabled",
+		});
+		await clickByRole(page, "button", "Let TL route");
+		await expect(
+			page.getByRole("button", { name: "Let TL route" }),
+		).toHaveAttribute("aria-pressed", "false");
+		await expect(
+			page.getByRole("button", { name: "To: OnePlus HA Agent" }),
+		).toBeVisible();
+		await page.screenshot({
+			path: resolve(OUT_DIR, `05-newtask-pick-${theme}.png`),
 			animations: "disabled",
 		});
 	}

@@ -129,13 +129,10 @@ test("Let TL route creates the chat with the team leader", async ({
 	});
 	await watchPosts(page);
 	await page.goto("/new?bot=echo-bot");
-	await expect(
-		page.getByRole("button", { name: "Let TL route" }),
-	).toBeVisible();
-	await clickByRole(page, "button", "Let TL route");
-	await expect(
-		page.getByRole("button", { name: "Let TL route" }),
-	).toHaveAttribute("aria-pressed", "true");
+	const letTl = page.getByRole("button", { name: "Let TL route" });
+	await expect(letTl).toBeVisible();
+	await expect(letTl).toHaveAttribute("aria-pressed", "true");
+	await expect(page.getByRole("button", { name: /To:/ })).toHaveCount(0);
 	await fillByLabel(page, "Message", "Route this");
 	await clickByRole(page, "button", "Send");
 	await expect(page.getByText(/echo\(1\): Route this/)).toBeVisible({
@@ -145,7 +142,67 @@ test("Let TL route creates the chat with the team leader", async ({
 		chats: Array<{ botId: string }>;
 	}>(origin, accountId, "chat.list");
 	expect(listed.chats.some((chat) => chat.botId === "leader-bot")).toBe(true);
+	const created = (await posted(page, "/api/chat/create")).join("\n");
+	expect(created).toContain('"botId":"leader-bot"');
+	expect(created).not.toContain('"botId":"echo-bot"');
+});
+
+test("Let TL off uses the picked bot, then on routes to the leader", async ({
+	page,
+	accountId,
+	baseURL,
+}) => {
+	const origin = baseURL ?? WORKER_BASE;
+	await seedBot(origin, accountId, "Echo Bot", "echo-bot");
+	await seedBot(origin, accountId, "Garden Agent", "garden-agent");
+	await seedBot(origin, accountId, "Leader", "leader-bot");
+	await sendAccountRpc(origin, accountId, "family.update", {
+		teamLeaderBotId: "leader-bot",
+	});
+	await watchPosts(page);
+	await page.goto("/new?bot=echo-bot");
+	const letTl = page.getByRole("button", { name: "Let TL route" });
+	await expect(letTl).toHaveAttribute("aria-pressed", "true");
+	await clickByRole(page, "button", "Let TL route");
+	await expect(letTl).toHaveAttribute("aria-pressed", "false");
+	await expect(
+		page.getByRole("button", { name: "To: Echo Bot" }),
+	).toBeVisible();
+	await clickByRole(page, "button", "To: Echo Bot");
+	await clickByRole(page, "button", "Garden Agent");
+	await expect(
+		page.getByRole("button", { name: "To: Garden Agent" }),
+	).toBeVisible();
+	await fillByLabel(page, "Message", "Pick garden");
+	await clickByRole(page, "button", "Send");
+	await expect(page.getByText(/echo\(1\): Pick garden/)).toBeVisible({
+		timeout: 15_000,
+	});
 	expect((await posted(page, "/api/chat/create")).join("\n")).toContain(
-		'"botId":"leader-bot"',
+		'"botId":"garden-agent"',
 	);
+
+	await page.goto("/new?bot=echo-bot");
+	await expect(letTl).toHaveAttribute("aria-pressed", "true");
+	await clickByRole(page, "button", "Let TL route");
+	await clickByRole(page, "button", "To: Echo Bot");
+	await clickByRole(page, "button", "Garden Agent");
+	await clickByRole(page, "button", "Let TL route");
+	await expect(letTl).toHaveAttribute("aria-pressed", "true");
+	await expect(page.getByRole("button", { name: /To:/ })).toHaveCount(0);
+	await expect(page.getByRole("dialog", { name: "Choose a bot" })).toHaveCount(
+		0,
+	);
+	await fillByLabel(page, "Message", "Back to leader");
+	await clickByRole(page, "button", "Send");
+	await expect(page.getByText(/echo\(1\): Back to leader/)).toBeVisible({
+		timeout: 15_000,
+	});
+	const creates = (await posted(page, "/api/chat/create")).join("\n");
+	expect(creates).toContain('"botId":"leader-bot"');
+	const listed = await sendAccountRpc<{
+		chats: Array<{ botId: string }>;
+	}>(origin, accountId, "chat.list");
+	expect(listed.chats.some((chat) => chat.botId === "leader-bot")).toBe(true);
+	expect(listed.chats.some((chat) => chat.botId === "garden-agent")).toBe(true);
 });

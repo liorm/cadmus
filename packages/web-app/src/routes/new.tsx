@@ -37,10 +37,17 @@ function ToBotChip({ bot, onOpen }: { bot: BotRecord; onOpen: () => void }) {
 }
 
 export function NewTaskPage({ botId }: { botId?: string }) {
-	const { bots, teamLeaderBotId, createChatAndSubmit } = useCadmus();
+	const { bots, teamLeaderBotId, familyId, createChatAndSubmit } = useCadmus();
 	const [pickedBotId, setPickedBotId] = useState<string | null>(null);
 	const [pickerOpen, setPickerOpen] = useState(false);
-	const [letTl, setLetTl] = useState(false);
+	const [letTlOff, setLetTlOff] = useState(false);
+	const [scope, setScope] = useState(familyId);
+	if (scope !== familyId) {
+		setScope(familyId);
+		setPickedBotId(null);
+		setPickerOpen(false);
+		setLetTlOff(false);
+	}
 	const selected =
 		(pickedBotId
 			? bots.find((entry) => entry.id === pickedBotId)
@@ -51,6 +58,7 @@ export function NewTaskPage({ botId }: { botId?: string }) {
 		teamLeaderBotId && bots.some((entry) => entry.id === teamLeaderBotId)
 			? teamLeaderBotId
 			: undefined;
+	const letTl = Boolean(leader) && !letTlOff;
 
 	return (
 		<AppShell
@@ -77,17 +85,25 @@ export function NewTaskPage({ botId }: { botId?: string }) {
 				<Composer
 					placeholder="Message"
 					autoFocus
-					disabled={!selected}
+					disabled={!selected && !letTl}
 					chips={
-						selected ? (
+						selected || leader ? (
 							<>
-								<ToBotChip bot={selected} onOpen={() => setPickerOpen(true)} />
+								{selected && !letTl ? (
+									<ToBotChip
+										bot={selected}
+										onOpen={() => setPickerOpen(true)}
+									/>
+								) : null}
 								{leader ? (
 									<button
 										type="button"
 										aria-pressed={letTl}
 										aria-label="Let TL route"
-										onClick={() => setLetTl((on) => !on)}
+										onClick={() => {
+											setPickerOpen(false);
+											setLetTlOff(letTl);
+										}}
 										className={cn(
 											"inline-flex min-h-tap items-center rounded-full border px-3 text-[length:var(--fs-sm)]",
 											letTl
@@ -111,8 +127,11 @@ export function NewTaskPage({ botId }: { botId?: string }) {
 				/>
 			</div>
 			<BottomSheet
-				open={pickerOpen}
-				onOpenChange={setPickerOpen}
+				open={pickerOpen && !letTl}
+				onOpenChange={(open) => {
+					if (letTl) return;
+					setPickerOpen(open);
+				}}
 				title="Choose a bot"
 			>
 				{bots.map((bot) => (
@@ -123,7 +142,6 @@ export function NewTaskPage({ botId }: { botId?: string }) {
 						className="flex min-h-tap w-full items-center gap-3 text-left"
 						onClick={() => {
 							setPickedBotId(bot.id);
-							setLetTl(false);
 							setPickerOpen(false);
 						}}
 					>

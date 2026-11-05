@@ -78,11 +78,12 @@ test("team leader select shows and hides Let TL route", async ({
 	await page.goto("/new?bot=echo-bot");
 	await expect(
 		page.getByRole("button", { name: "Let TL route" }),
-	).toBeVisible();
+	).toHaveAttribute("aria-pressed", "true");
+	await expect(page.getByRole("button", { name: /To:/ })).toHaveCount(0);
 	await page.reload();
 	await expect(
 		page.getByRole("button", { name: "Let TL route" }),
-	).toBeVisible();
+	).toHaveAttribute("aria-pressed", "true");
 	await page.goto("/settings");
 	await expect(
 		page.getByRole("combobox", { name: "Team Leader bot" }),
