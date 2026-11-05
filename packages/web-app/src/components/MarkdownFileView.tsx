@@ -1,11 +1,31 @@
 import { useBlocker } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useRef, useState } from "react";
 import { Markdown } from "@/components/Markdown";
 import { LoadGate } from "@/components/Skeleton";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { useCadmus } from "@/context/CadmusContext";
 import { useScopedResource } from "@/hooks/useScopedResource";
+
+type EditorState = {
+	scope: string;
+	baseline: string;
+	draft: string;
+	version: number | undefined;
+	editing: boolean;
+	error: string | null;
+};
+
+function blankEditor(scope: string): EditorState {
+	return {
+		scope,
+		baseline: "",
+		draft: "",
+		version: undefined,
+		editing: false,
+		error: null,
+	};
+}
 
 export function MarkdownFileView({
 	botId,
@@ -19,7 +39,8 @@ export function MarkdownFileView({
 	onDelete?: () => void;
 }) {
 	const { client } = useCadmus();
-	const loaded = useScopedResource(`${botId}:${path}`, async () => {
+	const scope = `${botId}:${path}`;
+	const loaded = useScopedResource(scope, async () => {
 		const res = await client.callRpc<{
 			content?: string;
 			text?: string;
@@ -31,53 +52,81 @@ export function MarkdownFileView({
 			version: res.result?.version,
 		};
 	});
-	const content = loaded.data?.text ?? "";
-	const [draft, setDraft] = useState("");
-	const [version, setVersion] = useState<number | undefined>();
-	const [editing, setEditing] = useState(false);
-	const [error, setError] = useState<string | null>(null);
-	const dirty = editing && draft !== content;
-
-	useEffect(() => {
-		if (!loaded.data || editing) return;
-		setDraft(loaded.data.text);
-		setVersion(loaded.data.version);
-	}, [editing, loaded.data]);
-
-	useEffect(() => {
-		if (!dirty) return;
-		const onBefore = (event: BeforeUnloadEvent) => {
-			event.preventDefault();
+	const [editor, setEditor] = useState<EditorState>(() => blankEditor(scope));
+	let view = editor.scope === scope ? editor : blankEditor(scope);
+	const loadedText =
+		loaded.phase === "ready" && loaded.data ? loaded.data.text : undefined;
+	const loadedVersion = loaded.data?.version;
+	const hasRealEdits = view.editing && view.draft !== view.baseline;
+	if (
+		loadedText !== undefined &&
+		!hasRealEdits &&
+		(view.baseline !== loadedText ||
+			view.draft !== loadedText ||
+			view.version !== loadedVersion)
+	) {
+		view = {
+			...view,
+			scope,
+			baseline: loadedText,
+			draft: loadedText,
+			version: loadedVersion,
 		};
-		window.addEventListener("beforeunload", onBefore);
-		return () => window.removeEventListener("beforeunload", onBefore);
-	}, [dirty]);
+	}
+	if (view !== editor) setEditor(view);
+	const dirty = hasRealEdits;
+	const dirtyRef = useRef(dirty);
+	dirtyRef.current = dirty;
 
 	useBlocker({
-		shouldBlockFn: () => dirty && !window.confirm("Discard unsaved changes?"),
+		shouldBlockFn: () =>
+			dirtyRef.current && !window.confirm("Discard unsaved changes?"),
+		enableBeforeUnload: () => dirtyRef.current,
 		withResolver: false,
 	});
 
 	async function save() {
-		setError(null);
+		const draft = view.draft;
 		const res = await client.callRpc<{ version?: number }>("file.write", {
 			botId,
 			path,
 			content: draft,
-			...(version !== undefined ? { expectedVersion: version } : {}),
+			...(view.version !== undefined ? { expectedVersion: view.version } : {}),
 		});
 		if (!res.ok) {
-			setError(res.error?.message ?? "Save failed");
+			const message = res.error?.message ?? "Save failed";
+			setEditor((prev) =>
+				prev.scope !== scope ? prev : { ...prev, error: message },
+			);
 			return;
 		}
-		if (res.result?.version !== undefined) setVersion(res.result.version);
-		setEditing(false);
+		const version = res.result?.version ?? view.version;
+		setEditor((prev) =>
+			prev.scope !== scope
+				? prev
+				: {
+						...prev,
+						baseline: draft,
+						draft,
+						version,
+						editing: false,
+						error: null,
+					},
+		);
 		loaded.retry();
 	}
 
 	function requestLeave(next: () => void) {
 		if (dirty && !window.confirm("Discard unsaved changes?")) return;
 		next();
+	}
+
+	function beginEdit() {
+		setEditor((prev) =>
+			prev.scope !== scope
+				? prev
+				: { ...prev, editing: true, draft: prev.baseline, error: null },
+		);
 	}
 
 	return (
@@ -104,14 +153,22 @@ export function MarkdownFileView({
 						Delete
 					</Button>
 				) : null}
-				{loaded.phase !== "ready" ? null : editing ? (
+				{loaded.phase !== "ready" ? null : view.editing ? (
 					<>
 						<Button
 							variant="outlined"
 							onClick={() =>
 								requestLeave(() => {
-									setDraft(content);
-									setEditing(false);
+									setEditor((prev) =>
+										prev.scope !== scope
+											? prev
+											: {
+													...prev,
+													draft: prev.baseline,
+													editing: false,
+													error: null,
+												},
+									);
 								})
 							}
 						>
@@ -120,21 +177,17 @@ export function MarkdownFileView({
 						<Button onClick={() => void save()}>Save</Button>
 					</>
 				) : (
-					<Button
-						variant="outlined"
-						aria-label="Edit"
-						onClick={() => setEditing(true)}
-					>
+					<Button variant="outlined" aria-label="Edit" onClick={beginEdit}>
 						✎ Edit
 					</Button>
 				)}
 			</div>
-			{error ? (
+			{view.error ? (
 				<p
 					role="alert"
 					className="px-3 text-[length:var(--fs-sm)] text-status-failed"
 				>
-					{error}
+					{view.error}
 				</p>
 			) : null}
 			<LoadGate
@@ -143,17 +196,22 @@ export function MarkdownFileView({
 				onRetry={loaded.retry}
 				label={`Loading ${title}`}
 			>
-				{editing ? (
+				{view.editing ? (
 					<Textarea
 						aria-label={`${title} source`}
-						value={draft}
-						onChange={(event) => setDraft(event.target.value)}
+						value={view.draft}
+						onChange={(event) => {
+							const next = event.target.value;
+							setEditor((prev) =>
+								prev.scope !== scope ? prev : { ...prev, draft: next },
+							);
+						}}
 						disabled={loaded.phase !== "ready"}
 						className="m-3 min-h-0 flex-1 font-mono"
 					/>
 				) : (
 					<div className="min-h-0 flex-1 overflow-y-auto px-4 py-2">
-						<Markdown source={content || "_Empty._"} />
+						<Markdown source={view.baseline || "_Empty._"} />
 					</div>
 				)}
 			</LoadGate>

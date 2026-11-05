@@ -199,6 +199,274 @@ test("delete bot confirms and leaves the main list", async ({
 	).toBe(true);
 });
 
+/** Record `window.confirm` and choose the answer. Obscura drops textarea `.value`. */
+async function installConfirm(page: Page, accept = false): Promise<void> {
+	await page.addInitScript((acceptByDefault) => {
+		const bag = window as unknown as {
+			__confirms?: string[];
+			__acceptConfirm?: boolean;
+		};
+		bag.__confirms = [];
+		bag.__acceptConfirm = acceptByDefault;
+		window.confirm = (message?: string) => {
+			bag.__confirms?.push(String(message ?? ""));
+			return bag.__acceptConfirm === true;
+		};
+	}, accept);
+}
+
+async function confirms(page: Page): Promise<string[]> {
+	return page.evaluate(
+		() => (window as unknown as { __confirms?: string[] }).__confirms ?? [],
+	);
+}
+
+async function setConfirmAccept(page: Page, accept: boolean): Promise<void> {
+	await page.evaluate((next) => {
+		(window as unknown as { __acceptConfirm?: boolean }).__acceptConfirm = next;
+	}, accept);
+}
+
+test("soul and memory edit with no typing stays clean", async ({
+	page,
+	accountId,
+	baseURL,
+}) => {
+	const origin = baseURL ?? WORKER_BASE;
+	await seedBot(origin, accountId, "Echo Bot", "echo-bot");
+	await sendAccountRpc(origin, accountId, "file.write", {
+		botId: "echo-bot",
+		path: "SOUL.md",
+		content: "# Soul\n\nCalm.",
+	});
+	await sendAccountRpc(origin, accountId, "file.write", {
+		botId: "echo-bot",
+		path: "MEMORY.md",
+		content: "# Memory\n\nDark roast.",
+	});
+	await installConfirm(page);
+	await page.goto("/bot/echo-bot/soul");
+	await expect(
+		page.getByRole("heading", { name: "Soul", level: 1 }),
+	).toBeVisible();
+	await expect(page.getByText("Unsaved changes")).toHaveCount(0);
+	await clickByRole(page, "button", "Edit");
+	await expect(page.getByRole("button", { name: "Save" })).toBeVisible();
+	await expect(page.getByText("Unsaved changes")).toHaveCount(0);
+	await clickByRole(page, "radio", "Memory");
+	await expect(
+		page.getByRole("heading", { name: "Memory", level: 1 }),
+	).toBeVisible();
+	await expect(page.getByText("Unsaved changes")).toHaveCount(0);
+	await clickByRole(page, "button", "Edit");
+	await expect(page.getByRole("button", { name: "Save" })).toBeVisible();
+	await expect(page.getByText("Unsaved changes")).toHaveCount(0);
+	await clickByRole(page, "radio", "Schedules");
+	await expect(
+		page.getByRole("button", { name: "New schedule" }),
+	).toBeVisible();
+	expect(await confirms(page)).toEqual([]);
+});
+
+/** TanStack History blocks unload only when `enableBeforeUnload` returns true. */
+async function beforeUnloadBlocked(page: Page): Promise<boolean> {
+	return page.evaluate(() => {
+		const event = new Event("beforeunload", { cancelable: true });
+		window.dispatchEvent(event);
+		return event.defaultPrevented;
+	});
+}
+
+test("beforeunload warns only while soul edits differ from baseline", async ({
+	page,
+	accountId,
+	baseURL,
+}) => {
+	const origin = baseURL ?? WORKER_BASE;
+	await seedBot(origin, accountId, "Echo Bot", "echo-bot");
+	await sendAccountRpc(origin, accountId, "file.write", {
+		botId: "echo-bot",
+		path: "SOUL.md",
+		content: "# Soul\n\nCalm.",
+	});
+	await page.goto("/bot/echo-bot/soul");
+	await expect(
+		page.getByRole("heading", { name: "Soul", level: 1 }),
+	).toBeVisible();
+	expect(await beforeUnloadBlocked(page)).toBe(false);
+	await clickByRole(page, "button", "Edit");
+	await expect(page.getByRole("button", { name: "Save" })).toBeVisible();
+	expect(await beforeUnloadBlocked(page)).toBe(false);
+	await fillByLabel(page, "SOUL.md source", "# Soul\n\nRestless.");
+	await expect(page.getByText("Unsaved changes")).toBeVisible();
+	expect(await beforeUnloadBlocked(page)).toBe(true);
+	await fillByLabel(page, "SOUL.md source", "# Soul\n\nCalm.");
+	await expect(page.getByText("Unsaved changes")).toHaveCount(0);
+	expect(await beforeUnloadBlocked(page)).toBe(false);
+	await page.reload();
+	await expect(
+		page.getByRole("heading", { name: "Soul", level: 1 }),
+	).toBeVisible();
+	expect(await beforeUnloadBlocked(page)).toBe(false);
+});
+
+test("memory edit prompts only for real changes and clears when reverted or saved", async ({
+	page,
+	accountId,
+	baseURL,
+}) => {
+	const origin = baseURL ?? WORKER_BASE;
+	await seedBot(origin, accountId, "Echo Bot", "echo-bot");
+	await sendAccountRpc(origin, accountId, "file.write", {
+		botId: "echo-bot",
+		path: "MEMORY.md",
+		content: "# Memory\n\nDark roast.",
+	});
+	await sendAccountRpc(origin, accountId, "file.write", {
+		botId: "echo-bot",
+		path: "knowledge/heating.md",
+		content: "# Heating\n\nZones.",
+		description: "Heating zones",
+	});
+	await installConfirm(page, false);
+	await page.goto("/bot/echo-bot/memory");
+	await clickByRole(page, "button", "Edit");
+	await fillByLabel(page, "MEMORY.md source", "# Memory\n\nLight roast.");
+	await expect(page.getByText("Unsaved changes")).toBeVisible();
+	await clickByRole(page, "radio", "Soul");
+	await expect(page.getByRole("button", { name: "Save" })).toBeVisible();
+	await expect(page.getByText("Unsaved changes")).toBeVisible();
+	expect(await confirms(page)).toEqual(["Discard unsaved changes?"]);
+	await fillByLabel(page, "MEMORY.md source", "# Memory\n\nDark roast.");
+	await expect(page.getByText("Unsaved changes")).toHaveCount(0);
+	await clickByRole(page, "radio", "Soul");
+	await expect(page.getByText("SOUL.md")).toBeVisible();
+	expect(await confirms(page)).toEqual(["Discard unsaved changes?"]);
+	await clickByRole(page, "radio", "Memory");
+	await clickByRole(page, "button", "Edit");
+	await fillByLabel(page, "MEMORY.md source", "# Memory\n\nLight roast.");
+	await setConfirmAccept(page, true);
+	await clickByRole(page, "radio", "Knowledge");
+	await expect(
+		page.getByRole("button", { name: /heating \d+ bytes/ }),
+	).toBeVisible();
+	expect(await confirms(page)).toEqual([
+		"Discard unsaved changes?",
+		"Discard unsaved changes?",
+	]);
+	await page.getByRole("button", { name: /heating \d+ bytes/ }).click();
+	await expect(page.getByRole("button", { name: "Edit" })).toBeVisible();
+	await expect(page.getByText("Unsaved changes")).toHaveCount(0);
+	await clickByRole(page, "button", "Edit");
+	await expect(page.getByText("Unsaved changes")).toHaveCount(0);
+	await page.goBack();
+	await expect(
+		page.getByRole("button", { name: /heating \d+ bytes/ }),
+	).toBeVisible();
+});
+
+test("memory save clears dirty and a failed save keeps it", async ({
+	page,
+	accountId,
+	baseURL,
+}) => {
+	const origin = baseURL ?? WORKER_BASE;
+	await seedBot(origin, accountId, "Echo Bot", "echo-bot");
+	await sendAccountRpc(origin, accountId, "file.write", {
+		botId: "echo-bot",
+		path: "MEMORY.md",
+		content: "# Memory\n\nDark roast.",
+	});
+	await installConfirm(page);
+	let failWrite = true;
+	await page.route("**/api/file/write**", async (route) => {
+		if (!failWrite) {
+			await route.continue();
+			return;
+		}
+		await route.fulfill({
+			status: 409,
+			contentType: "application/json",
+			body: JSON.stringify({
+				error: { code: "conflict", message: "Version conflict" },
+			}),
+		});
+	});
+	await page.goto("/bot/echo-bot/memory");
+	await clickByRole(page, "button", "Edit");
+	await fillByLabel(page, "MEMORY.md source", "# Memory\n\nLight roast.");
+	await clickByRole(page, "button", "Save");
+	await expect(page.getByRole("alert")).toHaveText("Version conflict");
+	await expect(page.getByText("Unsaved changes")).toBeVisible();
+	await expect(page.getByRole("button", { name: "Save" })).toBeVisible();
+	await setConfirmAccept(page, true);
+	await clickByRole(page, "button", "Cancel");
+	await expect(page.getByRole("alert")).toHaveCount(0);
+	await expect(page.getByText("Unsaved changes")).toHaveCount(0);
+	await clickByRole(page, "button", "Edit");
+	await expect(page.getByRole("alert")).toHaveCount(0);
+	await fillByLabel(page, "MEMORY.md source", "# Memory\n\nLight roast.");
+	await clickByRole(page, "button", "Save");
+	await expect(page.getByRole("alert")).toHaveText("Version conflict");
+	await setConfirmAccept(page, true);
+	await clickByRole(page, "radio", "Soul");
+	await expect(page.getByText("SOUL.md")).toBeVisible();
+	await expect(page.getByRole("alert")).toHaveCount(0);
+	await clickByRole(page, "radio", "Memory");
+	await clickByRole(page, "button", "Edit");
+	await fillByLabel(page, "MEMORY.md source", "# Memory\n\nLight roast.");
+	failWrite = false;
+	await clickByRole(page, "button", "Save");
+	await expect(page.getByRole("button", { name: "Edit" })).toBeVisible();
+	await expect(page.getByText("Unsaved changes")).toHaveCount(0);
+	await clickByRole(page, "radio", "Soul");
+	await expect(page.getByText("SOUL.md")).toBeVisible();
+	expect(await confirms(page)).toEqual([
+		"Discard unsaved changes?",
+		"Discard unsaved changes?",
+	]);
+});
+
+test("slow soul load does not mark dirty before or after edit", async ({
+	page,
+	accountId,
+	baseURL,
+}) => {
+	const origin = baseURL ?? WORKER_BASE;
+	await seedBot(origin, accountId, "Echo Bot", "echo-bot");
+	await sendAccountRpc(origin, accountId, "file.write", {
+		botId: "echo-bot",
+		path: "SOUL.md",
+		content: "# Soul\n\nCalm.",
+	});
+	await installConfirm(page);
+	let releaseRead: (() => void) | undefined;
+	const gate = new Promise<void>((resolve) => {
+		releaseRead = resolve;
+	});
+	await page.route("**/api/file/read**", async (route) => {
+		await gate;
+		await route.continue();
+	});
+	await page.goto("/bot/echo-bot/soul");
+	await expect(
+		page.getByRole("status", { name: "Loading SOUL.md" }),
+	).toBeVisible();
+	await expect(page.getByText("Unsaved changes")).toHaveCount(0);
+	await expect(page.getByRole("button", { name: "Edit" })).toHaveCount(0);
+	releaseRead?.();
+	await expect(
+		page.getByRole("heading", { name: "Soul", level: 1 }),
+	).toBeVisible();
+	await expect(page.getByText("Unsaved changes")).toHaveCount(0);
+	await clickByRole(page, "button", "Edit");
+	await expect(page.getByRole("button", { name: "Save" })).toBeVisible();
+	await expect(page.getByText("Unsaved changes")).toHaveCount(0);
+	await clickByRole(page, "radio", "Memory");
+	await expect(page.getByText("MEMORY.md")).toBeVisible();
+	expect(await confirms(page)).toEqual([]);
+});
+
 test("memory edit writes and knowledge delete removes a doc", async ({
 	page,
 	accountId,
