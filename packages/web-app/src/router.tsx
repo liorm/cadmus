@@ -7,17 +7,22 @@ import {
 } from "@tanstack/react-router";
 import { CadmusProvider } from "@/context/CadmusContext";
 import { isBotTab } from "@/lib/profile-tabs";
+import { ArchivePage } from "@/routes/archive";
 import { NewBotPage } from "@/routes/bot-new";
 import { ChatPage } from "@/routes/chat";
 import { DocPage } from "@/routes/doc";
 import { HarvestPage } from "@/routes/harvest";
 import { HomePage } from "@/routes/home";
 import { NewTaskPage } from "@/routes/new";
-import { PlaceholderPage } from "@/routes/placeholder";
 import { ProfilePage } from "@/routes/profile";
 import { SchedulePage } from "@/routes/schedule";
 import { SearchPage } from "@/routes/search";
 import { SettingsPage } from "@/routes/settings";
+import { AccountSettingsPage } from "@/routes/settings-account";
+import { FamilySettingsPage } from "@/routes/settings-family";
+import { ProvidersSettingsPage } from "@/routes/settings-providers";
+import { AllSchedulesPage } from "@/routes/settings-schedules";
+import { ToolsSettingsPage } from "@/routes/settings-tools";
 import { ToolsPage } from "@/routes/tools";
 
 const rootRoute = createRootRoute({
@@ -89,9 +94,13 @@ const botTabRoute = createRoute({
 const scheduleRoute = createRoute({
 	getParentRoute: () => rootRoute,
 	path: "/bot/$botId/schedule/$id",
+	validateSearch: (search: Record<string, unknown>): { from?: "all" } => ({
+		from: search.from === "all" ? "all" : undefined,
+	}),
 	component: function ScheduleRoutePage() {
 		const { botId, id } = scheduleRoute.useParams();
-		return <SchedulePage botId={botId} id={id} />;
+		const { from } = scheduleRoute.useSearch();
+		return <SchedulePage botId={botId} id={id} from={from} />;
 	},
 });
 
@@ -132,10 +141,40 @@ const settingsRoute = createRoute({
 	component: SettingsPage,
 });
 
+const accountSettingsRoute = createRoute({
+	getParentRoute: () => rootRoute,
+	path: "/settings/account",
+	component: AccountSettingsPage,
+});
+
+const familySettingsRoute = createRoute({
+	getParentRoute: () => rootRoute,
+	path: "/settings/family",
+	component: FamilySettingsPage,
+});
+
+const providersSettingsRoute = createRoute({
+	getParentRoute: () => rootRoute,
+	path: "/settings/providers",
+	component: ProvidersSettingsPage,
+});
+
+const toolsSettingsRoute = createRoute({
+	getParentRoute: () => rootRoute,
+	path: "/settings/tools",
+	component: ToolsSettingsPage,
+});
+
+const allSchedulesRoute = createRoute({
+	getParentRoute: () => rootRoute,
+	path: "/settings/schedules",
+	component: AllSchedulesPage,
+});
+
 const archiveRoute = createRoute({
 	getParentRoute: () => rootRoute,
 	path: "/settings/archive",
-	component: () => <PlaceholderPage title="Archive" />,
+	component: ArchivePage,
 });
 
 const searchRoute = createRoute({
@@ -156,6 +195,11 @@ const routeTree = rootRoute.addChildren([
 	harvestRoute,
 	docRoute,
 	settingsRoute,
+	accountSettingsRoute,
+	familySettingsRoute,
+	providersSettingsRoute,
+	toolsSettingsRoute,
+	allSchedulesRoute,
 	archiveRoute,
 	searchRoute,
 ]);

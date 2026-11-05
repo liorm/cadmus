@@ -85,6 +85,8 @@ export interface CadmusContextValue {
 	toggleCollapsed: (botId: string) => void;
 	markChatSeen: (chatKey: string) => number | undefined;
 	setLastBotId: (id: string) => void;
+	familyId: string;
+	switchFamily: (familyId: string) => Promise<void>;
 	archiveChat: (chatKey: string) => Promise<void>;
 	retryChat: (chatKey: string) => Promise<void>;
 	noteUserText: (chatKey: string, text: string) => void;
@@ -157,6 +159,7 @@ export function CadmusProvider({
 	const [lastBotId, setLastBotIdState] = useState<string | undefined>(
 		loadLastBotId,
 	);
+	const [familyId, setFamilyId] = useState(authConfig.familyId);
 	const [teamLeaderBotId, setTeamLeaderBotId] = useState<string | undefined>();
 	const [directoryReady, setDirectoryReady] = useState(false);
 
@@ -414,6 +417,32 @@ export function CadmusProvider({
 		setLastBotIdState(id);
 	}, []);
 
+	const switchFamily = useCallback(
+		async (nextFamilyId: string) => {
+			const trimmed = nextFamilyId.trim();
+			if (!trimmed) return;
+			try {
+				const raw = localStorage.getItem(STORAGE_KEY);
+				const parsed = raw
+					? (JSON.parse(raw) as Partial<DevAuthConfig>)
+					: authConfig;
+				localStorage.setItem(
+					STORAGE_KEY,
+					JSON.stringify({ ...parsed, familyId: trimmed }),
+				);
+			} catch {
+				/* private mode */
+			}
+			client.setFamilyId(trimmed);
+			setFamilyId(trimmed);
+			setBots([]);
+			setChats([]);
+			setTeamLeaderBotId(undefined);
+			await refreshDirectory();
+		},
+		[authConfig, client, refreshDirectory],
+	);
+
 	const archiveChat = useCallback(
 		async (chatKey: string) => {
 			await client.callRpc("chat.close", { chatKey });
@@ -513,6 +542,8 @@ export function CadmusProvider({
 			collapsed,
 			lastBotId,
 			teamLeaderBotId,
+			familyId,
+			switchFamily,
 			directoryReady,
 			refreshDirectory,
 			subscribeEvents: (listener) => client.subscribe(listener),
@@ -536,7 +567,9 @@ export function CadmusProvider({
 			client,
 			collapsed,
 			connectionStatus,
+			familyId,
 			lastBotId,
+			switchFamily,
 			teamLeaderBotId,
 			directoryReady,
 			lastSeen,

@@ -5,7 +5,15 @@ import { AppShell } from "@/components/AppShell";
 import { ScheduleEdit } from "@/components/ScheduleEdit";
 import { useCadmus } from "@/context/CadmusContext";
 
-export function SchedulePage({ botId, id }: { botId: string; id: string }) {
+export function SchedulePage({
+	botId,
+	id,
+	from,
+}: {
+	botId: string;
+	id: string;
+	from?: "all";
+}) {
 	const navigate = useNavigate();
 	const { client, bots } = useCadmus();
 	const bot = bots.find((entry) => entry.id === botId);
@@ -29,6 +37,10 @@ export function SchedulePage({ botId, id }: { botId: string; id: string }) {
 	}, [botId, client, creating, id]);
 
 	function back() {
+		if (from === "all") {
+			void navigate({ to: "/settings/schedules" });
+			return;
+		}
 		void navigate({
 			to: "/bot/$botId/$tab",
 			params: { botId, tab: "schedules" },
@@ -38,7 +50,9 @@ export function SchedulePage({ botId, id }: { botId: string; id: string }) {
 	return (
 		<AppShell
 			title={creating ? "New schedule" : "Schedule"}
-			backTo={`/bot/${botId}/schedules`}
+			backTo={
+				from === "all" ? "/settings/schedules" : `/bot/${botId}/schedules`
+			}
 		>
 			{!creating && !schedule ? (
 				<p className="px-3 py-4 text-text-muted">Loading schedule…</p>
