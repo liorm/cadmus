@@ -15,6 +15,7 @@ import { NewTaskPage } from "@/routes/new";
 import { PlaceholderPage } from "@/routes/placeholder";
 import { ProfilePage } from "@/routes/profile";
 import { SchedulePage } from "@/routes/schedule";
+import { SearchPage } from "@/routes/search";
 import { SettingsPage } from "@/routes/settings";
 import { ToolsPage } from "@/routes/tools";
 
@@ -139,7 +140,7 @@ const archiveRoute = createRoute({
 const searchRoute = createRoute({
 	getParentRoute: () => rootRoute,
 	path: "/search",
-	component: () => <PlaceholderPage title="Search" />,
+	component: SearchPage,
 });
 
 const routeTree = rootRoute.addChildren([

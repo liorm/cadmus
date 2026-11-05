@@ -5,7 +5,7 @@ import { BotBadge } from "@/components/BotBadge";
 import { BotChip } from "@/components/BotChip";
 import { Composer } from "@/components/Composer";
 import { GroupMenuSheet } from "@/components/GroupMenuSheet";
-import { type StatusKind, StatusShape } from "@/components/StatusShape";
+import { rowStatus, StatusShape } from "@/components/StatusShape";
 import { SwipeRow } from "@/components/SwipeRow";
 import { UnreadDot } from "@/components/UnreadDot";
 import { Button } from "@/components/ui/button";
@@ -16,12 +16,6 @@ import { needsYou } from "@/lib/needs-you";
 import { cn } from "@/lib/utils";
 
 const NEEDS_CAP = 3;
-
-function rowStatus(args: { busy?: boolean; failed?: boolean }): StatusKind {
-	if (args.busy) return "running";
-	if (args.failed) return "failed";
-	return "none";
-}
 
 export function HomePage() {
 	const navigate = useNavigate();

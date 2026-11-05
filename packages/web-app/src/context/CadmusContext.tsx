@@ -12,6 +12,7 @@ import {
 	useContext,
 	useEffect,
 	useMemo,
+	useRef,
 	useState,
 } from "react";
 import type { ChatLiveSlice } from "@/lib/needs-you";
@@ -87,6 +88,14 @@ export interface CadmusContextValue {
 	noteUserText: (chatKey: string, text: string) => void;
 	markFailed: (chatKey: string, reason: string) => void;
 	createChatAndSubmit: (botId: string, text: string) => Promise<void>;
+	queueTurn: (turn: OutboundTurn) => void;
+}
+
+export interface OutboundTurn {
+	chatKey: string;
+	text: string;
+	clientMsgId: string;
+	whenBusy?: "queue" | "steer" | "reject";
 }
 
 const CadmusContext = createContext<CadmusContextValue | null>(null);
@@ -157,6 +166,35 @@ export function CadmusProvider({
 	const persistFailed = useCallback((map: FailedMap) => {
 		saveFailed(map);
 	}, []);
+	const outbox = useRef<OutboundTurn[]>([]);
+
+	const delivery = useRef(Promise.resolve());
+	const deliverTurn = useCallback(
+		(turn: OutboundTurn) => {
+			delivery.current = delivery.current
+				.catch(() => undefined)
+				.then(async () => {
+					await client.callRpc("turn.submit", {
+						chatKey: turn.chatKey,
+						text: turn.text,
+						clientMsgId: turn.clientMsgId,
+						...(turn.whenBusy ? { whenBusy: turn.whenBusy } : {}),
+					});
+				});
+		},
+		[client],
+	);
+
+	const queueTurn = useCallback(
+		(turn: OutboundTurn) => {
+			if (client.getStatus() === "connected") {
+				deliverTurn(turn);
+				return;
+			}
+			outbox.current.push(turn);
+		},
+		[client, deliverTurn],
+	);
 
 	const refreshDirectory = useCallback(async () => {
 		const [botRes, chatRes] = await Promise.all([
@@ -220,14 +258,51 @@ export function CadmusProvider({
 	}, [client, patchState]);
 
 	useEffect(() => {
-		const off = client.onStatusChange(setConnectionStatus);
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		let attempt = 0;
+		let closed = false;
+		let online = false;
+		let lost = false;
+		const RECONNECT_BASE_MS = 400;
+		const RECONNECT_MAX_MS = 8_000;
+		const off = client.onStatusChange((status) => {
+			setConnectionStatus(status);
+			if (timer) {
+				clearTimeout(timer);
+				timer = undefined;
+			}
+			if (closed) return;
+			if (status === "disconnected") {
+				if (online) lost = true;
+				online = false;
+				const delay = Math.min(
+					RECONNECT_MAX_MS,
+					RECONNECT_BASE_MS * 2 ** attempt,
+				);
+				attempt += 1;
+				timer = setTimeout(() => {
+					if (!closed) client.connectWebSocket();
+				}, delay);
+				return;
+			}
+			if (status !== "connected") return;
+			attempt = 0;
+			const recovered = lost;
+			lost = false;
+			online = true;
+			const pending = outbox.current.splice(0);
+			for (const turn of pending) deliverTurn(turn);
+			if (recovered) void refreshDirectory();
+		});
 		client.connectWebSocket();
 		void refreshDirectory();
 		return () => {
+			closed = true;
+			if (timer) clearTimeout(timer);
 			off();
 			client.close();
 		};
-	}, [client, refreshDirectory]);
+	}, [client, deliverTurn, refreshDirectory]);
 
 	useEffect(() => {
 		return client.subscribe((event: ServerEvent) => {
@@ -434,6 +509,7 @@ export function CadmusProvider({
 			noteUserText,
 			markFailed,
 			createChatAndSubmit,
+			queueTurn,
 		}),
 		[
 			archiveChat,
@@ -451,6 +527,7 @@ export function CadmusProvider({
 			markFailed,
 			noteUserText,
 			refreshDirectory,
+			queueTurn,
 			retryChat,
 			setLastBotId,
 			toggleCollapsed,

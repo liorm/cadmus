@@ -25,6 +25,7 @@ Ran the foundation flows (routes, theme, sheet, composer) against Obscura and Li
 | Helper | Gap | Link |
 |---|---|---|
 | `clickByRole` / `fillByLabel` | Playwright locator `click`/`fill` time out on Obscura | [obscura#45](https://github.com/h4ckf0r0day/obscura/issues/45) |
+| `installSocketGate` / `dropWebSocket` / `restoreWebSocket` | Obscura has no `routeWebSocket`. Chrome's proxy can stick in CLOSING. The helper wraps `WebSocket` and closes the tracked sockets | — |
 | `chooseOption` | Obscura `selectOption` breaks | [benchmark](https://jacar.es/en/lightpanda-vs-obscura-headless-browser-benchmark/) |
 | Lightpanda spawn `--load-resources` | iframes, workers, external CSS | Lightpanda 0.4.1 notes |
 

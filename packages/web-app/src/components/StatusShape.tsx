@@ -2,6 +2,15 @@ import { cn } from "@/lib/utils";
 
 export type StatusKind = "running" | "needs-you" | "failed" | "none";
 
+export function rowStatus(args: {
+	busy?: boolean;
+	failed?: boolean;
+}): StatusKind {
+	if (args.busy) return "running";
+	if (args.failed) return "failed";
+	return "none";
+}
+
 export function StatusShape({
 	status,
 	className,

@@ -23,5 +23,6 @@ Playwright journeys in `tests/flows/` against the real local worker (own account
 - Main / task chat: create-and-stream, busy queue/steer/stop, unread Needs-you + divider, failed Retry, swipe-archive + collapse persist.
 - Chat menu: harvest toggle persists, raw transcript role labels, archive then read-only reopen, rename save and cancel.
 - Profile (#51): config model, thinking, and timezone; tool allowlist save and reset; tools env; delete bot; harvest note and per-chat toggle; memory write and knowledge delete; schedule toggle; group menu profile, archive-all, and colour.
+- Search and reconnect (#54): title search grouped by bot with highlights, cancel back to main; dropped socket shows the reconnecting bar and dims the live card; an offline message is one `turn.submit` with `clientMsgId` after the socket returns, and the open chat is re-fetched.
 
-Unit tests cover `needsYou`, `groupToolRuns`, `taskProgress`, `rawTranscriptLines`, `describeSchedule`, `allowlistCount`, and `toolsEnvLabel`. `bun run coverage:web-app` writes Istanbul to `coverage/web-app`.
+Unit tests cover `needsYou`, `groupToolRuns`, `taskProgress`, `rawTranscriptLines`, `describeSchedule`, `allowlistCount`, `toolsEnvLabel`, and `matchRanges`. `bun run coverage:web-app` writes Istanbul to `coverage/web-app`.

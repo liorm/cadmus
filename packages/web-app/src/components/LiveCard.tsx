@@ -12,6 +12,7 @@ export function LiveCard({
 	progress,
 	onSteer,
 	onStop,
+	frozen = false,
 }: {
 	title?: string;
 	collapsed?: boolean;
@@ -21,14 +22,17 @@ export function LiveCard({
 	progress?: number;
 	onSteer?: () => void;
 	onStop?: () => void;
+	frozen?: boolean;
 }) {
 	const ratio =
 		progress === undefined ? undefined : Math.min(1, Math.max(0, progress));
 	return (
 		<section
 			aria-label="Live card"
+			aria-disabled={frozen || undefined}
 			className={cn(
 				"rounded-md border border-status-running/40 bg-surface-raised p-3",
+				frozen && "pointer-events-none opacity-50",
 				className,
 			)}
 		>

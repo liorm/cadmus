@@ -5,7 +5,7 @@ import type {
 	TranscriptMessageView,
 } from "@cadmus/contract/types";
 import { useNavigate, useParams } from "@tanstack/react-router";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppShell } from "@/components/AppShell";
 import { BotBadge } from "@/components/BotBadge";
 import { BotPill } from "@/components/BotChip";
@@ -23,6 +23,47 @@ import { chatTitle } from "@/lib/format-time";
 import { groupToolRuns } from "@/lib/group-tool-runs";
 import { taskProgress } from "@/lib/task-progress";
 
+function userTextCounts(
+	messages: TranscriptMessageView[],
+): Map<string, number> {
+	const counts = new Map<string, number>();
+	for (const message of messages) {
+		if (message.role !== "user") continue;
+		counts.set(message.text, (counts.get(message.text) ?? 0) + 1);
+	}
+	return counts;
+}
+
+function mergeServerMessages(
+	server: TranscriptMessageView[],
+	pending: TranscriptMessageView[],
+	known: Map<string, number>,
+): {
+	messages: TranscriptMessageView[];
+	pending: TranscriptMessageView[];
+	known: Map<string, number>;
+} {
+	const fresh = userTextCounts(server);
+	const unseen = new Map(fresh);
+	for (const [text, count] of known) {
+		unseen.set(text, Math.max(0, (unseen.get(text) ?? 0) - count));
+	}
+	const still: TranscriptMessageView[] = [];
+	for (const message of pending) {
+		const left = unseen.get(message.text) ?? 0;
+		if (left > 0) {
+			unseen.set(message.text, left - 1);
+			continue;
+		}
+		still.push(message);
+	}
+	return {
+		messages: still.length > 0 ? [...server, ...still] : server,
+		pending: still,
+		known: fresh,
+	};
+}
+
 export function ChatPage({ view }: { view: "chat" | "raw" }) {
 	const { chatKey } = useParams({ from: "/chat/$chatKey" });
 	const navigate = useNavigate();
@@ -31,17 +72,21 @@ export function ChatPage({ view }: { view: "chat" | "raw" }) {
 		bots,
 		chats,
 		chatStates,
+		connectionStatus,
 		markChatSeen,
 		noteUserText,
 		markFailed,
 		refreshDirectory,
 		archiveChat,
+		queueTurn,
 	} = useCadmus();
 	const chat = chats.find((entry) => entry.key === chatKey);
 	const live = chatStates[chatKey];
 	const [localBusy, setLocalBusy] = useState(false);
 	const busy = localBusy || Boolean(live?.busy);
 	const [messages, setMessages] = useState<TranscriptMessageView[]>([]);
+	const pendingOptimistic = useRef<TranscriptMessageView[]>([]);
+	const knownUserTexts = useRef(new Map<string, number>());
 	const [tasks, setTasks] = useState<ChatTask[]>([]);
 	const [queued, setQueued] = useState<string[]>([]);
 	const [steerOn, setSteerOn] = useState(false);
@@ -62,7 +107,20 @@ export function ChatPage({ view }: { view: "chat" | "raw" }) {
 		hasNewUserMessage: queued.length > 0,
 	});
 
+	const applyServerMessages = useCallback((server: TranscriptMessageView[]) => {
+		const merged = mergeServerMessages(
+			server,
+			pendingOptimistic.current,
+			knownUserTexts.current,
+		);
+		pendingOptimistic.current = merged.pending;
+		knownUserTexts.current = merged.known;
+		setMessages(merged.messages);
+	}, []);
+
 	useEffect(() => {
+		pendingOptimistic.current = [];
+		knownUserTexts.current = new Map();
 		const previous = markChatSeen(chatKey);
 		let cancelled = false;
 		void (async () => {
@@ -74,7 +132,7 @@ export function ChatPage({ view }: { view: "chat" | "raw" }) {
 			}>("chat.get", { chatKey });
 			if (cancelled || !res.ok || !res.result) return;
 			setRecord(res.result.chat);
-			setMessages(res.result.messages);
+			applyServerMessages(res.result.messages);
 			setLocalBusy(Boolean(res.result.busy));
 			if (res.result.tasks) setTasks(res.result.tasks);
 			const listed = await client.callRpc<{ tasks: ChatTask[] }>(
@@ -99,7 +157,7 @@ export function ChatPage({ view }: { view: "chat" | "raw" }) {
 		return () => {
 			cancelled = true;
 		};
-	}, [chatKey, client, markChatSeen]);
+	}, [applyServerMessages, chatKey, client, markChatSeen]);
 
 	useEffect(() => {
 		return client.subscribe((event) => {
@@ -121,7 +179,7 @@ export function ChatPage({ view }: { view: "chat" | "raw" }) {
 					}>("chat.get", { chatKey })
 					.then((res) => {
 						if (res.ok && res.result?.messages)
-							setMessages(res.result.messages);
+							applyServerMessages(res.result.messages);
 						if (res.ok && res.result?.entries) setEntries(res.result.entries);
 					});
 				setQueued((prev) => prev.slice(1));
@@ -140,7 +198,7 @@ export function ChatPage({ view }: { view: "chat" | "raw" }) {
 				);
 			}
 		});
-	}, [chatKey, client, markChatSeen]);
+	}, [applyServerMessages, chatKey, client, markChatSeen]);
 
 	// Rebind when the live card mounts (`busy` toggles `liveRef`).
 	// biome-ignore lint/correctness/useExhaustiveDependencies: busy is the mount signal for liveRef
@@ -172,6 +230,41 @@ export function ChatPage({ view }: { view: "chat" | "raw" }) {
 			cancelled = true;
 		};
 	}, [view, chatKey, client]);
+
+	const wasDown = useRef(false);
+	useEffect(() => {
+		if (connectionStatus !== "connected") {
+			wasDown.current = true;
+			return;
+		}
+		if (!wasDown.current) return;
+		wasDown.current = false;
+		let cancelled = false;
+		void (async () => {
+			const [status, history, listed] = await Promise.all([
+				client.callRpc<{ status?: { busy?: boolean } }>("chat.status", {
+					chatKey,
+				}),
+				client.callRpc<{ messages?: TranscriptMessageView[] }>(
+					"chat.messages",
+					{ chatKey },
+				),
+				client.callRpc<{ tasks?: ChatTask[] }>("chat.tasks.list", { chatKey }),
+			]);
+			if (cancelled) return;
+			if (status.ok && status.result?.status) {
+				setLocalBusy(Boolean(status.result.status.busy));
+			}
+			if (history.ok && history.result?.messages) {
+				applyServerMessages(history.result.messages);
+			}
+			if (listed.ok && listed.result?.tasks) setTasks(listed.result.tasks);
+			await client.callRpc("chat.subscribe", { chatKey });
+		})();
+		return () => {
+			cancelled = true;
+		};
+	}, [applyServerMessages, chatKey, client, connectionStatus]);
 
 	const items = useMemo(() => groupToolRuns(messages), [messages]);
 	const newDividerIndex = useMemo(() => {
@@ -211,6 +304,19 @@ export function ChatPage({ view }: { view: "chat" | "raw" }) {
 
 	async function send(text: string, steer: boolean) {
 		noteUserText(chatKey, text);
+		if (connectionStatus !== "connected") {
+			const clientMsgId = crypto.randomUUID();
+			const optimistic: TranscriptMessageView = {
+				id: Date.now(),
+				role: "user",
+				text,
+				timestamp: Date.now(),
+			};
+			pendingOptimistic.current = [...pendingOptimistic.current, optimistic];
+			setMessages((prev) => [...prev, optimistic]);
+			queueTurn({ chatKey, text, clientMsgId, whenBusy: "queue" });
+			return;
+		}
 		if (busy && steer) {
 			await client.callRpc("turn.steer", { chatKey, text });
 			setSteerOn(false);
@@ -424,6 +530,7 @@ export function ChatPage({ view }: { view: "chat" | "raw" }) {
 							<LiveCard
 								title={collapsed ? collapsedTitle : stepTitle}
 								collapsed={collapsed}
+								frozen={connectionStatus !== "connected"}
 								onToggle={() => setCollapsed((value) => !value)}
 								progress={progress.determinate ? progress.ratio : undefined}
 								onSteer={() => {
