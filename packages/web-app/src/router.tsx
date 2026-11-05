@@ -7,6 +7,7 @@ import {
 } from "@tanstack/react-router";
 import { CadmusProvider } from "@/context/CadmusContext";
 import { isBotTab } from "@/lib/profile-tabs";
+import { NewBotPage } from "@/routes/bot-new";
 import { ChatPage } from "@/routes/chat";
 import { DocPage } from "@/routes/doc";
 import { HarvestPage } from "@/routes/harvest";
@@ -55,14 +56,14 @@ const newTaskRoute = createRoute({
 	}),
 	component: function NewTaskRoutePage() {
 		const { bot } = newTaskRoute.useSearch();
-		return <NewTaskPage botId={bot} />;
+		return <NewTaskPage key={bot} botId={bot} />;
 	},
 });
 
 const newBotRoute = createRoute({
 	getParentRoute: () => rootRoute,
 	path: "/bot/new",
-	component: () => <PlaceholderPage title="New bot" />,
+	component: NewBotPage,
 });
 
 const botRoute = createRoute({

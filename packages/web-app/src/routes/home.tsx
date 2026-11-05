@@ -26,6 +26,7 @@ export function HomePage() {
 		lastSeen,
 		collapsed,
 		lastBotId,
+		directoryReady,
 		toggleCollapsed,
 		setLastBotId,
 		archiveChat,
@@ -80,6 +81,26 @@ export function HomePage() {
 		>
 			<div className="flex min-h-0 flex-1 flex-col">
 				<div className="min-h-0 flex-1 overflow-y-auto pb-2">
+					{directoryReady && bots.length === 0 ? (
+						<div className="flex h-full flex-col items-center justify-center px-8 text-center">
+							<div
+								aria-hidden="true"
+								className="mb-6 flex size-20 items-center justify-center rounded-2xl border border-border bg-surface text-[length:var(--fs-lg)] tracking-[0.4em] text-text-muted"
+							>
+								···
+							</div>
+							<h2 className="text-[length:var(--fs-lg)] font-semibold">
+								It's quiet in here.
+							</h2>
+							<p className="mt-2 max-w-xs text-[length:var(--fs-sm)] text-text-muted">
+								So quiet you can hear the crickets. No bots, no tasks yet.
+								Create your first bot, then give it something to do below.
+							</p>
+							<Button asChild className="mt-6 rounded-full px-5">
+								<Link to="/bot/new">+ New bot</Link>
+							</Button>
+						</div>
+					) : null}
 					{items.length > 0 ? (
 						<section aria-labelledby="needs-you-heading" className="px-3 pt-3">
 							<h2
@@ -154,172 +175,177 @@ export function HomePage() {
 						</section>
 					) : null}
 
-					<nav aria-label="Bots" className="flex flex-col gap-3 px-3 pt-4">
-						<p className="text-[length:var(--fs-xs)] font-semibold uppercase tracking-wide text-text-muted">
-							Bots
-						</p>
-						{bots.map((bot) => {
-							const groupChats = chats
-								.filter((chat) => chat.botId === bot.id)
-								.sort((a, b) => b.createdAt - a.createdAt);
-							const isCollapsed = Boolean(collapsed[bot.id]);
-							const unread = groupChats.some((chat) => {
-								const at = chatStates[chat.key]?.lastBotAt;
-								const seen = lastSeen[chat.key];
-								return at !== undefined && (seen === undefined || at > seen);
-							});
-							const running = groupChats.filter(
-								(chat) => chatStates[chat.key]?.busy,
-							).length;
-							const failed = groupChats.filter(
-								(chat) => chatStates[chat.key]?.failedReason,
-							).length;
-							const idle = running === 0 && failed === 0 && !unread;
-							const statusText = running
-								? `${running} running`
-								: failed
-									? `${failed} failed`
-									: unread
-										? `${groupChats.length} active`
-										: undefined;
-							const slot = botColor(bot);
-							return (
-								<section
-									key={bot.id}
-									aria-label={bot.name}
-									className="overflow-hidden rounded-md border border-border bg-surface"
-								>
-									<div className="flex">
-										<div
-											aria-hidden="true"
-											className="w-1 shrink-0"
-											style={{ background: botColorVar(slot) }}
-										/>
-										<div className="min-w-0 flex-1">
-											<header className="flex min-h-tap items-center gap-2 px-3">
-												<button
-													type="button"
-													className="flex min-w-0 flex-1 items-center gap-2 py-2 text-left"
-													aria-label={bot.name}
-													aria-expanded={!isCollapsed}
-													onClick={() => toggleCollapsed(bot.id)}
-												>
-													<BotBadge
-														bot={bot}
-														className="size-8 min-h-0 min-w-0"
-													/>
-													<span className="truncate font-semibold">
-														{bot.name}
-													</span>
-													{unread ? <UnreadDot /> : null}
-													{idle ? null : statusText ? (
-														<span className="truncate text-[length:var(--fs-sm)] text-text-muted">
-															{statusText}
+					{bots.length === 0 ? null : (
+						<nav aria-label="Bots" className="flex flex-col gap-3 px-3 pt-4">
+							<p className="text-[length:var(--fs-xs)] font-semibold uppercase tracking-wide text-text-muted">
+								Bots
+							</p>
+							{bots.map((bot) => {
+								const groupChats = chats
+									.filter((chat) => chat.botId === bot.id)
+									.sort((a, b) => b.createdAt - a.createdAt);
+								const isCollapsed = Boolean(collapsed[bot.id]);
+								const unread = groupChats.some((chat) => {
+									const at = chatStates[chat.key]?.lastBotAt;
+									const seen = lastSeen[chat.key];
+									return at !== undefined && (seen === undefined || at > seen);
+								});
+								const running = groupChats.filter(
+									(chat) => chatStates[chat.key]?.busy,
+								).length;
+								const failed = groupChats.filter(
+									(chat) => chatStates[chat.key]?.failedReason,
+								).length;
+								const idle = running === 0 && failed === 0 && !unread;
+								const statusText = running
+									? `${running} running`
+									: failed
+										? `${failed} failed`
+										: unread
+											? `${groupChats.length} active`
+											: undefined;
+								const slot = botColor(bot);
+								return (
+									<section
+										key={bot.id}
+										aria-label={bot.name}
+										className="overflow-hidden rounded-md border border-border bg-surface"
+									>
+										<div className="flex">
+											<div
+												aria-hidden="true"
+												className="w-1 shrink-0"
+												style={{ background: botColorVar(slot) }}
+											/>
+											<div className="min-w-0 flex-1">
+												<header className="flex min-h-tap items-center gap-2 px-3">
+													<button
+														type="button"
+														className="flex min-w-0 flex-1 items-center gap-2 py-2 text-left"
+														aria-label={bot.name}
+														aria-expanded={!isCollapsed}
+														onClick={() => toggleCollapsed(bot.id)}
+													>
+														<BotBadge
+															bot={bot}
+															className="size-8 min-h-0 min-w-0"
+														/>
+														<span className="truncate font-semibold">
+															{bot.name}
 														</span>
-													) : null}
-												</button>
-												<button
-													type="button"
-													aria-label={`${bot.name} menu`}
-													className="inline-flex min-h-tap min-w-tap items-center justify-center text-text-muted"
-													onClick={() => setMenuBotId(bot.id)}
-												>
-													⋯
-												</button>
-												<button
-													type="button"
-													aria-label={
-														isCollapsed
-															? `Expand ${bot.name}`
-															: `Collapse ${bot.name}`
-													}
-													onClick={() => toggleCollapsed(bot.id)}
-													className="inline-flex min-h-tap min-w-tap items-center justify-center text-text-muted"
-												>
-													{isCollapsed ? "›" : "▾"}
-												</button>
-											</header>
-											{isCollapsed
-												? null
-												: groupChats.map((chat) => {
-														const state = chatStates[chat.key];
-														const title = chatTitle(chat, state?.lastUserText);
-														const unreadRow =
-															state?.lastBotAt !== undefined &&
-															(lastSeen[chat.key] === undefined ||
-																state.lastBotAt > (lastSeen[chat.key] ?? 0));
-														const status = rowStatus({
-															busy: state?.busy,
-															failed: Boolean(state?.failedReason),
-														});
-														const when = state?.lastBotAt ?? chat.createdAt;
-														return (
-															<SwipeRow
-																key={chat.key}
-																archiveLabel={`Archive chat ${title}`}
-																onArchive={() => {
-																	void archiveChat(chat.key).then(() => {
-																		setToast("Archived");
-																		window.setTimeout(
-																			() => setToast(null),
-																			2000,
-																		);
-																	});
-																}}
-															>
-																<div className="flex min-h-tap items-center gap-2 border-t border-border px-3">
-																	<StatusShape status={status} />
-																	<button
-																		type="button"
-																		aria-label={title}
-																		className={cn(
-																			"min-w-0 flex-1 py-2 text-left",
-																			unreadRow ? "font-semibold" : "",
-																		)}
-																		onClick={() =>
-																			navigate({
-																				to: "/chat/$chatKey",
-																				params: { chatKey: chat.key },
-																				search: { view: "chat" },
-																			})
-																		}
-																	>
-																		<div className="truncate">{title}</div>
-																		{state?.failedReason ? (
-																			<div className="truncate text-[length:var(--fs-sm)] text-text-muted">
-																				{state.failedReason}
-																			</div>
-																		) : null}
-																	</button>
-																	{unreadRow ? <UnreadDot /> : null}
-																	<span className="text-[length:var(--fs-xs)] text-text-muted">
-																		{formatRelative(when)}
-																	</span>
-																	{state?.failedReason ? (
-																		<Button
-																			variant="ghost"
-																			className="border border-border px-3"
-																			onClick={() => void retryChat(chat.key)}
+														{unread ? <UnreadDot /> : null}
+														{idle ? null : statusText ? (
+															<span className="truncate text-[length:var(--fs-sm)] text-text-muted">
+																{statusText}
+															</span>
+														) : null}
+													</button>
+													<button
+														type="button"
+														aria-label={`${bot.name} menu`}
+														className="inline-flex min-h-tap min-w-tap items-center justify-center text-text-muted"
+														onClick={() => setMenuBotId(bot.id)}
+													>
+														⋯
+													</button>
+													<button
+														type="button"
+														aria-label={
+															isCollapsed
+																? `Expand ${bot.name}`
+																: `Collapse ${bot.name}`
+														}
+														onClick={() => toggleCollapsed(bot.id)}
+														className="inline-flex min-h-tap min-w-tap items-center justify-center text-text-muted"
+													>
+														{isCollapsed ? "›" : "▾"}
+													</button>
+												</header>
+												{isCollapsed
+													? null
+													: groupChats.map((chat) => {
+															const state = chatStates[chat.key];
+															const title = chatTitle(
+																chat,
+																state?.lastUserText,
+															);
+															const unreadRow =
+																state?.lastBotAt !== undefined &&
+																(lastSeen[chat.key] === undefined ||
+																	state.lastBotAt > (lastSeen[chat.key] ?? 0));
+															const status = rowStatus({
+																busy: state?.busy,
+																failed: Boolean(state?.failedReason),
+															});
+															const when = state?.lastBotAt ?? chat.createdAt;
+															return (
+																<SwipeRow
+																	key={chat.key}
+																	archiveLabel={`Archive chat ${title}`}
+																	onArchive={() => {
+																		void archiveChat(chat.key).then(() => {
+																			setToast("Archived");
+																			window.setTimeout(
+																				() => setToast(null),
+																				2000,
+																			);
+																		});
+																	}}
+																>
+																	<div className="flex min-h-tap items-center gap-2 border-t border-border px-3">
+																		<StatusShape status={status} />
+																		<button
+																			type="button"
+																			aria-label={title}
+																			className={cn(
+																				"min-w-0 flex-1 py-2 text-left",
+																				unreadRow ? "font-semibold" : "",
+																			)}
+																			onClick={() =>
+																				navigate({
+																					to: "/chat/$chatKey",
+																					params: { chatKey: chat.key },
+																					search: { view: "chat" },
+																				})
+																			}
 																		>
-																			Retry
-																		</Button>
-																	) : null}
-																</div>
-															</SwipeRow>
-														);
-													})}
+																			<div className="truncate">{title}</div>
+																			{state?.failedReason ? (
+																				<div className="truncate text-[length:var(--fs-sm)] text-text-muted">
+																					{state.failedReason}
+																				</div>
+																			) : null}
+																		</button>
+																		{unreadRow ? <UnreadDot /> : null}
+																		<span className="text-[length:var(--fs-xs)] text-text-muted">
+																			{formatRelative(when)}
+																		</span>
+																		{state?.failedReason ? (
+																			<Button
+																				variant="ghost"
+																				className="border border-border px-3"
+																				onClick={() => void retryChat(chat.key)}
+																			>
+																				Retry
+																			</Button>
+																		) : null}
+																	</div>
+																</SwipeRow>
+															);
+														})}
+											</div>
 										</div>
-									</div>
-								</section>
-							);
-						})}
-						<Link
-							to="/bot/new"
-							className="flex min-h-tap items-center justify-center rounded-md border border-dashed border-border text-[length:var(--fs-md)] text-text-muted"
-						>
-							+ New bot
-						</Link>
-					</nav>
+									</section>
+								);
+							})}
+							<Link
+								to="/bot/new"
+								className="flex min-h-tap items-center justify-center rounded-md border border-dashed border-border text-[length:var(--fs-md)] text-text-muted"
+							>
+								+ New bot
+							</Link>
+						</nav>
+					)}
 				</div>
 				{menuBotId ? (
 					<GroupMenuSheet

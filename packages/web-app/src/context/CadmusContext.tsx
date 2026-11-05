@@ -78,6 +78,8 @@ export interface CadmusContextValue {
 	lastSeen: LastSeenMap;
 	collapsed: CollapsedMap;
 	lastBotId?: string;
+	teamLeaderBotId?: string;
+	directoryReady: boolean;
 	refreshDirectory: () => Promise<void>;
 	subscribeEvents: (listener: (event: ServerEvent) => void) => () => void;
 	toggleCollapsed: (botId: string) => void;
@@ -155,6 +157,8 @@ export function CadmusProvider({
 	const [lastBotId, setLastBotIdState] = useState<string | undefined>(
 		loadLastBotId,
 	);
+	const [teamLeaderBotId, setTeamLeaderBotId] = useState<string | undefined>();
+	const [directoryReady, setDirectoryReady] = useState(false);
 
 	const patchState = useCallback((chatKey: string, patch: ChatLiveState) => {
 		setChatStates((prev) => ({
@@ -197,64 +201,73 @@ export function CadmusProvider({
 	);
 
 	const refreshDirectory = useCallback(async () => {
-		const [botRes, chatRes] = await Promise.all([
-			client.callRpc<{ bots: BotRecord[] }>("bot.list"),
-			client.callRpc<{ chats: ChatRecord[] }>("chat.list", {
-				kinds: ["direct"],
-			}),
-		]);
-		if (botRes.ok && botRes.result?.bots) {
-			setBots(botRes.result.bots);
+		try {
+			const [botRes, chatRes, familyRes] = await Promise.all([
+				client.callRpc<{ bots: BotRecord[] }>("bot.list"),
+				client.callRpc<{ chats: ChatRecord[] }>("chat.list", {
+					kinds: ["direct"],
+				}),
+				client.callRpc<{ family?: { teamLeaderBotId?: string } }>("family.get"),
+			]);
+			const leader = familyRes.ok
+				? familyRes.result?.family?.teamLeaderBotId
+				: undefined;
+			setTeamLeaderBotId(leader && leader.length > 0 ? leader : undefined);
+			if (botRes.ok && botRes.result?.bots) {
+				setBots(botRes.result.bots);
+			}
+			let listed: ChatRecord[] = [];
+			if (chatRes.ok && chatRes.result?.chats) {
+				listed = chatRes.result.chats.filter((chat) => !chat.closed);
+				setChats(listed);
+			}
+			await Promise.all(
+				listed.map(async (chat) => {
+					const status = await client.callRpc<{
+						status?: { busy?: boolean };
+					}>("chat.status", { chatKey: chat.key });
+					if (status.ok && status.result?.status) {
+						patchState(chat.key, { busy: Boolean(status.result.status.busy) });
+					}
+					const detail = await client.callRpc<{
+						messages?: Array<{
+							role: string;
+							text: string;
+							timestamp?: number;
+						}>;
+					}>("chat.get", { chatKey: chat.key });
+					const messages = detail.result?.messages;
+					const lastAssistant = messages?.findLast(
+						(message) => message.role === "assistant" && message.text.trim(),
+					);
+					const firstUser = messages?.find(
+						(message) => message.role === "user" && message.text.trim(),
+					);
+					if (lastAssistant) {
+						patchState(chat.key, {
+							lastBotText: lastAssistant.text,
+							...(lastAssistant.timestamp
+								? { lastBotAt: lastAssistant.timestamp }
+								: {}),
+						});
+					}
+					if (firstUser) {
+						setChatStates((prev) => {
+							if (prev[chat.key]?.lastUserText?.trim()) return prev;
+							return {
+								...prev,
+								[chat.key]: {
+									...prev[chat.key],
+									lastUserText: firstUser.text,
+								},
+							};
+						});
+					}
+				}),
+			);
+		} finally {
+			setDirectoryReady(true);
 		}
-		let listed: ChatRecord[] = [];
-		if (chatRes.ok && chatRes.result?.chats) {
-			listed = chatRes.result.chats.filter((chat) => !chat.closed);
-			setChats(listed);
-		}
-		await Promise.all(
-			listed.map(async (chat) => {
-				const status = await client.callRpc<{
-					status?: { busy?: boolean };
-				}>("chat.status", { chatKey: chat.key });
-				if (status.ok && status.result?.status) {
-					patchState(chat.key, { busy: Boolean(status.result.status.busy) });
-				}
-				const detail = await client.callRpc<{
-					messages?: Array<{
-						role: string;
-						text: string;
-						timestamp?: number;
-					}>;
-				}>("chat.get", { chatKey: chat.key });
-				const messages = detail.result?.messages;
-				const lastAssistant = messages?.findLast(
-					(message) => message.role === "assistant" && message.text.trim(),
-				);
-				const firstUser = messages?.find(
-					(message) => message.role === "user" && message.text.trim(),
-				);
-				if (lastAssistant) {
-					patchState(chat.key, {
-						lastBotText: lastAssistant.text,
-						...(lastAssistant.timestamp
-							? { lastBotAt: lastAssistant.timestamp }
-							: {}),
-					});
-				}
-				if (firstUser) {
-					setChatStates((prev) => {
-						if (prev[chat.key]?.lastUserText?.trim()) return prev;
-						return {
-							...prev,
-							[chat.key]: {
-								...prev[chat.key],
-								lastUserText: firstUser.text,
-							},
-						};
-					});
-				}
-			}),
-		);
 	}, [client, patchState]);
 
 	useEffect(() => {
@@ -499,6 +512,8 @@ export function CadmusProvider({
 			lastSeen,
 			collapsed,
 			lastBotId,
+			teamLeaderBotId,
+			directoryReady,
 			refreshDirectory,
 			subscribeEvents: (listener) => client.subscribe(listener),
 			toggleCollapsed,
@@ -522,6 +537,8 @@ export function CadmusProvider({
 			collapsed,
 			connectionStatus,
 			lastBotId,
+			teamLeaderBotId,
+			directoryReady,
 			lastSeen,
 			markChatSeen,
 			markFailed,

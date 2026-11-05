@@ -17,8 +17,12 @@ export function BotChip({
 }) {
 	if (bots.length === 0) {
 		return (
-			<span className="text-[length:var(--fs-sm)] text-text-muted">
+			<span
+				aria-disabled="true"
+				className="inline-flex min-h-tap items-center gap-1 rounded-full border border-border px-3 text-[length:var(--fs-sm)] text-text-muted opacity-60"
+			>
 				No bots yet
+				<span aria-hidden="true">▾</span>
 			</span>
 		);
 	}

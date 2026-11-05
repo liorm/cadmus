@@ -1,5 +1,10 @@
 import { describe, expect, it } from "bun:test";
-import { botColor, hashBotIdToSlot } from "./bot-color.ts";
+import {
+	botColor,
+	botInitials,
+	derivedBotColor,
+	hashBotIdToSlot,
+} from "./bot-color.ts";
 
 describe("botColor", () => {
 	it("hashes the same id to the same slot", () => {
@@ -24,5 +29,18 @@ describe("botColor", () => {
 			hashed,
 		);
 		expect(botColor({ id: "researcher" })).toBe(hashed);
+	});
+
+	it("derives a stable slot from the name", () => {
+		expect(derivedBotColor("Garden Agent")).toBe(
+			derivedBotColor("  garden agent "),
+		);
+		expect(derivedBotColor("")).toBe(hashBotIdToSlot("bot"));
+	});
+
+	it("builds one or two initials", () => {
+		expect(botInitials("Garden Agent")).toBe("GA");
+		expect(botInitials("echo")).toBe("EC");
+		expect(botInitials("  ")).toBe("•");
 	});
 });

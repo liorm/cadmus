@@ -13,6 +13,7 @@ export function Composer({
 	onSend,
 	placeholder = "Message",
 	leading,
+	chips,
 	steerEnabled = false,
 	steerOn,
 	onSteerChange,
@@ -23,6 +24,7 @@ export function Composer({
 	onSend: (text: string, steer: boolean) => void;
 	placeholder?: string;
 	leading?: ReactNode;
+	chips?: ReactNode;
 	steerEnabled?: boolean;
 	steerOn?: boolean;
 	onSteerChange?: (steer: boolean) => void;
@@ -62,6 +64,9 @@ export function Composer({
 			onSubmit={submit}
 			className="m-3 flex flex-col gap-2 rounded-lg border border-border bg-surface p-3"
 		>
+			{chips ? (
+				<div className="flex flex-wrap items-center gap-2">{chips}</div>
+			) : null}
 			<div className="flex items-start gap-2">
 				<Textarea
 					ref={areaRef}

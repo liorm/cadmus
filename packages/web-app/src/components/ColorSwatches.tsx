@@ -29,7 +29,13 @@ export function ColorSwatches({
 								: undefined,
 						}}
 						onClick={() => onChange(slot)}
-					/>
+					>
+						{selected ? (
+							<span className="text-[length:var(--fs-sm)] font-semibold text-on-accent">
+								✓
+							</span>
+						) : null}
+					</button>
 				);
 			})}
 		</div>
