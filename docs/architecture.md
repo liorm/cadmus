@@ -35,7 +35,7 @@ flowchart TD
 2. **UI-Agnostic Protocol & Adapter Shims**
    - All interactions flow through a strongly-typed TypeBox protocol (`ClientCommand`, `CommandResultFrame`, `ServerEvent`) mediated by a pluggable `ProtocolShim` (`packages/worker/src/shim.ts`).
    - Supports HTTP RPC (`POST /rpc`), a REST translation of the same commands (`/api/*`), bidirectional WebSockets (`GET /ws`), and Server-Sent Events (`GET /events`).
-   - Slash commands that inspect runtime state—specifically `/status`—are intercepted **out-of-band** before `conv.submit()` so they never pollute LLM conversation history or incur token costs.
+   - Live runtime status is the `chat.status` RPC. Slash commands on `turn.submit` return `unsupported_command` and never reach `conv.submit()`.
    - See **[Protocol, Shims & Out-of-Band Commands](./architecture/protocol-and-turns.md)**.
 
 3. **Out-of-Band Bot Files & Forked Idle Harvest**
@@ -55,6 +55,6 @@ flowchart TD
 | Sub-Document | Scope |
 | :--- | :--- |
 | **[Accounts, Multi-Tenancy & Storage Split](./architecture/accounts-and-storage.md)** | `AdminStore` (D1) vs `FamilyStore` (DO SQLite), shared Cloudflare account `cadmus_` prefixing, auth modes (`cf-access`, `token`, `none`), and AES-GCM provider key encryption. |
-| **[Protocol, Shims & Out-of-Band Commands](./architecture/protocol-and-turns.md)** | TypeBox `ClientCommand` / `ServerEvent` envelopes, `ProtocolShim` adapter layer, `/rpc` + `/api` + `/ws` + `/events` transports, standalone TUI boundary, and out-of-band `/status`. |
+| **[Protocol, Shims & Out-of-Band Commands](./architecture/protocol-and-turns.md)** | TypeBox `ClientCommand` / `ServerEvent` envelopes, `ProtocolShim` adapter layer, `/rpc` + `/api` + `/ws` + `/events` transports, standalone TUI boundary, and `chat.status`. |
 | **[Virtual Files, Knowledge Store & Idle Harvest](./architecture/knowledge-and-harvest.md)** | `BotFileStore` interface, `SOUL.md` / `MEMORY.md` / `knowledge/<slug>.md` limits & CAS versioning, `cadmus.identity` prompt assembly, and forked idle harvest with unified diffs. |
 | **[Schedules, Alarms & Inter-Bot Collaboration](./architecture/schedules-alarms-and-bots.md)** | Unified `ScheduleTask` (`cron`, `when`, `harvest:<chatKey>`), `syncDurableObjectAlarm`, `SearchBotTask` / `ChatWithBotTask`, and `cadmus.tool-gate`. |

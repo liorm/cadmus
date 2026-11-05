@@ -70,7 +70,6 @@ const MUTATING = [
 	"schedule.delete",
 	"schedule.update",
 	"turn.abort",
-	"turn.command",
 	"turn.interrupt",
 	"turn.steer",
 	"turn.submit",

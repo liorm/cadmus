@@ -12,7 +12,7 @@ All client-to-server commands and server-to-client responses/events are validate
 - **Account & Credentials**: `account.get`, `account.members.list`, `account.members.add`, `account.credentials.list`, `account.credentials.set`, `account.credentials.delete`
 - **Bot Families**: `family.list`, `family.create`, `family.delete`, `family.get`, `family.update`
 - **Bots**: `bot.list`, `bot.create`, `bot.get`, `bot.update`, `bot.delete`
-- **Chats & Turns**: `chat.list`, `chat.create`, `chat.get`, `chat.close`, `turn.submit`, `turn.command`, `turn.abort`
+- **Chats & Turns**: `chat.list`, `chat.create`, `chat.get`, `chat.close`, `chat.status`, `turn.submit`, `turn.abort`
 - **Virtual Files & Knowledge**: `file.list`, `file.read`, `file.write`, `file.delete`, `knowledge.search`
 - **Schedules**: `schedule.list`, `schedule.create`, `schedule.update`, `schedule.delete`
 
@@ -114,13 +114,11 @@ The Vite dev server proxies the `assets.run_worker_first` paths from `wrangler.j
 
 ---
 
-## Out-of-Band Slash Commands (`/status`)
+## Live Status (`chat.status`)
 
-Control and inspection slash commands—specifically **`/status`**—do **not** belong in the LLM conversation transcript:
-- Putting `/status` into `pi-durable` entries or session docs would either pollute the LLM prompt window or require special filtering.
-- Instead, when `turn.submit` receives `text: "/status"` (or when `turn.command` is called with `command: "/status"`), `CadmusBotFamilyDO.handleOutOfBandStatus()` intercepts the request **before** `conv.submit()`.
-- It queries `LiveDoc`, `UsageDoc`, `conv.context()`, `familyStore.harvest.getWatermark()`, and `familyStore.schedules` directly, returning `{ outOfBand: true, command: "/status", status, text }` with **zero** entries added to the conversation and **zero** LLM invocations.
-- Unrecognized slash commands (e.g., `/clear`, `/reset`) are rejected with `400 unsupported_command`.
+Runtime inspection uses the **`chat.status`** RPC. It does **not** belong in the LLM conversation transcript:
+- `CadmusBotFamilyDO.readChatStatus()` queries `LiveDoc`, `UsageDoc`, `conv.context()`, `familyStore.harvest.getWatermark()`, and `familyStore.schedules` and returns `{ status }`.
+- Slash text on `turn.submit` (including former `/status`) is rejected with `400 unsupported_command` and never reaches `conv.submit()`.
 
 ---
 

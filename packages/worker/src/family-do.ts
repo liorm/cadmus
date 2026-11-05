@@ -1769,7 +1769,7 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 			"chat.entries": readChatSnapshot,
 			"chat.subscribe": readChatSnapshot,
 			"chat.status": async (command) => {
-				return this.handleOutOfBandStatus(command.payload.chatKey);
+				return this.readChatStatus(command.payload.chatKey);
 			},
 			"chat.tasks.list": async (command) => {
 				const chat = this.requireChat(command.payload.chatKey);
@@ -1841,13 +1841,10 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 			"turn.submit": async (command) => {
 				this.rejectUserPost(command.payload.chatKey);
 				const trimmed = command.payload.text.trim();
-				if (trimmed === "/status") {
-					return this.handleOutOfBandStatus(command.payload.chatKey);
-				}
 				if (trimmed.startsWith("/")) {
 					const cmdName = trimmed.split(/\s+/)[0];
 					throw new ProtocolValidationError(
-						`Slash command '${cmdName}' is not supported. Only '/status' is supported out-of-band.`,
+						`Slash command '${cmdName}' is not supported.`,
 						"unsupported_command",
 					);
 				}
@@ -1857,16 +1854,6 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 					requestId: command.payload.requestId ?? command.payload.clientMsgId,
 					whenBusy: command.payload.whenBusy,
 				});
-			},
-			"turn.command": async (command) => {
-				const cmd = command.payload.command.trim();
-				if (cmd === "/status" || cmd === "status") {
-					return this.handleOutOfBandStatus(command.payload.chatKey);
-				}
-				throw new ProtocolValidationError(
-					`Slash command '${cmd}' is not supported. Only '/status' is supported out-of-band.`,
-					"unsupported_command",
-				);
 			},
 			"turn.steer": async (command) => {
 				this.rejectUserPost(command.payload.chatKey);
@@ -2462,9 +2449,9 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 		});
 	}
 
-	// ─── Out-of-Band `/status` Implementation ──────────────────────────────────
+	// ─── Live chat.status ──────────────────────────────────────────────────────
 
-	private async handleOutOfBandStatus(chatKey: string) {
+	private async readChatStatus(chatKey: string) {
 		const chat = this.familyStore.chats.getChat(chatKey);
 		if (!chat) {
 			throw new ProtocolValidationError(
@@ -2555,35 +2542,9 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 			toolsEnv,
 		};
 
-		const text = [
-			`Bot: ${bot.name} (${bot.id})`,
-			`Model: ${bot.model} (thinking: ${effectiveThinking})`,
-			`Chat: ${chat.key} (conversation #${chat.conversationId}, entries: ${entryCount}, busy: ${status.busy})`,
-			`Tools: ${Array.isArray(status.tools) ? status.tools.join(", ") : "all"}`,
-			`Harvest watermark: entry #${watermark}`,
-			`Next scheduled wake: ${nextWakeAt ? new Date(nextWakeAt).toISOString() : "none"}`,
-			`Tasks: ${status.tasks?.open ?? 0} open, ${status.tasks?.done ?? 0} done, loop round ${status.tasks?.loopRound ?? 0}`,
-			`Tools env: ${
-				toolsEnv.enabled
-					? `${toolsEnvNest.kind} (${toolsEnvNest.envId}, ${toolsEnvNest.status}${
-							toolsEnvNest.connectedAt !== undefined
-								? `, connectedAt ${new Date(toolsEnvNest.connectedAt).toISOString()}`
-								: ""
-						}${
-							toolsEnvNest.lastError ? `, error: ${toolsEnvNest.lastError}` : ""
-						})`
-					: "off"
-			}`,
-		].join("\n");
-
 		this.log().child(chatFields(chat)).debug("command", { name: "status" });
 
-		return {
-			outOfBand: true as const,
-			command: "/status" as const,
-			status,
-			text,
-		};
+		return { status };
 	}
 
 	// ─── Internal Bot, Chat, Turn, and Schedule Operations ─────────────────────

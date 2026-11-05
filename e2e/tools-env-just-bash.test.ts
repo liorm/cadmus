@@ -358,7 +358,7 @@ describe("just-bash tools env through the bot", () => {
 		await sendRpc("chat.create", { botId: "assistant", key: "main" }, options);
 		const before = await sendRpc<{
 			status: { nextWakeAt: number | null; toolsEnv?: { status?: string } };
-		}>("turn.submit", { chatKey: "main", text: "/status" }, options);
+		}>("chat.status", { chatKey: "main" }, options);
 		const ws = await connectTestWs(options);
 		try {
 			await ws.send("turn.submit", {
@@ -373,7 +373,7 @@ describe("just-bash tools env through the bot", () => {
 				nextWakeAt: number | null;
 				toolsEnv?: { status?: string; nextProbeAt?: number };
 			};
-		}>("turn.submit", { chatKey: "main", text: "/status" }, options);
+		}>("chat.status", { chatKey: "main" }, options);
 		expect(after.frame.result?.status.toolsEnv?.status).toBe("connected");
 		expect(after.frame.result?.status.toolsEnv).not.toHaveProperty(
 			"nextProbeAt",
@@ -562,11 +562,9 @@ describe("just-bash tools env through the bot", () => {
 
 		const off = await sendRpc<{
 			status: { toolsEnv: { enabled: boolean; status?: string } };
-			text: string;
-		}>("turn.submit", { chatKey: "inherit-off", text: "/status" }, options);
+		}>("chat.status", { chatKey: "inherit-off" }, options);
 		expect(off.frame.result?.status.toolsEnv.enabled).toBe(false);
 		expect(off.frame.result?.status.toolsEnv.status).toBeUndefined();
-		expect(off.frame.result?.text).toContain("Tools env: off");
 
 		const on = await sendRpc<{
 			status: {
@@ -577,8 +575,7 @@ describe("just-bash tools env through the bot", () => {
 					envId?: string;
 				};
 			};
-			text: string;
-		}>("turn.submit", { chatKey: "chat-on", text: "/status" }, options);
+		}>("chat.status", { chatKey: "chat-on" }, options);
 		expect(on.frame.result?.status.toolsEnv).toMatchObject({
 			enabled: true,
 			status: "connected",
@@ -586,9 +583,6 @@ describe("just-bash tools env through the bot", () => {
 			envId: "jb_default",
 		});
 		expect(on.frame.result?.status.toolsEnv).not.toHaveProperty("nextProbeAt");
-		expect(on.frame.result?.text).toContain(
-			"Tools env: just-bash (jb_default, connected)",
-		);
 	});
 
 	it("retains a file across off and on, and the next turn drops coding tools", async () => {
@@ -619,8 +613,8 @@ describe("just-bash tools env through the bot", () => {
 			options,
 		);
 		const before = await sendRpc<{ status: { nextWakeAt: number | null } }>(
-			"turn.submit",
-			{ chatKey: "main", text: "/status" },
+			"chat.status",
+			{ chatKey: "main" },
 			options,
 		);
 		const ws = await connectTestWs(options);
@@ -666,8 +660,8 @@ describe("just-bash tools env through the bot", () => {
 			ws.close();
 		}
 		const after = await sendRpc<{ status: { nextWakeAt: number | null } }>(
-			"turn.submit",
-			{ chatKey: "sibling", text: "/status" },
+			"chat.status",
+			{ chatKey: "sibling" },
 			options,
 		);
 		expect(after.frame.result?.status.nextWakeAt).toBe(

@@ -1470,7 +1470,7 @@
 					}
 				},
 				"readOnly": true,
-				"description": "Fetch out-of-band runtime execution status for a chat session without invoking the model or modifying history."
+				"description": "Fetch live runtime execution status for a chat session without invoking the model or modifying history."
 			},
 			"ChatSubscribeCommand": {
 				"type": "object",
@@ -1813,9 +1813,6 @@
 					},
 					{
 						"$ref": "#/components/schemas/TurnSubmitCommand"
-					},
-					{
-						"$ref": "#/components/schemas/TurnCommandCommand"
 					},
 					{
 						"$ref": "#/components/schemas/TurnSteerCommand"
@@ -3141,40 +3138,6 @@
 					}
 				],
 				"description": "Structured turn component block representing reasoning, tool call, or text output."
-			},
-			"TurnCommandCommand": {
-				"type": "object",
-				"required": ["id", "type", "payload"],
-				"properties": {
-					"id": {
-						"type": "string",
-						"minLength": 1,
-						"description": "Non-empty unique correlation identifier for this command request."
-					},
-					"type": {
-						"type": "string",
-						"const": "turn.command",
-						"description": "Command type identifier."
-					},
-					"payload": {
-						"type": "object",
-						"required": ["chatKey", "command"],
-						"properties": {
-							"chatKey": {
-								"type": "string",
-								"minLength": 1,
-								"description": "Target chat session routing key."
-							},
-							"command": {
-								"type": "string",
-								"minLength": 1,
-								"description": "Slash command string (currently '/status' is supported out-of-band)."
-							}
-						},
-						"description": "Parameters for executing an out-of-band slash command."
-					}
-				},
-				"description": "Execute an out-of-band slash command on a chat session without invoking the LLM or polluting transcript history."
 			},
 			"TurnCompletedEvent": {
 				"type": "object",

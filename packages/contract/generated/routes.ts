@@ -232,12 +232,6 @@ export const API_ROUTES = {
 		allow: "POST",
 		readOnly: false,
 	},
-	"turn.command": {
-		method: "POST",
-		path: "/api/turn/command",
-		allow: "POST",
-		readOnly: false,
-	},
 	"turn.steer": {
 		method: "POST",
 		path: "/api/turn/steer",

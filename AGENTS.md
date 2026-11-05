@@ -21,10 +21,9 @@ This document contains everything an autonomous coding agent needs to understand
      - Anything global or administrative (users, auth tokens, accounts, user-to-account memberships, account-level encrypted BYOK credentials, and the `account <-> family <-> DO` catalog) lives in **`AdminStore`** ([`src/store/admin-interface.ts`](src/store/admin-interface.ts) -> [`D1AdminStore`](src/store/d1-admin.ts) on Cloudflare D1).
      - `pi-durable` is used strictly for conversations, transcript entries, model turns, and durable tasks (`ScheduleTask`, `SearchBotTask`).
 
-3. **Out-of-Band `/status` Only**:
-   - Slash command `/status` is intercepted out-of-band in `CadmusBotFamilyDO` before `conversation.submit()`.
-   - It must **never** append entries to the conversation transcript or invoke the LLM.
-   - Other legacy slash commands (`/new`, `/reset`, `/clear`, `/compact`, `/stop`, `/help`) are intentionally omitted and return `unsupported_command`.
+3. **No Slash Commands; Status Is `chat.status`**:
+   - Live bot/chat runtime status is the `chat.status` RPC (`{ status }`). The web-app header reads that record. Slash commands are not a protocol verb.
+   - Legacy slash commands (`/status`, `/new`, `/reset`, `/clear`, `/compact`, `/stop`, `/help`) return `unsupported_command` from `turn.submit` and never append to the transcript or invoke the LLM.
 
 4. **Unified Schedule & Idle Harvest Mechanism (`ScheduleTask`)**:
    - Do **not** introduce a separate `HarvestTask`.

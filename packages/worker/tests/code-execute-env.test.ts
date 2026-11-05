@@ -94,12 +94,13 @@ describe("code.execute while the bash tools env is on", () => {
 		expect(stored.frame.result?.bot.tools).toEqual(BOTH);
 		const status = await sendRpc<{
 			status: { tools: string[] | "all" };
-			text: string;
 		}>("chat.status", { chatKey: "main" }, options);
 		expect(status.frame.result?.status.tools).toEqual(
 			BOTH.filter((name) => name !== CODE_EXECUTE_TOOL_NAME),
 		);
-		expect(status.frame.result?.text).not.toContain(CODE_EXECUTE_TOOL_NAME);
+		expect(JSON.stringify(status.frame.result?.status.tools)).not.toContain(
+			CODE_EXECUTE_TOOL_NAME,
+		);
 
 		const entries = await sendRpc<{ entries: unknown[] }>(
 			"chat.entries",

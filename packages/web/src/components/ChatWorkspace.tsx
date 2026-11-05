@@ -438,7 +438,7 @@ function StatusDrawer({
 				<div className="status-drawer-header">
 					<div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
 						<span style={{ fontSize: "16px" }}>⚡</span>
-						<strong>Out-of-Band Runtime Status (/status)</strong>
+						<strong>Runtime Status</strong>
 					</div>
 					<button
 						type="button"
@@ -1023,28 +1023,26 @@ export function ChatWorkspace({
 		return () => unsub();
 	}, [subscribeEvents, loadChat, refreshChats]);
 
-	// Out-of-band /status command trigger
 	const handleTriggerStatus = async () => {
 		if (!selectedChatKey) return;
 		setErrorBanner(null);
 		try {
-			const res = await client.callRpc("turn.command", {
+			const res = await client.callRpc("chat.status", {
 				chatKey: selectedChatKey,
-				command: "/status",
 			});
 
 			if (res.ok && res.result?.status) {
 				setStatusDrawer({
 					open: true,
 					record: res.result.status,
-					text: res.result.text,
+					text: "",
 				});
 			} else {
 				setErrorBanner(res.error?.message ?? "Failed to query status");
 			}
 		} catch (err) {
 			setErrorBanner(
-				err instanceof Error ? err.message : "Error querying /status",
+				err instanceof Error ? err.message : "Error querying status",
 			);
 		}
 	};
@@ -1103,18 +1101,10 @@ export function ChatWorkspace({
 		triggerBlobDownload(jsonlContent, filename, "application/x-jsonlines");
 	};
 
-	// Submit Prompt or Intercept /status
 	const handleSubmitPrompt = async (e?: React.FormEvent) => {
 		if (e) e.preventDefault();
 		const prompt = inputText.trim();
 		if (!prompt || !selectedChatKey || chatData?.chat.readOnly) return;
-
-		// Intercept /status out-of-band
-		if (prompt === "/status") {
-			setInputText("");
-			await handleTriggerStatus();
-			return;
-		}
 
 		setInputText("");
 		setIsSubmitting(true);
@@ -1134,21 +1124,6 @@ export function ChatWorkspace({
 
 			if (!res.ok) {
 				setErrorBanner(res.error?.message ?? "Turn submission failed");
-			} else if (
-				res.result &&
-				"outOfBand" in res.result &&
-				res.result.outOfBand
-			) {
-				// Handled out-of-band
-				const statusRes = res.result as {
-					status: ChatStatusRecord;
-					text: string;
-				};
-				setStatusDrawer({
-					open: true,
-					record: statusRes.status,
-					text: statusRes.text,
-				});
 			} else {
 				await loadChat(selectedChatKey);
 			}
@@ -1423,9 +1398,9 @@ export function ChatWorkspace({
 									type="button"
 									className="btn btn-secondary btn-sm"
 									onClick={handleTriggerStatus}
-									title="Query out-of-band status"
+									title="Query runtime status"
 								>
-									⚡ /status
+									Status
 								</button>
 
 								<button
@@ -1538,8 +1513,8 @@ export function ChatWorkspace({
 										chatData.chat.readOnly
 											? "This chat is read-only"
 											: chatData.busy
-												? "Turn in progress... Type guidance to Steer or type /status"
-												: "Type a prompt (Enter to send, Shift+Enter for newline, or /status for status)..."
+												? "Turn in progress... Type guidance to Steer"
+												: "Type a prompt (Enter to send, Shift+Enter for newline)..."
 									}
 									value={inputText}
 									onChange={(e) => setInputText(e.target.value)}

@@ -103,8 +103,8 @@ UI flow coverage (`@cadmus/web-app`) uses the same reporters and no threshold. `
    * **Delete (Happy)**: `file.delete` on `knowledge/<slug>.md` $\rightarrow$ removes entry.
    * **Delete System Files (Unhappy)**: `file.delete` on `SOUL.md` or `MEMORY.md` $\rightarrow$ reject with `invalid_path`.
 4. **Slash Command Handling**:
-   * `/status`: verify intercepted out-of-band, returns system status, zero transcript entries added, zero LLM calls.
    * `/reset`, `/compact`, `/help`: verify return `unsupported_command`.
+   * Live status is `chat.status`, not a slash command.
 
 ---
 

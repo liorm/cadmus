@@ -47,7 +47,6 @@ import type {
 	ScheduleListCommand,
 	ScheduleUpdateCommand,
 	TurnAbortCommand,
-	TurnCommandCommand,
 	TurnInterruptCommand,
 	TurnSteerCommand,
 	TurnSubmitCommand,
@@ -113,7 +112,6 @@ import type {
 	ScheduleListResult,
 	ScheduleUpdateResult,
 	TurnAbortResult,
-	TurnCommandResult,
 	TurnInterruptResult,
 	TurnSteerResult,
 	TurnSubmitResult,
@@ -266,7 +264,7 @@ export type ChatMessagesRpc = Rpc<ChatMessagesCommand, ChatMessagesResult>;
 /** RPC contract for `chat.entries`: retrieves transcript entries of a chat. */
 export type ChatEntriesRpc = Rpc<ChatEntriesCommand, ChatEntriesResult>;
 
-/** RPC contract for `chat.status`: retrieves live out-of-band runtime execution status. */
+/** RPC contract for `chat.status`: retrieves live runtime execution status. */
 export type ChatStatusRpc = Rpc<ChatStatusCommand, ChatStatusResult>;
 
 /** RPC contract for `chat.subscribe`: subscribes the active connection to real-time chat events. */
@@ -274,9 +272,6 @@ export type ChatSubscribeRpc = Rpc<ChatSubscribeCommand, ChatSubscribeResult>;
 
 /** RPC contract for `turn.submit`: submits a user message turn to run through the model. */
 export type TurnSubmitRpc = Rpc<TurnSubmitCommand, TurnSubmitResult>;
-
-/** RPC contract for `turn.command`: executes an out-of-band slash command on the chat. */
-export type TurnCommandRpc = Rpc<TurnCommandCommand, TurnCommandResult>;
 
 /** RPC contract for `turn.steer`: steers an in-progress model turn with guidance. */
 export type TurnSteerRpc = Rpc<TurnSteerCommand, TurnSteerResult>;
@@ -392,7 +387,6 @@ export interface RpcMap {
 	"chat.status": ChatStatusRpc;
 	"chat.subscribe": ChatSubscribeRpc;
 	"turn.submit": TurnSubmitRpc;
-	"turn.command": TurnCommandRpc;
 	"turn.steer": TurnSteerRpc;
 	"turn.interrupt": TurnInterruptRpc;
 	"turn.abort": TurnAbortRpc;

@@ -11,7 +11,7 @@ import {
 	workerFetch,
 } from "./helpers.js";
 
-describe("Turns, Streaming Protocol Events & Out-of-Band /status", () => {
+describe("Turns, Streaming Protocol Events & chat.status", () => {
 	useWorkerFixture();
 
 	it("streams turn.delta, turn.tool_call, turn.tool_result, chat.state, and turn.completed over WebSocket", async () => {
@@ -52,7 +52,7 @@ describe("Turns, Streaming Protocol Events & Out-of-Band /status", () => {
 		}
 	});
 
-	it("handles /status strictly out-of-band without polluting conversation history or calling the LLM", async () => {
+	it("returns chat.status without polluting conversation history or calling the LLM", async () => {
 		const scope = { accountId: uniqueAccountId("status"), familyId: "default" };
 
 		await sendRpc(
@@ -72,7 +72,6 @@ describe("Turns, Streaming Protocol Events & Out-of-Band /status", () => {
 			scope,
 		);
 
-		// 1. Submit normal user message -> visibleUserMessages = 1
 		const firstTurn = await sendRpc<{ reply: string }>(
 			"turn.submit",
 			{ chatKey: "status-chat", text: "First message" },
@@ -80,37 +79,25 @@ describe("Turns, Streaming Protocol Events & Out-of-Band /status", () => {
 		);
 		expect(firstTurn.frame.result?.reply).toBe("echo(1): First message");
 
-		// 2. Submit "/status" via turn.submit -> returns outOfBand: true
-		const statusViaSubmit = await sendRpc<{
-			outOfBand: boolean;
-			command: string;
+		const statusRes = await sendRpc<{
 			status: {
 				botId: string;
 				model: string;
 				thinking: string;
 				entryCount: number;
+				busy: boolean;
 			};
-			text: string;
-		}>("turn.submit", { chatKey: "status-chat", text: "/status" }, scope);
-		expect(statusViaSubmit.status).toBe(200);
-		expect(statusViaSubmit.frame.result?.outOfBand).toBe(true);
-		expect(statusViaSubmit.frame.result?.command).toBe("/status");
-		expect(statusViaSubmit.frame.result?.status.botId).toBe("status-bot");
-		expect(statusViaSubmit.frame.result?.status.model).toBe("faux/echo");
-		expect(statusViaSubmit.frame.result?.status.thinking).toBe("low");
-		// Only the initial system entry + first user message + assistant reply exist (3 entries)
-		expect(statusViaSubmit.frame.result?.status.entryCount).toBe(3);
+		}>("chat.status", { chatKey: "status-chat" }, scope);
+		expect(statusRes.status).toBe(200);
+		expect(statusRes.frame.result?.status.botId).toBe("status-bot");
+		expect(statusRes.frame.result?.status.model).toBe("faux/echo");
+		expect(statusRes.frame.result?.status.thinking).toBe("low");
+		expect(statusRes.frame.result?.status.busy).toBe(false);
+		expect(statusRes.frame.result?.status.entryCount).toBe(3);
+		expect(statusRes.frame.result).not.toHaveProperty("outOfBand");
+		expect(statusRes.frame.result).not.toHaveProperty("command");
+		expect(statusRes.frame.result).not.toHaveProperty("text");
 
-		// 3. Submit "/status" via turn.command -> also out-of-band
-		const statusViaCommand = await sendRpc<{
-			outOfBand: boolean;
-			status: { entryCount: number };
-		}>("turn.command", { chatKey: "status-chat", command: "/status" }, scope);
-		expect(statusViaCommand.status).toBe(200);
-		expect(statusViaCommand.frame.result?.outOfBand).toBe(true);
-		expect(statusViaCommand.frame.result?.status.entryCount).toBe(3);
-
-		// 4. Verify unsupported slash commands (e.g. /clear) are rejected
 		const unsupported = await sendRpc(
 			"turn.submit",
 			{ chatKey: "status-chat", text: "/clear" },
@@ -119,7 +106,6 @@ describe("Turns, Streaming Protocol Events & Out-of-Band /status", () => {
 		expect(unsupported.status).toBe(400);
 		expect(unsupported.frame.error?.code).toBe("unsupported_command");
 
-		// 5. Submit second normal user message -> visibleUserMessages must be 2 (proving /status was NOT added to history!)
 		const secondTurn = await sendRpc<{ reply: string }>(
 			"turn.submit",
 			{ chatKey: "status-chat", text: "Second message" },

@@ -258,8 +258,7 @@ describe("daemon websocket DO internals (generation, alarms, fork routes, heartb
 		}
 		const status = await sendRpc<{
 			status: { toolsEnv?: Record<string, unknown>; nextProbeAt?: unknown };
-			text: string;
-		}>("turn.submit", { chatKey: "main", text: "/status" }, options);
+		}>("chat.status", { chatKey: "main" }, options);
 		expect(status.frame.result?.status.toolsEnv).toMatchObject({
 			status: "disconnected",
 		});

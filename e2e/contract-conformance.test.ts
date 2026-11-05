@@ -206,7 +206,6 @@ describe("contract conformance", () => {
 		});
 
 		await call("turn.submit", { chatKey: "main", text: "Hello" });
-		await call("turn.command", { chatKey: "main", command: "/status" });
 		await call("turn.steer", { chatKey: "main", text: "Continue" });
 		await call("turn.interrupt", { chatKey: "main" });
 		await call("turn.abort", { chatKey: "main" });

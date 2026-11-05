@@ -10,6 +10,7 @@ import { AppShell } from "@/components/AppShell";
 import { BotBadge } from "@/components/BotBadge";
 import { BotPill } from "@/components/BotChip";
 import { ChatMenuSheet } from "@/components/ChatMenuSheet";
+import { ChatStatusIndicator } from "@/components/ChatStatusIndicator";
 import { Composer } from "@/components/Composer";
 import { InlineEditTitle } from "@/components/InlineEditTitle";
 import { LiveCard } from "@/components/LiveCard";
@@ -77,6 +78,7 @@ export function ChatPage({ view }: { view: "chat" | "raw" }) {
 		noteUserText,
 		markFailed,
 		refreshDirectory,
+		refreshChatStatus,
 		archiveChat,
 		queueTurn,
 	} = useCadmus();
@@ -153,11 +155,12 @@ export function ChatPage({ view }: { view: "chat" | "raw" }) {
 				setNewFromId(fresh[0]?.id ?? null);
 			}
 			await client.callRpc("chat.subscribe", { chatKey });
+			await refreshChatStatus(chatKey);
 		})();
 		return () => {
 			cancelled = true;
 		};
-	}, [applyServerMessages, chatKey, client, markChatSeen]);
+	}, [applyServerMessages, chatKey, client, markChatSeen, refreshChatStatus]);
 
 	useEffect(() => {
 		return client.subscribe((event) => {
@@ -241,10 +244,8 @@ export function ChatPage({ view }: { view: "chat" | "raw" }) {
 		wasDown.current = false;
 		let cancelled = false;
 		void (async () => {
-			const [status, history, listed] = await Promise.all([
-				client.callRpc<{ status?: { busy?: boolean } }>("chat.status", {
-					chatKey,
-				}),
+			const [, history, listed] = await Promise.all([
+				refreshChatStatus(chatKey),
 				client.callRpc<{ messages?: TranscriptMessageView[] }>(
 					"chat.messages",
 					{ chatKey },
@@ -252,9 +253,6 @@ export function ChatPage({ view }: { view: "chat" | "raw" }) {
 				client.callRpc<{ tasks?: ChatTask[] }>("chat.tasks.list", { chatKey }),
 			]);
 			if (cancelled) return;
-			if (status.ok && status.result?.status) {
-				setLocalBusy(Boolean(status.result.status.busy));
-			}
 			if (history.ok && history.result?.messages) {
 				applyServerMessages(history.result.messages);
 			}
@@ -264,7 +262,13 @@ export function ChatPage({ view }: { view: "chat" | "raw" }) {
 		return () => {
 			cancelled = true;
 		};
-	}, [applyServerMessages, chatKey, client, connectionStatus]);
+	}, [
+		applyServerMessages,
+		chatKey,
+		client,
+		connectionStatus,
+		refreshChatStatus,
+	]);
 
 	const items = useMemo(() => groupToolRuns(messages), [messages]);
 	const newDividerIndex = useMemo(() => {
@@ -340,6 +344,7 @@ export function ChatPage({ view }: { view: "chat" | "raw" }) {
 				timestamp: Date.now(),
 			},
 		]);
+		setLocalBusy(true);
 		await client.callRpc("turn.submit", { chatKey, text, whenBusy: "queue" });
 		void refreshDirectory();
 	}
@@ -376,12 +381,14 @@ export function ChatPage({ view }: { view: "chat" | "raw" }) {
 				<div className="flex items-center gap-2 text-[length:var(--fs-sm)] text-text-muted">
 					{bot ? <BotPill bot={bot} /> : null}
 					{archived ? <span>Archived</span> : null}
-					{busy && !archived ? (
-						<>
-							<StatusShape status="running" />
-							<span>Running</span>
-						</>
-					) : !archived && live?.failedReason ? (
+					{archived ? null : (
+						<ChatStatusIndicator
+							status={live?.status}
+							busy={busy}
+							model={bot?.model}
+						/>
+					)}
+					{!archived && live?.failedReason ? (
 						<StatusShape status="failed" />
 					) : null}
 				</div>

@@ -47,7 +47,6 @@ import {
 	ScheduleListCommandSchema,
 	ScheduleUpdateCommandSchema,
 	TurnAbortCommandSchema,
-	TurnCommandCommandSchema,
 	TurnInterruptCommandSchema,
 	TurnSteerCommandSchema,
 	TurnSubmitCommandSchema,
@@ -108,7 +107,6 @@ import {
 	ScheduleDeleteResultSchema,
 	ScheduleListResultSchema,
 	ScheduleUpdateResultSchema,
-	TurnCommandResultSchema,
 	TurnInterruptResultSchema,
 	TurnSteerResultSchema,
 	TurnSubmitResultSchema,
@@ -266,10 +264,6 @@ export const commandCatalog = {
 	"turn.submit": {
 		command: TurnSubmitCommandSchema,
 		result: TurnSubmitResultSchema,
-	},
-	"turn.command": {
-		command: TurnCommandCommandSchema,
-		result: TurnCommandResultSchema,
 	},
 	"turn.steer": {
 		command: TurnSteerCommandSchema,

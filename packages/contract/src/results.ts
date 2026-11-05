@@ -546,27 +546,14 @@ export const ChatStatusRecordSchema = Type.Object(
 export type ChatStatusRecord = Static<typeof ChatStatusRecordSchema>;
 
 /**
- * Out-of-band result payload returned by chat.status or slash command /status.
- * Processed directly by CadmusBotFamilyDO without invoking the LLM or polluting conversation history.
+ * Result payload returned by chat.status.
  */
 export const ChatStatusResultSchema = Type.Object(
 	{
-		outOfBand: Type.Literal(true, {
-			description:
-				"Always true, confirming this result was evaluated out-of-band without invoking the model.",
-		}),
-		command: Type.Literal("/status", {
-			description: "The out-of-band slash command executed ('/status').",
-		}),
 		status: ChatStatusRecordSchema,
-		text: Type.String({
-			description:
-				"Pre-formatted, human-readable status text summarizing chat state, model, thinking, tools, and alarms.",
-		}),
 	},
 	{
-		description:
-			"Out-of-band status result produced by /status without appending to the conversation transcript.",
+		description: "Live runtime status for a chat session.",
 	},
 );
 export type ChatStatusResult = Static<typeof ChatStatusResultSchema>;
@@ -654,22 +641,9 @@ export type TurnSettledResult = Static<typeof TurnSettledResultSchema>;
 
 /**
  * Result payload returned by turn.submit.
- * Returns TurnSettledResult on normal model completion, or ChatStatusResult if the user submitted an out-of-band slash command (/status).
  */
-export const TurnSubmitResultSchema = Type.Union(
-	[TurnSettledResultSchema, ChatStatusResultSchema],
-	{
-		description:
-			"Result payload returned by turn.submit: standard model turn reply or out-of-band command status.",
-	},
-);
+export const TurnSubmitResultSchema = TurnSettledResultSchema;
 export type TurnSubmitResult = Static<typeof TurnSubmitResultSchema>;
-
-/**
- * Result returned by turn.command (currently /status).
- */
-export const TurnCommandResultSchema = ChatStatusResultSchema;
-export type TurnCommandResult = Static<typeof TurnCommandResultSchema>;
 
 /**
  * Result returned by turn.steer.

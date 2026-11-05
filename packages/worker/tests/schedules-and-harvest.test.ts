@@ -155,7 +155,7 @@ describe("Unified ScheduleTask (Cron, When & Idle Harvest Forks) & DO Alarm Driv
 
 		const statusRes = await sendRpc<{
 			status: { harvestWatermark: number };
-		}>("turn.command", { chatKey: "harvest-chat", command: "/status" }, scope);
+		}>("chat.status", { chatKey: "harvest-chat" }, scope);
 		expect(statusRes.frame.result?.status.harvestWatermark).toBeGreaterThan(0);
 	});
 

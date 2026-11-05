@@ -1278,7 +1278,7 @@ export const ChatEntriesCommandSchema = Type.Object(
 export type ChatEntriesCommand = Static<typeof ChatEntriesCommandSchema>;
 
 /**
- * Command to retrieve live out-of-band runtime status for a chat (busy state, active model, thinking budget, tool access, usage, and next scheduled alarm).
+ * Command to retrieve live runtime status for a chat (busy state, active model, thinking budget, tool access, usage, and next scheduled alarm).
  */
 export const ChatStatusCommandSchema = Type.Object(
 	{
@@ -1303,7 +1303,7 @@ export const ChatStatusCommandSchema = Type.Object(
 	{
 		readOnly: true,
 		description:
-			"Fetch out-of-band runtime execution status for a chat session without invoking the model or modifying history.",
+			"Fetch live runtime execution status for a chat session without invoking the model or modifying history.",
 	},
 );
 export type ChatStatusCommand = Static<typeof ChatStatusCommandSchema>;
@@ -1405,41 +1405,6 @@ export const TurnSubmitCommandSchema = Type.Object(
 	},
 );
 export type TurnSubmitCommand = Static<typeof TurnSubmitCommandSchema>;
-
-/**
- * Command to execute an out-of-band slash command (e.g. '/status') on a chat session without invoking the LLM.
- */
-export const TurnCommandCommandSchema = Type.Object(
-	{
-		id: Type.String({
-			minLength: 1,
-			description:
-				"Non-empty unique correlation identifier for this command request.",
-		}),
-		type: Type.Literal("turn.command", {
-			description: "Command type identifier.",
-		}),
-		payload: Type.Object(
-			{
-				chatKey: Type.String({
-					minLength: 1,
-					description: "Target chat session routing key.",
-				}),
-				command: Type.String({
-					minLength: 1,
-					description:
-						"Slash command string (currently '/status' is supported out-of-band).",
-				}),
-			},
-			{ description: "Parameters for executing an out-of-band slash command." },
-		),
-	},
-	{
-		description:
-			"Execute an out-of-band slash command on a chat session without invoking the LLM or polluting transcript history.",
-	},
-);
-export type TurnCommandCommand = Static<typeof TurnCommandCommandSchema>;
 
 /**
  * Command to steer an in-progress model turn by injecting additional guidance instructions into the active run.
@@ -2050,7 +2015,6 @@ export const ClientCommandSchema = Type.Union(
 		ChatStatusCommandSchema,
 		ChatSubscribeCommandSchema,
 		TurnSubmitCommandSchema,
-		TurnCommandCommandSchema,
 		TurnSteerCommandSchema,
 		TurnInterruptCommandSchema,
 		TurnAbortCommandSchema,

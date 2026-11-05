@@ -119,7 +119,7 @@ describe("Structured Logging System (`src/log.ts`)", () => {
 		}
 	});
 
-	it("emits structured logs across Worker routing, CadmusBotFamilyDO turns, out-of-band /status, and idle harvest", async () => {
+	it("emits structured logs across Worker routing, CadmusBotFamilyDO turns, chat.status, and idle harvest", async () => {
 		const lines: string[] = [];
 		const stream = new Writable({
 			write(chunk, _enc, callback) {
@@ -164,11 +164,7 @@ describe("Structured Logging System (`src/log.ts`)", () => {
 			).length;
 			expect(armedCount).toBe(1);
 
-			await sendRpc(
-				"turn.command",
-				{ chatKey: "log-chat", command: "/status" },
-				scope,
-			);
+			await sendRpc("chat.status", { chatKey: "log-chat" }, scope);
 
 			await sendRpc(
 				"schedule.update",

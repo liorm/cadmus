@@ -2,6 +2,7 @@ import { CadmusClient, type ConnectionStatus } from "@cadmus/contract/client";
 import type {
 	BotRecord,
 	ChatRecord,
+	ChatStatusRecord,
 	ServerEvent,
 } from "@cadmus/contract/types";
 import { useNavigate } from "@tanstack/react-router";
@@ -66,6 +67,7 @@ function loadStoredConfig(): DevAuthConfig {
 export type ChatLiveState = ChatLiveSlice & {
 	streamText?: string;
 	lastToolName?: string;
+	status?: ChatStatusRecord;
 };
 
 export interface CadmusContextValue {
@@ -93,6 +95,7 @@ export interface CadmusContextValue {
 	markFailed: (chatKey: string, reason: string) => void;
 	createChatAndSubmit: (botId: string, text: string) => Promise<void>;
 	queueTurn: (turn: OutboundTurn) => void;
+	refreshChatStatus: (chatKey: string) => Promise<void>;
 }
 
 export interface OutboundTurn {
@@ -203,6 +206,22 @@ export function CadmusProvider({
 		[client, deliverTurn],
 	);
 
+	const refreshChatStatus = useCallback(
+		async (chatKey: string) => {
+			const status = await client.callRpc<{ status?: ChatStatusRecord }>(
+				"chat.status",
+				{ chatKey },
+			);
+			if (status.ok && status.result?.status) {
+				patchState(chatKey, {
+					status: status.result.status,
+					busy: Boolean(status.result.status.busy),
+				});
+			}
+		},
+		[client, patchState],
+	);
+
 	const refreshDirectory = useCallback(async () => {
 		try {
 			const [botRes, chatRes, familyRes] = await Promise.all([
@@ -226,12 +245,7 @@ export function CadmusProvider({
 			}
 			await Promise.all(
 				listed.map(async (chat) => {
-					const status = await client.callRpc<{
-						status?: { busy?: boolean };
-					}>("chat.status", { chatKey: chat.key });
-					if (status.ok && status.result?.status) {
-						patchState(chat.key, { busy: Boolean(status.result.status.busy) });
-					}
+					await refreshChatStatus(chat.key);
 					const detail = await client.callRpc<{
 						messages?: Array<{
 							role: string;
@@ -271,7 +285,7 @@ export function CadmusProvider({
 		} finally {
 			setDirectoryReady(true);
 		}
-	}, [client, patchState]);
+	}, [client, patchState, refreshChatStatus]);
 
 	useEffect(() => {
 		let timer: ReturnType<typeof setTimeout> | undefined;
@@ -323,34 +337,84 @@ export function CadmusProvider({
 	useEffect(() => {
 		return client.subscribe((event: ServerEvent) => {
 			if (event.type === "chat.state") {
-				patchState(event.payload.chatKey, { busy: event.payload.busy });
-				if (!event.payload.busy) {
-					patchState(event.payload.chatKey, { streamText: "" });
-				}
+				setChatStates((prev) => {
+					const current = prev[event.payload.chatKey];
+					const busy = event.payload.busy;
+					return {
+						...prev,
+						[event.payload.chatKey]: {
+							...current,
+							busy,
+							streamText: busy ? current?.streamText : "",
+							status: current?.status
+								? { ...current.status, busy }
+								: current?.status,
+						},
+					};
+				});
 				return;
 			}
 			if (event.type === "turn.delta") {
-				if (event.payload.kind === "text") {
-					setChatStates((prev) => {
-						const current = prev[event.payload.chatKey];
-						return {
-							...prev,
-							[event.payload.chatKey]: {
-								...current,
-								busy: true,
-								streamText: `${current?.streamText ?? ""}${event.payload.delta}`,
-							},
-						};
-					});
-				} else {
-					patchState(event.payload.chatKey, { busy: true });
-				}
+				setChatStates((prev) => {
+					const current = prev[event.payload.chatKey];
+					return {
+						...prev,
+						[event.payload.chatKey]: {
+							...current,
+							busy: true,
+							streamText:
+								event.payload.kind === "text"
+									? `${current?.streamText ?? ""}${event.payload.delta}`
+									: current?.streamText,
+							status: current?.status
+								? { ...current.status, busy: true }
+								: current?.status,
+						},
+					};
+				});
 				return;
 			}
 			if (event.type === "turn.tool_call") {
-				patchState(event.payload.chatKey, {
-					busy: true,
-					lastToolName: event.payload.toolName,
+				setChatStates((prev) => {
+					const current = prev[event.payload.chatKey];
+					return {
+						...prev,
+						[event.payload.chatKey]: {
+							...current,
+							busy: true,
+							lastToolName: event.payload.toolName,
+							status: current?.status
+								? { ...current.status, busy: true }
+								: current?.status,
+						},
+					};
+				});
+				return;
+			}
+			if (event.type === "chat.tasks") {
+				const open = event.payload.tasks.filter(
+					(task) => task.status !== "done",
+				).length;
+				const done = event.payload.tasks.filter(
+					(task) => task.status === "done",
+				).length;
+				setChatStates((prev) => {
+					const current = prev[event.payload.chatKey];
+					if (!current?.status) return prev;
+					return {
+						...prev,
+						[event.payload.chatKey]: {
+							...current,
+							status: {
+								...current.status,
+								tasks: {
+									open,
+									done,
+									loopRound: event.payload.loop.round,
+								},
+							},
+						},
+					};
 				});
 				return;
 			}
@@ -370,6 +434,9 @@ export function CadmusProvider({
 							? current?.lastBotText
 							: (event.payload.text ?? current?.lastBotText),
 						lastBotAt: failed ? current?.lastBotAt : at,
+						status: current?.status
+							? { ...current.status, busy: false }
+							: current?.status,
 					};
 					const failedMap = loadFailed();
 					if (next.failedReason) {
@@ -496,6 +563,7 @@ export function CadmusProvider({
 			if (!created.ok || !created.result?.chat) return;
 			const chatKey = created.result.chat.key;
 			noteUserText(chatKey, text);
+			patchState(chatKey, { busy: true });
 			void client.callRpc("turn.submit", { chatKey, text });
 			await refreshDirectory();
 			await navigate({
@@ -504,7 +572,14 @@ export function CadmusProvider({
 				search: { view: "chat" },
 			});
 		},
-		[client, navigate, noteUserText, refreshDirectory, setLastBotId],
+		[
+			client,
+			navigate,
+			noteUserText,
+			patchState,
+			refreshDirectory,
+			setLastBotId,
+		],
 	);
 
 	const markFailed = useCallback(
@@ -556,6 +631,7 @@ export function CadmusProvider({
 			markFailed,
 			createChatAndSubmit,
 			queueTurn,
+			refreshChatStatus,
 		}),
 		[
 			archiveChat,
@@ -578,6 +654,7 @@ export function CadmusProvider({
 			noteUserText,
 			refreshDirectory,
 			queueTurn,
+			refreshChatStatus,
 			retryChat,
 			setLastBotId,
 			toggleCollapsed,

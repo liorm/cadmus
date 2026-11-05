@@ -133,7 +133,6 @@ describe("Thinking Levels in Models, Bots, Chats, and Schedules", () => {
 			scope,
 		);
 		expect(status1Res.frame.result?.status.thinking).toBe("low");
-		expect(status1Res.frame.result?.text).toContain("(thinking: low)");
 
 		// 2. Chat with explicit thinking override "high"
 		const chat2Res = await sendRpc<ChatCreateResult>(
@@ -154,7 +153,6 @@ describe("Thinking Levels in Models, Bots, Chats, and Schedules", () => {
 			scope,
 		);
 		expect(status2Res.frame.result?.status.thinking).toBe("high");
-		expect(status2Res.frame.result?.text).toContain("(thinking: high)");
 
 		// 3. Reject invalid thinking level on chat.create
 		const invalidChat = await sendRpc(

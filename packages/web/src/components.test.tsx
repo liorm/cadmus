@@ -229,7 +229,7 @@ function createMockClient(
 				entries: [],
 				notes: [],
 			};
-		} else if (type === "turn.command") {
+		} else if (type === "chat.status") {
 			const statusRec: ChatStatusRecord = {
 				chatKey: TEST_CHAT.key,
 				conversationId: 1,
@@ -244,12 +244,7 @@ function createMockClient(
 				nextWakeAt: null,
 				usage: { totalTokens: 150 },
 			};
-			result = {
-				outOfBand: true,
-				command: "/status",
-				status: statusRec,
-				text: "Bot: Cadmus Assistant\nModel: faux/echo\nStatus: Idle",
-			};
+			result = { status: statusRec };
 		} else if (type === "schedule.list") {
 			result = { schedules: [TEST_SCHEDULE, TEST_HARVEST_SCHEDULE] };
 		} else if (type === "schedule.create") {
@@ -837,7 +832,7 @@ describe("Web UI Components", () => {
 		expect(html).toContain("turn.delta");
 	});
 
-	it("8. ChatWorkspace loads chats, toggles between Rendered and Raw views, and opens out-of-band /status drawer", () => {
+	it("8. ChatWorkspace loads chats, toggles between Rendered and Raw views, and shows a Status action", () => {
 		const client = createMockClient();
 
 		const html = renderToString(
@@ -865,7 +860,7 @@ describe("Web UI Components", () => {
 		// Header bar with view toggles and actions
 		expect(html).toContain("Rendered");
 		expect(html).toContain("Raw (Blocks)");
-		expect(html).toContain("⚡ /status");
+		expect(html).toContain("Status");
 		expect(html).toContain("Rename");
 		expect(html).toContain("Export JSONL");
 		expect(html).toContain("Reset");

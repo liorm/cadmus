@@ -2247,7 +2247,7 @@
 		"/api/chat/status": {
 			"get": {
 				"operationId": "chat.status",
-				"summary": "Fetch out-of-band runtime execution status for a chat session without invoking the model or modifying history.",
+				"summary": "Fetch live runtime execution status for a chat session without invoking the model or modifying history.",
 				"parameters": [
 					{
 						"name": "chatKey",
@@ -2294,7 +2294,7 @@
 			},
 			"head": {
 				"operationId": "chat.status.head",
-				"summary": "Fetch out-of-band runtime execution status for a chat session without invoking the model or modifying history.",
+				"summary": "Fetch live runtime execution status for a chat session without invoking the model or modifying history.",
 				"parameters": [
 					{
 						"name": "chatKey",
@@ -2704,67 +2704,7 @@
 						"content": {
 							"application/json": {
 								"schema": {
-									"$ref": "#/components/schemas/TurnSubmitResult"
-								}
-							}
-						}
-					},
-					"400": {
-						"$ref": "#/components/responses/ApiError"
-					},
-					"401": {
-						"$ref": "#/components/responses/ApiError"
-					},
-					"404": {
-						"$ref": "#/components/responses/ApiError"
-					},
-					"405": {
-						"$ref": "#/components/responses/ApiError"
-					},
-					"409": {
-						"$ref": "#/components/responses/ApiError"
-					},
-					"500": {
-						"$ref": "#/components/responses/ApiError"
-					}
-				}
-			}
-		},
-		"/api/turn/command": {
-			"post": {
-				"operationId": "turn.command",
-				"summary": "Execute an out-of-band slash command on a chat session without invoking the LLM or polluting transcript history.",
-				"requestBody": {
-					"required": true,
-					"content": {
-						"application/json": {
-							"schema": {
-								"type": "object",
-								"required": ["chatKey", "command"],
-								"properties": {
-									"chatKey": {
-										"type": "string",
-										"minLength": 1,
-										"description": "Target chat session routing key."
-									},
-									"command": {
-										"type": "string",
-										"minLength": 1,
-										"description": "Slash command string (currently '/status' is supported out-of-band)."
-									}
-								},
-								"description": "Parameters for executing an out-of-band slash command."
-							}
-						}
-					}
-				},
-				"responses": {
-					"200": {
-						"description": "Command result",
-						"content": {
-							"application/json": {
-								"schema": {
-									"$ref": "#/components/schemas/ChatStatusResult"
+									"$ref": "#/components/schemas/TurnSettledResult"
 								}
 							}
 						}
@@ -5218,27 +5158,13 @@
 			},
 			"ChatStatusResult": {
 				"type": "object",
-				"required": ["outOfBand", "command", "status", "text"],
+				"required": ["status"],
 				"properties": {
-					"outOfBand": {
-						"type": "boolean",
-						"const": true,
-						"description": "Always true, confirming this result was evaluated out-of-band without invoking the model."
-					},
-					"command": {
-						"type": "string",
-						"const": "/status",
-						"description": "The out-of-band slash command executed ('/status')."
-					},
 					"status": {
 						"$ref": "#/components/schemas/ChatStatusRecord"
-					},
-					"text": {
-						"type": "string",
-						"description": "Pre-formatted, human-readable status text summarizing chat state, model, thinking, tools, and alarms."
 					}
 				},
-				"description": "Out-of-band status result produced by /status without appending to the conversation transcript."
+				"description": "Live runtime status for a chat session."
 			},
 			"ChatTask": {
 				"type": "object",
@@ -6940,17 +6866,6 @@
 					}
 				},
 				"description": "Result payload returned upon synchronous completion of a model turn."
-			},
-			"TurnSubmitResult": {
-				"anyOf": [
-					{
-						"$ref": "#/components/schemas/TurnSettledResult"
-					},
-					{
-						"$ref": "#/components/schemas/ChatStatusResult"
-					}
-				],
-				"description": "Result payload returned by turn.submit: standard model turn reply or out-of-band command status."
 			}
 		}
 	},

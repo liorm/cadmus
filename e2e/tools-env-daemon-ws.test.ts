@@ -1000,7 +1000,7 @@ describe("daemon websocket tools env", () => {
 		peer.close();
 	});
 
-	it("lists daemon connection fields from account.toolsEnvs.list and /status", async () => {
+	it("lists daemon connection fields from account.toolsEnvs.list and chat.status", async () => {
 		const options = scope("list");
 		await sendRpc("family.update", { harvestDelayMs: 0 }, options);
 		const secret = await registerDaemon(options);
@@ -1045,7 +1045,7 @@ describe("daemon websocket tools env", () => {
 					nextProbeAt?: unknown;
 				};
 			};
-		}>("turn.submit", { chatKey: "main", text: "/status" }, options);
+		}>("chat.status", { chatKey: "main" }, options);
 		expect(status.frame.result?.status.toolsEnv?.status).toBe("connected");
 		expect(typeof status.frame.result?.status.toolsEnv?.connectedAt).toBe(
 			"number",

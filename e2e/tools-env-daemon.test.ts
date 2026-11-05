@@ -244,7 +244,7 @@ describe("local-daemon tools env through the bot", () => {
 
 		const before = await sendRpc<{
 			status: { nextWakeAt: number | null };
-		}>("turn.submit", { chatKey: "main", text: "/status" }, beta);
+		}>("chat.status", { chatKey: "main" }, beta);
 		const beforeEntries = await sendRpc<{ entries: unknown[] }>(
 			"chat.entries",
 			{ chatKey: "main" },
@@ -278,7 +278,7 @@ describe("local-daemon tools env through the bot", () => {
 
 		const after = await sendRpc<{
 			status: { nextWakeAt: number | null };
-		}>("turn.submit", { chatKey: "main", text: "/status" }, beta);
+		}>("chat.status", { chatKey: "main" }, beta);
 		expect(after.frame.result?.status.nextWakeAt).toBe(
 			before.frame.result?.status.nextWakeAt,
 		);
