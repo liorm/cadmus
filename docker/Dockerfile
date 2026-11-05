@@ -22,7 +22,7 @@ COPY package.json bun.lock ./
 COPY packages/contract/package.json ./packages/contract/
 COPY packages/daemon/package.json ./packages/daemon/
 COPY packages/cli/package.json ./packages/cli/
-COPY packages/web/package.json ./packages/web/
+COPY packages/web-app/package.json ./packages/web-app/
 COPY packages/worker/package.json ./packages/worker/
 RUN bun install --frozen-lockfile
 
@@ -35,11 +35,11 @@ WORKDIR /app
 
 COPY tsconfig.json package.json bun.lock ./
 COPY packages/contract/ ./packages/contract/
-COPY packages/web/ ./packages/web/
+COPY packages/web-app/ ./packages/web-app/
 
 COPY --from=deps /app/node_modules ./node_modules
 
-RUN bun run web:build
+RUN bun run web-app:build
 
 # ==========================================
 # Stage 4: Lean runtime image
@@ -64,7 +64,7 @@ COPY packages/cli/ ./packages/cli/
 COPY packages/daemon/ ./packages/daemon/
 
 # Copy built Web UI assets from Stage 3
-COPY --from=web-builder /app/packages/web/dist ./packages/web/dist
+COPY --from=web-builder /app/packages/web-app/dist ./packages/web-app/dist
 
 # Copy installed node_modules from Stage 2
 COPY --from=deps /app/node_modules ./node_modules

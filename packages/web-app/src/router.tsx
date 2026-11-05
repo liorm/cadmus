@@ -1,5 +1,4 @@
 import {
-	createHashHistory,
 	createRootRoute,
 	createRoute,
 	createRouter,
@@ -204,11 +203,8 @@ const routeTree = rootRoute.addChildren([
 	searchRoute,
 ]);
 
-const hashHistory = createHashHistory();
-
 export const router = createRouter({
 	routeTree,
-	history: hashHistory,
 	defaultPreload: "intent",
 });
 

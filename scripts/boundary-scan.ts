@@ -90,7 +90,7 @@ export function clientImportReason(
  * Why an `e2e/` file must not import `specifier`.
  * Returns undefined when the specifier is allowed.
  *
- * - No file in `e2e/` may import from `packages/` or `@cadmus/worker`, `@cadmus/web`, `@cadmus/cli`, `@cadmus/daemon`.
+ * - No file in `e2e/` may import from `packages/` or `@cadmus/worker`, `@cadmus/web-app`, `@cadmus/cli`, `@cadmus/daemon`.
  * - `e2e/helpers.ts` (`isHelper: true`) may import `@cadmus/contract/{types,routes,tools,client,schemas}`, `typebox`, `vitest`, `cloudflare:test`, and `node:*`.
  * - `e2e/*.test.ts` (`isHelper: false`) must import `@cadmus/contract` subpaths and `cloudflare:test` via `./helpers.js` only.
  */

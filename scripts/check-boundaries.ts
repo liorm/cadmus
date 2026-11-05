@@ -2,7 +2,7 @@
  * Fails when a client imports backend source, or when the contract package
  * imports anything other than `typebox`.
  *
- * web/, web-app/, and cli/ may import `@cadmus/contract/types`, `@cadmus/contract/routes`,
+ * web-app/ and cli/ may import `@cadmus/contract/types`, `@cadmus/contract/routes`,
  * `@cadmus/contract/tools`, and `@cadmus/contract/client`. The CLI may also
  * import `@cadmus/contract/schemas` to render help from the command schemas.
  * They may not import the bare package,
@@ -24,11 +24,7 @@ import {
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
-const clientRoots = [
-	"packages/web/src",
-	"packages/cli/src",
-	"packages/web-app/src",
-];
+const clientRoots = ["packages/cli/src", "packages/web-app/src"];
 const cliSchemaAllow = ["@cadmus/contract/schemas"];
 const contractRoots = ["packages/contract/src", "packages/contract/generated"];
 const e2eRoots = ["e2e"];

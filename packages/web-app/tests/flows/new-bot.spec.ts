@@ -41,7 +41,7 @@ test("new account: empty home, then create a bot", async ({
 }) => {
 	const origin = baseURL ?? WORKER_BASE;
 	await watchPosts(page);
-	await page.goto("/app/#/");
+	await page.goto("/");
 	await expect(page.getByRole("heading", { name: "Cadmus" })).toBeVisible();
 	await expect(
 		page.getByRole("heading", { name: "It's quiet in here." }),
@@ -86,7 +86,7 @@ test("first message chip picks the bot, then hides", async ({
 	await seedBot(origin, accountId, "Echo Bot", "echo-bot");
 	await seedBot(origin, accountId, "Garden Agent", "garden-agent");
 	await watchPosts(page);
-	await page.goto("/app/#/new?bot=echo-bot");
+	await page.goto("/new?bot=echo-bot");
 	await expect(
 		page.getByRole("button", { name: "To: Echo Bot" }),
 	).toBeVisible();
@@ -128,7 +128,7 @@ test("Let TL route creates the chat with the team leader", async ({
 		teamLeaderBotId: "leader-bot",
 	});
 	await watchPosts(page);
-	await page.goto("/app/#/new?bot=echo-bot");
+	await page.goto("/new?bot=echo-bot");
 	await expect(
 		page.getByRole("button", { name: "Let TL route" }),
 	).toBeVisible();

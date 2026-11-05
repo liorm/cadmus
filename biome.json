@@ -34,7 +34,7 @@
 	},
 	"overrides": [
 		{
-			"includes": ["packages/web/**", "packages/web-app/**"],
+			"includes": ["packages/web-app/**"],
 			"linter": {
 				"rules": {
 					"style": {

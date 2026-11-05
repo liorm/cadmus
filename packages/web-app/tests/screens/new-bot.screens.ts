@@ -40,7 +40,7 @@ test.beforeEach(async ({ page }) => {
 
 test("01-empty", async ({ page }) => {
 	for (const theme of THEMES) {
-		await openThemed(page, "/app/#/", theme);
+		await openThemed(page, "/", theme);
 		await expect(
 			page.getByRole("heading", { name: "It's quiet in here." }),
 		).toBeVisible();
@@ -53,7 +53,7 @@ test("01-empty", async ({ page }) => {
 
 test("02-newbot", async ({ page }) => {
 	for (const theme of THEMES) {
-		await openThemed(page, "/app/#/bot/new", theme);
+		await openThemed(page, "/bot/new", theme);
 		await expect(page.getByRole("heading", { name: "New bot" })).toBeVisible();
 		await fillByLabel(page, "Name", "Garden Agent");
 		await expect(page.getByText("GA", { exact: true })).toBeVisible();
@@ -72,7 +72,7 @@ test("05-newtask", async ({ page, accountId, baseURL }) => {
 		teamLeaderBotId: "leader-bot",
 	});
 	for (const theme of THEMES) {
-		await openThemed(page, "/app/#/new?bot=ha-agent", theme);
+		await openThemed(page, "/new?bot=ha-agent", theme);
 		await expect(
 			page.getByRole("button", { name: "To: OnePlus HA Agent" }),
 		).toBeVisible();

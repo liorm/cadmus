@@ -20,11 +20,6 @@ type Project = {
 
 const projects: Project[] = [
 	{
-		name: "web",
-		cmd: ["bun", "run", "--cwd", "packages/web", "typecheck"],
-		weight: 70,
-	},
-	{
 		name: "web-app",
 		cmd: ["bun", "run", "--cwd", "packages/web-app", "typecheck"],
 		weight: 70,

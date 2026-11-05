@@ -51,7 +51,7 @@ test("18-search", async ({ page, accountId, baseURL }) => {
 		title: "Living room thermostat check",
 	});
 	for (const theme of THEMES) {
-		await openThemed(page, "/app/#/search", theme);
+		await openThemed(page, "/search", theme);
 		await fillByLabel(page, "Search", "thermo");
 		await expect(page.getByText("2 chats match")).toBeVisible();
 		await page.screenshot({
@@ -80,7 +80,7 @@ test("17-reconnecting", async ({ page, accountId, baseURL }) => {
 	}).catch(() => undefined);
 	await installSocketGate(page, { blocked: true });
 	for (const theme of THEMES) {
-		await openThemed(page, `/app/#/chat/${created.chat.key}`, theme);
+		await openThemed(page, `/chat/${created.chat.key}`, theme);
 		await expect(
 			page.getByText("Reconnecting… live updates paused"),
 		).toBeVisible();

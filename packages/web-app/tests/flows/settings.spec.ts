@@ -58,7 +58,7 @@ test("team leader select shows and hides Let TL route", async ({
 	await seedBot(origin, accountId, "Echo Bot", "echo-bot");
 	await seedBot(origin, accountId, "Leader", "leader-bot");
 	await watchPosts(page);
-	await page.goto("/app/#/settings");
+	await page.goto("/settings");
 	await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
 	await expect(
 		page.getByRole("combobox", { name: "Team Leader bot" }),
@@ -75,7 +75,7 @@ test("team leader select shows and hides Let TL route", async ({
 	expect((await posted(page, "/api/family/update")).join("\n")).toContain(
 		'"teamLeaderBotId":"leader-bot"',
 	);
-	await page.goto("/app/#/new?bot=echo-bot");
+	await page.goto("/new?bot=echo-bot");
 	await expect(
 		page.getByRole("button", { name: "Let TL route" }),
 	).toBeVisible();
@@ -83,7 +83,7 @@ test("team leader select shows and hides Let TL route", async ({
 	await expect(
 		page.getByRole("button", { name: "Let TL route" }),
 	).toBeVisible();
-	await page.goto("/app/#/settings");
+	await page.goto("/settings");
 	await expect(
 		page.getByRole("combobox", { name: "Team Leader bot" }),
 	).toContainText("Leader");
@@ -99,7 +99,7 @@ test("team leader select shows and hides Let TL route", async ({
 	expect((await posted(page, "/api/family/update")).join("\n")).toContain(
 		'"teamLeaderBotId":null',
 	);
-	await page.goto("/app/#/new?bot=echo-bot");
+	await page.goto("/new?bot=echo-bot");
 	await expect(page.getByRole("button", { name: "Let TL route" })).toHaveCount(
 		0,
 	);
@@ -126,7 +126,7 @@ test("all schedules toggle sends schedule.update", async ({
 		},
 	);
 	await watchPosts(page);
-	await page.goto("/app/#/settings/schedules");
+	await page.goto("/settings/schedules");
 	await expect(
 		page.getByRole("heading", { name: "All schedules" }),
 	).toBeVisible();
@@ -163,7 +163,7 @@ test("archive lists a closed chat and opens it without a composer", async ({
 }) => {
 	const origin = baseURL ?? WORKER_BASE;
 	await seedBot(origin, accountId, "Echo Bot", "echo-bot");
-	await page.goto("/app/#/");
+	await page.goto("/");
 	await expect(page.getByRole("combobox", { name: "Bot" })).toBeVisible();
 	await fillByLabel(page, "Message", "Archive from settings");
 	await clickByRole(page, "button", "Send");
@@ -174,7 +174,7 @@ test("archive lists a closed chat and opens it without a composer", async ({
 	await clickByRole(page, "button", "Chat menu");
 	await clickByRole(page, "button", "Archive");
 	await expect(page.getByRole("heading", { name: "Cadmus" })).toBeVisible();
-	await page.goto("/app/#/settings/archive");
+	await page.goto("/settings/archive");
 	await expect(page.getByRole("heading", { name: "Archive" })).toBeVisible();
 	await expect(page.getByRole("region", { name: "Echo Bot" })).toBeVisible();
 	await expect(page.getByRole("button", { name: "Unarchive" })).toHaveCount(0);
@@ -184,7 +184,7 @@ test("archive lists a closed chat and opens it without a composer", async ({
 });
 
 test("sepia theme persists across reload", async ({ page }) => {
-	await page.goto("/app/#/settings");
+	await page.goto("/settings");
 	await clickByRole(page, "radio", "Sepia");
 	await expect
 		.poll(async () =>

@@ -24,7 +24,7 @@ test("create and stream: row spinner, live card, final reply", async ({
 }) => {
 	const origin = baseURL ?? WORKER_BASE;
 	await seedBot(origin, accountId, "Echo Bot", "echo-bot");
-	await page.goto("/app/#/");
+	await page.goto("/");
 	await expect(page.getByRole("combobox", { name: "Bot" })).toBeVisible();
 	await fillByLabel(page, "Message", "Hello");
 	await clickByRole(page, "button", "Send");
@@ -44,7 +44,7 @@ test("busy chat: queue, steer, stop", async ({ page, accountId, baseURL }) => {
 	const origin = baseURL ?? WORKER_BASE;
 	await seedBot(origin, accountId, "Echo Bot", "echo-bot");
 	const posts = await postedBodies(page);
-	await page.goto("/app/#/");
+	await page.goto("/");
 	await expect(page.getByRole("combobox", { name: "Bot" })).toBeVisible();
 	await fillByLabel(page, "Message", "hold please [[hold:ui-busy]]");
 	await clickByRole(page, "button", "Send");
@@ -93,7 +93,7 @@ test("unread reply shows a dot and a Needs-you entry", async ({
 }) => {
 	const origin = baseURL ?? WORKER_BASE;
 	await seedBot(origin, accountId, "Echo Bot", "echo-bot");
-	await page.goto("/app/#/");
+	await page.goto("/");
 	await expect(page.getByRole("combobox", { name: "Bot" })).toBeVisible();
 	await fillByLabel(page, "Message", "Hello");
 	await clickByRole(page, "button", "Send");
@@ -128,7 +128,7 @@ test("unread reply shows a dot and a Needs-you entry", async ({
 test("failed turn Retry resubmits", async ({ page, accountId, baseURL }) => {
 	const origin = baseURL ?? WORKER_BASE;
 	await seedBot(origin, accountId, "Echo Bot", "echo-bot");
-	await page.goto("/app/#/");
+	await page.goto("/");
 	await expect(page.getByRole("combobox", { name: "Bot" })).toBeVisible();
 	await fillByLabel(page, "Message", "fail me [[hold:ui-fail]]");
 	await clickByRole(page, "button", "Send");
@@ -153,7 +153,7 @@ test("archive and collapse persist", async ({ page, accountId, baseURL }) => {
 		botId: "echo-bot",
 		title: "Archive me",
 	});
-	await page.goto("/app/#/");
+	await page.goto("/");
 	await expect(
 		page.getByRole("button", { name: "Archive me", exact: true }),
 	).toBeVisible();

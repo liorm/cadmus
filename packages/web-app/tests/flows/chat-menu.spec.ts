@@ -25,7 +25,7 @@ async function openChat(
 		chatKey,
 		text: "Hello",
 	});
-	await page.goto(`/app/#/chat/${chatKey}`);
+	await page.goto(`/chat/${chatKey}`);
 	await expect(page.getByRole("heading", { name: title })).toBeVisible();
 	return chatKey;
 }
@@ -134,7 +134,7 @@ test("archive closes the chat and reopening is read-only", async ({
 	await clickByRole(page, "button", "Archive");
 	await expect.poll(() => closes.length).toBeGreaterThan(0);
 	await expect(page.getByRole("heading", { name: "Cadmus" })).toBeVisible();
-	await page.goto(`/app/#/chat/${chatKey}`);
+	await page.goto(`/chat/${chatKey}`);
 	await expect(page.getByText("Archived · read-only")).toBeVisible();
 	await expect(page.getByRole("textbox", { name: "Message" })).toHaveCount(0);
 	await expect(page.getByRole("region", { name: "Live card" })).toHaveCount(0);

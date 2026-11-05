@@ -28,7 +28,7 @@ export function cadmusPlaywright(
 		},
 		webServer: {
 			command:
-				"bun run --cwd ../.. web:build && bun run --cwd ../.. web-app:build && bunx wrangler dev --port 8799",
+				"bun run --cwd ../.. web-app:build && bunx wrangler dev --port 8799",
 			url: `${baseURL}/health`,
 			reuseExistingServer: !process.env.CI,
 			timeout: 180_000,

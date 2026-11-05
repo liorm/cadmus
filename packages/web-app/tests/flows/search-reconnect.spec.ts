@@ -33,7 +33,7 @@ test("search filters titles by bot and cancel restores main", async ({
 		title: "Grocery list",
 	});
 
-	await page.goto("/app/#/");
+	await page.goto("/");
 	await expect(page.getByRole("heading", { name: "Cadmus" })).toBeVisible();
 	await clickByRole(page, "link", "Search");
 	await fillByLabel(page, "Search", "thermo");
@@ -77,7 +77,7 @@ test("reconnect pauses the live card and sends one offline message", async ({
 	}).catch(() => undefined);
 
 	await installSocketGate(page);
-	await page.goto(`/app/#/chat/${created.chat.key}`);
+	await page.goto(`/chat/${created.chat.key}`);
 	await expect(page.getByRole("region", { name: "Live card" })).toBeVisible({
 		timeout: 15_000,
 	});

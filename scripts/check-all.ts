@@ -48,18 +48,6 @@ const stages: Stage[] = [
 		weight: 10,
 	},
 	{
-		name: "web:test",
-		cmd: ["bun", "run", "web:test"],
-		group: "static",
-		weight: 8,
-	},
-	{
-		name: "web:build",
-		cmd: ["bun", "run", "web:build"],
-		group: "static",
-		weight: 40,
-	},
-	{
 		name: "web-app:test",
 		cmd: ["bun", "run", "--cwd", "packages/web-app", "test"],
 		group: "static",
@@ -238,18 +226,7 @@ try {
 	const results: Result[] = [];
 
 	if (selected === "all" || selected === "static") {
-		const parallelStatic = staticStages.filter(
-			(stage) => stage.name !== "web-app:build",
-		);
-		results.push(...(await runPool(parallelStatic, staticConcurrency)));
-		const appBuild = staticStages.find(
-			(stage) => stage.name === "web-app:build",
-		);
-		if (appBuild) {
-			const appResult = await run(appBuild);
-			results.push(appResult);
-			printResult(appResult);
-		}
+		results.push(...(await runPool(staticStages, staticConcurrency)));
 	}
 
 	const staticFailed = results.some((result) => result.code !== 0);

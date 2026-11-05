@@ -7,7 +7,7 @@
 		"packages/*"
 	],
 	"scripts": {
-		"build": "bun run web:build && bun run web-app:build",
+		"build": "bun run web-app:build",
 		"dev": "wrangler dev",
 		"deploy": "wrangler deploy --keep-vars",
 		"deploy:preview": "wrangler preview",
@@ -22,9 +22,6 @@
 		"cli:build:local": "mkdir -p packages/cli/dist && bun build --compile packages/cli/src/cli.ts --outfile packages/cli/dist/cadmus",
 		"cli:build:all": "bun run cli:build:linux && bun run cli:build:darwin",
 		"cli:build": "bun run cli:build:all",
-		"web:dev": "bun run --cwd packages/web dev",
-		"web:build": "bun run --cwd packages/web build",
-		"web:test": "bun run --cwd packages/web test",
 		"web-app:dev": "bun run --cwd packages/web-app dev",
 		"web-app:build": "bun run --cwd packages/web-app build",
 		"test:ui": "bun run --cwd packages/web-app test:ui",

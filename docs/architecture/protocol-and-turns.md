@@ -95,7 +95,7 @@ Every `/api/*` response (success, error, **401**, **404**, **405**, and `HEAD`) 
 
 ### Web UI client
 
-`CadmusClient` in [`@cadmus/contract/client`](../../packages/contract/src/client.ts) is the browser caller. [`packages/web/src/client.ts`](../../packages/web/src/client.ts) re-exports it. `callRpc` and `sendCommand` keep their signatures and return a `CommandResultFrame`. The HTTP request uses `@cadmus/contract/routes` (`API_ROUTES` from each command's `readOnly` flag → GET, otherwise POST) and `encodePayloadQuery`:
+`CadmusClient` in [`@cadmus/contract/client`](../../packages/contract/src/client.ts) is the browser caller used by `packages/web-app`. `callRpc` and `sendCommand` keep their signatures and return a `CommandResultFrame`. The HTTP request uses `@cadmus/contract/routes` (`API_ROUTES` from each command's `readOnly` flag → GET, otherwise POST) and `encodePayloadQuery`:
 
 - Readonly commands are `GET /api/...`. The payload is `encodePayloadQuery` (the inverse of `coerceSearchParamsToPayload`). `undefined` fields are omitted. GET and HEAD do not send `Content-Type`.
 - Mutating commands are `POST /api/...` with the payload object as the JSON body and `Content-Type: application/json`.

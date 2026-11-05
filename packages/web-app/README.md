@@ -1,10 +1,10 @@
 # `@cadmus/web-app`
 
-Mobile redesign of the Cadmus web UI. Served by the Worker at `/app/` (hash history so deep links coexist with `packages/web` until #60).
+Cadmus web UI. The Worker serves the Vite build at `/`. Browser history plus the SPA fallback resolve deep links such as `/bot/$botId/config`.
 
 ```
-bun run web-app:dev       # Vite on :5174, base /app/
-bun run web-app:build     # Vite build, then copy into packages/web/dist/app
+bun run web-app:dev       # Vite on :5174
+bun run web-app:build     # Vite build into packages/web-app/dist
 bun run test:ui           # Playwright against wrangler (default engine: Obscura)
 bun run test:ui --engine=chrome
 bun run coverage:web-app  # same flows, Istanbul on the Vite build; report in coverage/web-app

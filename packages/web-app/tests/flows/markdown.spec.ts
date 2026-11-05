@@ -102,7 +102,7 @@ test("soul, memory, and chat render markdown without executing HTML", async ({
 		text: CHAT_MD,
 	});
 
-	await page.goto("/app/#/bot/echo-bot/soul");
+	await page.goto("/bot/echo-bot/soul");
 	await expect(page.getByRole("heading", { name: "Soul" })).toBeVisible();
 	await assertMarkdownSurface(page, page.locator(".cadmus-md").first());
 	expect(
@@ -111,7 +111,7 @@ test("soul, memory, and chat render markdown without executing HTML", async ({
 		),
 	).toBeUndefined();
 
-	await page.goto("/app/#/bot/echo-bot/memory");
+	await page.goto("/bot/echo-bot/memory");
 	await expect(page.getByRole("heading", { name: "Memory" })).toBeVisible();
 	await assertMarkdownSurface(page, page.locator(".cadmus-md").first());
 	expect(
@@ -120,7 +120,7 @@ test("soul, memory, and chat render markdown without executing HTML", async ({
 		),
 	).toBeUndefined();
 
-	await page.goto(`/app/#/chat/${created.chat.key}`);
+	await page.goto(`/chat/${created.chat.key}`);
 	await expect(
 		page.getByRole("heading", { name: "Status" }).first(),
 	).toBeVisible({ timeout: 15_000 });

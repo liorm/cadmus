@@ -110,32 +110,32 @@ test("group menu and profile screens", async ({ page, accountId, baseURL }) => {
 	const shots: Array<{ name: string; path: string; ready: string }> = [
 		{
 			name: "profile-schedules",
-			path: "/app/#/bot/echo-bot/schedules",
+			path: "/bot/echo-bot/schedules",
 			ready: "Morning climate check",
 		},
 		{
 			name: "profile-memory",
-			path: "/app/#/bot/echo-bot/memory",
+			path: "/bot/echo-bot/memory",
 			ready: "Prefers",
 		},
 		{
 			name: "profile-knowledge",
-			path: "/app/#/bot/echo-bot/knowledge",
+			path: "/bot/echo-bot/knowledge",
 			ready: "heating",
 		},
 		{
 			name: "profile-soul",
-			path: "/app/#/bot/echo-bot/soul",
+			path: "/bot/echo-bot/soul",
 			ready: "Calm",
 		},
 		{
 			name: "profile-config",
-			path: "/app/#/bot/echo-bot/config",
+			path: "/bot/echo-bot/config",
 			ready: "Delete bot",
 		},
 	];
 	for (const theme of THEMES) {
-		await openThemed(page, "/app/#/", theme);
+		await openThemed(page, "/", theme);
 		await expect(
 			page.getByRole("button", { name: "Morning notes", exact: true }),
 		).toBeVisible();
@@ -153,21 +153,21 @@ test("group menu and profile screens", async ({ page, accountId, baseURL }) => {
 				animations: "disabled",
 			});
 		}
-		await openThemed(page, "/app/#/bot/echo-bot/schedules", theme);
+		await openThemed(page, "/bot/echo-bot/schedules", theme);
 		await clickByRole(page, "button", "Morning climate check");
 		await expect(page.getByLabel("Schedule name")).toBeVisible();
 		await page.screenshot({
 			path: resolve(OUT_DIR, `schedule-edit-${theme}.png`),
 			animations: "disabled",
 		});
-		await openThemed(page, "/app/#/bot/echo-bot/memory", theme);
+		await openThemed(page, "/bot/echo-bot/memory", theme);
 		await clickByRole(page, "button", "Edit");
 		await expect(page.getByLabel("MEMORY.md source")).toBeVisible();
 		await page.screenshot({
 			path: resolve(OUT_DIR, `memory-edit-${theme}.png`),
 			animations: "disabled",
 		});
-		await openThemed(page, "/app/#/bot/echo-bot/soul", theme);
+		await openThemed(page, "/bot/echo-bot/soul", theme);
 		await clickByRole(page, "button", "Edit");
 		await page.screenshot({
 			path: resolve(OUT_DIR, `soul-edit-${theme}.png`),
@@ -175,7 +175,7 @@ test("group menu and profile screens", async ({ page, accountId, baseURL }) => {
 		});
 		await openThemed(
 			page,
-			"/app/#/bot/echo-bot/doc?path=knowledge/heating.md",
+			"/bot/echo-bot/doc?path=knowledge/heating.md",
 			theme,
 		);
 		await expect(page.getByText("Living room")).toBeVisible();
@@ -183,7 +183,7 @@ test("group menu and profile screens", async ({ page, accountId, baseURL }) => {
 			path: resolve(OUT_DIR, `knowledge-doc-${theme}.png`),
 			animations: "disabled",
 		});
-		await openThemed(page, "/app/#/bot/echo-bot/tools", theme);
+		await openThemed(page, "/bot/echo-bot/tools", theme);
 		await expect(
 			page.getByRole("switch", { name: "memory_read" }),
 		).toBeVisible();
@@ -191,7 +191,7 @@ test("group menu and profile screens", async ({ page, accountId, baseURL }) => {
 			path: resolve(OUT_DIR, `tool-allowlist-${theme}.png`),
 			animations: "disabled",
 		});
-		await openThemed(page, "/app/#/bot/echo-bot/harvest", theme);
+		await openThemed(page, "/bot/echo-bot/harvest", theme);
 		await expect(page.getByRole("heading", { name: "Harvest" })).toBeVisible();
 		await page.screenshot({
 			path: resolve(OUT_DIR, `harvest-${theme}.png`),

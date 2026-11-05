@@ -75,8 +75,7 @@ This document contains everything an autonomous coding agent needs to understand
 ├── packages/
 │   ├── contract/                # @cadmus/contract declarations (types, schemas, generated routes, OpenAPI, AsyncAPI)
 │   ├── worker/                  # @cadmus/worker Cloudflare Worker backend (/health, /protocol/schema, /rpc, /api, auth, DOs)
-│   ├── web-app/                 # @cadmus/web-app mobile redesign (TanStack Router)
-│   ├── web/                     # @cadmus/web Vite + React 19 Web UI SPA (legacy until #60)
+│   ├── web-app/                 # @cadmus/web-app Vite + React web UI (TanStack Router, served at /)
 │   ├── cli/                     # @cadmus/cli agent CLI (bin `cadmus`)
 │   └── daemon/                  # @cadmus/daemon Linux confinement daemon & CLI
 ├── scripts/                     # contract generator and API boundary check
@@ -102,7 +101,7 @@ bun run test:conformance
 bun run contract:gen
 bun run contract:check
 
-# Typecheck root, contract, cli, web, daemon, and worker (two projects at a time)
+# Typecheck root, contract, cli, web-app, daemon, and worker (two projects at a time)
 bun run typecheck
 bun check
 
@@ -118,7 +117,7 @@ bun run check:all
 ### How to Write E2E & Worker Tests
 
 1. Place black-box E2E tests under `e2e/*.test.ts`.
-   - `e2e/` is strictly black-box: no file in `e2e/` may import from `packages/*` (`@cadmus/worker`, `@cadmus/web`, `@cadmus/cli`, `@cadmus/daemon`).
+   - `e2e/` is strictly black-box: no file in `e2e/` may import from `packages/*` (`@cadmus/worker`, `@cadmus/web-app`, `@cadmus/cli`, `@cadmus/daemon`).
    - Only [`e2e/helpers.ts`](e2e/helpers.ts) may import `@cadmus/contract/{types,routes,tools,client,schemas}` and `cloudflare:test` (`SELF`). Every `e2e/*.test.ts` file imports only from `./helpers.js` (and `vitest`), calls [`useWorkerFixture`](e2e/helpers.ts) inside `describe(...)` to start/stop the Worker fixture, and interacts with the system strictly via HTTP/WS contract calls (`callApi`, `sendRpc`, `connectTestWs`, `workerFetch`).
    - Place white-box workerd tests (tests that inspect `env.CADMUS_BOT_FAMILY`, `env.CADMUS_ENV`, `env.CADMUS_ADMIN_DB`, `runDurableObjectAlarm`, `runInDurableObject`, `installProviderToolCapture`, or internal Worker modules) under `packages/worker/tests/*.test.ts` and pure Worker unit tests under `packages/worker/tests/unit/*.test.ts`.
    - Place non-worker integration/conformance tests under `tests/{cli,daemon,web,contract,conformance,scripts}/`.
@@ -150,9 +149,9 @@ The command is local only. It is not part of CI or `check:all`. It reuses the UI
 
 The backend publishes the API as [`@cadmus/contract`](packages/contract). That package is declarations: command names, payload and result schemas, the `readOnly` flag, error codes, record types, the `{ error: { code, message } }` envelope, and the `/ws` and `/events` message unions. The only dependency is `typebox`.
 
-Clients never import backend source. `packages/web/src`, `packages/web-app/src`, and `packages/cli/src` import `@cadmus/contract/types` (types only), `@cadmus/contract/routes` (the small generated route table and query encoder), `@cadmus/contract/tools` (tool-name constants only), and `@cadmus/contract/client` (the shared REST and WebSocket transport). The CLI also imports `@cadmus/contract/schemas` so help and `--skill` stay generated from the command schemas. They do not import `packages/worker/`, `packages/daemon/`, or the generated OpenAPI and AsyncAPI documents. The web bundle does not import schemas. OpenAPI (`packages/contract/generated/openapi.json`) and AsyncAPI (`packages/contract/generated/asyncapi.json`) are internal, committed, validated artifacts. The Worker does not serve them and does not import them, so they are not in the Worker bundle.
+Clients never import backend source. `packages/web-app/src` and `packages/cli/src` import `@cadmus/contract/types` (types only), `@cadmus/contract/routes` (the small generated route table and query encoder), `@cadmus/contract/tools` (tool-name constants only), and `@cadmus/contract/client` (the shared REST and WebSocket transport). The CLI also imports `@cadmus/contract/schemas` so help and `--skill` stay generated from the command schemas. They do not import `packages/worker/`, `packages/daemon/`, or the generated OpenAPI and AsyncAPI documents. The web bundle does not import schemas. OpenAPI (`packages/contract/generated/openapi.json`) and AsyncAPI (`packages/contract/generated/asyncapi.json`) are internal, committed, validated artifacts. The Worker does not serve them and does not import them, so they are not in the Worker bundle.
 
-Contract changes are explicit and reviewed. Edit the schemas under `packages/contract/src`, then run `bun run contract:gen`. Commit the regenerated `packages/contract/generated/routes.ts`, `openapi.json`, and `asyncapi.json`. `bun run contract:check` regenerates those files in memory, formats them, and fails if the committed copies differ. `bun run boundaries` (`scripts/check-boundaries.ts`) fails if a client imports backend source, anything other than `@cadmus/contract/types`, `@cadmus/contract/routes`, `@cadmus/contract/tools`, and `@cadmus/contract/client` (plus `@cadmus/contract/schemas` in `packages/cli`), or the contract imports anything other than `typebox`. The scanner reads whole-file `import`, `export ... from`, `import type`, dynamic `import()`, and `require()`, including when the specifier is on a later line. Biome `noRestrictedImports` overrides on `packages/web/**` and `packages/cli/**` reject `packages/worker/`, `packages/daemon/`, the bare `@cadmus/contract` package, and the generated OpenAPI and AsyncAPI documents. The web override also rejects `@cadmus/contract/schemas`. Both checks run at the start of `bun run check:all`. `@cadmus/contract/routes` stays the generated route table (`API_ROUTES` and `encodePayloadQuery`). Tool-name constants live only on `@cadmus/contract/tools`.
+Contract changes are explicit and reviewed. Edit the schemas under `packages/contract/src`, then run `bun run contract:gen`. Commit the regenerated `packages/contract/generated/routes.ts`, `openapi.json`, and `asyncapi.json`. `bun run contract:check` regenerates those files in memory, formats them, and fails if the committed copies differ. `bun run boundaries` (`scripts/check-boundaries.ts`) fails if a client imports backend source, anything other than `@cadmus/contract/types`, `@cadmus/contract/routes`, `@cadmus/contract/tools`, and `@cadmus/contract/client` (plus `@cadmus/contract/schemas` in `packages/cli`), or the contract imports anything other than `typebox`. The scanner reads whole-file `import`, `export ... from`, `import type`, dynamic `import()`, and `require()`, including when the specifier is on a later line. Biome `noRestrictedImports` overrides on `packages/web-app/**` and `packages/cli/**` reject `packages/worker/`, `packages/daemon/`, the bare `@cadmus/contract` package, and the generated OpenAPI and AsyncAPI documents. The web-app override also rejects `@cadmus/contract/schemas`. Both checks run at the start of `bun run check:all`. `@cadmus/contract/routes` stays the generated route table (`API_ROUTES` and `encodePayloadQuery`). Tool-name constants live only on `@cadmus/contract/tools`.
 
 All packages live under `packages/*` and are unified Bun workspace members. Packages depend on sibling workspace packages using `"workspace:*"`.
 

@@ -5,14 +5,14 @@ import { expect, test } from "../support/fixtures.ts";
 test.describe.configure({ mode: "parallel" });
 
 test("deep link to settings and back", async ({ page }) => {
-	await page.goto("/app/#/settings");
+	await page.goto("/settings");
 	await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
 	await clickByRole(page, "link", "Back");
 	await expect(page.getByRole("heading", { name: "Cadmus" })).toBeVisible();
 });
 
 test("theme switch persists across reload with no flash", async ({ page }) => {
-	await page.goto("/app/#/settings");
+	await page.goto("/settings");
 	await clickByRole(page, "radio", "Light");
 	await expect
 		.poll(async () =>
@@ -37,7 +37,7 @@ test("composer grows and submits on Send", async ({
 		"Echo Bot",
 		"echo-bot",
 	);
-	await page.goto("/app/#/");
+	await page.goto("/");
 	await expect(page.getByRole("combobox", { name: "Bot" })).toBeVisible();
 	const boxBefore = await page
 		.getByRole("textbox", { name: "Message" })
@@ -64,7 +64,7 @@ test("home lists a bot seeded over rpc", async ({
 }) => {
 	const origin = baseURL ?? WORKER_BASE;
 	await seedBot(origin, accountId, "Echo Bot", "echo-bot");
-	await page.goto("/app/#/");
+	await page.goto("/");
 	await expect(page.getByRole("combobox", { name: "Bot" })).toBeVisible();
 });
 
@@ -75,7 +75,7 @@ test("composer persists a chat through the worker", async ({
 }) => {
 	const origin = baseURL ?? WORKER_BASE;
 	await seedBot(origin, accountId, "Echo Bot", "echo-bot");
-	await page.goto("/app/#/");
+	await page.goto("/");
 	await expect(page.getByRole("combobox", { name: "Bot" })).toBeVisible();
 	await fillByLabel(page, "Message", "Morning notes");
 	await clickByRole(page, "button", "Send");

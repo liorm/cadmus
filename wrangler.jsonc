@@ -6,7 +6,7 @@
 	"compatibility_flags": ["nodejs_compat"],
 	"preview_urls": true,
 	"assets": {
-		"directory": "./packages/web/dist",
+		"directory": "./packages/web-app/dist",
 		"not_found_handling": "single-page-application",
 		"run_worker_first": [
 			"/health",

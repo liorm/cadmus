@@ -13,7 +13,6 @@ export default defineConfig(({ mode }) => {
 		.filter(Boolean);
 
 	return {
-		base: "/app/",
 		plugins: [
 			react(),
 			tailwindcss(),

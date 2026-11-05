@@ -13,9 +13,9 @@ Cadmus is the cloud-native V2 architecture of `pi-bot`, built on **Cloudflare Wo
   - Single durable `cadmus.schedule` task (`wait` -> `run`) driving 5-field cron schedules, one-shot `when` timers, and idle knowledge/memory harvest forks (`harvest:<chatKey>`) via a single Durable Object alarm (`ctx.storage.setAlarm`).
 - **Out-of-Band `/status`**:
   - Inspects live conversation, bot, usage, harvest watermark, and alarm state out-of-band without polluting conversation transcripts or invoking the LLM.
-- **Agent CLI (`packages/cli/`) & Web UI (`packages/web/`)**:
+- **Agent CLI (`packages/cli/`) & Web UI (`packages/web-app/`)**:
   - `cadmus` enumerates every protocol RPC from the contract. See [`packages/cli/README.md`](packages/cli/README.md).
-  - React + Vite Web UI. `CadmusClient.callRpc` uses `GET`/`POST /api/*` (readonly vs mutating from the protocol `readOnly` flag), sends `Authorization: Bearer`, and keeps `CommandResultFrame` results. The token is not placed on `/api` URLs. Live events still arrive on `GET /ws` (query token). Transport is `@cadmus/contract/client`.
+  - React + Vite Web UI (`@cadmus/web-app`), served by the Worker at `/`. `CadmusClient.callRpc` uses `GET`/`POST /api/*` (readonly vs mutating from the protocol `readOnly` flag), sends `Authorization: Bearer`, and keeps `CommandResultFrame` results. The token is not placed on `/api` URLs. Live events still arrive on `GET /ws` (query token). Transport is `@cadmus/contract/client`. Deep links such as `/bot/$botId/config` resolve through the SPA fallback.
 
 ---
 
@@ -25,7 +25,6 @@ Cadmus is the cloud-native V2 architecture of `pi-bot`, built on **Cloudflare Wo
 
 ```bash
 bun install
-bun install --cwd web
 ```
 
 ### 2. Run the E2E Test Suite
@@ -55,10 +54,10 @@ bun run dev
 In a second terminal, start the Web UI development server:
 
 ```bash
-bun run web:dev
+bun run web-app:dev
 ```
 
-Open [http://localhost:5173](http://localhost:5173) in your browser. The dev server proxies the same paths as `assets.run_worker_first` in `wrangler.jsonc` (`/health`, `/protocol/schema`, `/ws`, `/events`, `/rpc`, `/api/*`, `/tools-env/*`) to the local Worker at `http://localhost:8787`.
+Open [http://localhost:5174](http://localhost:5174) in your browser. The dev server proxies the same paths as `assets.run_worker_first` in `wrangler.jsonc` (`/health`, `/protocol/schema`, `/ws`, `/events`, `/rpc`, `/api/*`, `/tools-env/*`) to the local Worker at `http://localhost:8787`.
 
 #### Option B: Agent CLI
 

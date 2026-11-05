@@ -50,7 +50,7 @@ test("main", async ({ page, accountId, baseURL }) => {
 	const origin = baseURL ?? WORKER_BASE;
 	await seedMain(origin, accountId);
 	for (const theme of THEMES) {
-		await openThemed(page, "/app/#/", theme);
+		await openThemed(page, "/", theme);
 		await expect(page.getByRole("heading", { name: "Cadmus" })).toBeVisible();
 		await expect(page.getByRole("combobox", { name: "Bot" })).toBeVisible();
 		await expect(
@@ -67,7 +67,7 @@ test("main-swipe", async ({ page, accountId, baseURL }) => {
 	const origin = baseURL ?? WORKER_BASE;
 	await seedMain(origin, accountId);
 	for (const theme of THEMES) {
-		await openThemed(page, "/app/#/", theme);
+		await openThemed(page, "/", theme);
 		await expect(
 			page.getByRole("button", { name: "Morning notes", exact: true }),
 		).toBeVisible();
@@ -89,7 +89,7 @@ test("main-swipe", async ({ page, accountId, baseURL }) => {
 test("new-task", async ({ page, accountId, baseURL }) => {
 	await seedBot(baseURL ?? WORKER_BASE, accountId, "Echo Bot", "echo-bot");
 	for (const theme of THEMES) {
-		await openThemed(page, "/app/#/new?bot=echo-bot", theme);
+		await openThemed(page, "/new?bot=echo-bot", theme);
 		await expect(page.getByRole("heading", { name: "New task" })).toBeVisible();
 		await fillByLabel(
 			page,
@@ -117,7 +117,7 @@ test("task", async ({ page, accountId, baseURL }) => {
 		text: "Hello",
 	});
 	for (const theme of THEMES) {
-		await openThemed(page, `/app/#/chat/${created.chat.key}`, theme);
+		await openThemed(page, `/chat/${created.chat.key}`, theme);
 		await expect(
 			page.getByRole("heading", { name: "Tune thermostat schedules" }),
 		).toBeVisible();
@@ -156,7 +156,7 @@ test("chat-markdown", async ({ page, accountId, baseURL }) => {
 		].join("\n"),
 	});
 	for (const theme of THEMES) {
-		await openThemed(page, `/app/#/chat/${created.chat.key}`, theme);
+		await openThemed(page, `/chat/${created.chat.key}`, theme);
 		await expect(
 			page.getByRole("heading", { name: "Status" }).first(),
 		).toBeVisible({ timeout: 15_000 });
@@ -170,7 +170,7 @@ test("chat-markdown", async ({ page, accountId, baseURL }) => {
 test("task-queued", async ({ page, accountId, baseURL }) => {
 	const origin = baseURL ?? WORKER_BASE;
 	await seedBot(origin, accountId, "Echo Bot", "echo-bot");
-	await page.goto("/app/#/");
+	await page.goto("/");
 	await fillByLabel(page, "Message", "stay busy [[hold:screen-queue]]");
 	await clickByRole(page, "button", "Send");
 	await expect(page.getByRole("region", { name: "Live card" })).toBeVisible({
@@ -199,7 +199,7 @@ test("task-queued", async ({ page, accountId, baseURL }) => {
 test("task-collapsed", async ({ page, accountId, baseURL }) => {
 	const origin = baseURL ?? WORKER_BASE;
 	await seedBot(origin, accountId, "Echo Bot", "echo-bot");
-	await page.goto("/app/#/");
+	await page.goto("/");
 	await fillByLabel(page, "Message", "stay busy [[hold:screen-collapse]]");
 	await clickByRole(page, "button", "Send");
 	await expect(page.getByRole("region", { name: "Live card" })).toBeVisible({
@@ -230,7 +230,7 @@ test("task-scrolled", async ({ page, accountId, baseURL }) => {
 		chatKey: created.chat.key,
 		text: "First line of a long thread",
 	});
-	await page.goto(`/app/#/chat/${created.chat.key}`);
+	await page.goto(`/chat/${created.chat.key}`);
 	await fillByLabel(page, "Message", "stay busy [[hold:screen-scroll]]");
 	await clickByRole(page, "button", "Send");
 	await expect(page.getByRole("region", { name: "Live card" })).toBeVisible({
@@ -280,7 +280,7 @@ test("chat-menu", async ({ page, accountId, baseURL }) => {
 		text: "Hello",
 	});
 	for (const theme of THEMES) {
-		await openThemed(page, `/app/#/chat/${created.chat.key}`, theme);
+		await openThemed(page, `/chat/${created.chat.key}`, theme);
 		await clickByRole(page, "button", "Chat menu");
 		await expect(
 			page.getByRole("button", { name: "View raw transcript" }),
@@ -307,7 +307,7 @@ test("raw-transcript", async ({ page, accountId, baseURL }) => {
 		text: "Hello",
 	});
 	for (const theme of THEMES) {
-		await openThemed(page, `/app/#/chat/${created.chat.key}?view=raw`, theme);
+		await openThemed(page, `/chat/${created.chat.key}?view=raw`, theme);
 		await expect(page.getByText("user", { exact: true }).first()).toBeVisible();
 		await page.screenshot({
 			path: resolve(OUT_DIR, `raw-transcript-${theme}.png`),
@@ -333,7 +333,7 @@ test("archived-chat", async ({ page, accountId, baseURL }) => {
 		chatKey: created.chat.key,
 	});
 	for (const theme of THEMES) {
-		await openThemed(page, `/app/#/chat/${created.chat.key}`, theme);
+		await openThemed(page, `/chat/${created.chat.key}`, theme);
 		await expect(page.getByText("Archived · read-only")).toBeVisible();
 		await page.screenshot({
 			path: resolve(OUT_DIR, `archived-chat-${theme}.png`),
@@ -356,7 +356,7 @@ test("task-rename", async ({ page, accountId, baseURL }) => {
 		text: "Hello",
 	});
 	for (const theme of THEMES) {
-		await openThemed(page, `/app/#/chat/${created.chat.key}`, theme);
+		await openThemed(page, `/chat/${created.chat.key}`, theme);
 		await clickByRole(page, "button", "Chat menu");
 		await clickByRole(page, "button", "Rename");
 		await fillByLabel(page, "Chat title", "Thermostat: weekday");
@@ -371,7 +371,7 @@ test("task-rename", async ({ page, accountId, baseURL }) => {
 test("settings", async ({ page, accountId, baseURL }) => {
 	await seedBot(baseURL ?? WORKER_BASE, accountId, "Echo Bot", "echo-bot");
 	for (const theme of THEMES) {
-		await openThemed(page, "/app/#/settings", theme);
+		await openThemed(page, "/settings", theme);
 		await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
 		await page.screenshot({
 			path: resolve(OUT_DIR, `settings-${theme}.png`),

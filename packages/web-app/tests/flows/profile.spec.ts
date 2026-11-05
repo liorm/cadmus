@@ -60,7 +60,7 @@ test("config round-trips model, thinking, and timezone", async ({
 	const origin = baseURL ?? WORKER_BASE;
 	await seedBot(origin, accountId, "Echo Bot", "echo-bot");
 	const posts = await watchPosts(page);
-	await page.goto("/app/#/bot/echo-bot/config");
+	await page.goto("/bot/echo-bot/config");
 	await expect(page.getByRole("heading", { name: "Echo Bot" })).toBeVisible();
 	await expect(page.getByRole("radio", { name: "Config" })).toBeVisible();
 	const model = page.getByLabel("Model");
@@ -115,7 +115,7 @@ test("tool allowlist saves a list and resets to null", async ({
 	const origin = baseURL ?? WORKER_BASE;
 	await seedBot(origin, accountId, "Echo Bot", "echo-bot");
 	const posts = await watchPosts(page);
-	await page.goto("/app/#/bot/echo-bot/config");
+	await page.goto("/bot/echo-bot/config");
 	await clickByRole(page, "button", "Tool allowlist");
 	await expect(
 		page.getByRole("heading", { name: "Tool allowlist" }),
@@ -160,7 +160,7 @@ test("tools env picker pins an account env", async ({
 		{ kind: "just-bash", label: "home-pi" },
 	);
 	const posts = await watchPosts(page);
-	await page.goto("/app/#/bot/echo-bot/config");
+	await page.goto("/bot/echo-bot/config");
 	await clickByRole(page, "button", "Tools environment");
 	await clickByRole(page, "button", "On · home-pi");
 	await expect
@@ -184,7 +184,7 @@ test("delete bot confirms and leaves the main list", async ({
 	const origin = baseURL ?? WORKER_BASE;
 	await seedBot(origin, accountId, "Echo Bot", "echo-bot");
 	const posts = await watchPosts(page);
-	await page.goto("/app/#/bot/echo-bot/config");
+	await page.goto("/bot/echo-bot/config");
 	await clickByRole(page, "button", "Delete bot");
 	await expect(
 		page.getByText(
@@ -213,7 +213,7 @@ test("memory edit writes and knowledge delete removes a doc", async ({
 		description: "Heating zones",
 	});
 	const posts = await watchPosts(page);
-	await page.goto("/app/#/bot/echo-bot/memory");
+	await page.goto("/bot/echo-bot/memory");
 	await clickByRole(page, "button", "Edit");
 	await fillByLabel(page, "MEMORY.md source", "# Memory\n\nDark roast.");
 	await expect(page.getByText("Unsaved changes")).toBeVisible();
@@ -227,7 +227,7 @@ test("memory edit writes and knowledge delete removes a doc", async ({
 			),
 		)
 		.toBe(true);
-	await page.goto("/app/#/bot/echo-bot/knowledge");
+	await page.goto("/bot/echo-bot/knowledge");
 	await expect(
 		page.getByRole("button", { name: /heating \d+ bytes/ }),
 	).toBeVisible();
@@ -265,7 +265,7 @@ test("schedule toggle sends schedule.update", async ({
 		},
 	);
 	const posts = await watchPosts(page);
-	await page.goto("/app/#/bot/echo-bot/schedules");
+	await page.goto("/bot/echo-bot/schedules");
 	await expect(
 		page.getByRole("button", { name: "Morning climate check" }),
 	).toBeVisible();
@@ -307,7 +307,7 @@ test("harvest note appears and the chat toggle updates harvest", async ({
 		text: "Hello [remember: kids room lights off at 20:00]",
 	});
 	const posts = await watchPosts(page);
-	await page.goto("/app/#/bot/echo-bot/harvest");
+	await page.goto("/bot/echo-bot/harvest");
 	await expect(page.getByRole("heading", { name: "Harvest" })).toBeVisible();
 	await expect(page.getByText("Tune thermostat schedules")).toBeVisible({
 		timeout: 30_000,
@@ -339,14 +339,14 @@ test("group menu opens profile, archives chats, and sets colour", async ({
 		title: "Morning notes",
 	});
 	const posts = await watchPosts(page);
-	await page.goto("/app/#/");
+	await page.goto("/");
 	await expect(
 		page.getByRole("button", { name: "Morning notes", exact: true }),
 	).toBeVisible();
 	await clickByRole(page, "button", "Echo Bot menu");
 	await clickByRole(page, "button", "Profile");
 	await expect(page.getByRole("radio", { name: "Schedules" })).toBeVisible();
-	await page.goto("/app/#/");
+	await page.goto("/");
 	await clickByRole(page, "button", "Echo Bot menu");
 	await clickByRole(page, "button", "Change colour");
 	await clickByRole(page, "button", "bot-3");

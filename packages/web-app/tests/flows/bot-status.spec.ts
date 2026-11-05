@@ -13,7 +13,7 @@ test("chat header status goes working then idle and opens details", async ({
 }) => {
 	const origin = baseURL ?? WORKER_BASE;
 	await seedBot(origin, accountId, "Echo Bot", "echo-bot");
-	await page.goto("/app/#/");
+	await page.goto("/");
 	await expect(page.getByRole("combobox", { name: "Bot" })).toBeVisible();
 	await fillByLabel(page, "Message", "Hello [[hold:ui-status]]");
 	await clickByRole(page, "button", "Send");

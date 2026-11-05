@@ -88,7 +88,7 @@ test("15-settings", async ({ page, accountId, baseURL }) => {
 	const origin = baseURL ?? WORKER_BASE;
 	await seedSettings(origin, accountId);
 	for (const theme of THEMES) {
-		await openThemed(page, "/app/#/settings", theme);
+		await openThemed(page, "/settings", theme);
 		await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
 		await expect(
 			page.getByRole("link", { name: /Household.*2 bots/ }),
@@ -107,7 +107,7 @@ test("15b-all-schedules", async ({ page, accountId, baseURL }) => {
 	const origin = baseURL ?? WORKER_BASE;
 	await seedSettings(origin, accountId);
 	for (const theme of THEMES) {
-		await openThemed(page, "/app/#/settings/schedules", theme);
+		await openThemed(page, "/settings/schedules", theme);
 		await expect(
 			page.getByRole("heading", { name: "All schedules" }),
 		).toBeVisible();
@@ -128,7 +128,7 @@ test("16-archive", async ({ page, accountId, baseURL }) => {
 	const origin = baseURL ?? WORKER_BASE;
 	await seedSettings(origin, accountId);
 	for (const theme of THEMES) {
-		await openThemed(page, "/app/#/settings/archive", theme);
+		await openThemed(page, "/settings/archive", theme);
 		await expect(page.getByRole("heading", { name: "Archive" })).toBeVisible();
 		await expect(
 			page.getByRole("link", { name: "Patch router firmware" }),
