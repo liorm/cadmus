@@ -142,6 +142,8 @@ export interface FamilyMeta {
 	name: string;
 	timezone: string;
 	harvestDelayMs: number;
+	/** Null when this family has no Team Leader. */
+	teamLeaderBotId: string | null;
 }
 
 const SEQUENTIAL_TOOLS = new Set([
@@ -419,9 +421,18 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
         family_id TEXT NOT NULL,
         name TEXT NOT NULL,
         timezone TEXT NOT NULL,
-        harvest_delay_ms INTEGER NOT NULL
+        harvest_delay_ms INTEGER NOT NULL,
+        team_leader_bot_id TEXT
       );
     `);
+		const columns = this.ctx.storage.sql
+			.exec<{ name: string }>("PRAGMA table_info(cadmus_family_meta)")
+			.toArray();
+		if (!columns.some((column) => column.name === "team_leader_bot_id")) {
+			this.ctx.storage.sql.exec(
+				"ALTER TABLE cadmus_family_meta ADD COLUMN team_leader_bot_id TEXT",
+			);
+		}
 	}
 
 	getFamilyMeta(): FamilyMeta {
@@ -432,8 +443,9 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 				name: string;
 				timezone: string;
 				harvest_delay_ms: number;
+				team_leader_bot_id: string | null;
 			}>(
-				`SELECT account_id, family_id, name, timezone, harvest_delay_ms
+				`SELECT account_id, family_id, name, timezone, harvest_delay_ms, team_leader_bot_id
          FROM cadmus_family_meta
          WHERE id = 1`,
 			)
@@ -445,6 +457,7 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 				name: rows[0].name,
 				timezone: rows[0].timezone,
 				harvestDelayMs: Number(rows[0].harvest_delay_ms),
+				teamLeaderBotId: rows[0].team_leader_bot_id ?? null,
 			};
 		}
 		return {
@@ -453,6 +466,7 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 			name: "Default Family",
 			timezone: this.env.CADMUS_DEFAULT_TIMEZONE ?? "UTC",
 			harvestDelayMs: Number(this.env.CADMUS_HARVEST_DELAY_MS ?? 60_000),
+			teamLeaderBotId: null,
 		};
 	}
 
@@ -464,21 +478,27 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 			name: meta.name ?? current.name,
 			timezone: meta.timezone ?? current.timezone,
 			harvestDelayMs: meta.harvestDelayMs ?? current.harvestDelayMs,
+			teamLeaderBotId:
+				meta.teamLeaderBotId !== undefined
+					? meta.teamLeaderBotId
+					: current.teamLeaderBotId,
 		};
 		this.ctx.storage.sql.exec(
-			`INSERT INTO cadmus_family_meta (id, account_id, family_id, name, timezone, harvest_delay_ms)
-       VALUES (1, ?, ?, ?, ?, ?)
+			`INSERT INTO cadmus_family_meta (id, account_id, family_id, name, timezone, harvest_delay_ms, team_leader_bot_id)
+       VALUES (1, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET
          account_id = excluded.account_id,
          family_id = excluded.family_id,
          name = excluded.name,
          timezone = excluded.timezone,
-         harvest_delay_ms = excluded.harvest_delay_ms`,
+         harvest_delay_ms = excluded.harvest_delay_ms,
+         team_leader_bot_id = excluded.team_leader_bot_id`,
 			updated.accountId,
 			updated.familyId,
 			updated.name,
 			updated.timezone,
 			updated.harvestDelayMs,
+			updated.teamLeaderBotId,
 		);
 		return updated;
 	}
@@ -1375,6 +1395,17 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 				if (command.payload.timezone !== undefined) {
 					assertValidIanaTimezone(command.payload.timezone);
 				}
+				if (command.payload.teamLeaderBotId) {
+					const leader = this.familyStore.bots.getBot(
+						command.payload.teamLeaderBotId,
+					);
+					if (!leader) {
+						throw new ProtocolValidationError(
+							`Bot '${command.payload.teamLeaderBotId}' not found`,
+							"not_found",
+						);
+					}
+				}
 				const updated = this.setFamilyMeta({
 					...(command.payload.name !== undefined
 						? { name: command.payload.name }
@@ -1385,6 +1416,9 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 					...(command.payload.harvestDelayMs !== undefined
 						? { harvestDelayMs: command.payload.harvestDelayMs }
 						: {}),
+					...(command.payload.teamLeaderBotId !== undefined
+						? { teamLeaderBotId: command.payload.teamLeaderBotId }
+						: {}),
 				});
 				const record = await this.adminStore.updateFamily(
 					meta.accountId,
@@ -1393,6 +1427,7 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 						name: updated.name,
 						timezone: updated.timezone,
 						harvestDelayMs: updated.harvestDelayMs,
+						teamLeaderBotId: updated.teamLeaderBotId,
 					},
 				);
 				if (!record) {
@@ -1620,6 +1655,12 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 					this.familyStore.chats.deleteChat(chat.key);
 				}
 				this.familyStore.bots.deleteBot(botId);
+				if (meta.teamLeaderBotId === botId) {
+					this.setFamilyMeta({ teamLeaderBotId: null });
+					await this.adminStore.updateFamily(meta.accountId, meta.familyId, {
+						teamLeaderBotId: null,
+					});
+				}
 				await this.abortScheduleTasksInternal(scheduleIds);
 				await this.syncAlarmInternal();
 				return { deleted: botId };

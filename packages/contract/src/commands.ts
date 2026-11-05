@@ -459,13 +459,22 @@ export const FamilyUpdateCommandSchema = Type.Object(
 						description: "Optional updated idle harvest delay in milliseconds.",
 					}),
 				),
+				teamLeaderBotId: Type.Optional(
+					Type.Union([Type.String({ minLength: 1 }), Type.Null()], {
+						description:
+							"Team Leader bot id. A non-empty string sets it to a bot in this family, null clears it, and omitting it leaves the current value unchanged.",
+					}),
+				),
 			},
-			{ description: "Parameters for updating bot family configuration." },
+			{
+				description:
+					"Parameters for updating bot family configuration, including the optional Team Leader bot id.",
+			},
 		),
 	},
 	{
 		description:
-			"Update bot family settings including display name, timezone, or idle harvest delay.",
+			"Update bot family settings including display name, timezone, idle harvest delay, or Team Leader bot.",
 	},
 );
 export type FamilyUpdateCommand = Static<typeof FamilyUpdateCommandSchema>;

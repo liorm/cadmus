@@ -175,7 +175,7 @@ export const FamilyListResultSchema = Type.Object(
 	},
 	{
 		description:
-			"Result payload returned by family.list containing all bot families in the account.",
+			"Result payload returned by family.list. Each family includes teamLeaderBotId when a Team Leader is set.",
 	},
 );
 export type FamilyListResult = Static<typeof FamilyListResultSchema>;
@@ -203,7 +203,7 @@ export const FamilyGetResultSchema = Type.Object(
 	},
 	{
 		description:
-			"Result payload returned by family.get containing family metadata.",
+			"Result payload returned by family.get, including teamLeaderBotId when a Team Leader is set.",
 	},
 );
 export type FamilyGetResult = Static<typeof FamilyGetResultSchema>;
@@ -217,7 +217,7 @@ export const FamilyUpdateResultSchema = Type.Object(
 	},
 	{
 		description:
-			"Result payload returned by family.update containing updated family settings.",
+			"Result payload returned by family.update, including teamLeaderBotId when a Team Leader is set.",
 	},
 );
 export type FamilyUpdateResult = Static<typeof FamilyUpdateResultSchema>;

@@ -1084,7 +1084,7 @@
 		"/api/family/update": {
 			"post": {
 				"operationId": "family.update",
-				"summary": "Update bot family settings including display name, timezone, or idle harvest delay.",
+				"summary": "Update bot family settings including display name, timezone, idle harvest delay, or Team Leader bot.",
 				"requestBody": {
 					"required": true,
 					"content": {
@@ -1107,9 +1107,21 @@
 									"harvestDelayMs": {
 										"type": "number",
 										"description": "Optional updated idle harvest delay in milliseconds."
+									},
+									"teamLeaderBotId": {
+										"anyOf": [
+											{
+												"type": "string",
+												"minLength": 1
+											},
+											{
+												"type": "null"
+											}
+										],
+										"description": "Team Leader bot id. A non-empty string sets it to a bot in this family, null clears it, and omitting it leaves the current value unchanged."
 									}
 								},
-								"description": "Parameters for updating bot family configuration."
+								"description": "Parameters for updating bot family configuration, including the optional Team Leader bot id."
 							}
 						}
 					}
@@ -5616,7 +5628,7 @@
 						"$ref": "#/components/schemas/FamilyRecord"
 					}
 				},
-				"description": "Result payload returned by family.get containing family metadata."
+				"description": "Result payload returned by family.get, including teamLeaderBotId when a Team Leader is set."
 			},
 			"FamilyListResult": {
 				"type": "object",
@@ -5630,7 +5642,7 @@
 						"description": "List of bot families registered to the account."
 					}
 				},
-				"description": "Result payload returned by family.list containing all bot families in the account."
+				"description": "Result payload returned by family.list. Each family includes teamLeaderBotId when a Team Leader is set."
 			},
 			"FamilyRecord": {
 				"type": "object",
@@ -5668,12 +5680,17 @@
 						"type": "number",
 						"description": "Idle delay in milliseconds after conversation activity before running background memory/knowledge harvesting."
 					},
+					"teamLeaderBotId": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Bot id of this family's Team Leader. Omitted when no Team Leader is set."
+					},
 					"createdAt": {
 						"type": "number",
 						"description": "Epoch timestamp in milliseconds when the family was created."
 					}
 				},
-				"description": "Bot family metadata representing a partitioned Durable Object runtime instance."
+				"description": "Bot family metadata representing a partitioned Durable Object runtime instance, including the optional Team Leader bot id."
 			},
 			"FamilyUpdateResult": {
 				"type": "object",
@@ -5683,7 +5700,7 @@
 						"$ref": "#/components/schemas/FamilyRecord"
 					}
 				},
-				"description": "Result payload returned by family.update containing updated family settings."
+				"description": "Result payload returned by family.update, including teamLeaderBotId when a Team Leader is set."
 			},
 			"FileDeleteResult": {
 				"type": "object",

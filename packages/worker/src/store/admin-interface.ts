@@ -36,6 +36,8 @@ export interface FamilySettingsPatch {
 	name?: string;
 	timezone?: string;
 	harvestDelayMs?: number;
+	/** Non-empty bot id sets the Team Leader. null clears it. Omit to leave unchanged. */
+	teamLeaderBotId?: string | null;
 }
 
 /**

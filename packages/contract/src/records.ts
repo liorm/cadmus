@@ -325,6 +325,13 @@ export const FamilyRecordSchema = Type.Object(
 			description:
 				"Idle delay in milliseconds after conversation activity before running background memory/knowledge harvesting.",
 		}),
+		teamLeaderBotId: Type.Optional(
+			Type.String({
+				minLength: 1,
+				description:
+					"Bot id of this family's Team Leader. Omitted when no Team Leader is set.",
+			}),
+		),
 		createdAt: Type.Number({
 			description:
 				"Epoch timestamp in milliseconds when the family was created.",
@@ -332,7 +339,7 @@ export const FamilyRecordSchema = Type.Object(
 	},
 	{
 		description:
-			"Bot family metadata representing a partitioned Durable Object runtime instance.",
+			"Bot family metadata representing a partitioned Durable Object runtime instance, including the optional Team Leader bot id.",
 	},
 );
 export type FamilyRecord = Static<typeof FamilyRecordSchema>;

@@ -153,7 +153,7 @@ function slugifyId(text: string): string {
 	);
 }
 
-export const CADMUS_SCHEMA_VERSION = 3;
+export const CADMUS_SCHEMA_VERSION = 4;
 
 export function isMissingSchemaError(error: unknown): boolean {
 	if (!error) return false;
@@ -296,6 +296,7 @@ export async function runD1SchemaMigrations(db: D1Database): Promise<void> {
           do_name TEXT NOT NULL,
           timezone TEXT NOT NULL,
           harvest_delay_ms INTEGER NOT NULL,
+          team_leader_bot_id TEXT,
           created_at INTEGER NOT NULL,
           PRIMARY KEY (account_id, family_id)
         )
@@ -328,6 +329,12 @@ export async function runD1SchemaMigrations(db: D1Database): Promise<void> {
 		"cadmus_accounts",
 		"timezone",
 		"TEXT NOT NULL DEFAULT 'UTC'",
+	);
+	await addColumnIfNotExists(
+		db,
+		"cadmus_families",
+		"team_leader_bot_id",
+		"TEXT",
 	);
 
 	await migrateToolsEnvCredentialColumns(db);
@@ -1033,21 +1040,13 @@ export class D1AdminStore implements AdminStore {
 		await this.initialize();
 		const { results } = await this.#db
 			.prepare(
-				`SELECT account_id, family_id, name, do_name, timezone, harvest_delay_ms, created_at
+				`SELECT account_id, family_id, name, do_name, timezone, harvest_delay_ms, team_leader_bot_id, created_at
          FROM cadmus_families
          WHERE account_id = ?1
          ORDER BY created_at ASC, family_id ASC`,
 			)
 			.bind(accountId)
-			.all<{
-				account_id: string;
-				family_id: string;
-				name: string;
-				do_name: string;
-				timezone: string;
-				harvest_delay_ms: number;
-				created_at: number;
-			}>();
+			.all<FamilySqlRow>();
 		return results.map(toFamilyRecord);
 	}
 
@@ -1058,20 +1057,12 @@ export class D1AdminStore implements AdminStore {
 		await this.initialize();
 		const row = await this.#db
 			.prepare(
-				`SELECT account_id, family_id, name, do_name, timezone, harvest_delay_ms, created_at
+				`SELECT account_id, family_id, name, do_name, timezone, harvest_delay_ms, team_leader_bot_id, created_at
          FROM cadmus_families
          WHERE account_id = ?1 AND family_id = ?2`,
 			)
 			.bind(accountId, familyId)
-			.first<{
-				account_id: string;
-				family_id: string;
-				name: string;
-				do_name: string;
-				timezone: string;
-				harvest_delay_ms: number;
-				created_at: number;
-			}>();
+			.first<FamilySqlRow>();
 		return row ? toFamilyRecord(row) : undefined;
 	}
 
@@ -1182,23 +1173,33 @@ export class D1AdminStore implements AdminStore {
 			patch.harvestDelayMs !== undefined
 				? patch.harvestDelayMs
 				: existing.harvestDelayMs;
+		const nextLeader =
+			patch.teamLeaderBotId !== undefined
+				? patch.teamLeaderBotId
+				: (existing.teamLeaderBotId ?? null);
 		await this.#db
 			.prepare(
 				`UPDATE cadmus_families
-         SET name = ?1, timezone = ?2, harvest_delay_ms = ?3
-         WHERE account_id = ?4 AND family_id = ?5`,
+         SET name = ?1, timezone = ?2, harvest_delay_ms = ?3, team_leader_bot_id = ?4
+         WHERE account_id = ?5 AND family_id = ?6`,
 			)
-			.bind(nextName, nextTz, nextDelay, accountId, familyId)
+			.bind(nextName, nextTz, nextDelay, nextLeader, accountId, familyId)
 			.run();
 		if (this.#edgeCache) {
 			await this.#edgeCache.invalidateFamily(accountId, familyId);
 		}
-		return {
+		const updated: FamilyRecord = {
 			...existing,
 			name: nextName,
 			timezone: nextTz,
 			harvestDelayMs: nextDelay,
 		};
+		if (nextLeader) {
+			updated.teamLeaderBotId = nextLeader;
+		} else {
+			delete updated.teamLeaderBotId;
+		}
+		return updated;
 	}
 
 	async deleteFamily(accountId: string, familyId: string): Promise<boolean> {
@@ -1430,16 +1431,19 @@ function mapToolsEnv(row: ToolsEnvSqlRow): StoredToolsEnv {
 	return record;
 }
 
-function toFamilyRecord(row: {
+interface FamilySqlRow {
 	account_id: string;
 	family_id: string;
 	name: string;
 	do_name: string;
 	timezone: string;
 	harvest_delay_ms: number;
+	team_leader_bot_id: string | null;
 	created_at: number;
-}): FamilyRecord {
-	return {
+}
+
+function toFamilyRecord(row: FamilySqlRow): FamilyRecord {
+	const record: FamilyRecord = {
 		accountId: row.account_id,
 		familyId: row.family_id,
 		name: row.name,
@@ -1448,4 +1452,8 @@ function toFamilyRecord(row: {
 		harvestDelayMs: row.harvest_delay_ms,
 		createdAt: row.created_at,
 	};
+	if (row.team_leader_bot_id) {
+		record.teamLeaderBotId = row.team_leader_bot_id;
+	}
+	return record;
 }
