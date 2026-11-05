@@ -381,7 +381,10 @@ export function ChatPage({ view }: { view: "chat" | "raw" }) {
 											{showDivider ? <NewDivider count={newCount} /> : null}
 											<div className="mb-3 flex justify-end">
 												<div className="max-w-[85%] rounded-lg bg-accent px-3 py-2 text-on-accent">
-													{item.message.text}
+													<Markdown
+														source={item.message.text}
+														variant="onAccent"
+													/>
 												</div>
 											</div>
 										</div>

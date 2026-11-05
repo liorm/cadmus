@@ -128,6 +128,45 @@ test("task", async ({ page, accountId, baseURL }) => {
 	}
 });
 
+test("chat-markdown", async ({ page, accountId, baseURL }) => {
+	const origin = baseURL ?? WORKER_BASE;
+	await seedBot(origin, accountId, "Echo Bot", "echo-bot");
+	const created = await sendAccountRpc<{ chat: { key: string } }>(
+		origin,
+		accountId,
+		"chat.create",
+		{ botId: "echo-bot", title: "Markdown notes" },
+	);
+	await sendAccountRpc(origin, accountId, "turn.submit", {
+		chatKey: created.chat.key,
+		text: [
+			"",
+			"# Status",
+			"",
+			"Use **bold** labels.",
+			"",
+			"## Next",
+			"",
+			"- Check the hall tablet",
+			"- Log the roast",
+			"",
+			"```ts",
+			'const roast = "dark";',
+			"```",
+		].join("\n"),
+	});
+	for (const theme of THEMES) {
+		await openThemed(page, `/app/#/chat/${created.chat.key}`, theme);
+		await expect(
+			page.getByRole("heading", { name: "Status" }).first(),
+		).toBeVisible({ timeout: 15_000 });
+		await page.screenshot({
+			path: resolve(OUT_DIR, `chat-markdown-${theme}.png`),
+			animations: "disabled",
+		});
+	}
+});
+
 test("task-queued", async ({ page, accountId, baseURL }) => {
 	const origin = baseURL ?? WORKER_BASE;
 	await seedBot(origin, accountId, "Echo Bot", "echo-bot");

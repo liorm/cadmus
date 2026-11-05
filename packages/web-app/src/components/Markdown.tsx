@@ -1,89 +1,121 @@
-import {
-	type BlockNode,
-	type InlineNode,
-	parseMarkdown,
-} from "@/lib/parse-markdown";
+import { useEffect, useState } from "react";
+import ReactMarkdown, { type Components } from "react-markdown";
+import remarkGfm from "remark-gfm";
+import { highlightCode, highlightSync } from "@/lib/highlight";
+import { closeUnclosedFences, escapeHtml, safeHref } from "@/lib/markdown";
+import { cn } from "@/lib/utils";
 
-function InlineView({ nodes }: { nodes: InlineNode[] }) {
+function HighlightedCode({
+	lang,
+	code,
+}: {
+	lang: string | undefined;
+	code: string;
+}) {
+	const sync = highlightSync(lang, code);
+	const [asyncHtml, setAsyncHtml] = useState<{
+		lang: string | undefined;
+		code: string;
+		html: string;
+	} | null>(null);
+
+	useEffect(() => {
+		if (highlightSync(lang, code) !== null) return;
+		let cancelled = false;
+		highlightCode(lang, code)
+			.then((next) => {
+				if (!cancelled) setAsyncHtml({ lang, code, html: next });
+			})
+			.catch(() => {
+				if (!cancelled) setAsyncHtml({ lang, code, html: escapeHtml(code) });
+			});
+		return () => {
+			cancelled = true;
+		};
+	}, [code, lang]);
+
+	const cached = asyncHtml;
+	const matchedAsync =
+		cached !== null && cached.lang === lang && cached.code === code
+			? cached.html
+			: null;
+	const html = sync ?? matchedAsync ?? escapeHtml(code);
+
 	return (
-		<>
-			{nodes.map((node, i) => {
-				const key = `${node.type}-${i}`;
-				if (node.type === "text") return <span key={key}>{node.text}</span>;
-				if (node.type === "code") return <code key={key}>{node.text}</code>;
-				if (node.type === "strong") {
-					return (
-						<strong key={key}>
-							<InlineView nodes={node.children} />
-						</strong>
-					);
-				}
-				if (node.type === "em") {
-					return (
-						<em key={key}>
-							<InlineView nodes={node.children} />
-						</em>
-					);
-				}
-				return (
-					<a key={key} href={node.href}>
-						<InlineView nodes={node.children} />
-					</a>
-				);
-			})}
-		</>
+		<code
+			className="hljs font-mono text-[length:var(--fs-sm)]"
+			// highlight.js emits escaped text plus token spans
+			// biome-ignore lint/security/noDangerouslySetInnerHtml: highlighter output is escaped
+			dangerouslySetInnerHTML={{ __html: html }}
+		/>
 	);
 }
 
-function BlockView({ block }: { block: BlockNode }) {
-	if (block.type === "heading") {
-		const children = <InlineView nodes={block.children} />;
-		if (block.level === 1) return <h1>{children}</h1>;
-		if (block.level === 2) return <h2>{children}</h2>;
-		return <h3>{children}</h3>;
-	}
-	if (block.type === "paragraph") {
+const components: Components = {
+	h1: ({ children }) => <h1 className="cadmus-md-h1">{children}</h1>,
+	h2: ({ children }) => <h2 className="cadmus-md-h2">{children}</h2>,
+	h3: ({ children }) => <h3 className="cadmus-md-h3">{children}</h3>,
+	h4: ({ children }) => <h4 className="cadmus-md-h3">{children}</h4>,
+	p: ({ children }) => <p className="cadmus-md-p">{children}</p>,
+	blockquote: ({ children }) => (
+		<blockquote className="cadmus-md-quote">{children}</blockquote>
+	),
+	ul: ({ children }) => <ul className="cadmus-md-ul">{children}</ul>,
+	ol: ({ children }) => <ol className="cadmus-md-ol">{children}</ol>,
+	li: ({ children }) => <li className="cadmus-md-li">{children}</li>,
+	table: ({ children }) => (
+		<div className="cadmus-md-table-wrap">
+			<table className="cadmus-md-table">{children}</table>
+		</div>
+	),
+	a: ({ href, children }) => {
+		const safe = safeHref(href);
+		if (!safe) return <span>{children}</span>;
 		return (
-			<p>
-				<InlineView nodes={block.children} />
-			</p>
+			<a href={safe} target="_blank" rel="noopener noreferrer">
+				{children}
+			</a>
 		);
-	}
-	if (block.type === "blockquote") {
-		return (
-			<blockquote>
-				<InlineView nodes={block.children} />
-			</blockquote>
-		);
-	}
-	if (block.type === "code") {
-		return (
-			<pre>
-				<code>{block.text}</code>
-			</pre>
-		);
-	}
-	const List = block.ordered ? "ol" : "ul";
-	return (
-		<List>
-			{block.items.map((item, i) => (
-				// biome-ignore lint/suspicious/noArrayIndexKey: parsed markdown AST is read-only and lacks unique IDs
-				<li key={i}>
-					<InlineView nodes={item} />
-				</li>
-			))}
-		</List>
-	);
-}
+	},
+	pre: ({ children }) => <pre className="cadmus-md-pre">{children}</pre>,
+	code: ({ className, children }) => {
+		const raw = String(children);
+		const isBlock = Boolean(className) || raw.endsWith("\n");
+		const lang = /language-([\w-]+)/.exec(className ?? "")?.[1];
+		const text = raw.replace(/\n$/, "");
+		if (isBlock) {
+			return <HighlightedCode lang={lang} code={text} />;
+		}
+		return <code className="cadmus-md-inline-code">{text}</code>;
+	},
+};
 
-export function Markdown({ source }: { source: string }) {
-	const blocks = parseMarkdown(source);
+export function Markdown({
+	source,
+	variant = "default",
+	className,
+}: {
+	source: string;
+	variant?: "default" | "onAccent";
+	className?: string;
+}) {
+	const markdown = closeUnclosedFences(source);
 	return (
-		<div className="flex flex-col gap-2 text-[length:var(--fs-md)]">
-			{blocks.map((block, i) => (
-				// biome-ignore lint/suspicious/noArrayIndexKey: parsed markdown AST is read-only and lacks unique IDs
-				<BlockView key={i} block={block} />
-			))}
+		<div
+			className={cn(
+				"cadmus-md text-[length:var(--fs-md)]",
+				variant === "onAccent" && "cadmus-md--on-accent",
+				className,
+			)}
+		>
+			<ReactMarkdown
+				remarkPlugins={[remarkGfm]}
+				skipHtml
+				urlTransform={(url) => safeHref(url) ?? ""}
+				components={components}
+			>
+				{markdown}
+			</ReactMarkdown>
 		</div>
 	);
 }

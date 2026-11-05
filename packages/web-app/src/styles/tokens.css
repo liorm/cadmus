@@ -24,6 +24,15 @@
 	--bot-6: #6d8cff;
 	--bot-7: #9b7cf0;
 	--bot-8: #d46bb3;
+	--md-code-bg: #121218;
+	--md-token-comment: #7a7a86;
+	--md-token-keyword: #c792ea;
+	--md-token-string: #c3e88d;
+	--md-token-number: #f78c6c;
+	--md-token-function: #82aaff;
+	--md-token-type: #ffcb6b;
+	--md-token-punctuation: #9a9aa3;
+	--md-token-attr: #80cbc4;
 }
 
 [data-theme="light"] {
@@ -51,6 +60,15 @@
 	--bot-6: #3d5fd9;
 	--bot-7: #6b4ad4;
 	--bot-8: #b03d86;
+	--md-code-bg: #ecece8;
+	--md-token-comment: #6b6b73;
+	--md-token-keyword: #6b4ad4;
+	--md-token-string: #1f8a4c;
+	--md-token-number: #c46a14;
+	--md-token-function: #2f6fdb;
+	--md-token-type: #c46a14;
+	--md-token-punctuation: #6b6b73;
+	--md-token-attr: #1a7aa3;
 }
 
 [data-theme="sepia"] {
@@ -78,6 +96,15 @@
 	--bot-6: #8b5a2b;
 	--bot-7: #6b4a8a;
 	--bot-8: #8a3d68;
+	--md-code-bg: #efe6d2;
+	--md-token-comment: #7a6a52;
+	--md-token-keyword: #6b4a8a;
+	--md-token-string: #3d7a4a;
+	--md-token-number: #b06a10;
+	--md-token-function: #3d6ea8;
+	--md-token-type: #8b5a2b;
+	--md-token-punctuation: #7a6a52;
+	--md-token-attr: #3d6ea8;
 }
 
 :root {

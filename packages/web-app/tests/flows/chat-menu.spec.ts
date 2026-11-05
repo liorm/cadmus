@@ -75,7 +75,7 @@ test("harvest toggle persists through chat.update", async ({
 		page.getByRole("switch", { name: "Harvest this chat" }),
 	).toHaveAttribute("aria-checked", "false");
 	await clickByRole(page, "button", "Open bot profile");
-	await expect(page.getByRole("heading", { name: "echo-bot" })).toBeVisible();
+	await expect(page.getByRole("heading", { name: "Echo Bot" })).toBeVisible();
 });
 
 test("raw transcript requests entries and shows role labels", async ({

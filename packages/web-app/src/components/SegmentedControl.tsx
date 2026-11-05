@@ -11,7 +11,7 @@ export function SegmentedControl({
 }: {
 	value: string;
 	onValueChange: (value: string) => void;
-	options: ReadonlyArray<{ value: string; label: string }>;
+	options: ReadonlyArray<{ value: string; label: string; id?: string }>;
 	ariaLabel: string;
 	scroll?: boolean;
 	className?: string;
@@ -31,7 +31,7 @@ export function SegmentedControl({
 			)}
 		>
 			{options.map((option) => (
-				<ToggleGroupItem key={option.value} value={option.value}>
+				<ToggleGroupItem key={option.value} id={option.id} value={option.value}>
 					{option.label}
 				</ToggleGroupItem>
 			))}

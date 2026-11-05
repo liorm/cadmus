@@ -4,6 +4,7 @@ import { AppShell } from "@/components/AppShell";
 import { BotBadge } from "@/components/BotBadge";
 import { BotChip } from "@/components/BotChip";
 import { Composer } from "@/components/Composer";
+import { GroupMenuSheet } from "@/components/GroupMenuSheet";
 import { type StatusKind, StatusShape } from "@/components/StatusShape";
 import { SwipeRow } from "@/components/SwipeRow";
 import { UnreadDot } from "@/components/UnreadDot";
@@ -39,6 +40,7 @@ export function HomePage() {
 	} = useCadmus();
 	const [needsExpanded, setNeedsExpanded] = useState(false);
 	const [toast, setToast] = useState<string | null>(null);
+	const [menuBotId, setMenuBotId] = useState<string | null>(null);
 	const [selectedBot, setSelectedBot] = useState(
 		() => lastBotId ?? bots[0]?.id ?? "",
 	);
@@ -225,8 +227,8 @@ export function HomePage() {
 												<button
 													type="button"
 													aria-label={`${bot.name} menu`}
-													disabled
-													className="inline-flex min-h-tap min-w-tap items-center justify-center text-text-muted disabled:opacity-40"
+													className="inline-flex min-h-tap min-w-tap items-center justify-center text-text-muted"
+													onClick={() => setMenuBotId(bot.id)}
 												>
 													⋯
 												</button>
@@ -325,6 +327,45 @@ export function HomePage() {
 						</Link>
 					</nav>
 				</div>
+				{menuBotId ? (
+					<GroupMenuSheet
+						bot={
+							bots.find((entry) => entry.id === menuBotId) ?? {
+								id: menuBotId,
+								name: menuBotId,
+								model: "",
+								thinking: "off",
+								timezone: "UTC",
+								rootConversationId: 0,
+								createdAt: 0,
+							}
+						}
+						openChatCount={
+							chats.filter((chat) => chat.botId === menuBotId).length
+						}
+						open={Boolean(menuBotId)}
+						onOpenChange={(open) => {
+							if (!open) setMenuBotId(null);
+						}}
+						onProfile={() => {
+							const id = menuBotId;
+							setMenuBotId(null);
+							void navigate({
+								to: "/bot/$botId/$tab",
+								params: { botId: id, tab: "schedules" },
+							});
+						}}
+						onNewChat={() => {
+							const id = menuBotId;
+							setMenuBotId(null);
+							void navigate({ to: "/new", search: { bot: id } });
+						}}
+						onArchived={() => {
+							setToast("Archived");
+							window.setTimeout(() => setToast(null), 2000);
+						}}
+					/>
+				) : null}
 				{toast ? (
 					<p
 						role="status"

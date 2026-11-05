@@ -5,29 +5,18 @@ import {
 	createRouter,
 	Outlet,
 } from "@tanstack/react-router";
-import { BotBadge } from "@/components/BotBadge";
-import { Markdown } from "@/components/Markdown";
-import { SegmentedControl } from "@/components/SegmentedControl";
 import { CadmusProvider } from "@/context/CadmusContext";
+import { isBotTab } from "@/lib/profile-tabs";
 import { ChatPage } from "@/routes/chat";
+import { DocPage } from "@/routes/doc";
+import { HarvestPage } from "@/routes/harvest";
 import { HomePage } from "@/routes/home";
 import { NewTaskPage } from "@/routes/new";
 import { PlaceholderPage } from "@/routes/placeholder";
+import { ProfilePage } from "@/routes/profile";
+import { SchedulePage } from "@/routes/schedule";
 import { SettingsPage } from "@/routes/settings";
-
-const BOT_TABS = [
-	"schedules",
-	"memory",
-	"knowledge",
-	"soul",
-	"config",
-] as const;
-
-export type BotTab = (typeof BOT_TABS)[number];
-
-function isBotTab(value: string): value is BotTab {
-	return (BOT_TABS as readonly string[]).includes(value);
-}
+import { ToolsPage } from "@/routes/tools";
 
 const rootRoute = createRootRoute({
 	component: () => (
@@ -75,29 +64,22 @@ const newBotRoute = createRoute({
 	component: () => <PlaceholderPage title="New bot" />,
 });
 
+const botRoute = createRoute({
+	getParentRoute: () => rootRoute,
+	path: "/bot/$botId",
+	component: function BotDefaultRoutePage() {
+		const { botId } = botRoute.useParams();
+		return <ProfilePage botId={botId} tab="schedules" />;
+	},
+});
+
 const botTabRoute = createRoute({
 	getParentRoute: () => rootRoute,
 	path: "/bot/$botId/$tab",
-	component: function BotTabPlaceholder() {
+	component: function BotTabPage() {
 		const { botId, tab } = botTabRoute.useParams();
-		const current = isBotTab(tab) ? tab : "schedules";
 		return (
-			<PlaceholderPage title={botId}>
-				<BotBadge bot={{ id: botId, name: botId }} />
-				<SegmentedControl
-					scroll
-					ariaLabel="Bot profile tabs"
-					value={current}
-					onValueChange={() => undefined}
-					options={BOT_TABS.map((name) => ({
-						value: name,
-						label: name[0]?.toUpperCase() + name.slice(1),
-					}))}
-				/>
-				{current === "memory" ? (
-					<Markdown source="# Memory\nThis is **rendered** markdown." />
-				) : null}
-			</PlaceholderPage>
+			<ProfilePage botId={botId} tab={isBotTab(tab) ? tab : "schedules"} />
 		);
 	},
 });
@@ -105,15 +87,40 @@ const botTabRoute = createRoute({
 const scheduleRoute = createRoute({
 	getParentRoute: () => rootRoute,
 	path: "/bot/$botId/schedule/$id",
-	component: function SchedulePlaceholder() {
+	component: function ScheduleRoutePage() {
 		const { botId, id } = scheduleRoute.useParams();
-		return (
-			<PlaceholderPage title="Schedule">
-				<p>
-					{botId} / {id}
-				</p>
-			</PlaceholderPage>
-		);
+		return <SchedulePage botId={botId} id={id} />;
+	},
+});
+
+const toolsRoute = createRoute({
+	getParentRoute: () => rootRoute,
+	path: "/bot/$botId/tools",
+	component: function ToolsRoutePage() {
+		const { botId } = toolsRoute.useParams();
+		return <ToolsPage botId={botId} />;
+	},
+});
+
+const harvestRoute = createRoute({
+	getParentRoute: () => rootRoute,
+	path: "/bot/$botId/harvest",
+	component: function HarvestRoutePage() {
+		const { botId } = harvestRoute.useParams();
+		return <HarvestPage botId={botId} />;
+	},
+});
+
+const docRoute = createRoute({
+	getParentRoute: () => rootRoute,
+	path: "/bot/$botId/doc",
+	validateSearch: (search: Record<string, unknown>): { path: string } => ({
+		path: typeof search.path === "string" ? search.path : "MEMORY.md",
+	}),
+	component: function DocRoutePage() {
+		const { botId } = docRoute.useParams();
+		const { path } = docRoute.useSearch();
+		return <DocPage botId={botId} path={path} />;
 	},
 });
 
@@ -140,8 +147,12 @@ const routeTree = rootRoute.addChildren([
 	chatRoute,
 	newTaskRoute,
 	newBotRoute,
+	botRoute,
 	botTabRoute,
 	scheduleRoute,
+	toolsRoute,
+	harvestRoute,
+	docRoute,
 	settingsRoute,
 	archiveRoute,
 	searchRoute,
