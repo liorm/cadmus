@@ -1,12 +1,13 @@
 import type { FamilyRecord } from "@cadmus/contract/types";
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { AppShell } from "@/components/AppShell";
 import { fieldClass } from "@/components/SettingsRows";
+import { LoadGate } from "@/components/Skeleton";
 import { useCadmus } from "@/context/CadmusContext";
+import { useScopedResource } from "@/hooks/useScopedResource";
 
 export function FamilySettingsPage() {
 	const { client, familyId, switchFamily, bots } = useCadmus();
-	const [families, setFamilies] = useState<FamilyRecord[]>([]);
 	const [name, setName] = useState("");
 	const [timezone, setTimezone] = useState("UTC");
 	const [harvestDelayMs, setHarvestDelayMs] = useState("60000");
@@ -15,63 +16,70 @@ export function FamilySettingsPage() {
 	const [error, setError] = useState<string | null>(null);
 	const [busy, setBusy] = useState(false);
 
+	const loaded = useScopedResource(familyId, async () => {
+		const res = await client.callRpc<{ families?: FamilyRecord[] }>(
+			"family.list",
+		);
+		if (!res.ok)
+			throw new Error(res.error?.message ?? "Could not load families");
+		return res.result?.families ?? [];
+	});
+	const families = loaded.data ?? [];
 	const current = families.find((family) => family.familyId === familyId);
-
-	const load = useCallback(
-		async (activeId = familyId) => {
-			const res = await client.callRpc<{ families?: FamilyRecord[] }>(
-				"family.list",
-			);
-			const listed = res.result?.families ?? [];
-			setFamilies(listed);
-			const active = listed.find((family) => family.familyId === activeId);
-			if (active) {
-				setName(active.name);
-				setTimezone(active.timezone);
-				setHarvestDelayMs(String(active.harvestDelayMs));
-			}
-		},
-		[client, familyId],
-	);
-
 	useEffect(() => {
-		void load();
-	}, [load]);
+		if (!current) return;
+		setName(current.name);
+		setTimezone(current.timezone);
+		setHarvestDelayMs(String(current.harvestDelayMs));
+	}, [current]);
+	const formDisabled = busy || loaded.phase !== "ready";
 
 	return (
 		<AppShell title="Family" backTo="/settings">
 			<div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-3 py-4">
+				{loaded.phase !== "ready" ? (
+					<LoadGate
+						phase={loaded.phase}
+						error={loaded.error}
+						onRetry={loaded.retry}
+						label="Loading families"
+					>
+						{null}
+					</LoadGate>
+				) : null}
 				{error ? <p className="text-destructive">{error}</p> : null}
-				<ul className="overflow-hidden rounded-md border border-border bg-surface">
-					{families.map((family) => {
-						const active = family.familyId === familyId;
-						return (
-							<li
-								key={family.familyId}
-								className="flex min-h-tap items-center gap-2 border-b border-border px-3 last:border-b-0"
-							>
-								<span className="min-w-0 flex-1">
-									<span className="block truncate font-semibold">
-										{family.name}
+				{loaded.phase === "ready" ? (
+					<ul className="overflow-hidden rounded-md border border-border bg-surface">
+						{families.map((family) => {
+							const active = family.familyId === familyId;
+							return (
+								<li
+									key={family.familyId}
+									className="flex min-h-tap items-center gap-2 border-b border-border px-3 last:border-b-0"
+								>
+									<span className="min-w-0 flex-1">
+										<span className="block truncate font-semibold">
+											{family.name}
+										</span>
+										<span className="block truncate text-[length:var(--fs-sm)] text-text-muted">
+											{family.familyId}
+											{active ? " · current" : ""}
+										</span>
 									</span>
-									<span className="block truncate text-[length:var(--fs-sm)] text-text-muted">
-										{family.familyId}
-										{active ? " · current" : ""}
-									</span>
-								</span>
-								{active ? null : (
-									<button
-										type="button"
-										className="min-h-tap px-2 text-accent"
-										onClick={() => void switchFamily(family.familyId)}
-									>
-										Switch
-									</button>
-								)}
-							</li>
-						);
-					})}
-				</ul>
+									{active ? null : (
+										<button
+											type="button"
+											className="min-h-tap px-2 text-accent"
+											onClick={() => void switchFamily(family.familyId)}
+										>
+											Switch
+										</button>
+									)}
+								</li>
+							);
+						})}
+					</ul>
+				) : null}
 				<form
 					aria-label="Rename family"
 					className="flex flex-col gap-2"
@@ -93,7 +101,7 @@ export function FamilySettingsPage() {
 									setError(res.error?.message ?? "Could not update the family");
 									return;
 								}
-								return load();
+								loaded.retry();
 							})
 							.catch((err: unknown) => {
 								setError(err instanceof Error ? err.message : "Network error");
@@ -111,6 +119,7 @@ export function FamilySettingsPage() {
 							className={fieldClass}
 							value={name}
 							onChange={(event) => setName(event.target.value)}
+							disabled={formDisabled}
 							required
 						/>
 					</label>
@@ -120,6 +129,7 @@ export function FamilySettingsPage() {
 							aria-label="Family timezone"
 							className={fieldClass}
 							value={timezone}
+							disabled={formDisabled}
 							onChange={(event) => setTimezone(event.target.value)}
 						/>
 					</label>
@@ -130,26 +140,29 @@ export function FamilySettingsPage() {
 							className={fieldClass}
 							inputMode="numeric"
 							value={harvestDelayMs}
+							disabled={formDisabled}
 							onChange={(event) => setHarvestDelayMs(event.target.value)}
 						/>
 					</label>
-					<p className="text-[length:var(--fs-sm)] text-text-muted">
-						{current?.doName ??
-							`cadmus:${current?.accountId ?? ""}:${familyId}`}
-						{" · "}
-						{bots.length} {bots.length === 1 ? "bot" : "bots"}
-					</p>
+					{loaded.phase === "ready" ? (
+						<p className="text-[length:var(--fs-sm)] text-text-muted">
+							{current?.doName ??
+								`cadmus:${current?.accountId ?? ""}:${familyId}`}
+							{" · "}
+							{bots.length} {bots.length === 1 ? "bot" : "bots"}
+						</p>
+					) : null}
 					<button
 						type="submit"
 						className="min-h-tap rounded-md bg-accent text-on-accent"
-						disabled={busy}
+						disabled={formDisabled}
 					>
 						Save family
 					</button>
 					<button
 						type="button"
 						className="min-h-tap rounded-md border border-destructive text-destructive"
-						disabled={busy || families.length < 2}
+						disabled={formDisabled || families.length < 2}
 						onClick={() => {
 							if (!window.confirm(`Delete family ${name || familyId}?`)) return;
 							setBusy(true);

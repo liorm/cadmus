@@ -17,11 +17,13 @@ import { LiveCard } from "@/components/LiveCard";
 import { Markdown } from "@/components/Markdown";
 import { RawTranscript } from "@/components/RawTranscript";
 import { SegmentedControl } from "@/components/SegmentedControl";
+import { LoadError, SkeletonBlock } from "@/components/Skeleton";
 import { StatusShape } from "@/components/StatusShape";
 import { useCadmus } from "@/context/CadmusContext";
 import { isNearBottom, useAutoScroll } from "@/hooks/useAutoScroll";
 import { chatTitle } from "@/lib/format-time";
 import { groupToolRuns } from "@/lib/group-tool-runs";
+import type { LoadPhase } from "@/lib/load-state";
 import { taskProgress } from "@/lib/task-progress";
 
 function userTextCounts(
@@ -85,6 +87,9 @@ export function ChatPage({ view }: { view: "chat" | "raw" }) {
 	const chat = chats.find((entry) => entry.key === chatKey);
 	const live = chatStates[chatKey];
 	const [localBusy, setLocalBusy] = useState(false);
+	// Bumped on Stop so an in-flight chat.get cannot restore Working.
+	const localBusyEpoch = useRef(0);
+	const ignoreStaleBusy = useRef(false);
 	const busy = localBusy || Boolean(live?.busy);
 	const [messages, setMessages] = useState<TranscriptMessageView[]>([]);
 	const pendingOptimistic = useRef<TranscriptMessageView[]>([]);
@@ -98,6 +103,11 @@ export function ChatPage({ view }: { view: "chat" | "raw" }) {
 	const [newCount, setNewCount] = useState(0);
 	const [record, setRecord] = useState<ChatRecord | null>(null);
 	const [entries, setEntries] = useState<RawTranscriptEntry[]>([]);
+	const [transcriptPhase, setTranscriptPhase] = useState<LoadPhase>("loading");
+	const [transcriptError, setTranscriptError] = useState<string | null>(null);
+	const [rawPhase, setRawPhase] = useState<LoadPhase>("loading");
+	const [rawError, setRawError] = useState<string | null>(null);
+	const [loadAttempt, setLoadAttempt] = useState(0);
 	const [menuOpen, setMenuOpen] = useState(false);
 	const [renaming, setRenaming] = useState(false);
 	const bot = bots.find((entry) => entry.id === (record ?? chat)?.botId);
@@ -123,19 +133,33 @@ export function ChatPage({ view }: { view: "chat" | "raw" }) {
 	useEffect(() => {
 		pendingOptimistic.current = [];
 		knownUserTexts.current = new Map();
+		void loadAttempt;
 		const previous = markChatSeen(chatKey);
 		let cancelled = false;
+		setTranscriptPhase("loading");
+		setTranscriptError(null);
+		setMessages([]);
+		setRecord(null);
 		void (async () => {
+			const busyEpoch = localBusyEpoch.current;
 			const res = await client.callRpc<{
 				chat: ChatRecord;
 				messages: TranscriptMessageView[];
 				busy: boolean;
 				tasks?: ChatTask[];
 			}>("chat.get", { chatKey });
-			if (cancelled || !res.ok || !res.result) return;
+			if (cancelled) return;
+			if (!res.ok || !res.result) {
+				setTranscriptPhase("error");
+				setTranscriptError(res.error?.message ?? "Could not load chat");
+				return;
+			}
 			setRecord(res.result.chat);
 			applyServerMessages(res.result.messages);
-			setLocalBusy(Boolean(res.result.busy));
+			if (localBusyEpoch.current === busyEpoch) {
+				setLocalBusy(Boolean(res.result.busy));
+			}
+			setTranscriptPhase("ready");
 			if (res.result.tasks) setTasks(res.result.tasks);
 			const listed = await client.callRpc<{ tasks: ChatTask[] }>(
 				"chat.tasks.list",
@@ -156,11 +180,24 @@ export function ChatPage({ view }: { view: "chat" | "raw" }) {
 			}
 			await client.callRpc("chat.subscribe", { chatKey });
 			await refreshChatStatus(chatKey);
-		})();
+		})().catch((err: unknown) => {
+			if (cancelled) return;
+			setTranscriptPhase("error");
+			setTranscriptError(
+				err instanceof Error ? err.message : "Could not load chat",
+			);
+		});
 		return () => {
 			cancelled = true;
 		};
-	}, [applyServerMessages, chatKey, client, markChatSeen, refreshChatStatus]);
+	}, [
+		applyServerMessages,
+		chatKey,
+		client,
+		loadAttempt,
+		markChatSeen,
+		refreshChatStatus,
+	]);
 
 	useEffect(() => {
 		return client.subscribe((event) => {
@@ -171,9 +208,12 @@ export function ChatPage({ view }: { view: "chat" | "raw" }) {
 				return;
 			}
 			if (event.type === "chat.state") {
+				if (event.payload.busy && ignoreStaleBusy.current) return;
+				if (!event.payload.busy) ignoreStaleBusy.current = false;
 				setLocalBusy(event.payload.busy);
 			}
 			if (event.type === "turn.completed") {
+				ignoreStaleBusy.current = false;
 				setLocalBusy(false);
 				void client
 					.callRpc<{
@@ -221,18 +261,34 @@ export function ChatPage({ view }: { view: "chat" | "raw" }) {
 
 	useEffect(() => {
 		if (view !== "raw") return;
+		void loadAttempt;
 		let cancelled = false;
+		setRawPhase("loading");
+		setRawError(null);
+		setEntries([]);
 		void client
 			.callRpc<{ entries: RawTranscriptEntry[] }>("chat.entries", { chatKey })
 			.then((res) => {
-				if (!cancelled && res.ok && res.result?.entries) {
-					setEntries(res.result.entries);
+				if (cancelled) return;
+				if (!res.ok) {
+					setRawPhase("error");
+					setRawError(res.error?.message ?? "Could not load transcript");
+					return;
 				}
+				setEntries(res.result?.entries ?? []);
+				setRawPhase("ready");
+			})
+			.catch((err: unknown) => {
+				if (cancelled) return;
+				setRawPhase("error");
+				setRawError(
+					err instanceof Error ? err.message : "Could not load transcript",
+				);
 			});
 		return () => {
 			cancelled = true;
 		};
-	}, [view, chatKey, client]);
+	}, [view, chatKey, client, loadAttempt]);
 
 	const wasDown = useRef(false);
 	useEffect(() => {
@@ -344,6 +400,7 @@ export function ChatPage({ view }: { view: "chat" | "raw" }) {
 				timestamp: Date.now(),
 			},
 		]);
+		ignoreStaleBusy.current = false;
 		setLocalBusy(true);
 		await client.callRpc("turn.submit", { chatKey, text, whenBusy: "queue" });
 		void refreshDirectory();
@@ -476,7 +533,23 @@ export function ChatPage({ view }: { view: "chat" | "raw" }) {
 					style={busy ? { minHeight: 0 } : undefined}
 				>
 					{view === "raw" ? (
-						<RawTranscript entries={entries} />
+						rawPhase === "loading" ? (
+							<SkeletonBlock label="Loading transcript" />
+						) : rawPhase === "error" ? (
+							<LoadError
+								message={rawError ?? "Could not load transcript"}
+								onRetry={() => setLoadAttempt((value) => value + 1)}
+							/>
+						) : (
+							<RawTranscript entries={entries} />
+						)
+					) : transcriptPhase === "loading" ? (
+						<SkeletonBlock label="Loading chat" />
+					) : transcriptPhase === "error" ? (
+						<LoadError
+							message={transcriptError ?? "Could not load chat"}
+							onRetry={() => setLoadAttempt((value) => value + 1)}
+						/>
 					) : messages.length === 0 && queued.length === 0 ? (
 						<p className="py-16 text-center text-[length:var(--fs-sm)] text-text-muted">
 							Describe the task in as much detail as you like.
@@ -549,6 +622,8 @@ export function ChatPage({ view }: { view: "chat" | "raw" }) {
 										?.focus();
 								}}
 								onStop={() => {
+									localBusyEpoch.current += 1;
+									ignoreStaleBusy.current = true;
 									markFailed(chatKey, "aborted");
 									setLocalBusy(false);
 									void client.callRpc("turn.interrupt", { chatKey });

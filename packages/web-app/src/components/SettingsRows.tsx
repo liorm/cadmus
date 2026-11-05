@@ -31,7 +31,7 @@ export function SettingsLink({
 }: {
 	to: string;
 	title: string;
-	hint: string;
+	hint: ReactNode;
 }) {
 	return (
 		<Link

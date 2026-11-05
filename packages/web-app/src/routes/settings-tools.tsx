@@ -2,7 +2,9 @@ import type { AccountMember, ToolsEnvRecord } from "@cadmus/contract/types";
 import { useCallback, useEffect, useState } from "react";
 import { AppShell } from "@/components/AppShell";
 import { fieldClass } from "@/components/SettingsRows";
+import { LoadGate } from "@/components/Skeleton";
 import { useCadmus } from "@/context/CadmusContext";
+import type { LoadPhase } from "@/lib/load-state";
 
 function connectionLabel(env: ToolsEnvRecord): string {
 	if (env.kind === "just-bash") return "connected";
@@ -31,6 +33,8 @@ export function ToolsSettingsPage() {
 	const [pairing, setPairing] = useState<string | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const [busy, setBusy] = useState(false);
+	const [phase, setPhase] = useState<LoadPhase>("loading");
+	const [attempt, setAttempt] = useState(0);
 
 	const load = useCallback(async () => {
 		const [listed, members] = await Promise.all([
@@ -50,16 +54,53 @@ export function ToolsSettingsPage() {
 			(member) => member.userId === client.getUserId(),
 		);
 		setCanDeregister(me?.role === "owner");
+		if (!listed.ok || !members.ok) {
+			throw new Error(
+				listed.error?.message ??
+					members.error?.message ??
+					"Could not load tools environments",
+			);
+		}
 	}, [client]);
 
 	useEffect(() => {
-		void load();
-	}, [load]);
+		let cancelled = false;
+		void attempt;
+		setPhase("loading");
+		void load()
+			.then(() => {
+				if (!cancelled) setPhase("ready");
+			})
+			.catch((err: unknown) => {
+				if (cancelled) return;
+				setPhase("error");
+				setError(
+					err instanceof Error
+						? err.message
+						: "Could not load tools environments",
+				);
+			});
+		return () => {
+			cancelled = true;
+		};
+	}, [attempt, load]);
 
 	return (
 		<AppShell title="Tools environments" backTo="/settings">
 			<div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-3 py-4">
-				{error ? <p className="text-destructive">{error}</p> : null}
+				{phase !== "ready" ? (
+					<LoadGate
+						phase={phase}
+						error={error ?? undefined}
+						onRetry={() => setAttempt((value) => value + 1)}
+						label="Loading tools environments"
+					>
+						{null}
+					</LoadGate>
+				) : null}
+				{error && phase === "ready" ? (
+					<p className="text-destructive">{error}</p>
+				) : null}
 				{pairing ? (
 					<section
 						aria-label="Pairing command"
@@ -84,6 +125,7 @@ export function ToolsSettingsPage() {
 				) : null}
 				<form
 					className="flex flex-col gap-2"
+					aria-disabled={phase !== "ready"}
 					onSubmit={(event) => {
 						event.preventDefault();
 						setBusy(true);
@@ -111,6 +153,7 @@ export function ToolsSettingsPage() {
 							aria-label="Account default tools environment"
 							className={fieldClass}
 							value={defaultEnvId}
+							disabled={phase !== "ready" || busy}
 							onChange={(event) => setDefaultEnvId(event.target.value)}
 						>
 							<option value="">None</option>
@@ -124,7 +167,7 @@ export function ToolsSettingsPage() {
 					<button
 						type="submit"
 						className="min-h-tap rounded-md bg-accent text-on-accent"
-						disabled={busy}
+						disabled={phase !== "ready" || busy}
 					>
 						Save default
 					</button>

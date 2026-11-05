@@ -1,13 +1,13 @@
 import type { AccountMember, AccountRecord } from "@cadmus/contract/types";
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { AppShell } from "@/components/AppShell";
 import { fieldClass } from "@/components/SettingsRows";
+import { LoadGate, SkeletonBlock } from "@/components/Skeleton";
 import { useCadmus } from "@/context/CadmusContext";
+import { useScopedResource } from "@/hooks/useScopedResource";
 
 export function AccountSettingsPage() {
 	const { client } = useCadmus();
-	const [account, setAccount] = useState<AccountRecord | null>(null);
-	const [members, setMembers] = useState<AccountMember[]>([]);
 	const [name, setName] = useState("");
 	const [timezone, setTimezone] = useState("UTC");
 	const [userId, setUserId] = useState("");
@@ -15,27 +15,48 @@ export function AccountSettingsPage() {
 	const [error, setError] = useState<string | null>(null);
 	const [busy, setBusy] = useState(false);
 
-	const load = useCallback(async () => {
+	const loaded = useScopedResource("account", async () => {
 		const [accountRes, memberRes] = await Promise.all([
 			client.callRpc<{ account?: AccountRecord }>("account.get"),
 			client.callRpc<{ members?: AccountMember[] }>("account.members.list"),
 		]);
-		const next = accountRes.result?.account ?? null;
-		setAccount(next);
-		if (next) {
-			setName(next.name);
-			setTimezone(next.timezone);
+		if (!accountRes.ok || !memberRes.ok) {
+			throw new Error(
+				accountRes.error?.message ??
+					memberRes.error?.message ??
+					"Could not load account",
+			);
 		}
-		setMembers(memberRes.result?.members ?? []);
-	}, [client]);
-
+		return {
+			account: accountRes.result?.account ?? null,
+			members: memberRes.result?.members ?? [],
+		};
+	});
+	const account = loaded.data?.account ?? null;
+	const members = loaded.data?.members ?? [];
 	useEffect(() => {
-		void load();
-	}, [load]);
+		if (!loaded.data?.account) return;
+		setName(loaded.data.account.name);
+		setTimezone(loaded.data.account.timezone);
+	}, [loaded.data]);
+	const formDisabled = busy || loaded.phase !== "ready";
 
 	return (
 		<AppShell title="Account" backTo="/settings">
 			<div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-3 py-4">
+				{loaded.phase === "error" ? (
+					<LoadGate
+						phase="error"
+						error={loaded.error}
+						onRetry={loaded.retry}
+						label="Loading account"
+					>
+						{null}
+					</LoadGate>
+				) : null}
+				{loaded.phase === "loading" ? (
+					<SkeletonBlock label="Loading account" />
+				) : null}
 				{error ? <p className="text-destructive">{error}</p> : null}
 				<form
 					className="flex flex-col gap-3"
@@ -55,7 +76,7 @@ export function AccountSettingsPage() {
 									);
 									return;
 								}
-								return load();
+								return loaded.retry();
 							})
 							.catch((err: unknown) => {
 								setError(err instanceof Error ? err.message : "Network error");
@@ -70,6 +91,7 @@ export function AccountSettingsPage() {
 							className={fieldClass}
 							value={name}
 							onChange={(event) => setName(event.target.value)}
+							disabled={formDisabled}
 							required
 						/>
 					</label>
@@ -80,16 +102,17 @@ export function AccountSettingsPage() {
 							className={fieldClass}
 							value={timezone}
 							onChange={(event) => setTimezone(event.target.value)}
+							disabled={formDisabled}
 							required
 						/>
 					</label>
 					<p className="text-[length:var(--fs-sm)] text-text-muted">
-						{account ? `Account ${account.id}` : "Loading account…"}
+						{account ? `Account ${account.id}` : ""}
 					</p>
 					<button
 						type="submit"
 						className="min-h-tap rounded-md bg-accent text-on-accent"
-						disabled={busy}
+						disabled={formDisabled}
 					>
 						Save account
 					</button>
@@ -98,17 +121,19 @@ export function AccountSettingsPage() {
 					<h2 className="text-[length:var(--fs-xs)] font-semibold uppercase tracking-wide text-text-muted">
 						Members
 					</h2>
-					<ul className="overflow-hidden rounded-md border border-border bg-surface">
-						{members.map((member) => (
-							<li
-								key={member.userId}
-								className="flex min-h-tap items-center justify-between border-b border-border px-3 last:border-b-0"
-							>
-								<span>{member.userId}</span>
-								<span className="text-text-muted">{member.role}</span>
-							</li>
-						))}
-					</ul>
+					{loaded.phase === "ready" ? (
+						<ul className="overflow-hidden rounded-md border border-border bg-surface">
+							{members.map((member) => (
+								<li
+									key={member.userId}
+									className="flex min-h-tap items-center justify-between border-b border-border px-3 last:border-b-0"
+								>
+									<span>{member.userId}</span>
+									<span className="text-text-muted">{member.role}</span>
+								</li>
+							))}
+						</ul>
+					) : null}
 					<form
 						className="flex flex-col gap-2"
 						onSubmit={(event) => {
@@ -127,7 +152,7 @@ export function AccountSettingsPage() {
 										return;
 									}
 									setUserId("");
-									return load();
+									return loaded.retry();
 								})
 								.catch((err: unknown) => {
 									setError(
@@ -143,6 +168,7 @@ export function AccountSettingsPage() {
 								aria-label="Member user ID"
 								className={fieldClass}
 								value={userId}
+								disabled={formDisabled}
 								onChange={(event) => setUserId(event.target.value)}
 							/>
 						</label>
@@ -152,6 +178,7 @@ export function AccountSettingsPage() {
 								aria-label="Member role"
 								className={fieldClass}
 								value={role}
+								disabled={formDisabled}
 								onChange={(event) =>
 									setRole(event.target.value === "owner" ? "owner" : "member")
 								}
@@ -163,7 +190,7 @@ export function AccountSettingsPage() {
 						<button
 							type="submit"
 							className="min-h-tap rounded-md border border-border"
-							disabled={busy || !userId.trim()}
+							disabled={formDisabled || !userId.trim()}
 						>
 							Add member
 						</button>

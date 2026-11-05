@@ -82,6 +82,8 @@ export interface CadmusContextValue {
 	lastBotId?: string;
 	teamLeaderBotId?: string;
 	directoryReady: boolean;
+	directoryDetailReady: boolean;
+	directoryError?: string;
 	refreshDirectory: () => Promise<void>;
 	subscribeEvents: (listener: (event: ServerEvent) => void) => () => void;
 	toggleCollapsed: (botId: string) => void;
@@ -165,8 +167,24 @@ export function CadmusProvider({
 	const [familyId, setFamilyId] = useState(authConfig.familyId);
 	const [teamLeaderBotId, setTeamLeaderBotId] = useState<string | undefined>();
 	const [directoryReady, setDirectoryReady] = useState(false);
+	const [directoryDetailReady, setDirectoryDetailReady] = useState(false);
+	const [directoryError, setDirectoryError] = useState<string | undefined>();
+	const directoryScopeRef = useRef(
+		`${authConfig.accountId}:${authConfig.familyId}`,
+	);
+	const directoryDetailRef = useRef(false);
 
+	// Stop clears busy before `turn.interrupt` finishes. A chat.status read
+	// that started while the turn was still running must not put Working back.
+	const holdIdle = useRef(new Set<string>());
+	const statusEpoch = useRef(new Map<string, number>());
+	const bumpStatusEpoch = useCallback((chatKey: string) => {
+		const next = (statusEpoch.current.get(chatKey) ?? 0) + 1;
+		statusEpoch.current.set(chatKey, next);
+		return next;
+	}, []);
 	const patchState = useCallback((chatKey: string, patch: ChatLiveState) => {
+		if (patch.busy === true) holdIdle.current.delete(chatKey);
 		setChatStates((prev) => ({
 			...prev,
 			[chatKey]: { ...prev[chatKey], ...patch },
@@ -208,21 +226,44 @@ export function CadmusProvider({
 
 	const refreshChatStatus = useCallback(
 		async (chatKey: string) => {
+			const epoch = bumpStatusEpoch(chatKey);
 			const status = await client.callRpc<{ status?: ChatStatusRecord }>(
 				"chat.status",
 				{ chatKey },
 			);
+			if (statusEpoch.current.get(chatKey) !== epoch) return;
 			if (status.ok && status.result?.status) {
+				const reported = status.result.status;
+				const busy = holdIdle.current.has(chatKey)
+					? false
+					: Boolean(reported.busy);
 				patchState(chatKey, {
-					status: status.result.status,
-					busy: Boolean(status.result.status.busy),
+					status: busy === reported.busy ? reported : { ...reported, busy },
+					busy,
 				});
 			}
 		},
-		[client, patchState],
+		[bumpStatusEpoch, client, patchState],
 	);
 
+	const clearDirectory = useCallback((scope: string) => {
+		directoryScopeRef.current = scope;
+		directoryDetailRef.current = false;
+		setDirectoryReady(false);
+		setDirectoryDetailReady(false);
+		setDirectoryError(undefined);
+		setBots([]);
+		setChats([]);
+		setChatStates({});
+		setTeamLeaderBotId(undefined);
+	}, []);
+
 	const refreshDirectory = useCallback(async () => {
+		const scope = `${client.getAccountId()}:${client.getFamilyId()}`;
+		if (directoryScopeRef.current !== scope) {
+			clearDirectory(scope);
+		}
+		const keep = directoryDetailRef.current;
 		try {
 			const [botRes, chatRes, familyRes] = await Promise.all([
 				client.callRpc<{ bots: BotRecord[] }>("bot.list"),
@@ -231,61 +272,86 @@ export function CadmusProvider({
 				}),
 				client.callRpc<{ family?: { teamLeaderBotId?: string } }>("family.get"),
 			]);
+			if (`${client.getAccountId()}:${client.getFamilyId()}` !== scope) return;
+			if (!botRes.ok || !chatRes.ok) {
+				throw new Error(
+					botRes.error?.message ??
+						chatRes.error?.message ??
+						"Could not load bots",
+				);
+			}
 			const leader = familyRes.ok
 				? familyRes.result?.family?.teamLeaderBotId
 				: undefined;
 			setTeamLeaderBotId(leader && leader.length > 0 ? leader : undefined);
-			if (botRes.ok && botRes.result?.bots) {
-				setBots(botRes.result.bots);
-			}
-			let listed: ChatRecord[] = [];
-			if (chatRes.ok && chatRes.result?.chats) {
-				listed = chatRes.result.chats.filter((chat) => !chat.closed);
-				setChats(listed);
-			}
+			setBots(botRes.result?.bots ?? []);
+			const listed = (chatRes.result?.chats ?? []).filter(
+				(chat) => !chat.closed,
+			);
+			setChats(listed);
+			setDirectoryReady(true);
+			setDirectoryError(undefined);
 			await Promise.all(
 				listed.map(async (chat) => {
-					await refreshChatStatus(chat.key);
-					const detail = await client.callRpc<{
-						messages?: Array<{
-							role: string;
-							text: string;
-							timestamp?: number;
-						}>;
-					}>("chat.get", { chatKey: chat.key });
-					const messages = detail.result?.messages;
-					const lastAssistant = messages?.findLast(
-						(message) => message.role === "assistant" && message.text.trim(),
-					);
-					const firstUser = messages?.find(
-						(message) => message.role === "user" && message.text.trim(),
-					);
-					if (lastAssistant) {
-						patchState(chat.key, {
-							lastBotText: lastAssistant.text,
-							...(lastAssistant.timestamp
-								? { lastBotAt: lastAssistant.timestamp }
-								: {}),
-						});
-					}
-					if (firstUser) {
-						setChatStates((prev) => {
-							if (prev[chat.key]?.lastUserText?.trim()) return prev;
-							return {
-								...prev,
-								[chat.key]: {
-									...prev[chat.key],
-									lastUserText: firstUser.text,
-								},
-							};
-						});
+					try {
+						await refreshChatStatus(chat.key);
+						const detail = await client.callRpc<{
+							messages?: Array<{
+								role: string;
+								text: string;
+								timestamp?: number;
+							}>;
+						}>("chat.get", { chatKey: chat.key });
+						if (!detail.ok) return;
+						const messages = detail.result?.messages;
+						const lastAssistant = messages?.findLast(
+							(message) => message.role === "assistant" && message.text.trim(),
+						);
+						const firstUser = messages?.find(
+							(message) => message.role === "user" && message.text.trim(),
+						);
+						if (lastAssistant) {
+							patchState(chat.key, {
+								lastBotText: lastAssistant.text,
+								...(lastAssistant.timestamp
+									? { lastBotAt: lastAssistant.timestamp }
+									: {}),
+							});
+						}
+						if (firstUser) {
+							setChatStates((prev) => {
+								if (prev[chat.key]?.lastUserText?.trim()) return prev;
+								return {
+									...prev,
+									[chat.key]: {
+										...prev[chat.key],
+										lastUserText: firstUser.text,
+									},
+								};
+							});
+						}
+					} catch {
+						/* one chat preview must not block the directory */
 					}
 				}),
 			);
-		} finally {
-			setDirectoryReady(true);
+			if (`${client.getAccountId()}:${client.getFamilyId()}` !== scope) return;
+			directoryDetailRef.current = true;
+			setDirectoryDetailReady(true);
+		} catch (err) {
+			if (`${client.getAccountId()}:${client.getFamilyId()}` !== scope) return;
+			if (!keep) {
+				directoryDetailRef.current = false;
+				setDirectoryReady(false);
+				setDirectoryDetailReady(false);
+				setDirectoryError(
+					err instanceof Error && err.message
+						? err.message
+						: "Could not load bots",
+				);
+			}
 		}
-	}, [client, patchState, refreshChatStatus]);
+	}, [clearDirectory, client, patchState, refreshChatStatus]);
 
 	useEffect(() => {
 		let timer: ReturnType<typeof setTimeout> | undefined;
@@ -337,6 +403,10 @@ export function CadmusProvider({
 	useEffect(() => {
 		return client.subscribe((event: ServerEvent) => {
 			if (event.type === "chat.state") {
+				if (!event.payload.busy) holdIdle.current.delete(event.payload.chatKey);
+				if (event.payload.busy && holdIdle.current.has(event.payload.chatKey)) {
+					return;
+				}
 				setChatStates((prev) => {
 					const current = prev[event.payload.chatKey];
 					const busy = event.payload.busy;
@@ -355,6 +425,7 @@ export function CadmusProvider({
 				return;
 			}
 			if (event.type === "turn.delta") {
+				if (holdIdle.current.has(event.payload.chatKey)) return;
 				setChatStates((prev) => {
 					const current = prev[event.payload.chatKey];
 					return {
@@ -375,6 +446,7 @@ export function CadmusProvider({
 				return;
 			}
 			if (event.type === "turn.tool_call") {
+				if (holdIdle.current.has(event.payload.chatKey)) return;
 				setChatStates((prev) => {
 					const current = prev[event.payload.chatKey];
 					return {
@@ -419,6 +491,8 @@ export function CadmusProvider({
 				return;
 			}
 			if (event.type === "turn.completed") {
+				holdIdle.current.delete(event.payload.chatKey);
+				bumpStatusEpoch(event.payload.chatKey);
 				const failed = isFailedTurn(event.payload.status, event.payload.reason);
 				const at = Date.now();
 				setChatStates((prev) => {
@@ -461,7 +535,7 @@ export function CadmusProvider({
 				});
 			}
 		});
-	}, [client, patchState, persistFailed, refreshDirectory]);
+	}, [bumpStatusEpoch, client, patchState, persistFailed, refreshDirectory]);
 
 	const toggleCollapsed = useCallback((botId: string) => {
 		setCollapsed((prev) => {
@@ -502,12 +576,10 @@ export function CadmusProvider({
 			}
 			client.setFamilyId(trimmed);
 			setFamilyId(trimmed);
-			setBots([]);
-			setChats([]);
-			setTeamLeaderBotId(undefined);
+			clearDirectory(`${client.getAccountId()}:${trimmed}`);
 			await refreshDirectory();
 		},
-		[authConfig, client, refreshDirectory],
+		[authConfig, clearDirectory, client, refreshDirectory],
 	);
 
 	const archiveChat = useCallback(
@@ -584,6 +656,8 @@ export function CadmusProvider({
 
 	const markFailed = useCallback(
 		(chatKey: string, reason: string) => {
+			holdIdle.current.add(chatKey);
+			bumpStatusEpoch(chatKey);
 			setChatStates((prev) => {
 				const current = prev[chatKey];
 				const next = {
@@ -591,6 +665,9 @@ export function CadmusProvider({
 					busy: false,
 					failedReason: reason,
 					lastUserText: current?.lastUserText,
+					status: current?.status
+						? { ...current.status, busy: false }
+						: current?.status,
 				};
 				const failedMap = loadFailed();
 				failedMap[chatKey] = {
@@ -602,7 +679,7 @@ export function CadmusProvider({
 				return { ...prev, [chatKey]: next };
 			});
 		},
-		[persistFailed],
+		[bumpStatusEpoch, persistFailed],
 	);
 
 	const value = useMemo<CadmusContextValue>(
@@ -620,6 +697,8 @@ export function CadmusProvider({
 			familyId,
 			switchFamily,
 			directoryReady,
+			directoryDetailReady,
+			directoryError,
 			refreshDirectory,
 			subscribeEvents: (listener) => client.subscribe(listener),
 			toggleCollapsed,
@@ -648,6 +727,8 @@ export function CadmusProvider({
 			switchFamily,
 			teamLeaderBotId,
 			directoryReady,
+			directoryDetailReady,
+			directoryError,
 			lastSeen,
 			markChatSeen,
 			markFailed,

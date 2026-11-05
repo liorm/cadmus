@@ -7,10 +7,12 @@ import { useEffect, useState } from "react";
 import { BottomSheet } from "@/components/BottomSheet";
 import { ColorSwatches } from "@/components/ColorSwatches";
 import { SegmentedControl } from "@/components/SegmentedControl";
+import { HintSkeleton, LoadError } from "@/components/Skeleton";
 import { Button } from "@/components/ui/button";
 import { useCadmus } from "@/context/CadmusContext";
 import { allowlistCount } from "@/lib/allowlist-count";
 import { type BotPaletteSlot, botColor } from "@/lib/bot-color";
+import type { LoadPhase } from "@/lib/load-state";
 import { toolsEnvLabel } from "@/lib/tools-env-label";
 
 const THINKING = [
@@ -32,6 +34,8 @@ function timeZones(current: string): string[] {
 export function ConfigPanel({
 	bot,
 	noteCount,
+	notesPhase,
+	onRetryNotes,
 	onOpenTools,
 	onOpenHarvest,
 	onChanged,
@@ -39,6 +43,8 @@ export function ConfigPanel({
 }: {
 	bot: BotRecord;
 	noteCount: number;
+	notesPhase: LoadPhase;
+	onRetryNotes: () => void;
 	onOpenTools: () => void;
 	onOpenHarvest: () => void;
 	onChanged: () => Promise<void>;
@@ -46,7 +52,11 @@ export function ConfigPanel({
 }) {
 	const { client } = useCadmus();
 	const [models, setModels] = useState<string[]>([bot.model]);
+	const [modelsReady, setModelsReady] = useState(false);
 	const [envs, setEnvs] = useState<ToolsEnvRecord[]>([]);
+	const [envsReady, setEnvsReady] = useState(false);
+	const [configError, setConfigError] = useState<string | null>(null);
+	const [configAttempt, setConfigAttempt] = useState(0);
 	const [envOpen, setEnvOpen] = useState(false);
 	const [confirmDelete, setConfirmDelete] = useState(false);
 	const slot = botColor(bot);
@@ -57,23 +67,55 @@ export function ConfigPanel({
 
 	useEffect(() => {
 		let cancelled = false;
+		void configAttempt;
+		setModelsReady(false);
+		setEnvsReady(false);
+		setConfigError(null);
 		void client
 			.callRpc<{ models?: Array<{ id: string }> }>("account.models.list")
 			.then((res) => {
-				if (cancelled || !res.ok) return;
+				if (cancelled) return;
+				if (!res.ok) {
+					setConfigError(res.error?.message ?? "Could not load models");
+					return;
+				}
 				const ids = (res.result?.models ?? []).map((model) => model.id);
 				setModels(ids.includes(bot.model) ? ids : [bot.model, ...ids]);
+				setModelsReady(true);
+			})
+			.catch((err: unknown) => {
+				if (!cancelled) {
+					setConfigError(
+						err instanceof Error ? err.message : "Could not load models",
+					);
+				}
 			});
 		void client
 			.callRpc<{ envs?: ToolsEnvRecord[] }>("account.toolsEnvs.list")
 			.then((res) => {
-				if (cancelled || !res.ok) return;
+				if (cancelled) return;
+				if (!res.ok) {
+					setConfigError(
+						res.error?.message ?? "Could not load tools environments",
+					);
+					return;
+				}
 				setEnvs(res.result?.envs ?? []);
+				setEnvsReady(true);
+			})
+			.catch((err: unknown) => {
+				if (!cancelled) {
+					setConfigError(
+						err instanceof Error
+							? err.message
+							: "Could not load tools environments",
+					);
+				}
 			});
 		return () => {
 			cancelled = true;
 		};
-	}, [bot.model, client]);
+	}, [bot.model, client, configAttempt]);
 
 	async function patch(payload: Record<string, unknown>) {
 		await client.callRpc("bot.update", { botId: bot.id, ...payload });
@@ -87,6 +129,12 @@ export function ConfigPanel({
 
 	return (
 		<div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
+			{configError ? (
+				<LoadError
+					message={configError}
+					onRetry={() => setConfigAttempt((n) => n + 1)}
+				/>
+			) : null}
 			<section className="mb-4">
 				<h2 className="mb-2 text-[length:var(--fs-xs)] font-semibold uppercase tracking-wide text-text-muted">
 					Model
@@ -95,6 +143,7 @@ export function ConfigPanel({
 					<span className="sr-only">Model</span>
 					<select
 						aria-label="Model"
+						disabled={!modelsReady}
 						value={bot.model}
 						onChange={(event) => void patch({ model: event.target.value })}
 						className="w-full bg-transparent text-[length:var(--fs-md)] font-semibold"
@@ -140,11 +189,16 @@ export function ConfigPanel({
 					<button
 						type="button"
 						className="flex min-h-tap w-full flex-col px-3 py-2 text-left"
+						disabled={!envsReady}
 						onClick={() => setEnvOpen(true)}
 					>
 						<span className="font-semibold">Tools environment</span>
 						<span className="text-[length:var(--fs-sm)] text-text-muted">
-							{toolsEnvLabel(bot.toolsEnv, envNames)}
+							{envsReady ? (
+								toolsEnvLabel(bot.toolsEnv, envNames)
+							) : (
+								<HintSkeleton />
+							)}
 						</span>
 					</button>
 				</div>
@@ -185,16 +239,29 @@ export function ConfigPanel({
 							}
 						/>
 					</div>
-					<button
-						type="button"
-						className="flex min-h-tap w-full flex-col px-3 py-2 text-left"
-						onClick={onOpenHarvest}
-					>
-						<span className="font-semibold">Harvest</span>
-						<span className="text-[length:var(--fs-sm)] text-text-muted">
-							{noteCount} {noteCount === 1 ? "note" : "notes"}
-						</span>
-					</button>
+					<div className="flex min-h-tap w-full items-center justify-between px-3 py-2">
+						<button
+							type="button"
+							className="flex min-w-0 flex-1 flex-col text-left"
+							onClick={onOpenHarvest}
+						>
+							<span className="font-semibold">Harvest</span>
+							<span className="text-[length:var(--fs-sm)] text-text-muted">
+								{notesPhase === "ready" ? (
+									`${noteCount} ${noteCount === 1 ? "note" : "notes"}`
+								) : notesPhase === "loading" ? (
+									<HintSkeleton />
+								) : (
+									"Failed to load notes"
+								)}
+							</span>
+						</button>
+						{notesPhase === "error" ? (
+							<Button type="button" variant="ghost" onClick={onRetryNotes}>
+								Retry
+							</Button>
+						) : null}
+					</div>
 				</div>
 			</section>
 			<Button

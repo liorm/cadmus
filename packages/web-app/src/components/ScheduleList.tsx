@@ -4,10 +4,12 @@ import type {
 	ScheduleRecord,
 } from "@cadmus/contract/types";
 import { BotBadge } from "@/components/BotBadge";
+import { LoadGate } from "@/components/Skeleton";
 import { Switch } from "@/components/ui/switch";
 import { botColor, botColorVar } from "@/lib/bot-color";
 import { describeSchedule } from "@/lib/describe-schedule";
 import { chatTitle } from "@/lib/format-time";
+import type { LoadPhase } from "@/lib/load-state";
 
 function ScheduleRows({
 	schedules,
@@ -54,6 +56,9 @@ export function ScheduleList({
 	scheduledChats,
 	bots,
 	grouped = false,
+	phase,
+	error,
+	onRetry,
 	onOpen,
 	onToggle,
 	onCreate,
@@ -64,12 +69,27 @@ export function ScheduleList({
 	scheduledChats?: ChatRecord[];
 	bots?: BotRecord[];
 	grouped?: boolean;
+	phase: LoadPhase;
+	error?: string;
+	onRetry: () => void;
 	onOpen: (id: string) => void;
 	onToggle: (schedule: ScheduleRecord, enabled: boolean) => void;
 	onCreate?: () => void;
 	onOpenChat?: (chatKey: string) => void;
 }) {
 	const visible = schedules.filter((schedule) => !schedule.internal);
+	if (phase !== "ready") {
+		return (
+			<LoadGate
+				phase={phase}
+				error={error ?? "Could not load schedules"}
+				onRetry={onRetry}
+				label="Loading schedules"
+			>
+				{null}
+			</LoadGate>
+		);
+	}
 	if (grouped) {
 		const groups = (bots ?? []).map((bot) => ({
 			bot,

@@ -26,5 +26,6 @@ Playwright journeys in `tests/flows/` against the real local worker (own account
 - Search and reconnect (#54): title search grouped by bot with highlights, cancel back to main; dropped socket shows the reconnecting bar and dims the live card; an offline message is one `turn.submit` with `clientMsgId` after the socket returns, and the open chat is re-fetched.
 - New bot and first message (#52): empty home, create bot with soul and colour, To-chip picks `chat.create.botId`, and Let TL route uses `family.teamLeaderBotId`.
 - Settings, all schedules, and archive (#53): Team Leader select writes `family.update.teamLeaderBotId` and shows or hides Let TL route; all-schedules toggle writes `schedule.update`; archiving a chat lists it under Archive and opens it without a composer; Sepia persists across reload.
+- Loading feedback (#73): slow home and settings avoid false "New task" and empty hints; archive, schedules, knowledge, and Needs you show empty copy only after a successful load; a failed archive load retries; a same-scope refresh keeps the previous chat title; switching family drops the previous bot.
 
 Unit tests cover `needsYou`, `groupToolRuns`, `taskProgress`, `rawTranscriptLines`, `describeSchedule`, `allowlistCount`, `toolsEnvLabel`, `matchRanges`, `derivedBotColor`, and `botInitials`. `bun run coverage:web-app` writes Istanbul to `coverage/web-app`.

@@ -1,25 +1,23 @@
 import type { ScheduleRecord } from "@cadmus/contract/types";
 import { useNavigate } from "@tanstack/react-router";
-import { useCallback, useEffect, useState } from "react";
 import { AppShell } from "@/components/AppShell";
 import { ScheduleList } from "@/components/ScheduleList";
 import { useCadmus } from "@/context/CadmusContext";
+import { useScopedResource } from "@/hooks/useScopedResource";
 
 export function AllSchedulesPage() {
 	const navigate = useNavigate();
-	const { client, bots } = useCadmus();
-	const [schedules, setSchedules] = useState<ScheduleRecord[]>([]);
-
-	const load = useCallback(async () => {
+	const { client, bots, familyId } = useCadmus();
+	const loaded = useScopedResource(`${familyId}:schedules`, async () => {
 		const res = await client.callRpc<{ schedules?: ScheduleRecord[] }>(
 			"schedule.list",
 		);
-		setSchedules(res.result?.schedules ?? []);
-	}, [client]);
-
-	useEffect(() => {
-		void load();
-	}, [load]);
+		if (!res.ok) {
+			throw new Error(res.error?.message ?? "Could not load schedules");
+		}
+		return res.result?.schedules ?? [];
+	});
+	const schedules = loaded.data ?? [];
 
 	return (
 		<AppShell title="All schedules" backTo="/settings">
@@ -27,6 +25,9 @@ export function AllSchedulesPage() {
 				<ScheduleList
 					grouped
 					bots={bots}
+					phase={loaded.phase}
+					error={loaded.error}
+					onRetry={loaded.retry}
 					schedules={schedules}
 					timeZone={Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"}
 					onOpen={(id) => {
@@ -41,7 +42,7 @@ export function AllSchedulesPage() {
 					onToggle={(schedule, enabled) => {
 						void client
 							.callRpc("schedule.update", { id: schedule.id, enabled })
-							.then(() => load());
+							.then(() => loaded.retry());
 					}}
 				/>
 			</div>

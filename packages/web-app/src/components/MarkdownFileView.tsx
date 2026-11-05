@@ -1,9 +1,11 @@
 import { useBlocker } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { Markdown } from "@/components/Markdown";
+import { LoadGate } from "@/components/Skeleton";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { useCadmus } from "@/context/CadmusContext";
+import { useScopedResource } from "@/hooks/useScopedResource";
 
 export function MarkdownFileView({
 	botId,
@@ -17,7 +19,19 @@ export function MarkdownFileView({
 	onDelete?: () => void;
 }) {
 	const { client } = useCadmus();
-	const [content, setContent] = useState("");
+	const loaded = useScopedResource(`${botId}:${path}`, async () => {
+		const res = await client.callRpc<{
+			content?: string;
+			text?: string;
+			version?: number;
+		}>("file.read", { botId, path });
+		if (!res.ok) throw new Error(res.error?.message ?? "Could not load file");
+		return {
+			text: res.result?.content ?? res.result?.text ?? "",
+			version: res.result?.version,
+		};
+	});
+	const content = loaded.data?.text ?? "";
 	const [draft, setDraft] = useState("");
 	const [version, setVersion] = useState<number | undefined>();
 	const [editing, setEditing] = useState(false);
@@ -25,23 +39,10 @@ export function MarkdownFileView({
 	const dirty = editing && draft !== content;
 
 	useEffect(() => {
-		let cancelled = false;
-		void client
-			.callRpc<{ content?: string; text?: string; version?: number }>(
-				"file.read",
-				{ botId, path },
-			)
-			.then((res) => {
-				if (cancelled || !res.ok || !res.result) return;
-				const text = res.result.content ?? res.result.text ?? "";
-				setContent(text);
-				setDraft(text);
-				setVersion(res.result.version);
-			});
-		return () => {
-			cancelled = true;
-		};
-	}, [botId, client, path]);
+		if (!loaded.data || editing) return;
+		setDraft(loaded.data.text);
+		setVersion(loaded.data.version);
+	}, [editing, loaded.data]);
 
 	useEffect(() => {
 		if (!dirty) return;
@@ -69,9 +70,9 @@ export function MarkdownFileView({
 			setError(res.error?.message ?? "Save failed");
 			return;
 		}
-		setContent(draft);
 		if (res.result?.version !== undefined) setVersion(res.result.version);
 		setEditing(false);
+		loaded.retry();
 	}
 
 	function requestLeave(next: () => void) {
@@ -103,7 +104,7 @@ export function MarkdownFileView({
 						Delete
 					</Button>
 				) : null}
-				{editing ? (
+				{loaded.phase !== "ready" ? null : editing ? (
 					<>
 						<Button
 							variant="outlined"
@@ -136,18 +137,26 @@ export function MarkdownFileView({
 					{error}
 				</p>
 			) : null}
-			{editing ? (
-				<Textarea
-					aria-label={`${title} source`}
-					value={draft}
-					onChange={(event) => setDraft(event.target.value)}
-					className="m-3 min-h-0 flex-1 font-mono"
-				/>
-			) : (
-				<div className="min-h-0 flex-1 overflow-y-auto px-4 py-2">
-					<Markdown source={content || "_Empty._"} />
-				</div>
-			)}
+			<LoadGate
+				phase={loaded.phase}
+				error={loaded.error}
+				onRetry={loaded.retry}
+				label={`Loading ${title}`}
+			>
+				{editing ? (
+					<Textarea
+						aria-label={`${title} source`}
+						value={draft}
+						onChange={(event) => setDraft(event.target.value)}
+						disabled={loaded.phase !== "ready"}
+						className="m-3 min-h-0 flex-1 font-mono"
+					/>
+				) : (
+					<div className="min-h-0 flex-1 overflow-y-auto px-4 py-2">
+						<Markdown source={content || "_Empty._"} />
+					</div>
+				)}
+			</LoadGate>
 		</div>
 	);
 }

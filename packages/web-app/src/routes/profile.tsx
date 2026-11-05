@@ -5,14 +5,16 @@ import type {
 	ScheduleRecord,
 } from "@cadmus/contract/types";
 import { useNavigate } from "@tanstack/react-router";
-import { useCallback, useEffect, useState } from "react";
+import { useEffect } from "react";
 import { AppShell } from "@/components/AppShell";
 import { BotBadge } from "@/components/BotBadge";
 import { ConfigPanel } from "@/components/ConfigPanel";
 import { MarkdownFileView } from "@/components/MarkdownFileView";
 import { ScheduleList } from "@/components/ScheduleList";
 import { SegmentedControl } from "@/components/SegmentedControl";
+import { LoadGate } from "@/components/Skeleton";
 import { useCadmus } from "@/context/CadmusContext";
+import { useScopedResource } from "@/hooks/useScopedResource";
 import type { BotTab } from "@/lib/profile-tabs";
 
 const TABS: Array<{ value: BotTab; label: string }> = [
@@ -27,36 +29,38 @@ export function ProfilePage({ botId, tab }: { botId: string; tab: BotTab }) {
 	const navigate = useNavigate();
 	const { client, bots, refreshDirectory } = useCadmus();
 	const bot = bots.find((entry) => entry.id === botId);
-	const [schedules, setSchedules] = useState<ScheduleRecord[]>([]);
-	const [scheduledChats, setScheduledChats] = useState<ChatRecord[]>([]);
-	const [files, setFiles] = useState<FileListItem[]>([]);
-	const [noteCount, setNoteCount] = useState(0);
-
-	const loadSchedules = useCallback(async () => {
+	const scheduleLoad = useScopedResource(`${botId}:schedules`, async () => {
 		const res = await client.callRpc<{ schedules?: ScheduleRecord[] }>(
 			"schedule.list",
 			{ botId },
 		);
-		setSchedules(res.result?.schedules ?? []);
+		if (!res.ok)
+			throw new Error(res.error?.message ?? "Could not load schedules");
 		const chats = await client.callRpc<{ chats?: ChatRecord[] }>("chat.list", {
 			botId,
 			kinds: ["scheduled"],
 		});
-		setScheduledChats(chats.result?.chats ?? []);
-	}, [botId, client]);
-
-	const loadFiles = useCallback(async () => {
+		if (!chats.ok)
+			throw new Error(chats.error?.message ?? "Could not load schedules");
+		return {
+			schedules: res.result?.schedules ?? [],
+			scheduledChats: chats.result?.chats ?? [],
+		};
+	});
+	const fileLoad = useScopedResource(`${botId}:files`, async () => {
 		const res = await client.callRpc<{ files?: FileListItem[] }>("file.list", {
 			botId,
 		});
-		setFiles(res.result?.files ?? []);
-	}, [botId, client]);
-
-	const loadNotes = useCallback(async () => {
+		if (!res.ok) throw new Error(res.error?.message ?? "Could not load files");
+		return res.result?.files ?? [];
+	});
+	const noteLoad = useScopedResource(`${botId}:notes`, async () => {
 		const listed = await client.callRpc<{ chats?: ChatRecord[] }>("chat.list", {
 			botId,
 			kinds: ["direct", "scheduled"],
 		});
+		if (!listed.ok)
+			throw new Error(listed.error?.message ?? "Could not load notes");
 		const details = await Promise.all(
 			(listed.result?.chats ?? []).map((chat) =>
 				client.callRpc<{ notes?: HarvestNote[] }>("chat.get", {
@@ -64,19 +68,15 @@ export function ProfilePage({ botId, tab }: { botId: string; tab: BotTab }) {
 				}),
 			),
 		);
-		setNoteCount(
-			details.reduce(
-				(sum, detail) => sum + (detail.result?.notes?.length ?? 0),
-				0,
-			),
+		return details.reduce(
+			(sum, detail) => sum + (detail.result?.notes?.length ?? 0),
+			0,
 		);
-	}, [botId, client]);
-
-	useEffect(() => {
-		void loadSchedules();
-		void loadFiles();
-		void loadNotes();
-	}, [loadFiles, loadNotes, loadSchedules]);
+	});
+	const schedules = scheduleLoad.data?.schedules ?? [];
+	const scheduledChats = scheduleLoad.data?.scheduledChats ?? [];
+	const files = fileLoad.data ?? [];
+	const noteCount = noteLoad.data ?? 0;
 
 	useEffect(() => {
 		document
@@ -122,6 +122,9 @@ export function ProfilePage({ botId, tab }: { botId: string; tab: BotTab }) {
 			</div>
 			{tab === "schedules" ? (
 				<ScheduleList
+					phase={scheduleLoad.phase}
+					error={scheduleLoad.error}
+					onRetry={scheduleLoad.retry}
 					schedules={schedules}
 					timeZone={bot?.timezone ?? "UTC"}
 					scheduledChats={scheduledChats}
@@ -147,7 +150,7 @@ export function ProfilePage({ botId, tab }: { botId: string; tab: BotTab }) {
 					onToggle={(schedule, enabled) => {
 						void client
 							.callRpc("schedule.update", { id: schedule.id, enabled })
-							.then(() => loadSchedules());
+							.then(() => scheduleLoad.retry());
 					}}
 				/>
 			) : null}
@@ -159,60 +162,70 @@ export function ProfilePage({ botId, tab }: { botId: string; tab: BotTab }) {
 			) : null}
 			{tab === "knowledge" ? (
 				<div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
-					<div className="overflow-hidden rounded-md border border-border bg-surface">
-						{knowledge.length === 0 ? (
-							<p className="px-3 py-4 text-[length:var(--fs-sm)] text-text-muted">
-								No knowledge docs.
-							</p>
-						) : (
-							knowledge.map((file) => {
-								const title =
-									file.path.replace(/^knowledge\//, "").replace(/\.md$/, "") ||
-									file.path;
-								return (
-									<div
-										key={file.path}
-										className="flex min-h-tap items-center gap-2 border-b border-border px-3 last:border-b-0"
-									>
-										<button
-											type="button"
-											className="min-w-0 flex-1 py-2 text-left"
-											onClick={() =>
-												void navigate({
-													to: "/bot/$botId/doc",
-													params: { botId },
-													search: { path: file.path },
-												})
-											}
+					<LoadGate
+						phase={fileLoad.phase}
+						error={fileLoad.error}
+						onRetry={fileLoad.retry}
+						label="Loading knowledge"
+					>
+						<div className="overflow-hidden rounded-md border border-border bg-surface">
+							{knowledge.length === 0 ? (
+								<p className="px-3 py-4 text-[length:var(--fs-sm)] text-text-muted">
+									No knowledge docs.
+								</p>
+							) : (
+								knowledge.map((file) => {
+									const title =
+										file.path
+											.replace(/^knowledge\//, "")
+											.replace(/\.md$/, "") || file.path;
+									return (
+										<div
+											key={file.path}
+											className="flex min-h-tap items-center gap-2 border-b border-border px-3 last:border-b-0"
 										>
-											<div className="truncate font-semibold">{title}</div>
-											<div className="text-[length:var(--fs-sm)] text-text-muted">
-												{file.size} bytes
-											</div>
-										</button>
-										<button
-											type="button"
-											aria-label={`Delete ${title}`}
-											className="min-h-tap min-w-tap text-status-failed"
-											onClick={() => {
-												void client
-													.callRpc("file.delete", { botId, path: file.path })
-													.then(() => loadFiles());
-											}}
-										>
-											Delete
-										</button>
-									</div>
-								);
-							})
-						)}
-					</div>
+											<button
+												type="button"
+												className="min-w-0 flex-1 py-2 text-left"
+												onClick={() =>
+													void navigate({
+														to: "/bot/$botId/doc",
+														params: { botId },
+														search: { path: file.path },
+													})
+												}
+											>
+												<div className="truncate font-semibold">{title}</div>
+												<div className="text-[length:var(--fs-sm)] text-text-muted">
+													{file.size} bytes
+												</div>
+											</button>
+											<button
+												type="button"
+												aria-label={`Delete ${title}`}
+												className="min-h-tap min-w-tap text-status-failed"
+												onClick={() => {
+													void client
+														.callRpc("file.delete", { botId, path: file.path })
+														.then(() => fileLoad.retry());
+												}}
+											>
+												Delete
+											</button>
+										</div>
+									);
+								})
+							)}
+						</div>
+					</LoadGate>
 				</div>
 			) : null}
 			{tab === "config" && bot ? (
 				<ConfigPanel
 					bot={bot}
 					noteCount={noteCount}
+					notesPhase={noteLoad.phase}
+					onRetryNotes={noteLoad.retry}
 					onOpenTools={() =>
 						void navigate({ to: "/bot/$botId/tools", params: { botId } })
 					}

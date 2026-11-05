@@ -5,6 +5,7 @@ import { BotBadge } from "@/components/BotBadge";
 import { BotChip } from "@/components/BotChip";
 import { Composer } from "@/components/Composer";
 import { HighlightedText } from "@/components/HighlightedText";
+import { Skeleton } from "@/components/Skeleton";
 import { rowStatus, StatusShape } from "@/components/StatusShape";
 import { UnreadDot } from "@/components/UnreadDot";
 import { useCadmus } from "@/context/CadmusContext";
@@ -21,6 +22,7 @@ export function SearchPage() {
 		bots,
 		chats,
 		chatStates,
+		directoryDetailReady,
 		lastSeen,
 		lastBotId,
 		setLastBotId,
@@ -51,7 +53,7 @@ export function SearchPage() {
 	}, [raw]);
 
 	const groups = useMemo(() => {
-		if (!query) return [];
+		if (!query || !directoryDetailReady) return [];
 		return bots
 			.map((bot) => ({
 				bot,
@@ -67,7 +69,7 @@ export function SearchPage() {
 					.sort((a, b) => b.createdAt - a.createdAt),
 			}))
 			.filter((group) => group.chats.length > 0);
-	}, [bots, chatStates, chats, query]);
+	}, [bots, chatStates, chats, directoryDetailReady, query]);
 
 	const matchCount = groups.reduce((sum, group) => sum + group.chats.length, 0);
 
@@ -112,13 +114,23 @@ export function SearchPage() {
 		>
 			<div className="flex min-h-0 flex-1 flex-col">
 				<div className="min-h-0 flex-1 overflow-y-auto px-3 pt-3">
-					{query ? (
+					{query && directoryDetailReady ? (
 						<p
 							role="status"
 							className="mb-2 text-[length:var(--fs-xs)] font-semibold uppercase tracking-wide text-text-muted"
 						>
 							{matchCount} {matchCount === 1 ? "chat" : "chats"} match
 						</p>
+					) : null}
+					{query && !directoryDetailReady ? (
+						<div
+							role="status"
+							aria-busy="true"
+							aria-label="Loading search"
+							className="px-1"
+						>
+							<Skeleton className="h-4 w-2/3" />
+						</div>
 					) : null}
 					<div className="flex flex-col gap-3">
 						{groups.map(({ bot, chats: groupChats }) => {

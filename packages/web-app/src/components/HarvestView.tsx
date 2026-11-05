@@ -4,9 +4,11 @@ import type {
 	HarvestNote,
 	ServerEvent,
 } from "@cadmus/contract/types";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { LoadGate } from "@/components/Skeleton";
 import { Toggle } from "@/components/Toggle";
 import { useCadmus } from "@/context/CadmusContext";
+import { useScopedResource } from "@/hooks/useScopedResource";
 import { diffSummary } from "@/lib/diff-stat";
 import { chatTitle, formatRelative } from "@/lib/format-time";
 
@@ -43,24 +45,16 @@ function DiffBlock({ file }: { file: HarvestFileDiff }) {
 
 export function HarvestView({ botId }: { botId: string }) {
 	const { client, subscribeEvents } = useCadmus();
-	const [chats, setChats] = useState<ChatRecord[]>([]);
-	const [notes, setNotes] = useState<HarvestNote[]>([]);
-	const [openKey, setOpenKey] = useState<string | null>(null);
-	const chatKeys = useRef(new Set<string>());
-
-	useEffect(() => {
-		chatKeys.current = new Set(chats.map((chat) => chat.key));
-	}, [chats]);
-
-	const load = useCallback(async () => {
+	const loaded = useScopedResource(botId, async () => {
 		const listed = await client.callRpc<{ chats?: ChatRecord[] }>("chat.list", {
 			botId,
 			kinds: ["direct", "scheduled", "group", "group-member"],
 		});
+		if (!listed.ok)
+			throw new Error(listed.error?.message ?? "Could not load harvest");
 		const chatList = (listed.result?.chats ?? []).filter(
 			(chat) => chat.botId === botId,
 		);
-		setChats(chatList);
 		const details = await Promise.all(
 			chatList.map((chat) =>
 				client.callRpc<{ notes?: HarvestNote[] }>("chat.get", {
@@ -79,21 +73,36 @@ export function HarvestView({ botId }: { botId: string }) {
 			}
 		}
 		merged.sort((a, b) => b.when - a.when);
-		setNotes(merged);
-	}, [botId, client]);
+		return { chats: chatList, notes: merged };
+	});
+	const [chatOverride, setChatOverride] = useState<ChatRecord[] | null>(null);
+	const [noteOverride, setNoteOverride] = useState<HarvestNote[] | null>(null);
+	const chats = chatOverride ?? loaded.data?.chats ?? [];
+	const notes = noteOverride ?? loaded.data?.notes ?? [];
+	const [openKey, setOpenKey] = useState<string | null>(null);
+	const chatKeys = useRef(new Set<string>());
 
 	useEffect(() => {
-		void load();
-	}, [load]);
+		chatKeys.current = new Set(chats.map((chat) => chat.key));
+	}, [chats]);
+
+	const notesRef = useRef(notes);
+	notesRef.current = notes;
+	useEffect(() => {
+		void loaded.data;
+		setChatOverride(null);
+		setNoteOverride(null);
+	}, [loaded.data]);
 
 	useEffect(() => {
 		return subscribeEvents((event: ServerEvent) => {
 			if (event.type !== "harvest.note") return;
 			const note = event.payload;
 			if (chatKeys.current.has(note.chatKey)) {
-				setNotes((prev) => {
-					if (prev.some((item) => noteKey(item) === noteKey(note))) return prev;
-					return [note, ...prev].sort((a, b) => b.when - a.when);
+				setNoteOverride((prev) => {
+					const base = prev ?? notesRef.current;
+					if (base.some((item) => noteKey(item) === noteKey(note))) return base;
+					return [note, ...base].sort((a, b) => b.when - a.when);
 				});
 				return;
 			}
@@ -102,11 +111,11 @@ export function HarvestView({ botId }: { botId: string }) {
 				.then((detail) => {
 					if (detail.result?.chat?.botId !== botId) return;
 					chatKeys.current.add(note.chatKey);
-					void load();
+					loaded.retry();
 				})
 				.catch(() => undefined);
 		});
-	}, [botId, client, load, subscribeEvents]);
+	}, [botId, client, loaded.retry, subscribeEvents]);
 
 	const groups = useMemo(() => {
 		return chats
@@ -121,8 +130,10 @@ export function HarvestView({ botId }: { botId: string }) {
 	}, [chats, notes]);
 
 	async function setHarvest(chat: ChatRecord, harvest: boolean) {
-		setChats((prev) =>
-			prev.map((item) => (item.key === chat.key ? { ...item, harvest } : item)),
+		setChatOverride(
+			chats.map((item) =>
+				item.key === chat.key ? { ...item, harvest } : item,
+			),
 		);
 		await client.callRpc("chat.update", { chatKey: chat.key, harvest });
 	}
@@ -132,7 +143,16 @@ export function HarvestView({ botId }: { botId: string }) {
 			<p className="mb-3 text-[length:var(--fs-sm)] text-text-muted">
 				Completed harvest notes, newest first. Updates live.
 			</p>
-			{groups.length === 0 ? (
+			{loaded.phase !== "ready" ? (
+				<LoadGate
+					phase={loaded.phase}
+					error={loaded.error}
+					onRetry={loaded.retry}
+					label="Loading harvest"
+				>
+					{null}
+				</LoadGate>
+			) : groups.length === 0 ? (
 				<p className="text-[length:var(--fs-sm)] text-text-muted">
 					No harvest notes yet.
 				</p>

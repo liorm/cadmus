@@ -5,6 +5,7 @@ import { BotBadge } from "@/components/BotBadge";
 import { BotChip } from "@/components/BotChip";
 import { Composer } from "@/components/Composer";
 import { GroupMenuSheet } from "@/components/GroupMenuSheet";
+import { LoadError, Skeleton } from "@/components/Skeleton";
 import { rowStatus, StatusShape } from "@/components/StatusShape";
 import { SwipeRow } from "@/components/SwipeRow";
 import { UnreadDot } from "@/components/UnreadDot";
@@ -27,6 +28,9 @@ export function HomePage() {
 		collapsed,
 		lastBotId,
 		directoryReady,
+		directoryDetailReady,
+		directoryError,
+		refreshDirectory,
 		toggleCollapsed,
 		setLastBotId,
 		archiveChat,
@@ -81,6 +85,23 @@ export function HomePage() {
 		>
 			<div className="flex min-h-0 flex-1 flex-col">
 				<div className="min-h-0 flex-1 overflow-y-auto pb-2">
+					{directoryError ? (
+						<LoadError
+							message={directoryError}
+							onRetry={() => void refreshDirectory()}
+						/>
+					) : null}
+					{!directoryReady && !directoryError ? (
+						<div
+							role="status"
+							aria-busy="true"
+							aria-label="Loading bots"
+							className="px-3 pt-4"
+						>
+							<Skeleton className="mb-3 h-4 w-16" />
+							<Skeleton className="h-24 w-full rounded-md" />
+						</div>
+					) : null}
 					{directoryReady && bots.length === 0 ? (
 						<div className="flex h-full flex-col items-center justify-center px-8 text-center">
 							<div
@@ -101,7 +122,17 @@ export function HomePage() {
 							</Button>
 						</div>
 					) : null}
-					{items.length > 0 ? (
+					{!directoryDetailReady && directoryReady && chats.length > 0 ? (
+						<section
+							role="status"
+							aria-busy="true"
+							aria-label="Loading needs you"
+							className="px-3 pt-3"
+						>
+							<Skeleton className="h-24 w-full rounded-md" />
+						</section>
+					) : null}
+					{directoryDetailReady && items.length > 0 ? (
 						<section aria-labelledby="needs-you-heading" className="px-3 pt-3">
 							<h2
 								id="needs-you-heading"
@@ -263,76 +294,89 @@ export function HomePage() {
 												</header>
 												{isCollapsed
 													? null
-													: groupChats.map((chat) => {
-															const state = chatStates[chat.key];
-															const title = chatTitle(
-																chat,
-																state?.lastUserText,
-															);
-															const unreadRow =
-																state?.lastBotAt !== undefined &&
-																(lastSeen[chat.key] === undefined ||
-																	state.lastBotAt > (lastSeen[chat.key] ?? 0));
-															const status = rowStatus({
-																busy: state?.busy,
-																failed: Boolean(state?.failedReason),
-															});
-															const when = state?.lastBotAt ?? chat.createdAt;
-															return (
-																<SwipeRow
+													: !directoryDetailReady
+														? groupChats.map((chat) => (
+																<div
 																	key={chat.key}
-																	archiveLabel={`Archive chat ${title}`}
-																	onArchive={() => {
-																		void archiveChat(chat.key).then(() => {
-																			setToast("Archived");
-																			window.setTimeout(
-																				() => setToast(null),
-																				2000,
-																			);
-																		});
-																	}}
+																	aria-hidden="true"
+																	className="border-t border-border px-3 py-3"
 																>
-																	<div className="flex min-h-tap items-center gap-2 border-t border-border px-3">
-																		<StatusShape status={status} />
-																		<button
-																			type="button"
-																			aria-label={title}
-																			className={cn(
-																				"min-w-0 flex-1 py-2 text-left",
-																				unreadRow ? "font-semibold" : "",
-																			)}
-																			onClick={() =>
-																				navigate({
-																					to: "/chat/$chatKey",
-																					params: { chatKey: chat.key },
-																					search: { view: "chat" },
-																				})
-																			}
-																		>
-																			<div className="truncate">{title}</div>
-																			{state?.failedReason ? (
-																				<div className="truncate text-[length:var(--fs-sm)] text-text-muted">
-																					{state.failedReason}
-																				</div>
-																			) : null}
-																		</button>
-																		{unreadRow ? <UnreadDot /> : null}
-																		<span className="text-[length:var(--fs-xs)] text-text-muted">
-																			{formatRelative(when)}
-																		</span>
-																		{state?.failedReason ? (
-																			<Button
-																				variant="ghost"
-																				className="border border-border px-3"
-																				onClick={() => void retryChat(chat.key)}
+																	<Skeleton className="h-4 w-2/3" />
+																</div>
+															))
+														: groupChats.map((chat) => {
+																const state = chatStates[chat.key];
+																const title = chatTitle(
+																	chat,
+																	state?.lastUserText,
+																);
+																const unreadRow =
+																	state?.lastBotAt !== undefined &&
+																	(lastSeen[chat.key] === undefined ||
+																		state.lastBotAt >
+																			(lastSeen[chat.key] ?? 0));
+																const status = rowStatus({
+																	busy: state?.busy,
+																	failed: Boolean(state?.failedReason),
+																});
+																const when = state?.lastBotAt ?? chat.createdAt;
+																return (
+																	<SwipeRow
+																		key={chat.key}
+																		archiveLabel={`Archive chat ${title}`}
+																		onArchive={() => {
+																			void archiveChat(chat.key).then(() => {
+																				setToast("Archived");
+																				window.setTimeout(
+																					() => setToast(null),
+																					2000,
+																				);
+																			});
+																		}}
+																	>
+																		<div className="flex min-h-tap items-center gap-2 border-t border-border px-3">
+																			<StatusShape status={status} />
+																			<button
+																				type="button"
+																				aria-label={title}
+																				className={cn(
+																					"min-w-0 flex-1 py-2 text-left",
+																					unreadRow ? "font-semibold" : "",
+																				)}
+																				onClick={() =>
+																					navigate({
+																						to: "/chat/$chatKey",
+																						params: { chatKey: chat.key },
+																						search: { view: "chat" },
+																					})
+																				}
 																			>
-																				Retry
-																			</Button>
-																		) : null}
-																	</div>
-																</SwipeRow>
-															);
-														})}
+																				<div className="truncate">{title}</div>
+																				{state?.failedReason ? (
+																					<div className="truncate text-[length:var(--fs-sm)] text-text-muted">
+																						{state.failedReason}
+																					</div>
+																				) : null}
+																			</button>
+																			{unreadRow ? <UnreadDot /> : null}
+																			<span className="text-[length:var(--fs-xs)] text-text-muted">
+																				{formatRelative(when)}
+																			</span>
+																			{state?.failedReason ? (
+																				<Button
+																					variant="ghost"
+																					className="border border-border px-3"
+																					onClick={() =>
+																						void retryChat(chat.key)
+																					}
+																				>
+																					Retry
+																				</Button>
+																			) : null}
+																		</div>
+																	</SwipeRow>
+																);
+															})}
 											</div>
 										</div>
 									</section>
