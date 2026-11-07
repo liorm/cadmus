@@ -9,6 +9,7 @@ import { isBotTab } from "@/lib/profile-tabs";
 import { ArchivePage } from "@/routes/archive";
 import { NewBotPage } from "@/routes/bot-new";
 import { ChatPage } from "@/routes/chat";
+import { ChatStatusPage } from "@/routes/chat-status";
 import { DocPage } from "@/routes/doc";
 import { HarvestPage } from "@/routes/harvest";
 import { HomePage } from "@/routes/home";
@@ -50,6 +51,12 @@ const chatRoute = createRoute({
 		const { view } = chatRoute.useSearch();
 		return <ChatPage view={view} />;
 	},
+});
+
+const chatStatusRoute = createRoute({
+	getParentRoute: () => rootRoute,
+	path: "/chat/$chatKey/status",
+	component: ChatStatusPage,
 });
 
 const newTaskRoute = createRoute({
@@ -185,6 +192,7 @@ const searchRoute = createRoute({
 const routeTree = rootRoute.addChildren([
 	indexRoute,
 	chatRoute,
+	chatStatusRoute,
 	newTaskRoute,
 	newBotRoute,
 	botRoute,

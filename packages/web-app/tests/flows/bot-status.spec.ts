@@ -24,7 +24,9 @@ test("chat header status goes working then idle and opens details", async ({
 	await clickByRole(page, "button", "Stop");
 	await expect(status).toContainText(/Idle/);
 	await expect(status).toContainText("faux/echo");
+	await expect(status).toContainText(/\$0\./);
 	await status.click();
+	await expect(page).toHaveURL(/\/chat\/[^/]+\/status/);
 	await expect(page.getByRole("heading", { name: "Bot status" })).toBeVisible();
 	await expect(page.getByText("Thinking")).toBeVisible();
 	await expect(page.getByText("Tasks")).toBeVisible();
@@ -37,4 +39,6 @@ test("chat header status goes working then idle and opens details", async ({
 	await expect(page.getByText("By Source")).toBeVisible();
 	await page.getByTestId("status-tab-bot").click();
 	await expect(page.getByText("Total estimated spend")).toBeVisible();
+	await page.getByRole("link", { name: "Back" }).click();
+	await expect(page).not.toHaveURL(/\/status/);
 });

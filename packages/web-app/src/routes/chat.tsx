@@ -8,7 +8,6 @@ import { useNavigate, useParams } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppShell } from "@/components/AppShell";
 import { BotBadge } from "@/components/BotBadge";
-import { BotPill } from "@/components/BotChip";
 import { ChatMenuSheet } from "@/components/ChatMenuSheet";
 import { ChatStatusIndicator } from "@/components/ChatStatusIndicator";
 import { Composer } from "@/components/Composer";
@@ -441,21 +440,15 @@ export function ChatPage({ view }: { view: "chat" | "raw" }) {
 			}
 			backTo="/"
 			subtitle={
-				<div className="flex items-center gap-2 text-[length:var(--fs-sm)] text-text-muted">
-					{bot ? <BotPill bot={bot} /> : null}
-					{archived ? <span>Archived</span> : null}
-					{archived ? null : (
-						<ChatStatusIndicator
-							status={live?.status}
-							busy={busy}
-							model={bot?.model}
-							onOpen={() => refreshChatStatus(chatKey)}
-						/>
-					)}
-					{!archived && live?.failedReason ? (
-						<StatusShape status="failed" />
-					) : null}
-				</div>
+				<ChatStatusIndicator
+					chatKey={chatKey}
+					bot={bot}
+					status={live?.status}
+					busy={busy}
+					model={bot?.model}
+					archived={archived}
+					failed={!archived && Boolean(live?.failedReason)}
+				/>
 			}
 			actions={
 				renaming ? undefined : (
