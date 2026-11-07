@@ -10,6 +10,7 @@ import { BottomSheet } from "@/components/BottomSheet";
 import { ColorSwatches } from "@/components/ColorSwatches";
 import { SegmentedControl } from "@/components/SegmentedControl";
 import { HintSkeleton, LoadError } from "@/components/Skeleton";
+import { TimezoneCombobox } from "@/components/TimezoneCombobox";
 import { Button } from "@/components/ui/button";
 import { useCadmus } from "@/context/CadmusContext";
 import { allowlistCount } from "@/lib/allowlist-count";
@@ -25,14 +26,6 @@ const THINKING = [
 	{ value: "medium", label: "Medium" },
 	{ value: "high", label: "High" },
 ] as const;
-
-function timeZones(current: string): string[] {
-	const base =
-		typeof Intl !== "undefined" && "supportedValuesOf" in Intl
-			? Intl.supportedValuesOf("timeZone")
-			: ["UTC", "Asia/Jerusalem", "America/New_York", "Europe/London"];
-	return base.includes(current) ? base : [current, ...base];
-}
 
 export function ConfigPanel({
 	bot,
@@ -258,20 +251,18 @@ export function ConfigPanel({
 					General
 				</h2>
 				<div className="overflow-hidden rounded-md border border-border bg-surface">
-					<label className="flex flex-col border-b border-border px-3 py-2">
+					<label
+						htmlFor="bot-timezone"
+						className="flex flex-col border-b border-border px-3 py-2"
+					>
 						<span className="font-semibold">Timezone</span>
-						<select
-							aria-label="Timezone"
+						<TimezoneCombobox
+							id="bot-timezone"
+							label="Timezone"
 							value={bot.timezone}
-							onChange={(event) => void patch({ timezone: event.target.value })}
-							className="bg-transparent text-[length:var(--fs-sm)] text-text-muted"
-						>
-							{timeZones(bot.timezone).map((zone) => (
-								<option key={zone} value={zone}>
-									{zone}
-								</option>
-							))}
-						</select>
+							className="text-[length:var(--fs-sm)] text-text-muted"
+							onChange={(timezone) => void patch({ timezone })}
+						/>
 					</label>
 					<div className="flex items-center justify-between gap-3 border-b border-border px-3 py-2">
 						<div>

@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { AppShell } from "@/components/AppShell";
 import { fieldClass } from "@/components/SettingsRows";
 import { LoadGate } from "@/components/Skeleton";
+import { TimezoneCombobox } from "@/components/TimezoneCombobox";
 import { useCadmus } from "@/context/CadmusContext";
 import { useScopedResource } from "@/hooks/useScopedResource";
 
@@ -92,7 +93,7 @@ export function FamilySettingsPage() {
 							.callRpc("family.update", {
 								familyId,
 								name: name.trim(),
-								timezone: timezone.trim(),
+								timezone,
 								harvestDelayMs:
 									Number.isFinite(delay) && delay > 0 ? delay : undefined,
 							})
@@ -123,14 +124,15 @@ export function FamilySettingsPage() {
 							required
 						/>
 					</label>
-					<label className="flex flex-col gap-1">
+					<label htmlFor="family-timezone" className="flex flex-col gap-1">
 						<span>Timezone</span>
-						<input
-							aria-label="Family timezone"
-							className={fieldClass}
+						<TimezoneCombobox
+							id="family-timezone"
+							label="Family timezone"
 							value={timezone}
 							disabled={formDisabled}
-							onChange={(event) => setTimezone(event.target.value)}
+							className={fieldClass}
+							onChange={setTimezone}
 						/>
 					</label>
 					<label className="flex flex-col gap-1">
@@ -205,7 +207,7 @@ export function FamilySettingsPage() {
 							.callRpc<{ family?: FamilyRecord }>("family.create", {
 								name: newName.trim(),
 								familyId: newId.trim() || undefined,
-								timezone: timezone.trim() || undefined,
+								timezone: timezone || undefined,
 							})
 							.then(async (res) => {
 								if (!res.ok || !res.result?.family) {

@@ -6,7 +6,11 @@ import {
 import type { ModelInfo } from "@cadmus/contract/types";
 import type { Page } from "@playwright/test";
 import { getBot, seedBot, sendAccountRpc } from "../support/account.ts";
-import { clickByRole, fillByLabel } from "../support/actions.ts";
+import {
+	chooseTimezone,
+	clickByRole,
+	fillByLabel,
+} from "../support/actions.ts";
 import { expect, test } from "../support/fixtures.ts";
 
 test.describe.configure({ mode: "parallel" });
@@ -149,7 +153,7 @@ test("config round-trips a usable model, thinking, and timezone", async ({
 	for (const level of ["Off", "Minimal", "Low", "Medium", "High"]) {
 		await clickByRole(page, "radio", level);
 	}
-	await choose(page, "Timezone", "Asia/Jerusalem");
+	await chooseTimezone(page, "Timezone", "Asia/Jerusalem", "keyboard");
 	await expect
 		.poll(async () =>
 			(await posts.all()).some(
@@ -182,6 +186,7 @@ test("config round-trips a usable model, thinking, and timezone", async ({
 		.toBe(true);
 	const stored = await getBot(origin, accountId, "echo-bot");
 	expect(stored.model).toBe(nextModel);
+	expect(stored.timezone).toBe("Asia/Jerusalem");
 	await page.reload();
 	await expect(page.getByLabel("Model")).toHaveValue(nextModel);
 	await expect(page.getByLabel("Timezone")).toHaveValue("Asia/Jerusalem");
@@ -189,6 +194,36 @@ test("config round-trips a usable model, thinking, and timezone", async ({
 		"data-state",
 		"on",
 	);
+});
+
+test("config timezone ignores free text", async ({
+	page,
+	accountId,
+	baseURL,
+}) => {
+	const origin = baseURL ?? WORKER_BASE;
+	await seedBot(origin, accountId, "Echo Bot", "echo-bot");
+	const posts = await watchPosts(page);
+	await page.goto("/bot/echo-bot/config");
+	const input = page.getByRole("combobox", { name: "Timezone" });
+	await expect(input).toHaveValue("UTC");
+	await input.click();
+	await input.fill("Not/AZone");
+	await input.press("Escape");
+	await expect(input).toHaveValue("UTC");
+	await page.reload();
+	await expect(page.getByRole("combobox", { name: "Timezone" })).toHaveValue(
+		"UTC",
+	);
+	const stored = await getBot(origin, accountId, "echo-bot");
+	expect(stored.timezone).toBe("UTC");
+	const hits = await posts.all();
+	expect(
+		hits.some(
+			(hit) =>
+				hit.url.includes("/api/bot/update") && hit.body.includes("Not/AZone"),
+		),
+	).toBe(false);
 });
 
 test("tool allowlist hides coding tools without an env and persists", async ({

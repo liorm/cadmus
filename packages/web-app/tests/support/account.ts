@@ -61,9 +61,9 @@ export async function getBot(
 	baseUrl: string,
 	accountId: string,
 	botId: string,
-): Promise<{ model: string; tools?: string[] }> {
+): Promise<{ model: string; tools?: string[]; timezone?: string }> {
 	const result = await sendAccountRpc<{
-		bot: { model: string; tools?: string[] };
+		bot: { model: string; tools?: string[]; timezone?: string };
 	}>(baseUrl, accountId, "bot.get", { botId });
 	return result.bot;
 }

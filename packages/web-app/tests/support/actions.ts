@@ -2,7 +2,26 @@
  * Role/label helpers. Playwright locators first; evaluate fallbacks for
  * engines where locator click/fill time out (obscura#45).
  */
-import type { Page } from "@playwright/test";
+import { expect, type Page } from "@playwright/test";
+
+/** Open a timezone combobox, filter, and choose `zone` (keyboard or click). */
+export async function chooseTimezone(
+	page: Page,
+	label: string,
+	zone: string,
+	mode: "keyboard" | "click" = "keyboard",
+): Promise<void> {
+	const input = page.getByRole("combobox", { name: label });
+	await input.click();
+	await input.fill(zone);
+	if (mode === "click") {
+		await page.getByRole("option", { name: zone, exact: true }).click();
+	} else {
+		await input.press("ArrowDown");
+		await input.press("Enter");
+	}
+	await expect(page.getByRole("combobox", { name: label })).toHaveValue(zone);
+}
 
 export async function clickByRole(
 	page: Page,

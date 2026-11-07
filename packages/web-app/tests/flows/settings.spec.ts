@@ -1,6 +1,10 @@
 import type { Page } from "@playwright/test";
 import { seedBot, sendAccountRpc } from "../support/account.ts";
-import { clickByRole, fillByLabel } from "../support/actions.ts";
+import {
+	chooseTimezone,
+	clickByRole,
+	fillByLabel,
+} from "../support/actions.ts";
 import { expect, test } from "../support/fixtures.ts";
 
 test.describe.configure({ mode: "parallel" });
@@ -197,4 +201,95 @@ test("sepia theme persists across reload", async ({ page }) => {
 		document.documentElement.getAttribute("data-theme"),
 	);
 	expect(themeAtStart).toBe("sepia");
+});
+
+test("account timezone combobox saves a chosen zone and ignores free text", async ({
+	page,
+	accountId,
+	baseURL,
+}) => {
+	const origin = baseURL ?? WORKER_BASE;
+	await page.goto("/settings/account");
+	await expect(
+		page.getByRole("button", { name: "Save account" }),
+	).toBeEnabled();
+	const before = await sendAccountRpc<{ account: { timezone: string } }>(
+		origin,
+		accountId,
+		"account.get",
+	);
+	const input = page.getByRole("combobox", { name: "Account timezone" });
+	await input.click();
+	await input.fill("Not/AZone");
+	await input.press("Escape");
+	await expect(input).toHaveValue(before.account.timezone);
+	await clickByRole(page, "button", "Save account");
+	await expect(page.getByText(`Account ${accountId}`)).toBeVisible();
+	const unchanged = await sendAccountRpc<{ account: { timezone: string } }>(
+		origin,
+		accountId,
+		"account.get",
+	);
+	expect(unchanged.account.timezone).toBe(before.account.timezone);
+
+	await chooseTimezone(page, "Account timezone", "Europe/London", "click");
+	await clickByRole(page, "button", "Save account");
+	await expect
+		.poll(async () => {
+			const saved = await sendAccountRpc<{ account: { timezone: string } }>(
+				origin,
+				accountId,
+				"account.get",
+			);
+			return saved.account.timezone;
+		})
+		.toBe("Europe/London");
+	await page.reload();
+	await expect(
+		page.getByRole("combobox", { name: "Account timezone" }),
+	).toHaveValue("Europe/London");
+});
+
+test("family timezone combobox saves a chosen zone and ignores free text", async ({
+	page,
+	accountId,
+	baseURL,
+}) => {
+	const origin = baseURL ?? WORKER_BASE;
+	await page.goto("/settings/family");
+	await expect(page.getByRole("button", { name: "Save family" })).toBeEnabled();
+	const before = await sendAccountRpc<{ family: { timezone: string } }>(
+		origin,
+		accountId,
+		"family.get",
+	);
+	const input = page.getByRole("combobox", { name: "Family timezone" });
+	await input.click();
+	await input.fill("Not/AZone");
+	await input.press("Escape");
+	await clickByRole(page, "button", "Save family");
+	await expect(input).toHaveValue(before.family.timezone);
+	const unchanged = await sendAccountRpc<{ family: { timezone: string } }>(
+		origin,
+		accountId,
+		"family.get",
+	);
+	expect(unchanged.family.timezone).toBe(before.family.timezone);
+
+	await chooseTimezone(page, "Family timezone", "America/New_York", "keyboard");
+	await clickByRole(page, "button", "Save family");
+	await expect
+		.poll(async () => {
+			const saved = await sendAccountRpc<{ family: { timezone: string } }>(
+				origin,
+				accountId,
+				"family.get",
+			);
+			return saved.family.timezone;
+		})
+		.toBe("America/New_York");
+	await page.reload();
+	await expect(
+		page.getByRole("combobox", { name: "Family timezone" }),
+	).toHaveValue("America/New_York");
 });

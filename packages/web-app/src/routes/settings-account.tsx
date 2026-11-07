@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { AppShell } from "@/components/AppShell";
 import { fieldClass } from "@/components/SettingsRows";
 import { LoadGate, SkeletonBlock } from "@/components/Skeleton";
+import { TimezoneCombobox } from "@/components/TimezoneCombobox";
 import { useCadmus } from "@/context/CadmusContext";
 import { useScopedResource } from "@/hooks/useScopedResource";
 
@@ -67,7 +68,7 @@ export function AccountSettingsPage() {
 						void client
 							.callRpc("account.update", {
 								name: name.trim(),
-								timezone: timezone.trim(),
+								timezone,
 							})
 							.then((res) => {
 								if (!res.ok) {
@@ -95,15 +96,15 @@ export function AccountSettingsPage() {
 							required
 						/>
 					</label>
-					<label className="flex flex-col gap-1">
+					<label htmlFor="account-timezone" className="flex flex-col gap-1">
 						<span>Timezone</span>
-						<input
-							aria-label="Account timezone"
-							className={fieldClass}
+						<TimezoneCombobox
+							id="account-timezone"
+							label="Account timezone"
 							value={timezone}
-							onChange={(event) => setTimezone(event.target.value)}
 							disabled={formDisabled}
-							required
+							className={fieldClass}
+							onChange={setTimezone}
 						/>
 					</label>
 					<p className="text-[length:var(--fs-sm)] text-text-muted">
