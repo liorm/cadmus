@@ -52,7 +52,7 @@ test("composer grows and submits on Send", async ({
 		.boundingBox();
 	expect((boxAfter?.height ?? 0) >= (boxBefore?.height ?? 0)).toBe(true);
 	await clickByRole(page, "button", "Send");
-	await expect(page.getByRole("heading", { name: "New task" })).toBeVisible();
+	await expect(page.getByRole("heading", { name: "line one" })).toBeVisible();
 });
 
 const WORKER_BASE = "http://127.0.0.1:8799";
@@ -75,11 +75,16 @@ test("composer persists a chat through the worker", async ({
 }) => {
 	const origin = baseURL ?? WORKER_BASE;
 	await seedBot(origin, accountId, "Echo Bot", "echo-bot");
+	await page.goto("/new");
+	await expect(page.getByRole("heading", { name: "New task" })).toBeVisible();
 	await page.goto("/");
 	await expect(page.getByRole("combobox", { name: "Bot" })).toBeVisible();
+	await expect(page.getByRole("heading", { name: "Cadmus" })).toBeVisible();
 	await fillByLabel(page, "Message", "Morning notes");
 	await clickByRole(page, "button", "Send");
-	await expect(page.getByRole("heading", { name: "New task" })).toBeVisible();
+	await expect(
+		page.getByRole("heading", { name: "Morning notes" }),
+	).toBeVisible();
 	await clickByRole(page, "link", "Back");
 	await expect(
 		page.getByRole("navigation", { name: "Bots" }).getByRole("button", {
@@ -88,16 +93,47 @@ test("composer persists a chat through the worker", async ({
 		}),
 	).toBeVisible();
 	await page.reload();
-	// "New task" is only the gap before chat.get restores the first user
-	// message into lastUserText. The settled row label is that message.
 	await expect(
 		page.getByRole("navigation", { name: "Bots" }).getByRole("button", {
 			name: "Morning notes",
 			exact: true,
 		}),
 	).toBeVisible();
+	await clickByRole(page, "button", "Morning notes");
+	await expect(
+		page.getByRole("heading", { name: "Morning notes" }),
+	).toBeVisible();
+	await page.reload();
+	await expect(
+		page.getByRole("heading", { name: "Morning notes" }),
+	).toBeVisible();
+	await clickByRole(page, "button", "Chat menu");
+	await clickByRole(page, "button", "Rename");
+	await fillByLabel(page, "Chat title", "Kitchen list");
+	await clickByRole(page, "button", "Save title");
+	await expect(
+		page.getByRole("heading", { name: "Kitchen list" }),
+	).toBeVisible();
+	await clickByRole(page, "link", "Back");
+	await expect(
+		page.getByRole("navigation", { name: "Bots" }).getByRole("button", {
+			name: "Kitchen list",
+			exact: true,
+		}),
+	).toBeVisible();
+	await page.reload();
+	await expect(
+		page.getByRole("navigation", { name: "Bots" }).getByRole("button", {
+			name: "Kitchen list",
+			exact: true,
+		}),
+	).toBeVisible();
+	await clickByRole(page, "button", "Kitchen list");
+	await expect(
+		page.getByRole("heading", { name: "Kitchen list" }),
+	).toBeVisible();
 	const listed = await sendAccountRpc<{
 		chats: Array<{ title?: string }>;
 	}>(origin, accountId, "chat.list");
-	expect(listed.chats.some((chat) => !chat.title?.trim())).toBe(true);
+	expect(listed.chats.some((chat) => chat.title === "Kitchen list")).toBe(true);
 });

@@ -340,7 +340,13 @@ export function ChatPage({ view }: { view: "chat" | "raw" }) {
 	const progress = taskProgress(tasks);
 	const source = record ?? chat;
 	const archived = Boolean(source?.closed);
-	const title = chatTitle(source ?? { key: chatKey }, live?.lastUserText);
+	const firstUserText = messages.find(
+		(message) => message.role === "user" && message.text.trim(),
+	)?.text;
+	const title = chatTitle(
+		source ?? { key: chatKey },
+		live?.lastUserText ?? firstUserText,
+	);
 	const untitled = !source?.title?.trim();
 	const harvestOn = source?.harvest !== false;
 
@@ -420,8 +426,8 @@ export function ChatPage({ view }: { view: "chat" | "raw" }) {
 
 	return (
 		<AppShell
-			title={untitled ? "New task" : title}
-			titleMuted={untitled}
+			title={title}
+			titleMuted={title === "New task"}
 			titleNode={
 				renaming ? (
 					<InlineEditTitle
@@ -466,7 +472,7 @@ export function ChatPage({ view }: { view: "chat" | "raw" }) {
 			<ChatMenuSheet
 				open={menuOpen}
 				onOpenChange={setMenuOpen}
-				title={untitled ? "New task" : title}
+				title={title}
 				bot={bot}
 				archived={archived}
 				harvestOn={harvestOn}

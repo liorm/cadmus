@@ -172,7 +172,9 @@ test("archive lists a closed chat and opens it without a composer", async ({
 	await expect(page.getByRole("combobox", { name: "Bot" })).toBeVisible();
 	await fillByLabel(page, "Message", "Archive from settings");
 	await clickByRole(page, "button", "Send");
-	await expect(page.getByRole("heading", { name: "New task" })).toBeVisible();
+	await expect(
+		page.getByRole("heading", { name: "Archive from settings" }),
+	).toBeVisible();
 	await expect(page.getByText(/echo\(1\): Archive from settings/)).toBeVisible({
 		timeout: 15_000,
 	});
