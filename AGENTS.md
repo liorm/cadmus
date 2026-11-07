@@ -66,6 +66,7 @@ This document contains everything an autonomous coding agent needs to understand
 11. **Verification & Check Cadence (No Speculative Checks Upfront)**:
    - **Do not run `bun run check:all`, test suites, or linters at the start of a task** before doing anything. Start working on the user's request immediately.
    - Run targeted checks (e.g. `bun run typecheck`, specific tests) or `bun run check:all` strictly **at the end** after making code changes to verify your modifications.
+   - **Do not run `bun run web-app:screens` automatically**: Screenshots are strictly run on-demand only when explicitly requested by the user. Never run `bun run web-app:screens` as part of automated verification.
 
 ---
 
@@ -139,7 +140,7 @@ Do not sleep for a fixed multi-second gap in e2e. Wait until the event or condit
 
 ### Web app rendering evidence
 
-Any change to `packages/web-app` must include rendering evidence: run `bun run web-app:screens` and attach the relevant PNGs to the PR with `gh pr comment <N> --body-file <md> --attach <png>...` (or `gh pr create/edit --attach`). Never commit screenshots.
+Do **NOT** automatically run `bun run web-app:screens`. Screenshot generation is strictly on-demand when explicitly requested by the user. Never commit screenshots. If the user asks for screenshots, attach the relevant PNGs to the PR with `gh pr comment <N> --body-file <md> --attach <png>...` (or `gh pr create/edit --attach`).
 
 The command is local only. It is not part of CI or `check:all`. It reuses the UI-flow Playwright worker, per-run account, and Pixel 7 viewport, and launches Playwright Chromium. Flow tests stay on Obscura. PNGs land in gitignored `packages/web-app/.screens/` as `<screen>-<theme>.png`.
 
