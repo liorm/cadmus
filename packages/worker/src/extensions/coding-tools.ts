@@ -17,7 +17,7 @@ export function createCadmusCodingTools(options?: ReadToolOptions) {
 	return defineExtension({
 		name: "coding-tools",
 		tools: [
-			createReadTool(options),
+			createReadTool(options), // Cadmus settings read-only: workspace read.
 			{ ...createWriteTool(), executionMode: "sequential" as const },
 			{ ...createEditTool(), executionMode: "sequential" as const },
 			{ ...createBashTool(), executionMode: "sequential" as const },

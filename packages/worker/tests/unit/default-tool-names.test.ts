@@ -4,6 +4,7 @@ import {
 	CODING_TOOL_NAMES,
 	DEFAULT_CADMUS_TOOL_NAMES,
 	effectiveToolNames,
+	TOOL_CATALOG,
 } from "@cadmus/contract/tools";
 import { defaultCadmusToolNames } from "../../src/extensions/cadmus-tools.js";
 import { expandCodingOnlyAllowlist } from "../../src/extensions/coding-allowlist.js";
@@ -18,6 +19,11 @@ describe("default Cadmus tool names", () => {
 		expect(names).toContain("web.search");
 		expect(names).toContain("x.search");
 		expect(names).toContain("code.execute");
+		expect(
+			TOOL_CATALOG.filter((entry) => !entry.codingEnv).map(
+				(entry) => entry.name,
+			),
+		).toEqual(names);
 	});
 });
 

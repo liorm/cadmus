@@ -193,6 +193,7 @@ export function schedulesToolsExtension() {
 
 			defineTool({
 				name: "schedule_list",
+				// Cadmus settings read-only: execute() lists schedules.
 				description: "List all schedules configured for this bot.",
 				parameters: Type.Object({}),
 				replay: "safe",

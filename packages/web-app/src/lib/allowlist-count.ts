@@ -1,12 +1,10 @@
 import {
-	CODING_TOOL_NAMES,
+	availableAllowlistNames,
 	DEFAULT_CADMUS_TOOL_NAMES,
+	displayedAllowlist,
 } from "@cadmus/contract/tools";
 
-export const TOOL_CATALOGUE: readonly string[] = [
-	...DEFAULT_CADMUS_TOOL_NAMES,
-	...CODING_TOOL_NAMES,
-];
+export const TOOL_CATALOGUE: readonly string[] = availableAllowlistNames(true);
 
 export interface AllowlistCount {
 	allowed: number;
@@ -14,17 +12,23 @@ export interface AllowlistCount {
 	label: string;
 }
 
-/** Omitted `tools` is the default Cadmus set. Coding tools count only when listed. */
+/** Omitted `tools` is the default set for the current env. */
 export function allowlistCount(
 	tools: readonly string[] | undefined,
+	codingEnvOffered = false,
 ): AllowlistCount {
-	const catalogue = new Set(TOOL_CATALOGUE);
-	const source = tools ?? DEFAULT_CADMUS_TOOL_NAMES;
-	const allowed = source.filter((name) => catalogue.has(name)).length;
-	const total = TOOL_CATALOGUE.length;
+	const available = availableAllowlistNames(codingEnvOffered);
+	const source = displayedAllowlist({
+		stored: tools,
+		available,
+		codingEnvOffered,
+	});
+	const total = available.length;
 	return {
-		allowed,
+		allowed: source.length,
 		total,
-		label: `${allowed} of ${total} tools allowed`,
+		label: `${source.length} of ${total} tools allowed`,
 	};
 }
+
+export { DEFAULT_CADMUS_TOOL_NAMES };

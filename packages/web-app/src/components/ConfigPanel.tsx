@@ -1,5 +1,7 @@
+import { codingToolsEnvWouldOffer } from "@cadmus/contract/tools";
 import type {
 	BotRecord,
+	ModelInfo,
 	ToolsEnvRecord,
 	ToolsEnvSetting,
 } from "@cadmus/contract/types";
@@ -13,6 +15,7 @@ import { useCadmus } from "@/context/CadmusContext";
 import { allowlistCount } from "@/lib/allowlist-count";
 import { type BotPaletteSlot, botColor } from "@/lib/bot-color";
 import type { LoadPhase } from "@/lib/load-state";
+import { modelListRef } from "@/lib/model-ref";
 import { toolsEnvLabel } from "@/lib/tools-env-label";
 
 const THINKING = [
@@ -51,9 +54,12 @@ export function ConfigPanel({
 	onDeleted: () => void;
 }) {
 	const { client } = useCadmus();
-	const [models, setModels] = useState<string[]>([bot.model]);
+	const [models, setModels] = useState<
+		Array<{ ref: string; disabled: boolean }>
+	>([{ ref: bot.model, disabled: false }]);
 	const [modelsReady, setModelsReady] = useState(false);
 	const [envs, setEnvs] = useState<ToolsEnvRecord[]>([]);
+	const [defaultEnvId, setDefaultEnvId] = useState<string | null>(null);
 	const [envsReady, setEnvsReady] = useState(false);
 	const [configError, setConfigError] = useState<string | null>(null);
 	const [configAttempt, setConfigAttempt] = useState(0);
@@ -63,7 +69,15 @@ export function ConfigPanel({
 	const envNames = Object.fromEntries(
 		envs.map((env) => [env.envId, env.label?.trim() || env.envId]),
 	);
-	const count = allowlistCount(bot.tools);
+	const envKindById = Object.fromEntries(
+		envs.map((env) => [env.envId, env.kind]),
+	);
+	const codingEnvOffered = codingToolsEnvWouldOffer({
+		botSetting: bot.toolsEnv ?? null,
+		accountDefaultEnvId: defaultEnvId,
+		envKindById,
+	});
+	const count = allowlistCount(bot.tools, codingEnvOffered);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -72,15 +86,29 @@ export function ConfigPanel({
 		setEnvsReady(false);
 		setConfigError(null);
 		void client
-			.callRpc<{ models?: Array<{ id: string }> }>("account.models.list")
+			.callRpc<{ models?: ModelInfo[] }>("account.models.list")
 			.then((res) => {
 				if (cancelled) return;
 				if (!res.ok) {
 					setConfigError(res.error?.message ?? "Could not load models");
 					return;
 				}
-				const ids = (res.result?.models ?? []).map((model) => model.id);
-				setModels(ids.includes(bot.model) ? ids : [bot.model, ...ids]);
+				const listed = res.result?.models ?? [];
+				const options: Array<{ ref: string; disabled: boolean }> = [];
+				const seen = new Set<string>();
+				for (const model of listed) {
+					const ref = modelListRef(model);
+					if (seen.has(ref)) continue;
+					seen.add(ref);
+					options.push({
+						ref,
+						disabled: !model.authenticated,
+					});
+				}
+				if (!seen.has(bot.model)) {
+					options.unshift({ ref: bot.model, disabled: false });
+				}
+				setModels(options);
 				setModelsReady(true);
 			})
 			.catch((err: unknown) => {
@@ -91,7 +119,10 @@ export function ConfigPanel({
 				}
 			});
 		void client
-			.callRpc<{ envs?: ToolsEnvRecord[] }>("account.toolsEnvs.list")
+			.callRpc<{
+				envs?: ToolsEnvRecord[];
+				default?: { envId?: string } | null;
+			}>("account.toolsEnvs.list")
 			.then((res) => {
 				if (cancelled) return;
 				if (!res.ok) {
@@ -101,6 +132,7 @@ export function ConfigPanel({
 					return;
 				}
 				setEnvs(res.result?.envs ?? []);
+				setDefaultEnvId(res.result?.default?.envId ?? null);
 				setEnvsReady(true);
 			})
 			.catch((err: unknown) => {
@@ -118,7 +150,15 @@ export function ConfigPanel({
 	}, [bot.model, client, configAttempt]);
 
 	async function patch(payload: Record<string, unknown>) {
-		await client.callRpc("bot.update", { botId: bot.id, ...payload });
+		const res = await client.callRpc("bot.update", {
+			botId: bot.id,
+			...payload,
+		});
+		if (!res.ok) {
+			setConfigError(res.error?.message ?? "Could not save bot settings");
+			return;
+		}
+		setConfigError(null);
 		await onChanged();
 	}
 
@@ -145,12 +185,22 @@ export function ConfigPanel({
 						aria-label="Model"
 						disabled={!modelsReady}
 						value={bot.model}
-						onChange={(event) => void patch({ model: event.target.value })}
+						onChange={(event) => {
+							const chosen = models.find(
+								(model) => model.ref === event.target.value,
+							);
+							if (chosen?.disabled) return;
+							void patch({ model: event.target.value });
+						}}
 						className="w-full bg-transparent text-[length:var(--fs-md)] font-semibold"
 					>
-						{models.map((id) => (
-							<option key={id} value={id}>
-								{id}
+						{models.map((model) => (
+							<option
+								key={model.ref}
+								value={model.ref}
+								disabled={model.disabled}
+							>
+								{model.disabled ? `${model.ref} (no credentials)` : model.ref}
 							</option>
 						))}
 					</select>

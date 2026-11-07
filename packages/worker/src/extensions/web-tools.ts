@@ -12,6 +12,7 @@ export function webToolsExtension() {
 		tools: [
 			defineTool({
 				name: "web.fetch",
+				// Cadmus settings read-only: HTTP GET; no FamilyStore writes.
 				description:
 					"Fetch a public HTTP/HTTPS URL and return its readable text content.",
 				parameters: Type.Object({
@@ -77,6 +78,7 @@ export function webToolsExtension() {
 
 			defineTool({
 				name: "web.search",
+				// Cadmus settings read-only: provider search stub; no store writes.
 				description: "Provider-native web search tool (available on xAI).",
 				parameters: Type.Object({
 					query: Type.Optional(Type.String()),
@@ -91,6 +93,7 @@ export function webToolsExtension() {
 
 			defineTool({
 				name: "x.search",
+				// Cadmus settings read-only: provider search stub; no store writes.
 				description:
 					"Provider-native X/Twitter search tool (available on xAI).",
 				parameters: Type.Object({

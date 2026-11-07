@@ -46,6 +46,7 @@ export function knowledgeExtension() {
 		tools: [
 			defineTool({
 				name: "knowledge_read",
+				// Cadmus settings read-only: execute() only reads FamilyStore.
 				description:
 					"Read one knowledge entry that belongs to you, the bot running this turn. This never reads a peer. Returns slug, version, and when it exists, description, optional category, and body. A missing entry returns exists: false and version: 0. To seed a new peer, pass knowledge on create_bot.",
 				parameters: Type.Object({
@@ -210,6 +211,7 @@ export function knowledgeExtension() {
 
 			defineTool({
 				name: "memory_read",
+				// Cadmus settings read-only: execute() only reads MEMORY.md.
 				description:
 					"Read MEMORY.md for you, the bot running this turn. Returns exists, version, and content/body. This does not read a peer.",
 				parameters: Type.Object({}),

@@ -56,3 +56,14 @@ export async function seedBot(
 	);
 	return result.bot;
 }
+
+export async function getBot(
+	baseUrl: string,
+	accountId: string,
+	botId: string,
+): Promise<{ model: string; tools?: string[] }> {
+	const result = await sendAccountRpc<{
+		bot: { model: string; tools?: string[] };
+	}>(baseUrl, accountId, "bot.get", { botId });
+	return result.bot;
+}

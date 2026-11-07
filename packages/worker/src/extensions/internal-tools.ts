@@ -472,6 +472,7 @@ export function internalToolsExtension() {
 
 			defineTool({
 				name: "list_bots",
+				// Cadmus settings read-only: execute() lists slug and name.
 				description:
 					"List all bots in this Bot Family. Returns only the slug and display name of each bot. Do NOT use this tool to search for a bot to answer a question or check for specific information—use search_bot instead, which inspects bot personas, memories, and knowledge summaries. Only use list_bots when the user explicitly requests an exhaustive roster or inventory of all bots.",
 				parameters: Type.Object({}),

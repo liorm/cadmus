@@ -266,6 +266,7 @@ export function tasksToolsExtension() {
 			}),
 			defineTool({
 				name: "task_list",
+				// Cadmus settings read-only: execute() lists tasks. task_get starts a task.
 				description: "List this chat's tasks with index, title, and status.",
 				parameters: Type.Object({}),
 				replay: "safe",

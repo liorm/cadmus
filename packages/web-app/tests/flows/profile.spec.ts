@@ -1,5 +1,11 @@
+import {
+	availableAllowlistNames,
+	CODING_TOOL_NAMES,
+	knownReadOnlyToolNames,
+} from "@cadmus/contract/tools";
+import type { ModelInfo } from "@cadmus/contract/types";
 import type { Page } from "@playwright/test";
-import { seedBot, sendAccountRpc } from "../support/account.ts";
+import { getBot, seedBot, sendAccountRpc } from "../support/account.ts";
 import { clickByRole, fillByLabel } from "../support/actions.ts";
 import { expect, test } from "../support/fixtures.ts";
 
@@ -10,7 +16,12 @@ const WORKER_BASE = "http://127.0.0.1:8799";
 async function watchPosts(page: Page) {
 	await page.addInitScript(() => {
 		const bag = window as unknown as {
-			__posts?: Array<{ url: string; body: string }>;
+			__posts?: Array<{
+				url: string;
+				body: string;
+				ok: boolean;
+				status: number;
+			}>;
 		};
 		bag.__posts = [];
 		const original = window.fetch.bind(window);
@@ -22,8 +33,14 @@ async function watchPosts(page: Page) {
 						? input.href
 						: input.url;
 			const body = typeof init?.body === "string" ? init.body : "";
-			bag.__posts?.push({ url, body });
-			return original(input, init);
+			const res = await original(input, init);
+			bag.__posts?.push({
+				url,
+				body,
+				ok: res.ok,
+				status: res.status,
+			});
+			return res;
 		};
 	});
 	return {
@@ -32,12 +49,44 @@ async function watchPosts(page: Page) {
 				() =>
 					(
 						window as unknown as {
-							__posts?: Array<{ url: string; body: string }>;
+							__posts?: Array<{
+								url: string;
+								body: string;
+								ok: boolean;
+								status: number;
+							}>;
 						}
 					).__posts ?? [],
 			);
 		},
 	};
+}
+
+async function clickSwitch(page: Page, name: string): Promise<void> {
+	await page.getByRole("switch", { name, exact: true }).evaluate((node) => {
+		(node as HTMLElement).click();
+	});
+}
+
+function toolSwitch(page: Page, name: string) {
+	return page.getByRole("switch", { name, exact: true });
+}
+
+async function pageHasToolLabel(page: Page, name: string): Promise<boolean> {
+	return page.evaluate((label) => {
+		const root = document.querySelector("[data-testid=tool-allowlist]");
+		const nodes = root
+			? root.querySelectorAll("span")
+			: document.querySelectorAll("span");
+		return [...nodes].some((node) => node.textContent === label);
+	}, name);
+}
+
+async function scrollAllowlist(page: Page): Promise<void> {
+	await page.evaluate(() => {
+		const root = document.querySelector("[data-testid=tool-allowlist]");
+		if (root) root.scrollTop = root.scrollHeight;
+	});
 }
 
 async function choose(page: Page, label: string, value: string): Promise<void> {
@@ -52,21 +101,50 @@ async function choose(page: Page, label: string, value: string): Promise<void> {
 	}, value);
 }
 
-test("config round-trips model, thinking, and timezone", async ({
+test("config round-trips a usable model, thinking, and timezone", async ({
 	page,
 	accountId,
 	baseURL,
 }) => {
 	const origin = baseURL ?? WORKER_BASE;
 	await seedBot(origin, accountId, "Echo Bot", "echo-bot");
+	await sendAccountRpc(origin, accountId, "account.credentials.set", {
+		providerId: "xai",
+		credential: { type: "api_key", apiKey: "xai-test-key-12345" },
+	});
+	const listed = await sendAccountRpc<{ models: ModelInfo[] }>(
+		origin,
+		accountId,
+		"account.models.list",
+		{ onlyAuthenticated: true },
+	);
+	const next = listed.models.find((model) => {
+		const ref = model.id.includes("/")
+			? model.id
+			: `${model.provider}/${model.id}`;
+		return ref !== "faux/echo" && model.authenticated;
+	});
+	expect(next).toBeDefined();
+	const nextModel = next
+		? next.id.includes("/")
+			? next.id
+			: `${next.provider}/${next.id}`
+		: "";
+	expect(nextModel).toMatch(/^[a-z0-9-]+\/.+/);
+	expect(nextModel).not.toBe("faux/echo");
 	const posts = await watchPosts(page);
 	await page.goto("/bot/echo-bot/config");
 	await expect(page.getByRole("heading", { name: "Echo Bot" })).toBeVisible();
 	await expect(page.getByRole("radio", { name: "Config" })).toBeVisible();
 	const model = page.getByLabel("Model");
 	await expect(model).toBeVisible();
-	const options = await model.locator("option").allTextContents();
-	const nextModel = options.find((id) => id !== "faux/echo") ?? "faux/echo";
+	await expect(model).toHaveValue("faux/echo");
+	const values = await model.evaluate((node) =>
+		node instanceof HTMLSelectElement
+			? [...node.options].map((option) => option.value)
+			: [],
+	);
+	expect(values).toContain(nextModel);
 	await choose(page, "Model", nextModel);
 	for (const level of ["Off", "Minimal", "Low", "Medium", "High"]) {
 		await clickByRole(page, "radio", level);
@@ -77,7 +155,8 @@ test("config round-trips model, thinking, and timezone", async ({
 			(await posts.all()).some(
 				(hit) =>
 					hit.url.includes("/api/bot/update") &&
-					hit.body.includes('"timezone":"Asia/Jerusalem"'),
+					hit.body.includes('"timezone":"Asia/Jerusalem"') &&
+					hit.ok,
 			),
 		)
 		.toBe(true);
@@ -86,7 +165,8 @@ test("config round-trips model, thinking, and timezone", async ({
 			(await posts.all()).some(
 				(hit) =>
 					hit.url.includes("/api/bot/update") &&
-					hit.body.includes('"thinking":"high"'),
+					hit.body.includes('"thinking":"high"') &&
+					hit.ok,
 			),
 		)
 		.toBe(true);
@@ -95,11 +175,15 @@ test("config round-trips model, thinking, and timezone", async ({
 			(await posts.all()).some(
 				(hit) =>
 					hit.url.includes("/api/bot/update") &&
-					hit.body.includes(`"model":"${nextModel}"`),
+					hit.body.includes(`"model":"${nextModel}"`) &&
+					hit.ok,
 			),
 		)
 		.toBe(true);
+	const stored = await getBot(origin, accountId, "echo-bot");
+	expect(stored.model).toBe(nextModel);
 	await page.reload();
+	await expect(page.getByLabel("Model")).toHaveValue(nextModel);
 	await expect(page.getByLabel("Timezone")).toHaveValue("Asia/Jerusalem");
 	await expect(page.getByRole("radio", { name: "High" })).toHaveAttribute(
 		"data-state",
@@ -107,22 +191,32 @@ test("config round-trips model, thinking, and timezone", async ({
 	);
 });
 
-test("tool allowlist saves a list and resets to null", async ({
+test("tool allowlist hides coding tools without an env and persists", async ({
 	page,
 	accountId,
 	baseURL,
 }) => {
 	const origin = baseURL ?? WORKER_BASE;
 	await seedBot(origin, accountId, "Echo Bot", "echo-bot");
+	await sendAccountRpc(origin, accountId, "bot.update", {
+		botId: "echo-bot",
+		toolsEnv: { enabled: false },
+	});
 	const posts = await watchPosts(page);
 	await page.goto("/bot/echo-bot/config");
 	await clickByRole(page, "button", "Tool allowlist");
 	await expect(
 		page.getByRole("heading", { name: "Tool allowlist" }),
 	).toBeVisible();
-	await page.getByRole("switch", { name: "memory_read" }).evaluate((node) => {
-		(node as HTMLElement).click();
-	});
+	await expect(toolSwitch(page, "memory_read")).toBeVisible();
+	await scrollAllowlist(page);
+	await expect
+		.poll(async () => pageHasToolLabel(page, "code.execute"))
+		.toBe(true);
+	for (const name of CODING_TOOL_NAMES) {
+		await expect(toolSwitch(page, name)).toHaveCount(0);
+	}
+	await clickSwitch(page, "memory_read");
 	await clickByRole(page, "button", "Save");
 	await expect
 		.poll(async () =>
@@ -130,20 +224,35 @@ test("tool allowlist saves a list and resets to null", async ({
 				(hit) =>
 					hit.url.includes("/api/bot/update") &&
 					hit.body.includes('"tools":[') &&
-					!hit.body.includes("memory_read"),
+					!hit.body.includes("memory_read") &&
+					hit.ok,
 			),
 		)
 		.toBe(true);
+	await page.reload();
+	await expect(toolSwitch(page, "memory_read")).toHaveAttribute(
+		"data-state",
+		"unchecked",
+	);
+	const stored = await getBot(origin, accountId, "echo-bot");
+	expect(stored.tools).toBeDefined();
+	expect(stored.tools).not.toContain("memory_read");
+	for (const name of CODING_TOOL_NAMES) {
+		expect(stored.tools).not.toContain(name);
+	}
 	await clickByRole(page, "button", "Reset to default");
 	await expect
 		.poll(async () =>
 			(await posts.all()).some(
 				(hit) =>
 					hit.url.includes("/api/bot/update") &&
-					hit.body.includes('"tools":null'),
+					hit.body.includes('"tools":null') &&
+					hit.ok,
 			),
 		)
 		.toBe(true);
+	const reset = await getBot(origin, accountId, "echo-bot");
+	expect(reset.tools).toBeUndefined();
 });
 
 test("tools env picker pins an account env", async ({
@@ -174,6 +283,160 @@ test("tools env picker pins an account env", async ({
 		)
 		.toBe(true);
 	await expect(page.getByText("On · home-pi")).toBeVisible();
+	await clickByRole(page, "button", "Tool allowlist");
+	await expect(toolSwitch(page, "bash")).toBeVisible();
+	for (const name of CODING_TOOL_NAMES) {
+		await expect(toolSwitch(page, name)).toBeVisible();
+	}
+	await expect
+		.poll(async () => pageHasToolLabel(page, "code.execute"))
+		.toBe(false);
+	await page.goto("/bot/echo-bot/config");
+	await clickByRole(page, "button", "Tools environment");
+	await clickByRole(page, "button", "Off");
+	await clickByRole(page, "button", "Tool allowlist");
+	for (const name of CODING_TOOL_NAMES) {
+		await expect(toolSwitch(page, name)).toHaveCount(0);
+	}
+	await expect
+		.poll(async () => pageHasToolLabel(page, "code.execute"))
+		.toBe(true);
+});
+
+test("selecting a coding env does not expand an explicit allowlist", async ({
+	page,
+	accountId,
+	baseURL,
+}) => {
+	const origin = baseURL ?? WORKER_BASE;
+	await seedBot(origin, accountId, "Echo Bot", "echo-bot");
+	await sendAccountRpc(origin, accountId, "bot.update", {
+		botId: "echo-bot",
+		tools: ["memory_read", "knowledge_read"],
+	});
+	const created = await sendAccountRpc<{ env: { envId: string } }>(
+		origin,
+		accountId,
+		"account.toolsEnvs.create",
+		{ kind: "just-bash", label: "shop-pi" },
+	);
+	await sendAccountRpc(origin, accountId, "bot.update", {
+		botId: "echo-bot",
+		toolsEnv: { enabled: true, binding: { envId: created.env.envId } },
+	});
+	await page.goto("/bot/echo-bot/tools");
+	await expect(toolSwitch(page, "bash")).toBeVisible();
+	await expect(toolSwitch(page, "bash")).toHaveAttribute(
+		"data-state",
+		"unchecked",
+	);
+	await clickByRole(page, "button", "Save");
+	const stored = await getBot(origin, accountId, "echo-bot");
+	expect(stored.tools).toEqual(["memory_read", "knowledge_read"]);
+	expect(stored.tools).not.toContain("bash");
+});
+
+test("allowlist categories persist mixed state after reload", async ({
+	page,
+	accountId,
+	baseURL,
+}) => {
+	const origin = baseURL ?? WORKER_BASE;
+	await seedBot(origin, accountId, "Echo Bot", "echo-bot");
+	await page.goto("/bot/echo-bot/tools");
+	const knowledge = page.getByRole("checkbox", { name: "Knowledge" });
+	await knowledge.evaluate((node) => {
+		(node as HTMLInputElement).click();
+	});
+	await expect(knowledge).toHaveJSProperty("checked", false);
+	await clickSwitch(page, "memory_read");
+	await expect(knowledge).toHaveAttribute("aria-checked", "mixed");
+	await clickByRole(page, "button", "Save");
+	await page.reload();
+	await expect(
+		page.getByRole("checkbox", { name: "Knowledge" }),
+	).toHaveAttribute("aria-checked", "mixed");
+	await expect(toolSwitch(page, "memory_read")).toHaveAttribute(
+		"data-state",
+		"checked",
+	);
+	await expect(toolSwitch(page, "knowledge_update")).toHaveAttribute(
+		"data-state",
+		"unchecked",
+	);
+	const stored = await getBot(origin, accountId, "echo-bot");
+	expect(stored.tools).toContain("memory_read");
+	expect(stored.tools).not.toContain("knowledge_update");
+});
+
+test("read-only mode enables known reads only and restores the prior selection", async ({
+	page,
+	accountId,
+	baseURL,
+}) => {
+	const origin = baseURL ?? WORKER_BASE;
+	await seedBot(origin, accountId, "Echo Bot", "echo-bot");
+	await sendAccountRpc(origin, accountId, "bot.update", {
+		botId: "echo-bot",
+		tools: ["memory_read", "memory_update", "knowledge_read"],
+		toolsEnv: { enabled: false },
+	});
+	await page.goto("/bot/echo-bot/tools");
+	await expect(toolSwitch(page, "memory_update")).toHaveAttribute(
+		"data-state",
+		"checked",
+	);
+	await clickSwitch(page, "Read-only mode");
+	const readonly = knownReadOnlyToolNames(availableAllowlistNames(false));
+	for (const name of readonly) {
+		await expect(toolSwitch(page, name)).toHaveAttribute(
+			"data-state",
+			"checked",
+		);
+	}
+	await expect(toolSwitch(page, "memory_update")).toHaveAttribute(
+		"data-state",
+		"unchecked",
+	);
+	await expect(toolSwitch(page, "search_bot")).toHaveAttribute(
+		"data-state",
+		"unchecked",
+	);
+	await clickSwitch(page, "Read-only mode");
+	await expect(toolSwitch(page, "memory_update")).toHaveAttribute(
+		"data-state",
+		"checked",
+	);
+	await expect(toolSwitch(page, "knowledge_update")).toHaveAttribute(
+		"data-state",
+		"unchecked",
+	);
+	await clickByRole(page, "button", "Save");
+	await expect
+		.poll(async () =>
+			(await getBot(origin, accountId, "echo-bot")).tools?.sort(),
+		)
+		.toEqual(["knowledge_read", "memory_read", "memory_update"].sort());
+	await clickSwitch(page, "Read-only mode");
+	await expect(toolSwitch(page, "memory_update")).toHaveAttribute(
+		"data-state",
+		"unchecked",
+	);
+	await clickByRole(page, "button", "Save");
+	await expect
+		.poll(async () =>
+			(await getBot(origin, accountId, "echo-bot")).tools?.sort(),
+		)
+		.toEqual([...readonly].sort());
+	await page.reload();
+	await expect(toolSwitch(page, "Read-only mode")).toHaveAttribute(
+		"data-state",
+		"checked",
+	);
+	await expect(toolSwitch(page, "memory_update")).toHaveAttribute(
+		"data-state",
+		"unchecked",
+	);
 });
 
 test("delete bot confirms and leaves the main list", async ({
