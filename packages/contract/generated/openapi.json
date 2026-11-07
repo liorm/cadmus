@@ -1742,6 +1742,16 @@
 							"description": "Kinds of chat sessions to include. Defaults to ['direct'] (user-created chats)."
 						},
 						"description": "Kinds of chat sessions to include. Defaults to ['direct'] (user-created chats)."
+					},
+					{
+						"name": "includeDeleted",
+						"in": "query",
+						"required": false,
+						"schema": {
+							"type": "boolean",
+							"description": "Whether to include soft-deleted chat sessions. Defaults to false."
+						},
+						"description": "Whether to include soft-deleted chat sessions. Defaults to false."
 					}
 				],
 				"responses": {
@@ -1801,6 +1811,16 @@
 							"description": "Kinds of chat sessions to include. Defaults to ['direct'] (user-created chats)."
 						},
 						"description": "Kinds of chat sessions to include. Defaults to ['direct'] (user-created chats)."
+					},
+					{
+						"name": "includeDeleted",
+						"in": "query",
+						"required": false,
+						"schema": {
+							"type": "boolean",
+							"description": "Whether to include soft-deleted chat sessions. Defaults to false."
+						},
+						"description": "Whether to include soft-deleted chat sessions. Defaults to false."
 					}
 				],
 				"responses": {
@@ -1994,6 +2014,61 @@
 							"application/json": {
 								"schema": {
 									"$ref": "#/components/schemas/ChatCloseResult"
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"401": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"404": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"405": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"409": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"500": {
+						"$ref": "#/components/responses/ApiError"
+					}
+				}
+			}
+		},
+		"/api/chat/delete": {
+			"post": {
+				"operationId": "chat.delete",
+				"summary": "Soft-delete a chat conversation session, preserving conversation history and bot token/cost accounting.",
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"required": ["chatKey"],
+								"properties": {
+									"chatKey": {
+										"type": "string",
+										"minLength": 1,
+										"description": "Chat routing key to soft-delete."
+									}
+								},
+								"description": "Parameters identifying the chat session to delete."
+							}
+						}
+					}
+				},
+				"responses": {
+					"200": {
+						"description": "Command result",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ChatDeleteResult"
 								}
 							}
 						}
@@ -4762,6 +4837,21 @@
 				},
 				"description": "Result payload returned by chat.create containing the new chat session record."
 			},
+			"ChatDeleteResult": {
+				"type": "object",
+				"required": ["chat", "deleted"],
+				"properties": {
+					"chat": {
+						"$ref": "#/components/schemas/ChatRecord"
+					},
+					"deleted": {
+						"type": "boolean",
+						"const": true,
+						"description": "Always true, confirming the chat was soft-deleted."
+					}
+				},
+				"description": "Result payload returned by chat.delete confirming the chat was soft-deleted."
+			},
 			"ChatGetResult": {
 				"type": "object",
 				"required": ["chat", "busy", "messages", "entries", "notes"],
@@ -4984,6 +5074,18 @@
 							}
 						},
 						"additionalProperties": false
+					},
+					"deleted": {
+						"type": "boolean",
+						"description": "Whether this chat has been soft-deleted."
+					},
+					"deletedAt": {
+						"type": "number",
+						"description": "Epoch timestamp in milliseconds when the chat was soft-deleted."
+					},
+					"originChatKey": {
+						"type": "string",
+						"description": "Routing key of the originating chat that spawned this child or group member chat."
 					}
 				},
 				"description": "Chat session record tracking a conversation thread with a specific bot, or a read-only group chat shared by bots."
@@ -5027,7 +5129,8 @@
 					"entryCount",
 					"harvestWatermark",
 					"nextWakeAt",
-					"usage"
+					"usage",
+					"botUsage"
 				],
 				"properties": {
 					"chatKey": {
@@ -5094,11 +5197,10 @@
 						"description": "Epoch timestamp in milliseconds of the next scheduled alarm wake, or null if no alarm is pending."
 					},
 					"usage": {
-						"type": "object",
-						"patternProperties": {
-							"^.*$": {}
-						},
-						"description": "Aggregated token and prompt usage statistics for this chat session."
+						"$ref": "#/components/schemas/UsageSummary"
+					},
+					"botUsage": {
+						"$ref": "#/components/schemas/UsageSummary"
 					},
 					"tasks": {
 						"type": "object",
@@ -6866,6 +6968,138 @@
 					}
 				},
 				"description": "Result payload returned upon synchronous completion of a model turn."
+			},
+			"UsageBucket": {
+				"type": "object",
+				"required": [
+					"input",
+					"output",
+					"cacheRead",
+					"cacheWrite",
+					"totalTokens",
+					"cost"
+				],
+				"properties": {
+					"input": {
+						"type": "number",
+						"description": "Input tokens count."
+					},
+					"output": {
+						"type": "number",
+						"description": "Output tokens count."
+					},
+					"cacheRead": {
+						"type": "number",
+						"description": "Tokens read from cache."
+					},
+					"cacheWrite": {
+						"type": "number",
+						"description": "Tokens written to cache."
+					},
+					"cacheWrite1h": {
+						"type": "number",
+						"description": "Tokens written to 1-hour cache if supported."
+					},
+					"reasoning": {
+						"type": "number",
+						"description": "Reasoning / thinking tokens count."
+					},
+					"totalTokens": {
+						"type": "number",
+						"description": "Total tokens consumed."
+					},
+					"cost": {
+						"$ref": "#/components/schemas/UsageCost"
+					}
+				},
+				"additionalProperties": false,
+				"description": "Token counts and estimated costs."
+			},
+			"UsageCost": {
+				"type": "object",
+				"required": ["input", "output", "cacheRead", "cacheWrite", "total"],
+				"properties": {
+					"input": {
+						"type": "number",
+						"description": "Input token cost in USD."
+					},
+					"output": {
+						"type": "number",
+						"description": "Output token cost in USD."
+					},
+					"cacheRead": {
+						"type": "number",
+						"description": "Cache read token cost in USD."
+					},
+					"cacheWrite": {
+						"type": "number",
+						"description": "Cache write token cost in USD."
+					},
+					"total": {
+						"type": "number",
+						"description": "Total cost in USD."
+					}
+				},
+				"additionalProperties": false,
+				"description": "Estimated cost breakdown in USD."
+			},
+			"UsageSources": {
+				"type": "object",
+				"required": ["direct", "harvest", "schedules", "botMessages", "search"],
+				"properties": {
+					"direct": {
+						"$ref": "#/components/schemas/UsageBucket"
+					},
+					"harvest": {
+						"$ref": "#/components/schemas/UsageBucket"
+					},
+					"schedules": {
+						"$ref": "#/components/schemas/UsageBucket"
+					},
+					"botMessages": {
+						"$ref": "#/components/schemas/UsageBucket"
+					},
+					"search": {
+						"$ref": "#/components/schemas/UsageBucket"
+					},
+					"tools": {
+						"$ref": "#/components/schemas/UsageBucket"
+					}
+				},
+				"additionalProperties": false,
+				"description": "Token usage and costs broken down by execution source."
+			},
+			"UsageSummary": {
+				"type": "object",
+				"required": ["totals", "models", "tools", "sources"],
+				"properties": {
+					"totals": {
+						"$ref": "#/components/schemas/UsageBucket"
+					},
+					"models": {
+						"type": "object",
+						"patternProperties": {
+							"^.*$": {
+								"$ref": "#/components/schemas/UsageBucket"
+							}
+						},
+						"description": "Token usage by model ID."
+					},
+					"tools": {
+						"type": "object",
+						"patternProperties": {
+							"^.*$": {
+								"$ref": "#/components/schemas/UsageBucket"
+							}
+						},
+						"description": "Token usage directly attributed to tool executions."
+					},
+					"sources": {
+						"$ref": "#/components/schemas/UsageSources"
+					}
+				},
+				"additionalProperties": false,
+				"description": "Aggregated usage metrics with multi-dimensional breakdowns."
 			}
 		}
 	},

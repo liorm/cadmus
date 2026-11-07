@@ -20,6 +20,7 @@ import type {
 	BotUpdateCommand,
 	ChatCloseCommand,
 	ChatCreateCommand,
+	ChatDeleteCommand,
 	ChatEntriesCommand,
 	ChatGetCommand,
 	ChatListCommand,
@@ -86,6 +87,7 @@ import type {
 	BotUpdateResult,
 	ChatCloseResult,
 	ChatCreateResult,
+	ChatDeleteResult,
 	ChatEntriesResult,
 	ChatGetResult,
 	ChatListResult,
@@ -255,6 +257,9 @@ export type ChatRenameRpc = Rpc<ChatRenameCommand, ChatRenameResult>;
 /** RPC contract for `chat.close`: closes and archives a chat conversation. */
 export type ChatCloseRpc = Rpc<ChatCloseCommand, ChatCloseResult>;
 
+/** RPC contract for `chat.delete`: soft-deletes a chat conversation. */
+export type ChatDeleteRpc = Rpc<ChatDeleteCommand, ChatDeleteResult>;
+
 /** RPC contract for `chat.reset`: resets conversation history while keeping the routing key. */
 export type ChatResetRpc = Rpc<ChatResetCommand, ChatResetResult>;
 
@@ -381,6 +386,7 @@ export interface RpcMap {
 	"chat.get": ChatGetRpc;
 	"chat.rename": ChatRenameRpc;
 	"chat.close": ChatCloseRpc;
+	"chat.delete": ChatDeleteRpc;
 	"chat.reset": ChatResetRpc;
 	"chat.messages": ChatMessagesRpc;
 	"chat.entries": ChatEntriesRpc;

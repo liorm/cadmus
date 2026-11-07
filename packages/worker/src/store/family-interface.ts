@@ -10,11 +10,19 @@ import type {
 	ScheduleRecord,
 } from "../protocol.js";
 
+export type ConversationRouteKind =
+	| "direct"
+	| "harvest"
+	| "fork"
+	| "search"
+	| "schedules";
+
 export interface ConversationRoute {
 	conversationId: number;
 	chatKey: string;
 	botId: string;
 	toolsEnvEnabled: boolean;
+	kind?: ConversationRouteKind;
 }
 
 export type {
@@ -90,16 +98,25 @@ export interface BotFileStore {
 
 export interface ChatStore {
 	listChats(
-		filter?: string | { botId?: string; kinds?: readonly ChatKind[] },
+		filter?:
+			| string
+			| {
+					botId?: string;
+					kinds?: readonly ChatKind[];
+					includeDeleted?: boolean;
+			  },
 	): ChatRecord[];
 	getChat(key: string): ChatRecord | undefined;
 	getChatByConversationId(conversationId: number): ChatRecord | undefined;
 	upsertChat(chat: ChatRecord): void;
 	deleteChat(key: string): void;
+	softDeleteChat(key: string, deletedAt?: number): void;
+	listChildChats(originChatKey: string): ChatRecord[];
 	setTurnRoot(chatKey: string, rootRequestId: string): void;
 	getTurnRoot(chatKey: string): string | undefined;
 	getConversationRoute(conversationId: number): ConversationRoute | undefined;
 	listConversationRoutes(chatKey: string): ConversationRoute[];
+	listConversationRoutesForBot(botId: string): ConversationRoute[];
 	recordConversationRoute(route: ConversationRoute): void;
 	setConversationToolsEnvEnabled(
 		conversationId: number,
@@ -108,7 +125,11 @@ export interface ChatStore {
 	deleteConversationRoute(conversationId: number): void;
 	deleteConversationRoutesForChat(chatKey: string): void;
 	deleteConversationRoutesForBot(botId: string): void;
-	copyConversationRoute(parentId: number, childId: number): void;
+	copyConversationRoute(
+		parentId: number,
+		childId: number,
+		kind?: ConversationRouteKind,
+	): void;
 	setDeadlines(chatKey: string, deadlines: Deadlines | null): void;
 }
 

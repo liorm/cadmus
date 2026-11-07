@@ -21,6 +21,7 @@ import {
 	BotUpdateCommandSchema,
 	ChatCloseCommandSchema,
 	ChatCreateCommandSchema,
+	ChatDeleteCommandSchema,
 	ChatEntriesCommandSchema,
 	ChatGetCommandSchema,
 	ChatListCommandSchema,
@@ -85,6 +86,7 @@ import {
 	BotUpdateResultSchema,
 	ChatCloseResultSchema,
 	ChatCreateResultSchema,
+	ChatDeleteResultSchema,
 	ChatGetResultSchema,
 	ChatListResultSchema,
 	ChatRenameResultSchema,
@@ -228,6 +230,10 @@ export const commandCatalog = {
 	"chat.close": {
 		command: ChatCloseCommandSchema,
 		result: ChatCloseResultSchema,
+	},
+	"chat.delete": {
+		command: ChatDeleteCommandSchema,
+		result: ChatDeleteResultSchema,
 	},
 	"chat.reset": {
 		command: ChatResetCommandSchema,

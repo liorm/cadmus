@@ -135,6 +135,7 @@ import {
 } from "./tools-env/pure.js";
 import { ToolsEnvController } from "./tools-env/session.js";
 import type { Env } from "./types.js";
+import { computeBotUsage, computeChatUsage } from "./usage.js";
 
 export interface FamilyMeta {
 	accountId: string;
@@ -598,11 +599,15 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 					}
 				},
 				conversationCreated: (_tx, conversation) => {
-					const parent = conversation.parent?.conversationId;
+					const parent =
+						conversation.parent?.conversationId ??
+						conversation.owner?.conversationId;
 					if (parent === undefined) return;
+					const routeKind = conversation.parent ? "fork" : "search";
 					this.familyStore.chats.copyConversationRoute(
 						parent as unknown as number,
 						conversation.id as unknown as number,
+						routeKind,
 					);
 				},
 				onReport: (error) => {
@@ -1678,7 +1683,11 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 				);
 				if (storeKinds.length > 0) {
 					chats.push(
-						...this.familyStore.chats.listChats({ botId, kinds: storeKinds }),
+						...this.familyStore.chats.listChats({
+							botId,
+							kinds: storeKinds,
+							includeDeleted: command.payload?.includeDeleted,
+						}),
 					);
 				}
 				if (requestedKinds.has("group")) {
@@ -1837,6 +1846,26 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 				this.familyStore.tasks.clear(chat.key);
 				this.broadcastChatTasksInternal(chat.key);
 				return { chat: this.decorateChat(updated) };
+			},
+			"chat.delete": async (command) => {
+				const chat = this.familyStore.chats.getChat(command.payload.chatKey);
+				if (!chat) {
+					throw new ProtocolValidationError(
+						`Chat '${command.payload.chatKey}' not found`,
+						"not_found",
+					);
+				}
+				const now = Date.now();
+				this.familyStore.chats.softDeleteChat(chat.key, now);
+				this.familyStore.tasks.clear(chat.key);
+				this.broadcastChatTasksInternal(chat.key);
+				const deletedRecord: ChatRecord = {
+					...chat,
+					deleted: true,
+					deletedAt: now,
+					closed: true,
+				};
+				return { deleted: true, chat: this.decorateChat(deletedRecord) };
 			},
 			"turn.submit": async (command) => {
 				this.rejectUserPost(command.payload.chatKey);
@@ -2471,7 +2500,12 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 		const convId = chat.conversationId as ConversationId;
 		const conv = await harness.conversation(convId, context);
 		const live = await harness.snapshot(LiveDoc, convId, context);
-		const usage = await harness.snapshot(UsageDoc, convId, context);
+		const chatUsage = await computeChatUsage(chat, this.familyStore, (id) =>
+			harness.snapshot(UsageDoc, id as unknown as ConversationId, context),
+		);
+		const botUsage = await computeBotUsage(bot.id, this.familyStore, (id) =>
+			harness.snapshot(UsageDoc, id as unknown as ConversationId, context),
+		);
 		const ctxView = conv ? await conv.context(context) : undefined;
 		const entryCount = ctxView ? ctxView.entries.length : 0;
 		const watermark = this.familyStore.harvest.getWatermark(chatKey);
@@ -2537,7 +2571,8 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 			entryCount,
 			harvestWatermark: watermark,
 			nextWakeAt,
-			usage: usage ?? {},
+			usage: chatUsage,
+			botUsage,
 			tasks: this.taskStatusCounts(chat.key),
 			toolsEnv,
 		};
@@ -2756,6 +2791,7 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 				title: string;
 				harvest: false;
 				kind: "group-member";
+				originChatKey?: string;
 			}) =>
 				this.createChatInternal({
 					botId: chat.botId,
@@ -2763,6 +2799,7 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 					title: chat.title,
 					harvest: false,
 					kind: "group-member",
+					originChatKey: chat.originChatKey,
 				}),
 			submitTurn: async (turn: {
 				chatKey: string;
@@ -2957,6 +2994,7 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 		toolsEnv?: ToolsEnvSetting | null;
 		harvest?: boolean;
 		kind?: ChatKind;
+		originChatKey?: string;
 	}): Promise<ChatRecord> {
 		const bot = this.familyStore.bots.getBot(input.botId);
 		if (!bot) {
@@ -3016,6 +3054,7 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 			...(input.thinking ? { thinking: input.thinking } : {}),
 			...(toolsEnv ? { toolsEnv } : {}),
 			...(input.harvest === false ? { harvest: false } : {}),
+			...(input.originChatKey ? { originChatKey: input.originChatKey } : {}),
 			kind: input.kind ?? "direct",
 			createdAt: Date.now(),
 		};

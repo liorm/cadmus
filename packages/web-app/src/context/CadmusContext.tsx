@@ -92,6 +92,7 @@ export interface CadmusContextValue {
 	familyId: string;
 	switchFamily: (familyId: string) => Promise<void>;
 	archiveChat: (chatKey: string) => Promise<void>;
+	deleteChat: (chatKey: string) => Promise<void>;
 	retryChat: (chatKey: string) => Promise<void>;
 	noteUserText: (chatKey: string, text: string) => void;
 	markFailed: (chatKey: string, reason: string) => void;
@@ -590,6 +591,14 @@ export function CadmusProvider({
 		[client],
 	);
 
+	const deleteChat = useCallback(
+		async (chatKey: string) => {
+			await client.callRpc("chat.delete", { chatKey });
+			setChats((prev) => prev.filter((chat) => chat.key !== chatKey));
+		},
+		[client],
+	);
+
 	const retryChat = useCallback(
 		async (chatKey: string) => {
 			const state = chatStates[chatKey];
@@ -705,6 +714,7 @@ export function CadmusProvider({
 			markChatSeen,
 			setLastBotId,
 			archiveChat,
+			deleteChat,
 			retryChat,
 			noteUserText,
 			markFailed,
@@ -714,6 +724,7 @@ export function CadmusProvider({
 		}),
 		[
 			archiveChat,
+			deleteChat,
 			createChatAndSubmit,
 			authConfig,
 			bots,

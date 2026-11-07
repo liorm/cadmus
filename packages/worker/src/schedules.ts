@@ -319,6 +319,13 @@ async function executeStandardFork(
 		{ ownership: { kind: "ownerless" } },
 		context,
 	);
+	services.familyStore.chats.recordConversationRoute({
+		conversationId: child.id as unknown as number,
+		chatKey,
+		botId: schedule.botId,
+		toolsEnvEnabled: true,
+		kind: "schedules",
+	});
 	if (schedule.thinking) {
 		const thinkingLevel = parseThinkingLevel(schedule.thinking);
 		if (thinkingLevel !== undefined) {
@@ -406,10 +413,13 @@ async function executeHarvestFork(
 		{ ownership: { kind: "ownerless" } },
 		context,
 	);
-	services.familyStore.chats.setConversationToolsEnvEnabled(
-		child.id as unknown as number,
-		false,
-	);
+	services.familyStore.chats.recordConversationRoute({
+		conversationId: child.id as unknown as number,
+		chatKey,
+		botId: schedule.botId,
+		toolsEnvEnabled: false,
+		kind: "harvest",
+	});
 
 	const bot = services.familyStore.bots.getBot(schedule.botId);
 	const allowedToolNames = bot?.tools
@@ -442,8 +452,9 @@ async function executeHarvestFork(
 		await submission.wait(context);
 		await child.waitForIdle(context);
 	} finally {
-		services.familyStore.chats.deleteConversationRoute(
+		services.familyStore.chats.setConversationToolsEnvEnabled(
 			child.id as unknown as number,
+			false,
 		);
 	}
 

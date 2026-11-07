@@ -431,7 +431,7 @@ describe("just-bash tools env DO & D1 internals", () => {
 		).listConversationRoutes("pinned");
 		const deadline = Date.now() + 2_000;
 		while (
-			afterHarvest.length !== beforeHarvest.length &&
+			afterHarvest.length !== beforeHarvest.length + 1 &&
 			Date.now() < deadline
 		) {
 			await new Promise((resolve) => setTimeout(resolve, 25));
@@ -439,8 +439,12 @@ describe("just-bash tools env DO & D1 internals", () => {
 				"pinned",
 			);
 		}
-		expect(afterHarvest).toHaveLength(beforeHarvest.length);
-		expect(afterHarvest.every((route) => route.toolsEnvEnabled)).toBe(true);
+		expect(afterHarvest).toHaveLength(beforeHarvest.length + 1);
+		const harvestRoute = afterHarvest.find((r) => r.kind === "harvest");
+		expect(harvestRoute).toBeDefined();
+		expect(harvestRoute?.toolsEnvEnabled).toBe(false);
+		const nonHarvestRoutes = afterHarvest.filter((r) => r.kind !== "harvest");
+		expect(nonHarvestRoutes.every((route) => route.toolsEnvEnabled)).toBe(true);
 		const ws2 = await connectTestWs(options);
 		try {
 			ws2.events.length = 0;

@@ -650,6 +650,23 @@ export const ChatRecordSchema = Type.Object(
 				{ additionalProperties: false },
 			),
 		),
+		deleted: Type.Optional(
+			Type.Boolean({
+				description: "Whether this chat has been soft-deleted.",
+			}),
+		),
+		deletedAt: Type.Optional(
+			Type.Number({
+				description:
+					"Epoch timestamp in milliseconds when the chat was soft-deleted.",
+			}),
+		),
+		originChatKey: Type.Optional(
+			Type.String({
+				description:
+					"Routing key of the originating chat that spawned this child or group member chat.",
+			}),
+		),
 	},
 	{
 		description:
@@ -657,6 +674,91 @@ export const ChatRecordSchema = Type.Object(
 	},
 );
 export type ChatRecord = Static<typeof ChatRecordSchema>;
+
+/**
+ * Monetary cost breakdown in USD.
+ */
+export const UsageCostSchema = Type.Object(
+	{
+		input: Type.Number({ description: "Input token cost in USD." }),
+		output: Type.Number({ description: "Output token cost in USD." }),
+		cacheRead: Type.Number({ description: "Cache read token cost in USD." }),
+		cacheWrite: Type.Number({ description: "Cache write token cost in USD." }),
+		total: Type.Number({ description: "Total cost in USD." }),
+	},
+	{
+		additionalProperties: false,
+		description: "Estimated cost breakdown in USD.",
+	},
+);
+export type UsageCost = Static<typeof UsageCostSchema>;
+
+/**
+ * Token and cost metrics for one bucket (overall, per-model, or per-source).
+ */
+export const UsageBucketSchema = Type.Object(
+	{
+		input: Type.Number({ description: "Input tokens count." }),
+		output: Type.Number({ description: "Output tokens count." }),
+		cacheRead: Type.Number({ description: "Tokens read from cache." }),
+		cacheWrite: Type.Number({ description: "Tokens written to cache." }),
+		cacheWrite1h: Type.Optional(
+			Type.Number({
+				description: "Tokens written to 1-hour cache if supported.",
+			}),
+		),
+		reasoning: Type.Optional(
+			Type.Number({ description: "Reasoning / thinking tokens count." }),
+		),
+		totalTokens: Type.Number({ description: "Total tokens consumed." }),
+		cost: UsageCostSchema,
+	},
+	{
+		additionalProperties: false,
+		description: "Token counts and estimated costs.",
+	},
+);
+export type UsageBucket = Static<typeof UsageBucketSchema>;
+
+/**
+ * Usage categorized by origin/source.
+ */
+export const UsageSourcesSchema = Type.Object(
+	{
+		direct: UsageBucketSchema,
+		harvest: UsageBucketSchema,
+		schedules: UsageBucketSchema,
+		botMessages: UsageBucketSchema,
+		search: UsageBucketSchema,
+		tools: Type.Optional(UsageBucketSchema),
+	},
+	{
+		additionalProperties: false,
+		description: "Token usage and costs broken down by execution source.",
+	},
+);
+export type UsageSources = Static<typeof UsageSourcesSchema>;
+
+/**
+ * Comprehensive usage summary including totals, per-model, per-tool, and per-source breakdowns.
+ */
+export const UsageSummarySchema = Type.Object(
+	{
+		totals: UsageBucketSchema,
+		models: Type.Record(Type.String(), UsageBucketSchema, {
+			description: "Token usage by model ID.",
+		}),
+		tools: Type.Record(Type.String(), UsageBucketSchema, {
+			description: "Token usage directly attributed to tool executions.",
+		}),
+		sources: UsageSourcesSchema,
+	},
+	{
+		additionalProperties: false,
+		description: "Aggregated usage metrics with multi-dimensional breakdowns.",
+	},
+);
+export type UsageSummary = Static<typeof UsageSummarySchema>;
 
 /**
  * Target destination and execution mode for a scheduled task when triggered.

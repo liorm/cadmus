@@ -242,6 +242,7 @@ describe("contract conformance", () => {
 
 		await call("chat.reset", { chatKey: "main", handoff: "reset" });
 		await call("chat.close", { chatKey: "main" });
+		await call("chat.delete", { chatKey: "main" });
 		await call("bot.delete", { botId: "scribe" });
 		await call("account.toolsEnvs.delete", { envId });
 

@@ -14,6 +14,7 @@ import type {
 	ChatStore,
 	ChatTask,
 	ConversationRoute,
+	ConversationRouteKind,
 	Deadlines,
 	FamilyStore,
 	GroupChatRecord,
@@ -31,7 +32,7 @@ import type {
 	TaskStore,
 } from "./family-interface.js";
 
-const CHAT_SELECT = `key, bot_id, conversation_id, title, thinking, closed, tools_env_json, created_at, harvest_enabled, kind, deadlines_json`;
+const CHAT_SELECT = `key, bot_id, conversation_id, title, thinking, closed, tools_env_json, created_at, harvest_enabled, kind, deadlines_json, deleted_at, origin_chat_key`;
 
 export const MAX_MEMORY_BYTES = 8192;
 export const SLUG_REGEX = /^[a-z0-9][a-z0-9-]{0,63}$/;
@@ -634,17 +635,45 @@ class SqliteBotFileStore implements BotFileStore {
 	}
 }
 
+type ChatRow = {
+	key: string;
+	bot_id: string;
+	conversation_id: number;
+	title: string | null;
+	thinking: string | null;
+	closed: number;
+	tools_env_json?: string | null;
+	created_at: number;
+	harvest_enabled?: number | null;
+	kind?: string | null;
+	deadlines_json?: string | null;
+	deleted_at?: number | null;
+	origin_chat_key?: string | null;
+};
+
 class SqliteChatStore implements ChatStore {
 	constructor(private readonly sql: SqlStorage) {}
 
 	listChats(
-		filter?: string | { botId?: string; kinds?: readonly ChatKind[] },
+		filter?:
+			| string
+			| {
+					botId?: string;
+					kinds?: readonly ChatKind[];
+					includeDeleted?: boolean;
+			  },
 	): ChatRecord[] {
 		const botId = typeof filter === "string" ? filter : filter?.botId;
 		const kinds = typeof filter === "object" ? filter?.kinds : undefined;
+		const includeDeleted =
+			typeof filter === "object" ? Boolean(filter?.includeDeleted) : false;
 
 		const conditions: string[] = [];
 		const params: (string | number)[] = [];
+
+		if (!includeDeleted) {
+			conditions.push("deleted_at IS NULL");
+		}
 
 		if (botId) {
 			conditions.push("bot_id = ?");
@@ -664,40 +693,14 @@ class SqliteChatStore implements ChatStore {
          ${whereClause}
          ORDER BY created_at ASC, key ASC`;
 
-		const rows = this.sql
-			.exec<{
-				key: string;
-				bot_id: string;
-				conversation_id: number;
-				title: string | null;
-				thinking: string | null;
-				closed: number;
-				tools_env_json?: string | null;
-				created_at: number;
-				harvest_enabled?: number | null;
-				kind?: string | null;
-				deadlines_json?: string | null;
-			}>(sql, ...params)
-			.toArray();
+		const rows = this.sql.exec<ChatRow>(sql, ...params).toArray();
 
 		return rows.map((r) => this.mapRow(r));
 	}
 
 	getChat(key: string): ChatRecord | undefined {
 		const rows = this.sql
-			.exec<{
-				key: string;
-				bot_id: string;
-				conversation_id: number;
-				title: string | null;
-				thinking: string | null;
-				closed: number;
-				tools_env_json?: string | null;
-				created_at: number;
-				harvest_enabled?: number | null;
-				kind?: string | null;
-				deadlines_json?: string | null;
-			}>(
+			.exec<ChatRow>(
 				`SELECT ${CHAT_SELECT}
          FROM cadmus_chats
          WHERE key = ?`,
@@ -709,19 +712,7 @@ class SqliteChatStore implements ChatStore {
 
 	getChatByConversationId(conversationId: number): ChatRecord | undefined {
 		const rows = this.sql
-			.exec<{
-				key: string;
-				bot_id: string;
-				conversation_id: number;
-				title: string | null;
-				thinking: string | null;
-				closed: number;
-				tools_env_json?: string | null;
-				created_at: number;
-				harvest_enabled?: number | null;
-				kind?: string | null;
-				deadlines_json?: string | null;
-			}>(
+			.exec<ChatRow>(
 				`SELECT ${CHAT_SELECT}
          FROM cadmus_chats
          WHERE conversation_id = ?
@@ -732,6 +723,27 @@ class SqliteChatStore implements ChatStore {
 		return rows[0] ? this.mapRow(rows[0]) : undefined;
 	}
 
+	listChildChats(originChatKey: string): ChatRecord[] {
+		const rows = this.sql
+			.exec<ChatRow>(
+				`SELECT ${CHAT_SELECT}
+         FROM cadmus_chats
+         WHERE origin_chat_key = ?
+         ORDER BY created_at ASC, key ASC`,
+				originChatKey,
+			)
+			.toArray();
+		return rows.map((r) => this.mapRow(r));
+	}
+
+	softDeleteChat(key: string, deletedAt = Date.now()): void {
+		this.sql.exec(
+			`UPDATE cadmus_chats SET deleted_at = ?, closed = 1 WHERE key = ?`,
+			deletedAt,
+			key,
+		);
+	}
+
 	upsertChat(chat: ChatRecord): void {
 		const toolsEnvJson =
 			chat.toolsEnv !== undefined && chat.toolsEnv !== null
@@ -739,9 +751,12 @@ class SqliteChatStore implements ChatStore {
 				: null;
 		const kind =
 			chat.kind ?? (chat.key.startsWith("gmem:") ? "group-member" : "direct");
+		const deletedAt = chat.deleted
+			? (chat.deletedAt ?? Date.now())
+			: (chat.deletedAt ?? null);
 		this.sql.exec(
-			`INSERT INTO cadmus_chats (key, bot_id, conversation_id, title, thinking, closed, tools_env_json, created_at, harvest_enabled, kind)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			`INSERT INTO cadmus_chats (key, bot_id, conversation_id, title, thinking, closed, tools_env_json, created_at, harvest_enabled, kind, deleted_at, origin_chat_key)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(key) DO UPDATE SET
          bot_id = excluded.bot_id,
          conversation_id = excluded.conversation_id,
@@ -750,7 +765,9 @@ class SqliteChatStore implements ChatStore {
          closed = excluded.closed,
          tools_env_json = excluded.tools_env_json,
          harvest_enabled = excluded.harvest_enabled,
-         kind = excluded.kind`,
+         kind = excluded.kind,
+         deleted_at = excluded.deleted_at,
+         origin_chat_key = excluded.origin_chat_key`,
 			chat.key,
 			chat.botId,
 			chat.conversationId,
@@ -761,6 +778,8 @@ class SqliteChatStore implements ChatStore {
 			chat.createdAt,
 			chat.harvest === false ? 0 : 1,
 			kind,
+			deletedAt,
+			chat.originChatKey ?? null,
 		);
 	}
 
@@ -796,19 +815,7 @@ class SqliteChatStore implements ChatStore {
 		);
 	}
 
-	private mapRow(row: {
-		key: string;
-		bot_id: string;
-		conversation_id: number;
-		title: string | null;
-		thinking: string | null;
-		closed: number;
-		created_at: number;
-		kind?: string | null;
-		tools_env_json?: string | null;
-		harvest_enabled?: number | null;
-		deadlines_json?: string | null;
-	}): ChatRecord {
+	private mapRow(row: ChatRow): ChatRecord {
 		const kind: ChatKind =
 			(row.kind as ChatKind) ||
 			(row.key.startsWith("gmem:") ? "group-member" : "direct");
@@ -827,6 +834,13 @@ class SqliteChatStore implements ChatStore {
 		}
 		if (row.closed) {
 			rec.closed = true;
+		}
+		if (row.deleted_at !== null && row.deleted_at !== undefined) {
+			rec.deleted = true;
+			rec.deletedAt = Number(row.deleted_at);
+		}
+		if (row.origin_chat_key) {
+			rec.originChatKey = row.origin_chat_key;
 		}
 		const toolsEnv = parseToolsEnv(row.tools_env_json);
 		if (toolsEnv) rec.toolsEnv = toolsEnv;
@@ -853,8 +867,9 @@ class SqliteChatStore implements ChatStore {
 				chat_key: string;
 				bot_id: string;
 				tools_env_enabled: number;
+				route_kind?: string | null;
 			}>(
-				`SELECT conversation_id, chat_key, bot_id, tools_env_enabled
+				`SELECT conversation_id, chat_key, bot_id, tools_env_enabled, route_kind
          FROM cadmus_chat_conversations WHERE chat_key = ?`,
 				chatKey,
 			)
@@ -864,6 +879,30 @@ class SqliteChatStore implements ChatStore {
 			chatKey: row.chat_key,
 			botId: row.bot_id,
 			toolsEnvEnabled: row.tools_env_enabled !== 0,
+			kind: (row.route_kind as ConversationRouteKind) || "direct",
+		}));
+	}
+
+	listConversationRoutesForBot(botId: string): ConversationRoute[] {
+		const rows = this.sql
+			.exec<{
+				conversation_id: number;
+				chat_key: string;
+				bot_id: string;
+				tools_env_enabled: number;
+				route_kind?: string | null;
+			}>(
+				`SELECT conversation_id, chat_key, bot_id, tools_env_enabled, route_kind
+         FROM cadmus_chat_conversations WHERE bot_id = ?`,
+				botId,
+			)
+			.toArray();
+		return rows.map((row) => ({
+			conversationId: Number(row.conversation_id),
+			chatKey: row.chat_key,
+			botId: row.bot_id,
+			toolsEnvEnabled: row.tools_env_enabled !== 0,
+			kind: (row.route_kind as ConversationRouteKind) || "direct",
 		}));
 	}
 
@@ -874,8 +913,9 @@ class SqliteChatStore implements ChatStore {
 				chat_key: string;
 				bot_id: string;
 				tools_env_enabled: number;
+				route_kind?: string | null;
 			}>(
-				`SELECT conversation_id, chat_key, bot_id, tools_env_enabled
+				`SELECT conversation_id, chat_key, bot_id, tools_env_enabled, route_kind
          FROM cadmus_chat_conversations WHERE conversation_id = ?`,
 				conversationId,
 			)
@@ -887,21 +927,24 @@ class SqliteChatStore implements ChatStore {
 			chatKey: row.chat_key,
 			botId: row.bot_id,
 			toolsEnvEnabled: row.tools_env_enabled !== 0,
+			kind: (row.route_kind as ConversationRouteKind) || "direct",
 		};
 	}
 
 	recordConversationRoute(route: ConversationRoute): void {
 		this.sql.exec(
-			`INSERT INTO cadmus_chat_conversations (conversation_id, chat_key, bot_id, tools_env_enabled)
-       VALUES (?, ?, ?, ?)
+			`INSERT INTO cadmus_chat_conversations (conversation_id, chat_key, bot_id, tools_env_enabled, route_kind)
+       VALUES (?, ?, ?, ?, ?)
        ON CONFLICT(conversation_id) DO UPDATE SET
          chat_key = excluded.chat_key,
          bot_id = excluded.bot_id,
-         tools_env_enabled = excluded.tools_env_enabled`,
+         tools_env_enabled = excluded.tools_env_enabled,
+         route_kind = excluded.route_kind`,
 			route.conversationId,
 			route.chatKey,
 			route.botId,
 			route.toolsEnvEnabled ? 1 : 0,
+			route.kind ?? "direct",
 		);
 	}
 
@@ -937,13 +980,18 @@ class SqliteChatStore implements ChatStore {
 		);
 	}
 
-	copyConversationRoute(parentId: number, childId: number): void {
+	copyConversationRoute(
+		parentId: number,
+		childId: number,
+		kind?: ConversationRouteKind,
+	): void {
 		this.sql.exec(
-			`INSERT OR IGNORE INTO cadmus_chat_conversations (conversation_id, chat_key, bot_id, tools_env_enabled)
-       SELECT ?, chat_key, bot_id, tools_env_enabled
+			`INSERT OR IGNORE INTO cadmus_chat_conversations (conversation_id, chat_key, bot_id, tools_env_enabled, route_kind)
+       SELECT ?, chat_key, bot_id, tools_env_enabled, COALESCE(?, route_kind)
        FROM cadmus_chat_conversations
        WHERE conversation_id = ?`,
 			childId,
+			kind ?? null,
 			parentId,
 		);
 	}
@@ -1761,7 +1809,9 @@ export class SqliteFamilyStore implements FamilyStore {
         tools_env_json TEXT,
         created_at INTEGER NOT NULL,
         harvest_enabled INTEGER NOT NULL DEFAULT 1,
-        kind TEXT NOT NULL DEFAULT 'direct'
+        kind TEXT NOT NULL DEFAULT 'direct',
+        deleted_at INTEGER,
+        origin_chat_key TEXT
       );
 
       CREATE INDEX IF NOT EXISTS idx_cadmus_chats_bot
@@ -1774,7 +1824,8 @@ export class SqliteFamilyStore implements FamilyStore {
         conversation_id INTEGER PRIMARY KEY,
         chat_key TEXT NOT NULL REFERENCES cadmus_chats(key) ON DELETE CASCADE,
         bot_id TEXT NOT NULL REFERENCES cadmus_bots(id) ON DELETE CASCADE,
-        tools_env_enabled INTEGER NOT NULL DEFAULT 1
+        tools_env_enabled INTEGER NOT NULL DEFAULT 1,
+        route_kind TEXT NOT NULL DEFAULT 'direct'
       );
 
       CREATE INDEX IF NOT EXISTS idx_cadmus_chat_conversations_chat
@@ -1894,6 +1945,22 @@ export class SqliteFamilyStore implements FamilyStore {
 		ensureBotColumn(this.sql, "metadata_json", "TEXT");
 		ensureChatColumn(this.sql, "harvest_enabled", "INTEGER NOT NULL DEFAULT 1");
 		ensureChatColumn(this.sql, "kind", "TEXT NOT NULL DEFAULT 'direct'");
+		ensureChatColumn(this.sql, "deleted_at", "INTEGER");
+		ensureChatColumn(this.sql, "origin_chat_key", "TEXT");
+		this.sql.exec(
+			"CREATE INDEX IF NOT EXISTS idx_cadmus_chats_origin ON cadmus_chats(origin_chat_key);",
+		);
+		this.sql.exec(
+			"CREATE INDEX IF NOT EXISTS idx_cadmus_chats_deleted ON cadmus_chats(deleted_at);",
+		);
+		ensureChatConversationColumn(
+			this.sql,
+			"route_kind",
+			"TEXT NOT NULL DEFAULT 'direct'",
+		);
+		this.sql.exec(
+			"CREATE INDEX IF NOT EXISTS idx_cadmus_chat_conversations_bot ON cadmus_chat_conversations(bot_id);",
+		);
 		ensureChatColumn(this.sql, "next_task_idx", "INTEGER NOT NULL DEFAULT 1");
 		ensureChatColumn(this.sql, "loop_round", "INTEGER NOT NULL DEFAULT 0");
 		ensureChatColumn(this.sql, "loop_started_at", "INTEGER");
@@ -1944,6 +2011,18 @@ function dropChatColumn(sql: SqlStorage, name: string): void {
 		.toArray();
 	if (!cols.some((col) => col.name === name)) return;
 	sql.exec(`ALTER TABLE cadmus_chats DROP COLUMN ${name}`);
+}
+
+function ensureChatConversationColumn(
+	sql: SqlStorage,
+	name: string,
+	ddl: string,
+): void {
+	const cols = sql
+		.exec<{ name: string }>(`PRAGMA table_info(cadmus_chat_conversations)`)
+		.toArray();
+	if (cols.some((col) => col.name === name)) return;
+	sql.exec(`ALTER TABLE cadmus_chat_conversations ADD COLUMN ${name} ${ddl}`);
 }
 
 function ensureChatColumn(sql: SqlStorage, name: string, ddl: string): void {

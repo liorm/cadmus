@@ -855,6 +855,12 @@ export const ChatListCommandSchema = Type.Object(
 								"Kinds of chat sessions to include. Defaults to ['direct'] (user-created chats).",
 						}),
 					),
+					includeDeleted: Type.Optional(
+						Type.Boolean({
+							description:
+								"Whether to include soft-deleted chat sessions. Defaults to false.",
+						}),
+					),
 				},
 				{ description: "Filters for listing chat sessions." },
 			),
@@ -1178,6 +1184,36 @@ export const ChatCloseCommandSchema = Type.Object(
 	},
 );
 export type ChatCloseCommand = Static<typeof ChatCloseCommandSchema>;
+
+/**
+ * Command to soft-delete a chat session, preserving its history and token costs.
+ */
+export const ChatDeleteCommandSchema = Type.Object(
+	{
+		id: Type.String({
+			minLength: 1,
+			description:
+				"Non-empty unique correlation identifier for this command request.",
+		}),
+		type: Type.Literal("chat.delete", {
+			description: "Command type identifier.",
+		}),
+		payload: Type.Object(
+			{
+				chatKey: Type.String({
+					minLength: 1,
+					description: "Chat routing key to soft-delete.",
+				}),
+			},
+			{ description: "Parameters identifying the chat session to delete." },
+		),
+	},
+	{
+		description:
+			"Soft-delete a chat conversation session, preserving conversation history and bot token/cost accounting.",
+	},
+);
+export type ChatDeleteCommand = Static<typeof ChatDeleteCommandSchema>;
 
 /**
  * Command to reset a chat conversation transcript while preserving the chat routing key, optionally providing handoff summary text.
@@ -2009,6 +2045,7 @@ export const ClientCommandSchema = Type.Union(
 		ChatGetCommandSchema,
 		ChatRenameCommandSchema,
 		ChatCloseCommandSchema,
+		ChatDeleteCommandSchema,
 		ChatResetCommandSchema,
 		ChatMessagesCommandSchema,
 		ChatEntriesCommandSchema,

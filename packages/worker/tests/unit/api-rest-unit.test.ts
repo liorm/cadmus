@@ -57,6 +57,7 @@ const MUTATING = [
 	"bot.update",
 	"chat.close",
 	"chat.create",
+	"chat.delete",
 	"chat.rename",
 	"chat.reset",
 	"chat.subscribe",

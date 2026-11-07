@@ -178,6 +178,12 @@ export const API_ROUTES = {
 		allow: "POST",
 		readOnly: false,
 	},
+	"chat.delete": {
+		method: "POST",
+		path: "/api/chat/delete",
+		allow: "POST",
+		readOnly: false,
+	},
 	"chat.reset": {
 		method: "POST",
 		path: "/api/chat/reset",

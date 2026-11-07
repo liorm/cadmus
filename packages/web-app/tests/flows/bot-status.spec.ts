@@ -30,4 +30,11 @@ test("chat header status goes working then idle and opens details", async ({
 	await expect(page.getByText("Tasks")).toBeVisible();
 	await expect(page.getByText("Next wake")).toBeVisible();
 	await expect(page.getByText("Tools env")).toBeVisible();
+	await expect(page.getByText("Token Spend & Cost")).toBeVisible();
+	await expect(page.getByTestId("status-tab-chat")).toBeVisible();
+	await expect(page.getByTestId("status-tab-bot")).toBeVisible();
+	await expect(page.getByText("Total estimated spend")).toBeVisible();
+	await expect(page.getByText("By Source")).toBeVisible();
+	await page.getByTestId("status-tab-bot").click();
+	await expect(page.getByText("Total estimated spend")).toBeVisible();
 });

@@ -449,6 +449,7 @@ export function ChatPage({ view }: { view: "chat" | "raw" }) {
 							status={live?.status}
 							busy={busy}
 							model={bot?.model}
+							onOpen={() => refreshChatStatus(chatKey)}
 						/>
 					)}
 					{!archived && live?.failedReason ? (

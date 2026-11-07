@@ -16,6 +16,7 @@ import {
 	ThinkingLevelSchema,
 	TranscriptMessageViewSchema,
 	TurnBlockSchema,
+	UsageSummarySchema,
 } from "./records.js";
 
 // ─── RPC Results & Definitions ───────────────────────────────────────────────
@@ -499,10 +500,8 @@ export const ChatStatusRecordSchema = Type.Object(
 			description:
 				"Epoch timestamp in milliseconds of the next scheduled alarm wake, or null if no alarm is pending.",
 		}),
-		usage: Type.Record(Type.String(), Type.Unknown(), {
-			description:
-				"Aggregated token and prompt usage statistics for this chat session.",
-		}),
+		usage: UsageSummarySchema,
+		botUsage: UsageSummarySchema,
 		tasks: Type.Optional(
 			Type.Object(
 				{
@@ -603,6 +602,23 @@ export const ChatCloseResultSchema = Type.Object(
 	},
 );
 export type ChatCloseResult = Static<typeof ChatCloseResultSchema>;
+
+/**
+ * Result returned by chat.delete confirming the chat has been soft-deleted.
+ */
+export const ChatDeleteResultSchema = Type.Object(
+	{
+		chat: ChatRecordSchema,
+		deleted: Type.Literal(true, {
+			description: "Always true, confirming the chat was soft-deleted.",
+		}),
+	},
+	{
+		description:
+			"Result payload returned by chat.delete confirming the chat was soft-deleted.",
+	},
+);
+export type ChatDeleteResult = Static<typeof ChatDeleteResultSchema>;
 
 /**
  * Result returned when a model turn completes synchronously or settles.
