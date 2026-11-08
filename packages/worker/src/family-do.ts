@@ -2471,6 +2471,8 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 			bindingSource: resolved.bindingSource,
 			persist: def?.persist,
 			confineToWorkspace: def?.confineToWorkspace,
+			confinementPolicy: def?.confinementPolicy,
+			confined: def?.kind === "just-bash" ? true : connection?.confined,
 			sharedWorkspace: def?.sharedWorkspace,
 			scopeKind: resolved.scopeKind,
 			botDefaultKind: botDef?.kind,

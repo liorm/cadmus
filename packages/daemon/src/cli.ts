@@ -4,7 +4,13 @@ import { stdout } from "node:process";
 import { NodeExecutionEnv } from "@earendil-works/pi-durable/env/node";
 import { daemonCliArgs, formatDaemonHelp, parseDaemonArgs } from "./args.js";
 import { createBackoff, noteAttempt } from "./backoff.js";
-import { deleteDaemonConfig, loadDaemonConfig } from "./config.js";
+import {
+	deleteDaemonConfig,
+	getDaemonConfigValue,
+	loadDaemonConfig,
+	saveDaemonConfig,
+	setDaemonConfigValue,
+} from "./config.js";
 import {
 	type ConfineDetector,
 	detectConfineMechanisms,
@@ -34,7 +40,7 @@ export interface RunDaemonOptions {
 	dial?: (input: {
 		url: string;
 		headers: Record<string, string>;
-	}) => Promise<{ status: number; socket?: DaemonSocket }>;
+	}) => Promise<{ status: number; socket?: DaemonSocket; error?: string }>;
 }
 
 export async function runDaemon(options: RunDaemonOptions): Promise<void> {
@@ -76,7 +82,7 @@ export async function runDaemon(options: RunDaemonOptions): Promise<void> {
 		const url = new URL(options.url);
 		if (!url.searchParams.get("envId"))
 			url.searchParams.set("envId", options.envId);
-		let opened: { status: number; socket?: DaemonSocket };
+		let opened: { status: number; socket?: DaemonSocket; error?: string };
 		try {
 			opened = await dial({ url: url.toString(), headers });
 		} catch (error) {
@@ -97,9 +103,20 @@ export async function runDaemon(options: RunDaemonOptions): Promise<void> {
 		if (options.signal?.aborted) return;
 		const step = noteAttempt(state, opened.status, random);
 		if (step.action === "stop") {
+			let reason: string = step.reason;
+			if (opened.error) {
+				try {
+					const parsed = JSON.parse(opened.error);
+					if (parsed?.error?.message) {
+						reason = parsed.error.message;
+					}
+				} catch {
+					reason = opened.error;
+				}
+			}
 			logger.error("daemon.stopped", {
 				status: opened.status,
-				reason: step.reason,
+				reason,
 			});
 			return;
 		}
@@ -179,6 +196,52 @@ async function main(): Promise<void> {
 		}
 		return;
 	}
+	if (parsed.kind === "config") {
+		if (parsed.action === "get") {
+			try {
+				const result = await getDaemonConfigValue(
+					parsed.key,
+					parsed.configPath,
+				);
+				if (typeof result.value === "object" && result.value !== null) {
+					stdout.write(`${JSON.stringify(result.value, null, 2)}\n`);
+				} else {
+					stdout.write(`${String(result.value)}\n`);
+				}
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error);
+				logger.error("daemon.configError", { error: message });
+				process.exitCode = 1;
+			}
+			return;
+		}
+		if (parsed.action === "set") {
+			if (!parsed.key || parsed.value === undefined) {
+				logger.error("daemon.configError", {
+					error: "Missing key or value for 'config set'",
+				});
+				process.exitCode = 1;
+				return;
+			}
+			try {
+				const result = await setDaemonConfigValue(
+					parsed.key,
+					parsed.value,
+					parsed.configPath,
+				);
+				logger.info("daemon.configUpdated", {
+					key: result.key,
+					value: result.value,
+					configPath: result.configPath,
+				});
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error);
+				logger.error("daemon.configError", { error: message });
+				process.exitCode = 1;
+			}
+			return;
+		}
+	}
 	if (parsed.kind === "pair") {
 		const workspacePath = resolveDaemonWorkspace(parsed.workspace);
 		const options = await performPairing({
@@ -186,6 +249,9 @@ async function main(): Promise<void> {
 			name: parsed.name,
 			workspacePath,
 			customConfigPath: parsed.configPath,
+			url: parsed.url,
+			persist: parsed.persist,
+			confineToWorkspace: parsed.confineToWorkspace,
 			logger,
 		});
 		logger.info("daemon.starting", {
@@ -200,29 +266,69 @@ async function main(): Promise<void> {
 	}
 	if (parsed.kind === "start") {
 		const loaded = await loadDaemonConfig(parsed.configPath);
-		if (!loaded) {
-			logger.error("daemon.notPaired", {
-				hint: "cadmus-daemon pair <token> [--name 'My Machine']",
-			});
+		const url = parsed.url ?? loaded?.config.url;
+		const token = parsed.token ?? loaded?.token;
+		const envId = parsed.envId ?? loaded?.config.envId;
+		const persist = parsed.persist ?? loaded?.config.persist ?? true;
+		const confineToWorkspace =
+			parsed.confineToWorkspace ?? loaded?.config.confineToWorkspace ?? false;
+		const name = parsed.name ?? loaded?.config.name ?? envId ?? "Daemon";
+
+		if (!url || !token || !envId) {
+			if (!loaded) {
+				if (parsed.configPath) {
+					logger.error("daemon.configNotFound", {
+						configPath: parsed.configPath,
+						hint: "Specify --url, --token, and --env-id or pair using: cadmus-daemon pair <token>",
+					});
+				} else {
+					logger.error("daemon.notPaired", {
+						hint: "cadmus-daemon pair <token> [--name 'My Machine'] or specify --url, --token, and --env-id",
+					});
+				}
+			} else {
+				logger.error("daemon.missingCredentials", {
+					hint: "Specify --token or re-pair using: cadmus-daemon pair <token>",
+				});
+			}
 			process.exitCode = 1;
 			return;
 		}
+
+		if (parsed.save) {
+			const saved = await saveDaemonConfig(
+				{
+					url,
+					envId,
+					persist,
+					confineToWorkspace,
+					name,
+					token,
+				},
+				parsed.configPath,
+			);
+			logger.info("daemon.configSaved", {
+				configPath: saved.configPath,
+				storageMethod: saved.storageMethod,
+			});
+		}
+
 		const workspacePath = resolveDaemonWorkspace(parsed.workspace);
 		logger.info("daemon.starting", {
-			name: loaded.config.name || loaded.config.envId,
-			envId: loaded.config.envId,
+			name,
+			envId,
 			workspace: workspacePath,
-			url: loaded.config.url,
-			persist: loaded.config.persist,
-			confineToWorkspace: loaded.config.confineToWorkspace,
+			url,
+			persist,
+			confineToWorkspace,
 		});
 		await runDaemon({
-			url: loaded.config.url,
-			token: loaded.token,
-			envId: loaded.config.envId,
+			url,
+			token,
+			envId,
 			workspacePath,
-			persist: loaded.config.persist,
-			confineToWorkspace: loaded.config.confineToWorkspace,
+			persist,
+			confineToWorkspace,
 			logger,
 		});
 		return;

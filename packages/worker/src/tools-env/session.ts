@@ -2,6 +2,7 @@ import type { ExecutionEnv } from "@earendil-works/pi-durable/env";
 import { ProtocolValidationError } from "../protocol/validate.js";
 import type {
 	BotRecord,
+	ConfinementPolicy,
 	ToolsEnvBinding,
 	ToolsEnvSetting,
 } from "../protocol.js";
@@ -291,9 +292,16 @@ export class ToolsEnvController {
 							kind: def.kind,
 							persist: def.persist,
 							confineToWorkspace: def.confineToWorkspace,
+							confinementPolicy:
+								def.confinementPolicy ??
+								(def.confineToWorkspace ? "required" : "disabled"),
 							sharedWorkspace: def.sharedWorkspace,
+							...(connection?.status === "connected" &&
+							connection.confined !== undefined
+								? { confined: connection.confined }
+								: {}),
 							...(def.kind === "just-bash"
-								? { root: WORKSPACE_ROOT }
+								? { root: WORKSPACE_ROOT, confined: true }
 								: connection?.status === "connected" && connection.workspacePath
 									? { root: connection.workspacePath }
 									: {}),
@@ -315,6 +323,7 @@ export class ToolsEnvController {
 			connectedAt?: number;
 			lastError?: string;
 			workspacePath?: string;
+			confined?: boolean;
 		};
 	} {
 		const snap =
@@ -323,6 +332,9 @@ export class ToolsEnvController {
 				: { status: "connected" as const };
 		return {
 			...def,
+			confinementPolicy:
+				def.confinementPolicy ??
+				(def.confineToWorkspace ? "required" : "disabled"),
 			supportsConfinement: supportsConfinement(def.kind),
 			connection: {
 				status: snap.status,
@@ -336,6 +348,11 @@ export class ToolsEnvController {
 				snap.status === "connected" &&
 				snap.workspacePath
 					? { workspacePath: snap.workspacePath }
+					: {}),
+				...(def.kind === "local-daemon" &&
+				snap.status === "connected" &&
+				snap.confined !== undefined
+					? { confined: snap.confined }
 					: {}),
 			},
 		};
@@ -351,11 +368,15 @@ export class ToolsEnvController {
 		label?: string;
 		persist?: boolean;
 		confineToWorkspace?: boolean;
+		confinementPolicy?: ConfinementPolicy;
 		sharedWorkspace?: boolean;
 	}): Promise<StoredToolsEnv> {
 		if (input.kind === "local-daemon") {
 			assertDaemonEnvWrite(input);
 			const envId = `ld_${crypto.randomUUID()}`;
+			const policy: ConfinementPolicy =
+				input.confinementPolicy ??
+				(input.confineToWorkspace === false ? "disabled" : "required");
 			const created = await this.deps.admin.createToolsEnv(
 				this.deps.accountId(),
 				{
@@ -363,7 +384,8 @@ export class ToolsEnvController {
 					kind: "local-daemon",
 					label: input.label,
 					persist: input.persist ?? true,
-					confineToWorkspace: input.confineToWorkspace === true,
+					confineToWorkspace: policy === "required",
+					confinementPolicy: policy,
 					sharedWorkspace: false,
 				},
 			);
@@ -380,6 +402,7 @@ export class ToolsEnvController {
 				label: input.label,
 				persist: input.persist ?? true,
 				confineToWorkspace: true,
+				confinementPolicy: "required",
 				sharedWorkspace: input.sharedWorkspace ?? false,
 			},
 		);
@@ -393,6 +416,7 @@ export class ToolsEnvController {
 			label?: string;
 			persist?: boolean;
 			confineToWorkspace?: boolean;
+			confinementPolicy?: ConfinementPolicy;
 			sharedWorkspace?: boolean;
 		},
 	): Promise<StoredToolsEnv> {
@@ -407,9 +431,18 @@ export class ToolsEnvController {
 			);
 		}
 		if (existing.kind === "local-daemon") {
+			const policy: ConfinementPolicy =
+				patch.confinementPolicy ??
+				(patch.confineToWorkspace !== undefined
+					? patch.confineToWorkspace
+						? "required"
+						: "disabled"
+					: (existing.confinementPolicy ??
+						(existing.confineToWorkspace ? "required" : "disabled")));
 			assertDaemonEnvWrite({
 				confineToWorkspace:
 					patch.confineToWorkspace ?? existing.confineToWorkspace,
+				confinementPolicy: policy,
 				sharedWorkspace: patch.sharedWorkspace ?? false,
 			});
 			const updated = await this.deps.admin.updateToolsEnv(
@@ -417,6 +450,8 @@ export class ToolsEnvController {
 				envId,
 				{
 					...patch,
+					confineToWorkspace: policy === "required",
+					confinementPolicy: policy,
 					sharedWorkspace: false,
 				},
 			);
@@ -445,6 +480,7 @@ export class ToolsEnvController {
 		assertJustBashEnvWrite({
 			kind: existing.kind,
 			confineToWorkspace: patch.confineToWorkspace,
+			confinementPolicy: patch.confinementPolicy,
 			sharedWorkspace: patch.sharedWorkspace,
 		});
 		const updated = await this.deps.admin.updateToolsEnv(
@@ -501,6 +537,7 @@ export class ToolsEnvController {
 			envId,
 			persist: def.persist,
 			confineToWorkspace: def.confineToWorkspace,
+			confinementPolicy: def.confinementPolicy,
 			url: options.url,
 			wsUrl: options.wsUrl,
 		});

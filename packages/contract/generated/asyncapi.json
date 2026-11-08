@@ -566,6 +566,9 @@
 							"confineToWorkspace": {
 								"type": "boolean"
 							},
+							"confinementPolicy": {
+								"$ref": "#/components/schemas/ConfinementPolicy"
+							},
 							"sharedWorkspace": {
 								"type": "boolean"
 							},
@@ -576,7 +579,7 @@
 						"additionalProperties": false
 					}
 				},
-				"description": "Create a just-bash or local-daemon tools env definition. Daemon rows require confineToWorkspace. The workspace path is reported by the daemon process."
+				"description": "Create a just-bash or local-daemon tools env definition. Daemon rows require confineToWorkspace or confinementPolicy. The workspace path is reported by the daemon process."
 			},
 			"AccountToolsEnvsDeleteCommand": {
 				"type": "object",
@@ -708,6 +711,9 @@
 							},
 							"confineToWorkspace": {
 								"type": "boolean"
+							},
+							"confinementPolicy": {
+								"$ref": "#/components/schemas/ConfinementPolicy"
 							},
 							"sharedWorkspace": {
 								"type": "boolean"
@@ -1948,6 +1954,23 @@
 					}
 				},
 				"description": "Standard response frame returned by the server for all client command invocations."
+			},
+			"ConfinementPolicy": {
+				"anyOf": [
+					{
+						"type": "string",
+						"const": "required"
+					},
+					{
+						"type": "string",
+						"const": "preferred"
+					},
+					{
+						"type": "string",
+						"const": "disabled"
+					}
+				],
+				"description": "Confinement policy for tools env execution."
 			},
 			"CredentialInput": {
 				"anyOf": [

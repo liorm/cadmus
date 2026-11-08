@@ -3903,7 +3903,7 @@
 		"/api/account/toolsEnvs/create": {
 			"post": {
 				"operationId": "account.toolsEnvs.create",
-				"summary": "Create a just-bash or local-daemon tools env definition. Daemon rows require confineToWorkspace. The workspace path is reported by the daemon process.",
+				"summary": "Create a just-bash or local-daemon tools env definition. Daemon rows require confineToWorkspace or confinementPolicy. The workspace path is reported by the daemon process.",
 				"requestBody": {
 					"required": true,
 					"content": {
@@ -3932,6 +3932,9 @@
 									},
 									"confineToWorkspace": {
 										"type": "boolean"
+									},
+									"confinementPolicy": {
+										"$ref": "#/components/schemas/ConfinementPolicy"
 									},
 									"sharedWorkspace": {
 										"type": "boolean"
@@ -4001,6 +4004,9 @@
 									},
 									"confineToWorkspace": {
 										"type": "boolean"
+									},
+									"confinementPolicy": {
+										"$ref": "#/components/schemas/ConfinementPolicy"
 									},
 									"sharedWorkspace": {
 										"type": "boolean"
@@ -5406,6 +5412,23 @@
 					}
 				}
 			},
+			"ConfinementPolicy": {
+				"anyOf": [
+					{
+						"type": "string",
+						"const": "required"
+					},
+					{
+						"type": "string",
+						"const": "preferred"
+					},
+					{
+						"type": "string",
+						"const": "disabled"
+					}
+				],
+				"description": "Confinement policy for tools env execution."
+			},
 			"CredentialInput": {
 				"anyOf": [
 					{
@@ -5531,12 +5554,19 @@
 					"confineToWorkspace": {
 						"type": "boolean"
 					},
+					"confinementPolicy": {
+						"$ref": "#/components/schemas/ConfinementPolicy"
+					},
 					"sharedWorkspace": {
 						"type": "boolean"
 					},
 					"root": {
 						"type": "string",
 						"description": "Runtime directory. Present for just-bash, and for a local-daemon only while that daemon is connected."
+					},
+					"confined": {
+						"type": "boolean",
+						"description": "Effective confinement state of the active connection."
 					}
 				},
 				"additionalProperties": false,
@@ -6614,6 +6644,9 @@
 					"confineToWorkspace": {
 						"type": "boolean"
 					},
+					"confinementPolicy": {
+						"$ref": "#/components/schemas/ConfinementPolicy"
+					},
 					"sharedWorkspace": {
 						"type": "boolean"
 					},
@@ -6648,6 +6681,10 @@
 							"workspacePath": {
 								"type": "string",
 								"description": "Directory reported by the connected daemon. Omitted while disconnected."
+							},
+							"confined": {
+								"type": "boolean",
+								"description": "Effective confinement state of the active connection."
 							}
 						},
 						"additionalProperties": false

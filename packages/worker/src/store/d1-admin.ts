@@ -3,6 +3,7 @@ import { type EdgeCache, sha256Hex } from "../edge-cache.js";
 import { getLogger } from "../log.js";
 import type {
 	AccountMember,
+	ConfinementPolicy,
 	CredentialInput,
 	CredentialSummary,
 	FamilyRecord,
@@ -153,7 +154,7 @@ function slugifyId(text: string): string {
 	);
 }
 
-export const CADMUS_SCHEMA_VERSION = 4;
+export const CADMUS_SCHEMA_VERSION = 5;
 
 export function isMissingSchemaError(error: unknown): boolean {
 	if (!error) return false;
@@ -233,8 +234,8 @@ async function seedJustBashDefault(
 		.prepare(
 			`INSERT OR IGNORE INTO cadmus_tools_envs (
           account_id, env_id, kind, label, workspace_path, persist,
-          confine_to_workspace, shared_workspace, updated_at
-        ) VALUES (?1, 'jb_default', 'just-bash', 'Default just-bash', NULL, 1, 1, 0, ?2)`,
+          confine_to_workspace, confinement_policy, shared_workspace, updated_at
+        ) VALUES (?1, 'jb_default', 'just-bash', 'Default just-bash', NULL, 1, 1, 'required', 0, ?2)`,
 		)
 		.bind(accountId, now)
 		.run();
@@ -310,6 +311,7 @@ export async function runD1SchemaMigrations(db: D1Database): Promise<void> {
           workspace_path TEXT,
           persist INTEGER NOT NULL DEFAULT 1,
           confine_to_workspace INTEGER NOT NULL DEFAULT 1,
+          confinement_policy TEXT NOT NULL DEFAULT 'required',
           shared_workspace INTEGER NOT NULL DEFAULT 0,
           daemon_token_hash TEXT,
           updated_at INTEGER NOT NULL,
@@ -335,6 +337,12 @@ export async function runD1SchemaMigrations(db: D1Database): Promise<void> {
 		"cadmus_families",
 		"team_leader_bot_id",
 		"TEXT",
+	);
+	await addColumnIfNotExists(
+		db,
+		"cadmus_tools_envs",
+		"confinement_policy",
+		"TEXT NOT NULL DEFAULT 'required'",
 	);
 
 	await migrateToolsEnvCredentialColumns(db);
@@ -1223,7 +1231,7 @@ export class D1AdminStore implements AdminStore {
 		const { results } = await this.#db
 			.prepare(
 				`SELECT env_id, kind, label, workspace_path, persist, confine_to_workspace,
-                shared_workspace, updated_at
+                confinement_policy, shared_workspace, updated_at
          FROM cadmus_tools_envs
          WHERE account_id = ?1
          ORDER BY env_id ASC`,
@@ -1241,7 +1249,7 @@ export class D1AdminStore implements AdminStore {
 		const row = await this.#db
 			.prepare(
 				`SELECT env_id, kind, label, workspace_path, persist, confine_to_workspace,
-                shared_workspace, updated_at
+                confinement_policy, shared_workspace, updated_at
          FROM cadmus_tools_envs
          WHERE account_id = ?1 AND env_id = ?2`,
 			)
@@ -1258,17 +1266,21 @@ export class D1AdminStore implements AdminStore {
 			label?: string;
 			persist: boolean;
 			confineToWorkspace: boolean;
+			confinementPolicy?: ConfinementPolicy;
 			sharedWorkspace: boolean;
 		},
 	): Promise<StoredToolsEnv> {
 		await this.initialize();
 		const now = Date.now();
+		const policy: ConfinementPolicy =
+			input.confinementPolicy ??
+			(input.confineToWorkspace ? "required" : "disabled");
 		await this.#db
 			.prepare(
 				`INSERT INTO cadmus_tools_envs (
           account_id, env_id, kind, label, workspace_path, persist,
-          confine_to_workspace, shared_workspace, updated_at
-        ) VALUES (?1, ?2, ?3, ?4, NULL, ?5, ?6, ?7, ?8)`,
+          confine_to_workspace, confinement_policy, shared_workspace, updated_at
+        ) VALUES (?1, ?2, ?3, ?4, NULL, ?5, ?6, ?7, ?8, ?9)`,
 			)
 			.bind(
 				accountId,
@@ -1276,7 +1288,8 @@ export class D1AdminStore implements AdminStore {
 				input.kind,
 				input.label ?? null,
 				input.persist ? 1 : 0,
-				input.confineToWorkspace ? 1 : 0,
+				policy === "required" ? 1 : 0,
+				policy,
 				input.sharedWorkspace ? 1 : 0,
 				now,
 			)
@@ -1294,6 +1307,7 @@ export class D1AdminStore implements AdminStore {
 			label?: string;
 			persist?: boolean;
 			confineToWorkspace?: boolean;
+			confinementPolicy?: ConfinementPolicy;
 			sharedWorkspace?: boolean;
 		},
 	): Promise<StoredToolsEnv | undefined> {
@@ -1303,19 +1317,28 @@ export class D1AdminStore implements AdminStore {
 		const label =
 			patch.label !== undefined ? patch.label : (existing.label ?? null);
 		const persist = patch.persist ?? existing.persist;
-		const confine = patch.confineToWorkspace ?? existing.confineToWorkspace;
+		const policy: ConfinementPolicy =
+			patch.confinementPolicy ??
+			(patch.confineToWorkspace !== undefined
+				? patch.confineToWorkspace
+					? "required"
+					: "disabled"
+				: (existing.confinementPolicy ??
+					(existing.confineToWorkspace ? "required" : "disabled")));
+		const confine = policy === "required";
 		const shared = patch.sharedWorkspace ?? existing.sharedWorkspace;
 		await this.#db
 			.prepare(
 				`UPDATE cadmus_tools_envs
          SET label = ?1, persist = ?2, confine_to_workspace = ?3,
-             shared_workspace = ?4, updated_at = ?5
-         WHERE account_id = ?6 AND env_id = ?7`,
+             confinement_policy = ?4, shared_workspace = ?5, updated_at = ?6
+         WHERE account_id = ?7 AND env_id = ?8`,
 			)
 			.bind(
 				label,
 				persist ? 1 : 0,
 				confine ? 1 : 0,
+				policy,
 				shared ? 1 : 0,
 				Date.now(),
 				accountId,
@@ -1414,16 +1437,21 @@ interface ToolsEnvSqlRow {
 	workspace_path: string | null;
 	persist: number;
 	confine_to_workspace: number;
+	confinement_policy?: string | null;
 	shared_workspace: number;
 	updated_at: number;
 }
 
 function mapToolsEnv(row: ToolsEnvSqlRow): StoredToolsEnv {
+	const confinementPolicy: ConfinementPolicy =
+		(row.confinement_policy as ConfinementPolicy) ??
+		(row.confine_to_workspace !== 0 ? "required" : "disabled");
 	const record: StoredToolsEnv = {
 		envId: row.env_id,
 		kind: row.kind === "local-daemon" ? "local-daemon" : "just-bash",
 		persist: row.persist !== 0,
-		confineToWorkspace: row.confine_to_workspace !== 0,
+		confineToWorkspace: confinementPolicy === "required",
+		confinementPolicy,
 		sharedWorkspace: row.shared_workspace !== 0,
 		updatedAt: Number(row.updated_at),
 	};

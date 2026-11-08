@@ -18,6 +18,7 @@ export interface ConnectionSnapshot {
 	disconnectedAt?: number;
 	lastError?: string;
 	workspacePath?: string;
+	confined?: boolean;
 }
 
 type ConnectionRow = {
@@ -28,6 +29,7 @@ type ConnectionRow = {
 	disconnected_at: number | null;
 	last_error: string | null;
 	workspace_path: string | null;
+	confined?: number | null;
 };
 
 interface SocketAttachment {
@@ -111,6 +113,11 @@ export class WsRemoteBackend {
 				`ALTER TABLE cadmus_env_connection ADD COLUMN workspace_path TEXT`,
 			);
 		}
+		if (!columns.some((column) => column.name === "confined")) {
+			this.sql.exec(
+				`ALTER TABLE cadmus_env_connection ADD COLUMN confined INTEGER DEFAULT 0`,
+			);
+		}
 		this.schemaDone = true;
 	}
 
@@ -122,7 +129,11 @@ export class WsRemoteBackend {
 	}
 
 	/** One write. Returns the generation now stored on the row. */
-	markConnected(envId: string, workspacePath: string): number {
+	markConnected(
+		envId: string,
+		workspacePath: string,
+		confined = false,
+	): number {
 		this.envId = envId;
 		const now = Date.now();
 		const existing = this.readRow();
@@ -130,11 +141,12 @@ export class WsRemoteBackend {
 			this.sql.exec(
 				`INSERT INTO cadmus_env_connection (
            env_id, status, generation, connected_at, disconnected_at, last_error,
-           workspace_path
-         ) VALUES (?, 'connected', 1, ?, NULL, NULL, ?)`,
+           workspace_path, confined
+         ) VALUES (?, 'connected', 1, ?, NULL, NULL, ?, ?)`,
 				envId,
 				now,
 				workspacePath,
+				confined ? 1 : 0,
 			);
 		} else {
 			this.sql.exec(
@@ -144,10 +156,12 @@ export class WsRemoteBackend {
              connected_at = ?,
              disconnected_at = NULL,
              last_error = NULL,
-             workspace_path = ?
+             workspace_path = ?,
+             confined = ?
          WHERE env_id = ?`,
 				now,
 				workspacePath,
+				confined ? 1 : 0,
 				existing.env_id,
 			);
 		}
@@ -165,7 +179,10 @@ export class WsRemoteBackend {
 	 * Confinement rejected before accept. A live socket is left alone.
 	 * Otherwise last_error is set and generation is not bumped.
 	 */
-	noteConfinementUnavailable(envId: string): void {
+	noteConfinementUnavailable(
+		envId: string,
+		errorReason = "confinement_unavailable",
+	): void {
 		this.envId = envId;
 		if (this.openSockets().length > 0) return;
 		const now = Date.now();
@@ -174,18 +191,20 @@ export class WsRemoteBackend {
 			this.sql.exec(
 				`INSERT INTO cadmus_env_connection (
            env_id, status, generation, connected_at, disconnected_at, last_error
-         ) VALUES (?, 'disconnected', 0, NULL, ?, 'confinement_unavailable')`,
+         ) VALUES (?, 'disconnected', 0, NULL, ?, ?)`,
 				envId,
 				now,
+				errorReason,
 			);
 			return;
 		}
 		if (existing.status === "connected") return;
 		this.sql.exec(
 			`UPDATE cadmus_env_connection
-       SET disconnected_at = ?, last_error = 'confinement_unavailable'
+       SET disconnected_at = ?, last_error = ?
        WHERE env_id = ? AND generation = ?`,
 			now,
+			errorReason,
 			existing.env_id,
 			existing.generation,
 		);
@@ -618,7 +637,7 @@ export class WsRemoteBackend {
 		const rows = this.sql
 			.exec<ConnectionRow>(
 				`SELECT env_id, status, generation, connected_at, disconnected_at, last_error,
-                workspace_path
+                workspace_path, confined
          FROM cadmus_env_connection
          LIMIT 1`,
 			)
@@ -634,6 +653,10 @@ export class WsRemoteBackend {
 				row.disconnected_at === null ? null : Number(row.disconnected_at),
 			last_error: row.last_error,
 			workspace_path: row.workspace_path ?? null,
+			confined:
+				row.confined === null || row.confined === undefined
+					? null
+					: Number(row.confined),
 		};
 	}
 }
@@ -649,6 +672,11 @@ function snapshot(row: ConnectionRow): ConnectionSnapshot {
 		...(row.last_error ? { lastError: row.last_error } : {}),
 		...(row.status === "connected" && row.workspace_path
 			? { workspacePath: row.workspace_path }
+			: {}),
+		...(row.status === "connected" &&
+		row.confined !== undefined &&
+		row.confined !== null
+			? { confined: row.confined !== 0 }
 			: {}),
 	};
 }

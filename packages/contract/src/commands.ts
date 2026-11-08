@@ -10,6 +10,7 @@ import {
 	BotMetadataPatchSchema,
 	BotMetadataSchema,
 	ChatKindSchema,
+	ConfinementPolicySchema,
 	CredentialInputSchema,
 	DeadlinesSchema,
 	ScheduleTargetSchema,
@@ -1030,6 +1031,7 @@ export const AccountToolsEnvsCreateCommandSchema = Type.Object(
 				label: Type.Optional(Type.String()),
 				persist: Type.Optional(Type.Boolean()),
 				confineToWorkspace: Type.Optional(Type.Boolean()),
+				confinementPolicy: Type.Optional(ConfinementPolicySchema),
 				sharedWorkspace: Type.Optional(Type.Boolean()),
 				baseUrl: Type.Optional(Type.String()),
 			},
@@ -1038,7 +1040,7 @@ export const AccountToolsEnvsCreateCommandSchema = Type.Object(
 	},
 	{
 		description:
-			"Create a just-bash or local-daemon tools env definition. Daemon rows require confineToWorkspace. The workspace path is reported by the daemon process.",
+			"Create a just-bash or local-daemon tools env definition. Daemon rows require confineToWorkspace or confinementPolicy. The workspace path is reported by the daemon process.",
 	},
 );
 export type AccountToolsEnvsCreateCommand = Static<
@@ -1096,6 +1098,7 @@ export const AccountToolsEnvsUpdateCommandSchema = Type.Object(
 				label: Type.Optional(Type.String()),
 				persist: Type.Optional(Type.Boolean()),
 				confineToWorkspace: Type.Optional(Type.Boolean()),
+				confinementPolicy: Type.Optional(ConfinementPolicySchema),
 				sharedWorkspace: Type.Optional(Type.Boolean()),
 			},
 			{ additionalProperties: false },

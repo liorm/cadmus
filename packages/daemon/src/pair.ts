@@ -64,6 +64,9 @@ export async function performPairing(input: {
 	fetchImpl?: typeof fetch;
 	logger?: DaemonLogger;
 	detector?: ConfineDetector;
+	url?: string;
+	persist?: boolean;
+	confineToWorkspace?: boolean;
 }): Promise<RunDaemonOptions> {
 	const logger = input.logger ?? getDaemonLogger();
 	const payload = parsePairingToken(input.pairingToken);
@@ -147,13 +150,18 @@ export async function performPairing(input: {
 		);
 	}
 
-	const finalName = result.name || daemonName;
+	const finalName = input.name || result.name || daemonName;
+	const finalUrl = input.url || result.wsUrl || payload.wsUrl;
+	const finalPersist = input.persist ?? result.persist ?? payload.persist;
+	const finalConfine =
+		input.confineToWorkspace ?? result.confineToWorkspace ?? payload.confine;
+
 	const { configPath, storageMethod } = await saveDaemonConfig(
 		{
-			url: result.wsUrl || payload.wsUrl,
+			url: finalUrl,
 			envId: result.envId || payload.envId,
-			persist: result.persist ?? payload.persist,
-			confineToWorkspace: result.confineToWorkspace ?? payload.confine,
+			persist: finalPersist,
+			confineToWorkspace: finalConfine,
 			name: finalName,
 			token: result.token,
 		},
@@ -168,12 +176,12 @@ export async function performPairing(input: {
 	});
 
 	return {
-		url: result.wsUrl || payload.wsUrl,
+		url: finalUrl,
 		token: result.token,
 		envId: result.envId || payload.envId,
 		workspacePath: input.workspacePath,
-		persist: result.persist ?? payload.persist,
-		confineToWorkspace: result.confineToWorkspace ?? payload.confine,
+		persist: finalPersist,
+		confineToWorkspace: finalConfine,
 		logger: input.logger,
 	};
 }

@@ -2,6 +2,7 @@ import type { Credential } from "@earendil-works/pi-ai";
 import type {
 	AccountMember,
 	AccountRecord,
+	ConfinementPolicy,
 	CredentialInput,
 	CredentialSummary,
 	FamilyRecord,
@@ -28,6 +29,7 @@ export interface StoredToolsEnv {
 	label?: string;
 	persist: boolean;
 	confineToWorkspace: boolean;
+	confinementPolicy?: ConfinementPolicy;
 	sharedWorkspace: boolean;
 	updatedAt: number;
 }
@@ -108,6 +110,7 @@ export interface AdminStore {
 			label?: string;
 			persist: boolean;
 			confineToWorkspace: boolean;
+			confinementPolicy?: ConfinementPolicy;
 			sharedWorkspace: boolean;
 		},
 	): Promise<StoredToolsEnv>;
@@ -118,6 +121,7 @@ export interface AdminStore {
 			label?: string;
 			persist?: boolean;
 			confineToWorkspace?: boolean;
+			confinementPolicy?: ConfinementPolicy;
 			sharedWorkspace?: boolean;
 		},
 	): Promise<StoredToolsEnv | undefined>;

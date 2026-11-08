@@ -218,17 +218,33 @@ export const ToolsEnvSourceSchema = Type.Union(
 );
 export type ToolsEnvSource = Static<typeof ToolsEnvSourceSchema>;
 
+export const ConfinementPolicySchema = Type.Union(
+	[
+		Type.Literal("required"),
+		Type.Literal("preferred"),
+		Type.Literal("disabled"),
+	],
+	{ description: "Confinement policy for tools env execution." },
+);
+export type ConfinementPolicy = Static<typeof ConfinementPolicySchema>;
+
 export const EffectiveToolsEnvSchema = Type.Object(
 	{
 		envId: Type.String(),
 		kind: Type.Union([Type.Literal("just-bash"), Type.Literal("local-daemon")]),
 		persist: Type.Boolean(),
 		confineToWorkspace: Type.Boolean(),
+		confinementPolicy: Type.Optional(ConfinementPolicySchema),
 		sharedWorkspace: Type.Boolean(),
 		root: Type.Optional(
 			Type.String({
 				description:
 					"Runtime directory. Present for just-bash, and for a local-daemon only while that daemon is connected.",
+			}),
+		),
+		confined: Type.Optional(
+			Type.Boolean({
+				description: "Effective confinement state of the active connection.",
 			}),
 		),
 	},

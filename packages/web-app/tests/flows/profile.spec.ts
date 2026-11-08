@@ -143,12 +143,15 @@ test("config round-trips a usable model, thinking, and timezone", async ({
 	const model = page.getByLabel("Model");
 	await expect(model).toBeVisible();
 	await expect(model).toHaveValue("faux/echo");
-	const values = await model.evaluate((node) =>
-		node instanceof HTMLSelectElement
-			? [...node.options].map((option) => option.value)
-			: [],
-	);
-	expect(values).toContain(nextModel);
+	await expect
+		.poll(async () =>
+			model.evaluate((node) =>
+				node instanceof HTMLSelectElement
+					? [...node.options].map((option) => option.value)
+					: [],
+			),
+		)
+		.toContain(nextModel);
 	await choose(page, "Model", nextModel);
 	for (const level of ["Off", "Minimal", "Low", "Medium", "High"]) {
 		await clickByRole(page, "radio", level);

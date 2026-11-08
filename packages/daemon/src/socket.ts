@@ -16,7 +16,7 @@ export async function openDaemonSocket(input: {
 	url: string;
 	headers: Record<string, string>;
 	timeoutMs?: number;
-}): Promise<{ status: number; socket?: DaemonSocket }> {
+}): Promise<{ status: number; socket?: DaemonSocket; error?: string }> {
 	const url = new URL(input.url);
 	const secure = url.protocol === "wss:" || url.protocol === "https:";
 	const port = Number(url.port || (secure ? 443 : 80));
@@ -55,7 +55,11 @@ export async function openDaemonSocket(input: {
 			raw.destroy();
 			reject(error instanceof Error ? error : new Error(String(error)));
 		};
-		const succeed = (value: { status: number; socket?: DaemonSocket }) => {
+		const succeed = (value: {
+			status: number;
+			socket?: DaemonSocket;
+			error?: string;
+		}) => {
 			if (settled) return;
 			settled = true;
 			clearTimeout(timer);
@@ -76,7 +80,8 @@ export async function openDaemonSocket(input: {
 				const rest = buf.subarray(split + 4);
 				if (status !== 101) {
 					raw.end();
-					succeed({ status });
+					const bodyText = rest.toString("utf8").trim();
+					succeed({ status, error: bodyText || undefined });
 					return;
 				}
 				succeed({ status, socket: wrapSocket(raw, rest) });

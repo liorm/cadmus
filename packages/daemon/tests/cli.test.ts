@@ -98,6 +98,185 @@ describe("daemon cli args", () => {
 		});
 	});
 
+	it("parses start command with configuration flags", () => {
+		expect(
+			parseDaemonArgs([
+				"start",
+				"--url",
+				"wss://cadmus.example/ws",
+				"--token",
+				"cadmus_dt_test_token",
+				"--env-id",
+				"ld_test_env",
+				"--name",
+				"CLI Machine",
+				"--persist",
+				"false",
+				"--confine",
+				"true",
+				"--save",
+			]),
+		).toEqual({
+			kind: "start",
+			workspace: undefined,
+			configPath: undefined,
+			url: "wss://cadmus.example/ws",
+			token: "cadmus_dt_test_token",
+			envId: "ld_test_env",
+			name: "CLI Machine",
+			persist: false,
+			confineToWorkspace: true,
+			save: true,
+		});
+
+		// Without explicit "start" subcommand
+		expect(
+			parseDaemonArgs([
+				"--url",
+				"wss://cadmus.example/ws",
+				"--token",
+				"cadmus_dt_test_token",
+				"--env-id",
+				"ld_test_env",
+			]),
+		).toEqual({
+			kind: "start",
+			workspace: undefined,
+			configPath: undefined,
+			url: "wss://cadmus.example/ws",
+			token: "cadmus_dt_test_token",
+			envId: "ld_test_env",
+		});
+	});
+
+	it("parses boolean flags in multiple forms", () => {
+		// Standalone --persist and --confine
+		expect(parseDaemonArgs(["--persist", "--confine"])).toEqual({
+			kind: "start",
+			workspace: undefined,
+			configPath: undefined,
+			persist: true,
+			confineToWorkspace: true,
+		});
+
+		// Negative forms --no-persist and --no-confine
+		expect(parseDaemonArgs(["--no-persist", "--no-confine"])).toEqual({
+			kind: "start",
+			workspace: undefined,
+			configPath: undefined,
+			persist: false,
+			confineToWorkspace: false,
+		});
+
+		// Explicit true/false
+		expect(
+			parseDaemonArgs(["--persist", "true", "--confine-to-workspace", "false"]),
+		).toEqual({
+			kind: "start",
+			workspace: undefined,
+			configPath: undefined,
+			persist: true,
+			confineToWorkspace: false,
+		});
+	});
+
+	it("parses --flag=value format", () => {
+		expect(
+			parseDaemonArgs([
+				"--url=wss://cadmus.example/ws",
+				"--token=cadmus_dt_123",
+				"--envId=ld_test",
+				"--name=Custom",
+				"--persist=false",
+				"--confine=true",
+			]),
+		).toEqual({
+			kind: "start",
+			workspace: undefined,
+			configPath: undefined,
+			url: "wss://cadmus.example/ws",
+			token: "cadmus_dt_123",
+			envId: "ld_test",
+			name: "Custom",
+			persist: false,
+			confineToWorkspace: true,
+		});
+	});
+
+	it("parses config get and config set commands", () => {
+		expect(parseDaemonArgs(["config", "get"])).toEqual({
+			kind: "config",
+			action: "get",
+			key: undefined,
+			configPath: undefined,
+		});
+
+		expect(parseDaemonArgs(["config", "get", "url"])).toEqual({
+			kind: "config",
+			action: "get",
+			key: "url",
+			configPath: undefined,
+		});
+
+		expect(
+			parseDaemonArgs([
+				"config",
+				"set",
+				"persist",
+				"false",
+				"--config",
+				"/tmp/custom.json",
+			]),
+		).toEqual({
+			kind: "config",
+			action: "set",
+			key: "persist",
+			value: "false",
+			configPath: "/tmp/custom.json",
+		});
+
+		// Missing key or value
+		expect(parseDaemonArgs(["config", "set"])).toEqual({
+			kind: "error",
+			message: expect.stringContaining("Missing key or value"),
+		});
+
+		expect(parseDaemonArgs(["config", "set", "name"])).toEqual({
+			kind: "error",
+			message: expect.stringContaining("Missing key or value"),
+		});
+
+		// Unknown action
+		expect(parseDaemonArgs(["config", "unknown"])).toEqual({
+			kind: "error",
+			message: expect.stringContaining("Unknown config action"),
+		});
+	});
+
+	it("parses pair command with config overrides", () => {
+		expect(
+			parseDaemonArgs([
+				"pair",
+				"cadmus_pt_test123",
+				"--persist",
+				"false",
+				"--confine",
+				"true",
+				"--url",
+				"wss://custom.example/ws",
+			]),
+		).toEqual({
+			kind: "pair",
+			token: "cadmus_pt_test123",
+			name: undefined,
+			workspace: undefined,
+			configPath: undefined,
+			persist: false,
+			confineToWorkspace: true,
+			url: "wss://custom.example/ws",
+		});
+	});
+
 	it("parses deregister command", () => {
 		expect(parseDaemonArgs(["deregister"])).toEqual({
 			kind: "deregister",

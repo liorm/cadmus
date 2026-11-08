@@ -1,5 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 import { getLogger } from "../log.js";
+import type { ConfinementPolicy } from "../protocol.js";
 import { D1AdminStore, sha256Hex } from "../store/d1-admin.js";
 import type { Env } from "../types.js";
 import {
@@ -140,6 +141,7 @@ export class CadmusEnvDO extends DurableObject<Env> {
 		envId: string;
 		persist: boolean;
 		confineToWorkspace: boolean;
+		confinementPolicy?: ConfinementPolicy;
 		url: string;
 		wsUrl: string;
 	}): Promise<{ pairingToken: string; expiresAt: number; command: string }> {
@@ -159,11 +161,15 @@ export class CadmusEnvDO extends DurableObject<Env> {
 			envId: input.envId,
 			persist: input.persist,
 			confineToWorkspace: input.confineToWorkspace,
+			confinementPolicy: input.confinementPolicy,
 			url: input.url,
 			wsUrl: input.wsUrl,
 		};
 		await this.ctx.storage.put("pending_pairing", pending);
 		await this.ctx.storage.setAlarm(expiresAt);
+		const requireConfinement =
+			input.confinementPolicy === "required" ||
+			(input.confinementPolicy === undefined && input.confineToWorkspace);
 		const pairingToken = encodePairingToken({
 			v: 1,
 			accountId: input.accountId,
@@ -171,7 +177,7 @@ export class CadmusEnvDO extends DurableObject<Env> {
 			url: input.url,
 			wsUrl: input.wsUrl,
 			persist: input.persist,
-			confine: input.confineToWorkspace,
+			confine: requireConfinement,
 			nonce,
 			exp: expiresAt,
 			secret,
@@ -355,9 +361,25 @@ export class CadmusEnvDO extends DurableObject<Env> {
 		const confined = capabilities
 			.split(",")
 			.some((part) => part.trim() === "confinement");
-		if (definition.confineToWorkspace && !confined) {
-			this.ws.noteConfinementUnavailable(envId);
-			return new Response("confinement_unavailable", { status: 409 });
+		const policy =
+			definition.confinementPolicy ??
+			(definition.confineToWorkspace ? "required" : "disabled");
+		if (policy === "required" && !confined) {
+			const message =
+				"Environment requires confinement, but daemon connected with confinement disabled (or lacks bwrap/sandbox-exec)";
+			this.ws.noteConfinementUnavailable(envId, "confinement_unavailable");
+			return new Response(
+				JSON.stringify({
+					error: {
+						code: "confinement_required",
+						message,
+					},
+				}),
+				{
+					status: 409,
+					headers: { "Content-Type": "application/json; charset=utf-8" },
+				},
+			);
 		}
 		const workspacePath = parseReportedWorkspace(
 			request.headers.get("X-Cadmus-Workspace"),
@@ -365,12 +387,21 @@ export class CadmusEnvDO extends DurableObject<Env> {
 		if (!workspacePath) {
 			return new Response("workspace_required", { status: 400 });
 		}
+		const effectiveConfined = policy !== "disabled" && confined;
 		const pair = new WebSocketPair();
 		const client = pair[0];
 		const server = pair[1];
-		const generation = this.ws.markConnected(envId, workspacePath);
+		const generation = this.ws.markConnected(
+			envId,
+			workspacePath,
+			effectiveConfined,
+		);
 		this.ctx.acceptWebSocket(server, ["tools-env-daemon"]);
-		server.serializeAttachment({ envId, generation });
+		server.serializeAttachment({
+			envId,
+			generation,
+			confined: effectiveConfined,
+		});
 		this.ws.supersede(server, generation);
 		return new Response(null, { status: 101, webSocket: client });
 	}
@@ -964,12 +995,13 @@ export class CadmusEnvDO extends DurableObject<Env> {
 				kind: string;
 				tokenHash: string | null;
 				confineToWorkspace: boolean;
+				confinementPolicy?: ConfinementPolicy;
 		  }
 		| undefined
 	> {
 		if (!accountId || !envId) return undefined;
 		const row = await this.env.CADMUS_ADMIN_DB.prepare(
-			`SELECT kind, daemon_token_hash, confine_to_workspace
+			`SELECT kind, daemon_token_hash, confine_to_workspace, confinement_policy
        FROM cadmus_tools_envs
        WHERE account_id = ?1 AND env_id = ?2`,
 		)
@@ -978,12 +1010,17 @@ export class CadmusEnvDO extends DurableObject<Env> {
 				kind: string;
 				daemon_token_hash: string | null;
 				confine_to_workspace: number;
+				confinement_policy: string | null;
 			}>();
 		if (!row) return undefined;
+		const confinementPolicy =
+			(row.confinement_policy as ConfinementPolicy) ??
+			(row.confine_to_workspace !== 0 ? "required" : "disabled");
 		return {
 			kind: row.kind,
 			tokenHash: row.daemon_token_hash,
 			confineToWorkspace: row.confine_to_workspace !== 0,
+			confinementPolicy,
 		};
 	}
 

@@ -6,6 +6,7 @@ import {
 	ChatRecordSchema,
 	ChatTaskLoopSchema,
 	ChatTaskSchema,
+	ConfinementPolicySchema,
 	CredentialSummarySchema,
 	EffectiveToolsEnvSchema,
 	FamilyRecordSchema,
@@ -1036,6 +1037,7 @@ export const ToolsEnvRecordSchema = Type.Object({
 	label: Type.Optional(Type.String()),
 	persist: Type.Boolean(),
 	confineToWorkspace: Type.Boolean(),
+	confinementPolicy: Type.Optional(ConfinementPolicySchema),
 	sharedWorkspace: Type.Optional(Type.Boolean()),
 	updatedAt: Type.Number(),
 	supportsConfinement: Type.Boolean(),
@@ -1052,6 +1054,12 @@ export const ToolsEnvRecordSchema = Type.Object({
 					Type.String({
 						description:
 							"Directory reported by the connected daemon. Omitted while disconnected.",
+					}),
+				),
+				confined: Type.Optional(
+					Type.Boolean({
+						description:
+							"Effective confinement state of the active connection.",
 					}),
 				),
 			},

@@ -83,15 +83,27 @@ The workspace is `--workspace` when that flag is set, otherwise the process curr
 cadmus-daemon --help
 cadmus-daemon --version
 cadmus-daemon pair <token> [--name <name>]
-cadmus-daemon [start]
+cadmus-daemon [start] [options]
+cadmus-daemon config set <key> <value>
+cadmus-daemon config get [key]
 cadmus-daemon deregister
 ```
 
 | Command / Flag | Meaning |
 | :--- | :--- |
 | `pair <token> [--name <name>]` | Pair and register using a 15-minute token from the UI. Stores token in OS Keystore. |
-| `start` (or no command) | Run daemon using locally stored configuration and credentials. |
+| `start` (or no command) | Run daemon using locally stored configuration or command-line options. |
+| `config set <key> <value>` | Set a configuration value (`url`, `token`, `env-id`, `name`, `persist`, `confine`) in the config file. |
+| `config get [key]` | Display configuration value(s) from the config file. |
 | `deregister` | Remove local daemon registration and delete token from keystore. |
+| `--url <url>` | WebSocket URL to connect to (overrides config file). |
+| `--token <token>` | Daemon authentication token (overrides keystore/config file). |
+| `--env-id <id>` | Account tools env ID (overrides config file). |
+| `--name <name>` | Friendly daemon name (e.g. 'My MacBook'). |
+| `--workspace <path>` | Directory for this run. Defaults to the current directory. |
+| `--persist [true\|false]` | Keep workspace between runs (default: true). |
+| `--confine [true\|false]` | Require OS confinement (bwrap/sandbox-exec, default: false). |
+| `--save` | Save command-line options to the configuration file. |
 | `--config <path>` | Custom configuration path (default: `~/.cadmus/daemon.json`). |
 | `--help` | Print help and exit. Does not connect. |
 | `--version` | Print the package version and exit. Does not connect. |

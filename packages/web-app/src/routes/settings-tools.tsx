@@ -7,15 +7,21 @@ import { useCadmus } from "@/context/CadmusContext";
 import type { LoadPhase } from "@/lib/load-state";
 
 function connectionLabel(env: ToolsEnvRecord): string {
-	if (env.kind === "just-bash") return "connected";
+	if (env.kind === "just-bash") return "connected · Sandboxed";
 	const status = env.connection?.status ?? "disconnected";
 	const workspace = env.connection?.workspacePath
 		? ` · ${env.connection.workspacePath}`
 		: "";
+	const confinement =
+		status === "connected" && env.connection?.confined !== undefined
+			? env.connection.confined
+				? " · Sandboxed"
+				: " · Unconfined"
+			: "";
 	const error = env.connection?.lastError
 		? ` · ${env.connection.lastError}`
 		: "";
-	return `${status}${workspace}${error}`;
+	return `${status}${workspace}${confinement}${error}`;
 }
 
 export function ToolsSettingsPage() {
@@ -29,7 +35,9 @@ export function ToolsSettingsPage() {
 	const [jbShared, setJbShared] = useState(false);
 	const [daemonLabel, setDaemonLabel] = useState("");
 	const [daemonPersist, setDaemonPersist] = useState(true);
-	const [daemonConfine, setDaemonConfine] = useState(true);
+	const [daemonConfinementPolicy, setDaemonConfinementPolicy] = useState<
+		"required" | "preferred" | "disabled"
+	>("required");
 	const [pairing, setPairing] = useState<string | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const [busy, setBusy] = useState(false);
@@ -404,7 +412,8 @@ export function ToolsSettingsPage() {
 								kind: "local-daemon",
 								label: daemonLabel.trim() || undefined,
 								persist: daemonPersist,
-								confineToWorkspace: daemonConfine,
+								confineToWorkspace: daemonConfinementPolicy === "required",
+								confinementPolicy: daemonConfinementPolicy,
 								baseUrl: window.location.origin,
 							})
 							.then((res) => {
@@ -443,13 +452,28 @@ export function ToolsSettingsPage() {
 						/>
 						persist
 					</label>
-					<label className="flex items-center gap-2">
-						<input
-							type="checkbox"
-							checked={daemonConfine}
-							onChange={(event) => setDaemonConfine(event.target.checked)}
-						/>
-						confineToWorkspace
+					<label className="flex flex-col gap-1">
+						<span>Confinement policy</span>
+						<select
+							aria-label="Confinement policy"
+							className={fieldClass}
+							value={daemonConfinementPolicy}
+							onChange={(event) =>
+								setDaemonConfinementPolicy(
+									event.target.value as "required" | "preferred" | "disabled",
+								)
+							}
+						>
+							<option value="required">
+								Required (sandbox mandatory, rejects unconfined daemons)
+							</option>
+							<option value="preferred">
+								Preferred (sandboxed if supported, unconfined otherwise)
+							</option>
+							<option value="disabled">
+								Disabled (unconfined host access)
+							</option>
+						</select>
 					</label>
 					<button
 						type="submit"

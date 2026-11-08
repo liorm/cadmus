@@ -1,5 +1,9 @@
 import { CODING_TOOL_NAMES, type CodingToolName } from "@cadmus/contract/tools";
-import type { ToolsEnvBinding, ToolsEnvSetting } from "@cadmus/contract/types";
+import type {
+	ConfinementPolicy,
+	ToolsEnvBinding,
+	ToolsEnvSetting,
+} from "@cadmus/contract/types";
 import { ProtocolValidationError } from "../protocol/validate.js";
 
 export type { CodingToolName };
@@ -185,11 +189,15 @@ function assertKnownEnv(
  */
 export function assertDaemonEnvWrite(input: {
 	confineToWorkspace?: boolean;
+	confinementPolicy?: ConfinementPolicy;
 	sharedWorkspace?: boolean;
 }): void {
-	if (input.confineToWorkspace === undefined) {
+	if (
+		input.confineToWorkspace === undefined &&
+		input.confinementPolicy === undefined
+	) {
 		throw new ProtocolValidationError(
-			"local-daemon envs require confineToWorkspace",
+			"local-daemon envs require confineToWorkspace or confinementPolicy",
 			"invalid_tools_env",
 		);
 	}
@@ -204,6 +212,7 @@ export function assertDaemonEnvWrite(input: {
 export function assertJustBashEnvWrite(input: {
 	kind: string;
 	confineToWorkspace?: boolean;
+	confinementPolicy?: ConfinementPolicy;
 	sharedWorkspace?: boolean;
 }): void {
 	if (input.kind !== "just-bash") {
@@ -212,7 +221,10 @@ export function assertJustBashEnvWrite(input: {
 			"unsupported_kind",
 		);
 	}
-	if (input.confineToWorkspace === false) {
+	if (
+		input.confineToWorkspace === false ||
+		input.confinementPolicy === "disabled"
+	) {
 		throw new ProtocolValidationError(
 			"just-bash envs are always confined to the workspace",
 			"confinement_required",
@@ -231,6 +243,8 @@ export interface IdentitySectionInput {
 	bindingSource?: ToolsEnvSource;
 	persist?: boolean;
 	confineToWorkspace?: boolean;
+	confinementPolicy?: ConfinementPolicy;
+	confined?: boolean;
 	sharedWorkspace?: boolean;
 	scopeKind?: "bot" | "chat";
 	botDefaultKind?: string;
@@ -255,9 +269,13 @@ export function chooseToolsEnvIdentity(
 			? "Other families that reference this env share this namespace."
 			: "Another family does not see this namespace unless sharedWorkspace is set.";
 		const confine =
-			input.confineToWorkspace === false
-				? "confineToWorkspace is off."
-				: "confineToWorkspace is on.";
+			input.confined !== undefined
+				? input.confined
+					? "Confinement is on (sandboxed via bwrap/sandbox-exec)."
+					: "Confinement is off (unconfined host access)."
+				: input.confineToWorkspace === false
+					? "confineToWorkspace is off."
+					: "confineToWorkspace is on.";
 		const botDefault =
 			input.bindingSource === "chat" && input.botDefaultKind
 				? `The bot default is ${input.botDefaultKind}. `

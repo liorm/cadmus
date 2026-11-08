@@ -110,3 +110,98 @@ export async function deleteDaemonConfig(
 	await unlink(configPath);
 	return true;
 }
+
+export function normalizeConfigKey(key: string): keyof DaemonConfig | "token" {
+	const trimmed = key.trim().toLowerCase();
+	if (trimmed === "url") return "url";
+	if (trimmed === "envid" || trimmed === "env-id" || trimmed === "env_id")
+		return "envId";
+	if (trimmed === "name") return "name";
+	if (trimmed === "persist") return "persist";
+	if (
+		trimmed === "confine" ||
+		trimmed === "confinetoworkspace" ||
+		trimmed === "confine-to-workspace" ||
+		trimmed === "confine_to_workspace"
+	)
+		return "confineToWorkspace";
+	if (trimmed === "token") return "token";
+	throw new Error(
+		`Unknown configuration key '${key}'. Valid keys are: url, token, env-id, name, persist, confine`,
+	);
+}
+
+export async function setDaemonConfigValue(
+	key: string,
+	value: string,
+	customPath?: string,
+): Promise<{ configPath: string; key: string; value: unknown }> {
+	const normalizedKey = normalizeConfigKey(key);
+	const loaded = await loadDaemonConfig(customPath);
+	if (!loaded) {
+		const configPath = customPath || defaultDaemonConfigPath();
+		throw new Error(
+			`Configuration file not found at ${configPath}. Create one with 'cadmus-daemon pair <token>' or specify --save with 'cadmus-daemon start'`,
+		);
+	}
+
+	let parsedValue: unknown;
+	if (normalizedKey === "persist" || normalizedKey === "confineToWorkspace") {
+		const v = value.trim().toLowerCase();
+		if (v !== "true" && v !== "false" && v !== "1" && v !== "0") {
+			throw new Error(
+				`Invalid boolean value '${value}' for ${key}. Use 'true' or 'false'.`,
+			);
+		}
+		parsedValue = v === "true" || v === "1";
+	} else {
+		parsedValue = value;
+	}
+
+	const params = {
+		url: normalizedKey === "url" ? (parsedValue as string) : loaded.config.url,
+		envId:
+			normalizedKey === "envId" ? (parsedValue as string) : loaded.config.envId,
+		persist:
+			normalizedKey === "persist"
+				? (parsedValue as boolean)
+				: loaded.config.persist,
+		confineToWorkspace:
+			normalizedKey === "confineToWorkspace"
+				? (parsedValue as boolean)
+				: loaded.config.confineToWorkspace,
+		name:
+			normalizedKey === "name" ? (parsedValue as string) : loaded.config.name,
+		token: normalizedKey === "token" ? (parsedValue as string) : loaded.token,
+	};
+
+	const { configPath } = await saveDaemonConfig(params, customPath);
+	return { configPath, key: normalizedKey, value: parsedValue };
+}
+
+export async function getDaemonConfigValue(
+	key?: string,
+	customPath?: string,
+): Promise<{ configPath: string; value: unknown }> {
+	const configPath = customPath || defaultDaemonConfigPath();
+	const loaded = await loadDaemonConfig(customPath);
+	if (!loaded) {
+		throw new Error(
+			`Configuration file not found at ${configPath}. Run 'cadmus-daemon pair <token>' first.`,
+		);
+	}
+	if (!key) {
+		return {
+			configPath,
+			value: {
+				...loaded.config,
+				token: loaded.token ? `${loaded.token.slice(0, 10)}...` : undefined,
+			},
+		};
+	}
+	const normalizedKey = normalizeConfigKey(key);
+	if (normalizedKey === "token") {
+		return { configPath, value: loaded.token };
+	}
+	return { configPath, value: loaded.config[normalizedKey] };
+}
