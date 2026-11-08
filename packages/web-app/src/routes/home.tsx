@@ -4,6 +4,8 @@ import { AppShell } from "@/components/AppShell";
 import { BotBadge } from "@/components/BotBadge";
 import { BotChip } from "@/components/BotChip";
 import { Composer } from "@/components/Composer";
+import { CommandCockpit } from "@/components/desktop/CommandCockpit";
+import { useDesktopViewport } from "@/components/desktop/use-desktop-viewport";
 import { GroupMenuSheet } from "@/components/GroupMenuSheet";
 import { LoadError, Skeleton } from "@/components/Skeleton";
 import { rowStatus, StatusShape } from "@/components/StatusShape";
@@ -19,6 +21,12 @@ import { cn } from "@/lib/utils";
 const NEEDS_CAP = 3;
 
 export function HomePage() {
+	const desktop = useDesktopViewport();
+	if (desktop) return <CommandCockpit />;
+	return <MobileHome />;
+}
+
+function MobileHome() {
 	const navigate = useNavigate();
 	const {
 		bots,

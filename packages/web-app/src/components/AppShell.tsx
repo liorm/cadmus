@@ -25,7 +25,7 @@ export function AppShell({
 }) {
 	const router = useRouter();
 	return (
-		<div className="mx-auto flex h-[100dvh] max-h-[100dvh] w-full max-w-[390px] flex-col overflow-hidden bg-bg pb-[env(safe-area-inset-bottom)] pt-[env(safe-area-inset-top)]">
+		<div className="mx-auto flex h-[100dvh] max-h-[100dvh] w-full max-w-[390px] md:max-w-none flex-col overflow-hidden bg-bg pb-[env(safe-area-inset-bottom)] pt-[env(safe-area-inset-top)]">
 			{header ?? (
 				<header className="flex min-h-tap items-center gap-2 border-b border-border px-2">
 					{showBack && backTo ? (

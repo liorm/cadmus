@@ -93,7 +93,7 @@ This document contains everything an autonomous coding agent needs to understand
 
 Unit testing is secondary. **Black-box End-to-End (E2E) tests are paramount** to guarantee that the system as a whole behaves correctly without leaking internal implementation details:
 1. **Backend & Protocol API (`e2e/*.test.ts`)**: Black-box tests running against the real Worker runtime (`workerd` via Vitest / `cloudflare:test`), interacting strictly through HTTP/WS contract calls (`callApi`, `sendRpc`, `connectTestWs`, `workerFetch`). These guarantee that the API is solid, tenant-isolated, durable, and replay-safe across DO restarts.
-2. **Web App Frontend (`bun run test:ui` / `packages/web-app/tests/flows/*.spec.ts`)**: Black-box browser tests powered by Playwright validating real user flows, UI interactions, reactive live stream updates, tool calls, and sheet/modal interactions.
+2. **Web App Frontend (`bun run test:ui`)**: Black-box Playwright tests. `packages/web-app/tests/flows/*.spec.ts` is the mobile suite (Pixel 7) and stays the phone journeys. `packages/web-app/tests/desktop/*.spec.ts` is the 1440×900 Command Cockpit suite. `bun run test:ui` runs both projects.
 3. **Always Add / Update E2E Tests**: When introducing new features or modifying behavior, prioritize adding or updating black-box E2E tests (`e2e/*.test.ts` for backend/protocol changes and Playwright flow tests in `packages/web-app/tests/flows/` for web UI changes). Unit tests should only be used for small isolated algorithmic utilities (e.g. text parsing, time formatting).
 
 ### Commands

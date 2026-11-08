@@ -6,7 +6,14 @@ import type {
 	TranscriptMessageView,
 } from "@cadmus/contract/types";
 import { useNavigate, useParams } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+	type JSX,
+	useCallback,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 import { AppShell } from "@/components/AppShell";
 import { BotBadge } from "@/components/BotBadge";
 import { ChatMenuSheet } from "@/components/ChatMenuSheet";
@@ -77,6 +84,22 @@ function mergeServerMessages(
 
 export function ChatPage({ view }: { view: "chat" | "raw" }) {
 	const { chatKey } = useParams({ from: "/chat/$chatKey" });
+	return <ChatSession chatKey={chatKey} view={view} />;
+}
+
+export function ChatSession({
+	chatKey,
+	view,
+	embedded,
+	onViewChange,
+	onArchived,
+}: {
+	chatKey: string;
+	view: "chat" | "raw";
+	embedded?: boolean;
+	onViewChange?: (view: "chat" | "raw") => void;
+	onArchived?: () => void;
+}): JSX.Element {
 	const navigate = useNavigate();
 	const {
 		client,
@@ -127,6 +150,7 @@ export function ChatPage({ view }: { view: "chat" | "raw" }) {
 		groupId?: string;
 	}>({ open: false });
 	const [renaming, setRenaming] = useState(false);
+	const [archivedFor, setArchivedFor] = useState<string | null>(null);
 	const bot = bots.find((entry) => entry.id === (record ?? chat)?.botId);
 	const liveRef = useRef<HTMLDivElement | null>(null);
 
@@ -158,6 +182,8 @@ export function ChatPage({ view }: { view: "chat" | "raw" }) {
 		setMessages([]);
 		setRecord(null);
 		void (async () => {
+			await client.callRpc("chat.subscribe", { chatKey });
+			if (cancelled) return;
 			const busyEpoch = localBusyEpoch.current;
 			const res = await client.callRpc<{
 				chat: ChatRecord;
@@ -195,7 +221,6 @@ export function ChatPage({ view }: { view: "chat" | "raw" }) {
 				setNewCount(fresh.length);
 				setNewFromId(fresh[0]?.id ?? null);
 			}
-			await client.callRpc("chat.subscribe", { chatKey });
 			await refreshChatStatus(chatKey);
 		})().catch((err: unknown) => {
 			if (cancelled) return;
@@ -226,11 +251,15 @@ export function ChatPage({ view }: { view: "chat" | "raw" }) {
 			}
 			if (event.type === "chat.state") {
 				if (event.payload.busy && ignoreStaleBusy.current) return;
-				if (!event.payload.busy) ignoreStaleBusy.current = false;
+				if (!event.payload.busy) {
+					ignoreStaleBusy.current = false;
+					localBusyEpoch.current += 1;
+				}
 				setLocalBusy(event.payload.busy);
 			}
 			if (event.type === "turn.completed") {
-				ignoreStaleBusy.current = false;
+				ignoreStaleBusy.current = true;
+				localBusyEpoch.current += 1;
 				setLocalBusy(false);
 				void client
 					.callRpc<{
@@ -356,7 +385,7 @@ export function ChatPage({ view }: { view: "chat" | "raw" }) {
 	}, [items, newFromId]);
 	const progress = taskProgress(tasks);
 	const source = record ?? chat;
-	const archived = Boolean(source?.closed);
+	const archived = archivedFor === chatKey || Boolean(source?.closed);
 	const firstUserText = messages.find(
 		(message) => message.role === "user" && message.text.trim(),
 	)?.text;
@@ -368,10 +397,26 @@ export function ChatPage({ view }: { view: "chat" | "raw" }) {
 	const harvestOn = source?.harvest !== false;
 
 	function setView(next: "chat" | "raw") {
+		if (onViewChange) {
+			onViewChange(next);
+			return;
+		}
 		void navigate({
 			to: "/chat/$chatKey",
 			params: { chatKey },
 			search: { view: next },
+		});
+	}
+
+	function archiveSession() {
+		setMenuOpen(false);
+		void archiveChat(chatKey).then(() => {
+			if (embedded) {
+				setArchivedFor(chatKey);
+				onArchived?.();
+				return;
+			}
+			void navigate({ to: "/" });
 		});
 	}
 
@@ -412,6 +457,8 @@ export function ChatPage({ view }: { view: "chat" | "raw" }) {
 				text,
 				whenBusy: "queue",
 			});
+			setQueued((prev) => prev.slice(1));
+			await settleSubmittedTurn();
 			return;
 		}
 		setMessages((prev) => [
@@ -426,7 +473,23 @@ export function ChatPage({ view }: { view: "chat" | "raw" }) {
 		ignoreStaleBusy.current = false;
 		setLocalBusy(true);
 		await client.callRpc("turn.submit", { chatKey, text, whenBusy: "queue" });
+		await settleSubmittedTurn();
 		void refreshDirectory();
+	}
+
+	async function settleSubmittedTurn(): Promise<void> {
+		localBusyEpoch.current += 1;
+		ignoreStaleBusy.current = true;
+		setLocalBusy(false);
+		const res = await client.callRpc<{
+			messages: TranscriptMessageView[];
+			entries?: RawTranscriptEntry[];
+		}>("chat.get", { chatKey });
+		if (res.ok && res.result?.messages) {
+			applyServerMessages(res.result.messages);
+		}
+		if (res.ok && res.result?.entries) setEntries(res.result.entries);
+		markChatSeen(chatKey);
 	}
 
 	const stepTitle = progress.determinate
@@ -441,46 +504,10 @@ export function ChatPage({ view }: { view: "chat" | "raw" }) {
 		? `${progress.currentIndex ?? progress.done}/${progress.total} ${progress.currentTitle ?? ""}`.trim()
 		: stepTitle;
 
-	return (
-		<AppShell
-			title={title}
-			titleMuted={title === "New task"}
-			titleNode={
-				renaming ? (
-					<InlineEditTitle
-						value={untitled ? "" : title}
-						onCancel={() => setRenaming(false)}
-						onSave={(next) => {
-							void saveTitle(next);
-						}}
-					/>
-				) : undefined
-			}
-			backTo="/"
-			subtitle={
-				<ChatStatusIndicator
-					chatKey={chatKey}
-					bot={bot}
-					status={live?.status}
-					busy={busy}
-					model={bot?.model}
-					archived={archived}
-					failed={!archived && Boolean(live?.failedReason)}
-				/>
-			}
-			actions={
-				renaming ? undefined : (
-					<button
-						type="button"
-						aria-label="Chat menu"
-						onClick={() => setMenuOpen(true)}
-						className="inline-flex min-h-tap min-w-tap items-center justify-center text-text-muted"
-					>
-						⋯
-					</button>
-				)
-			}
-		>
+	const modelLabel = bot?.model.split("/").filter(Boolean).pop();
+
+	const session = (
+		<>
 			<ChatMenuSheet
 				open={menuOpen}
 				onOpenChange={setMenuOpen}
@@ -500,12 +527,7 @@ export function ChatPage({ view }: { view: "chat" | "raw" }) {
 					setMenuOpen(false);
 					setView("raw");
 				}}
-				onArchive={() => {
-					setMenuOpen(false);
-					void archiveChat(chatKey).then(() => {
-						void navigate({ to: "/" });
-					});
-				}}
+				onArchive={archiveSession}
 				onOpenProfile={() => {
 					if (!source?.botId) return;
 					setMenuOpen(false);
@@ -527,7 +549,7 @@ export function ChatPage({ view }: { view: "chat" | "raw" }) {
 				bots={bots}
 			/>
 			<div className="flex min-h-0 flex-1 flex-col">
-				{view === "raw" ? (
+				{view === "raw" && !embedded ? (
 					<div className="flex justify-center px-3 pt-2">
 						<SegmentedControl
 							ariaLabel="Transcript view"
@@ -726,6 +748,115 @@ export function ChatPage({ view }: { view: "chat" | "raw" }) {
 					/>
 				)}
 			</div>
+		</>
+	);
+
+	if (embedded) {
+		return (
+			<section
+				aria-label="Chat console"
+				className="flex h-full min-h-0 flex-col"
+			>
+				<div className="flex flex-wrap items-center gap-2 border-b border-border px-3 py-2">
+					{renaming ? (
+						<InlineEditTitle
+							value={untitled ? "" : title}
+							onCancel={() => setRenaming(false)}
+							onSave={(next) => {
+								void saveTitle(next);
+							}}
+						/>
+					) : (
+						<button
+							type="button"
+							onClick={() => {
+								if (!archived) setRenaming(true);
+							}}
+							className="min-w-0 flex-1 truncate text-left text-[length:var(--fs-md)] font-semibold"
+						>
+							{title}
+						</button>
+					)}
+					{bot ? (
+						<BotBadge
+							bot={bot}
+							className="size-7 min-h-0 min-w-0 text-[length:var(--fs-xs)]"
+						/>
+					) : null}
+					{modelLabel ? (
+						<span className="rounded-full border border-border px-2 py-0.5 text-[length:var(--fs-xs)] text-text-muted">
+							{modelLabel}
+						</span>
+					) : null}
+					<SegmentedControl
+						ariaLabel="Transcript view"
+						className="w-fit"
+						value={view}
+						onValueChange={(next) => {
+							if (next === "chat" || next === "raw") setView(next);
+						}}
+						options={[
+							{ value: "chat", label: "Chat" },
+							{ value: "raw", label: "Raw" },
+						]}
+					/>
+					{archived ? null : (
+						<button
+							type="button"
+							aria-label="Archive"
+							onClick={archiveSession}
+							className="inline-flex min-h-tap items-center px-2 text-[length:var(--fs-sm)] text-text-muted"
+						>
+							Archive
+						</button>
+					)}
+				</div>
+				{session}
+			</section>
+		);
+	}
+
+	return (
+		<AppShell
+			title={title}
+			titleMuted={title === "New task"}
+			titleNode={
+				renaming ? (
+					<InlineEditTitle
+						value={untitled ? "" : title}
+						onCancel={() => setRenaming(false)}
+						onSave={(next) => {
+							void saveTitle(next);
+						}}
+					/>
+				) : undefined
+			}
+			backTo="/"
+			subtitle={
+				<ChatStatusIndicator
+					chatKey={chatKey}
+					bot={bot}
+					status={live?.status}
+					busy={busy}
+					model={bot?.model}
+					archived={archived}
+					failed={!archived && Boolean(live?.failedReason)}
+				/>
+			}
+			actions={
+				renaming ? undefined : (
+					<button
+						type="button"
+						aria-label="Chat menu"
+						onClick={() => setMenuOpen(true)}
+						className="inline-flex min-h-tap min-w-tap items-center justify-center text-text-muted"
+					>
+						⋯
+					</button>
+				)
+			}
+		>
+			{session}
 		</AppShell>
 	);
 }

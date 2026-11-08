@@ -4,6 +4,7 @@ import {
 	createRouter,
 	Outlet,
 } from "@tanstack/react-router";
+import { CommandPaletteHost } from "@/components/desktop/CommandPalette";
 import { CadmusProvider } from "@/context/CadmusContext";
 import { isBotTab } from "@/lib/profile-tabs";
 import { ArchivePage } from "@/routes/archive";
@@ -28,6 +29,7 @@ import { ToolsPage } from "@/routes/tools";
 const rootRoute = createRootRoute({
 	component: () => (
 		<CadmusProvider>
+			<CommandPaletteHost />
 			<Outlet />
 		</CadmusProvider>
 	),

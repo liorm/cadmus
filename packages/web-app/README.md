@@ -17,7 +17,7 @@ See `tests/support/README.md` for the CDP engine spike and workarounds.
 
 ## UI-flow coverage (#49)
 
-Playwright journeys in `tests/flows/` against the real local worker (own account per test, egress mocked by `faux/echo`):
+Playwright runs two projects against the real local worker (own account per test, egress mocked by `faux/echo`). `tests/flows/` is the mobile suite on the Pixel 7 viewport. `tests/desktop/` is the 1440×900 Command Cockpit suite. `bun run test:ui` runs both.
 
 - Foundation: settings deep link, theme persist, composer grow/send, seeded bot list, composer `chat.create`.
 - Main / task chat: create-and-stream, busy queue/steer/stop, unread Needs-you + divider, failed Retry, swipe-archive + collapse persist.
