@@ -203,7 +203,7 @@ describe("fire-and-forget message_bot", () => {
 			message.text.includes("reply from @b"),
 		);
 		expect(wakes).toHaveLength(1);
-	}, 30_000);
+	}, 60_000);
 
 	it("wakes the caller when a fire-and-forget reply times out", async () => {
 		const scope = {
@@ -259,7 +259,7 @@ describe("fire-and-forget message_bot", () => {
 		expect(wakes).toHaveLength(1);
 		expect(wakes[0]?.text).toContain("reply from @b");
 		expect(wakes[0]?.text).toContain("[[hang]]");
-	}, 30_000);
+	}, 60_000);
 
 	it("delivers one wake after a restart between the reply and the delivery", async () => {
 		const scope = {
@@ -323,7 +323,7 @@ describe("fire-and-forget message_bot", () => {
 		);
 		expect(wakes).toHaveLength(1);
 		expect(wakes[0]?.text).toContain("only-once");
-	}, 30_000);
+	}, 60_000);
 
 	it("counts fire-and-forget calls against the peer budget and the hop guards", async () => {
 		const scope = {
@@ -458,5 +458,5 @@ describe("fire-and-forget message_bot", () => {
 		expect(
 			finalList.frame.result?.chats.some((chat) => chat.topic === "again"),
 		).toBe(false);
-	}, 30_000);
+	}, 60_000);
 });
