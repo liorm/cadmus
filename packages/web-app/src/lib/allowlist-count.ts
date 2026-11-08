@@ -12,16 +12,18 @@ export interface AllowlistCount {
 	label: string;
 }
 
-/** Omitted `tools` is the default set for the current env. */
+/** Omitted `tools` is the default set for the current env and model. */
 export function allowlistCount(
 	tools: readonly string[] | undefined,
 	codingEnvOffered = false,
+	model?: string | null,
 ): AllowlistCount {
-	const available = availableAllowlistNames(codingEnvOffered);
+	const available = availableAllowlistNames(codingEnvOffered, model);
 	const source = displayedAllowlist({
 		stored: tools,
 		available,
 		codingEnvOffered,
+		model,
 	});
 	const total = available.length;
 	return {

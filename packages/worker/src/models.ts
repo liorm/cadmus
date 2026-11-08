@@ -237,17 +237,9 @@ export function createWorkerAuthContext(env: Env): AuthContext {
 	};
 }
 
-// ─── xAI Native Server Tool Rewriting ────────────────────────────────────────
+// ─── Provider-Native Server Tool Rewriting ───────────────────────────────────
 
-const NATIVE_TOOLS: Readonly<
-	Record<string, Readonly<Record<string, { type: string }>>>
-> = {
-	xai: {
-		"web.search": { type: "web_search" },
-		"x.search": { type: "x_search" },
-		"code.execute": { type: "code_interpreter" },
-	},
-};
+import { collectNativeProviderTools } from "./extensions/cadmus-tools.js";
 
 export function unavailableToolMessage(name: string, provider: string): string {
 	return `${name} is not available on provider "${provider}"`;
@@ -263,7 +255,8 @@ function functionName(tool: unknown): string | undefined {
 }
 
 export function attachNativeTools(provider: string, payload: unknown): unknown {
-	const native = NATIVE_TOOLS[provider];
+	const nativeMap = collectNativeProviderTools();
+	const native = nativeMap[provider];
 	if (
 		!native ||
 		!payload ||

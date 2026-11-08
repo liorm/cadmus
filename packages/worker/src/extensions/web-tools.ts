@@ -1,7 +1,7 @@
 import { defineExtension, defineTool } from "@earendil-works/pi-durable";
 import { Type } from "typebox";
 import { getLogger } from "../log.js";
-import { unavailableToolMessage } from "../models.js";
+import type { CadmusExtensionDescriptor } from "./cadmus-tools.js";
 import { toolError, toolText } from "./knowledge-tools.js";
 
 const MAX_FETCH_CHARS = 32_000;
@@ -75,52 +75,15 @@ export function webToolsExtension() {
 					}
 				},
 			}),
-
-			defineTool({
-				name: "web.search",
-				// Cadmus settings read-only: provider search stub; no store writes.
-				description: "Provider-native web search tool (available on xAI).",
-				parameters: Type.Object({
-					query: Type.Optional(Type.String()),
-				}),
-				replay: "safe",
-				async execute(_args, api, context) {
-					const agent = await api.agent(context);
-					const provider = agent.model?.provider ?? "unknown";
-					return toolError(unavailableToolMessage("web.search", provider));
-				},
-			}),
-
-			defineTool({
-				name: "x.search",
-				// Cadmus settings read-only: provider search stub; no store writes.
-				description:
-					"Provider-native X/Twitter search tool (available on xAI).",
-				parameters: Type.Object({
-					query: Type.Optional(Type.String()),
-				}),
-				replay: "safe",
-				async execute(_args, api, context) {
-					const agent = await api.agent(context);
-					const provider = agent.model?.provider ?? "unknown";
-					return toolError(unavailableToolMessage("x.search", provider));
-				},
-			}),
-
-			defineTool({
-				name: "code.execute",
-				description:
-					"Provider-native code execution sandbox (available on xAI).",
-				parameters: Type.Object({
-					code: Type.Optional(Type.String()),
-				}),
-				replay: "safe",
-				async execute(_args, api, context) {
-					const agent = await api.agent(context);
-					const provider = agent.model?.provider ?? "unknown";
-					return toolError(unavailableToolMessage("code.execute", provider));
-				},
-			}),
 		],
 	});
+}
+
+export function webToolsExtensionDescriptor(): CadmusExtensionDescriptor {
+	return {
+		extension: webToolsExtension(),
+		defaultEnabled: true,
+		allowlistPolicy: { mode: "catalog" },
+		isActive: () => true,
+	};
 }

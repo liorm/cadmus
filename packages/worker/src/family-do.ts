@@ -1,6 +1,7 @@
 import { DurableObject } from "cloudflare:workers";
 import {
 	effectiveToolNames,
+	extractModelProvider,
 	readOnlyGroupToolNames,
 } from "@cadmus/contract/tools";
 import type { Context } from "@earendil-works/chord/context";
@@ -14,7 +15,6 @@ import {
 	AgentDoc,
 	type AgentEvent,
 	type AgentEventStream,
-	type AgentState,
 	type Conversation,
 	type ConversationId,
 	type Cursor,
@@ -54,8 +54,12 @@ import {
 	TurnDeadlineError,
 } from "./deadlines.js";
 import { getEdgeCache } from "./edge-cache.js";
-import { cadmusDefaultExtensions } from "./extensions/cadmus-tools.js";
-import { createCadmusCodingTools } from "./extensions/coding-tools.js";
+import {
+	cadmusDefaultExtensions,
+	cadmusExtensionDescriptors,
+	type ExtensionActivationContext,
+	resolveConversationExtensionsAndTools,
+} from "./extensions/cadmus-tools.js";
 import { DEFAULT_SOUL } from "./extensions/identity.js";
 import {
 	driveGroupChat,
@@ -147,34 +151,11 @@ export interface FamilyMeta {
 	teamLeaderBotId: string | null;
 }
 
-const SEQUENTIAL_TOOLS = new Set([
-	"write",
-	"edit",
-	"bash",
-	"knowledge_update",
-	"knowledge_delete",
-	"memory_update",
-	"schedule_create",
-	"schedule_update",
-	"schedule_delete",
-	"create_bot",
-	"message_bot",
-	"end_conversation",
-]);
-
 function toToolRegs(
 	names: readonly string[] | undefined,
 ): readonly ToolRegistration[] | null {
 	if (names === undefined) return null;
-	return names.map(
-		(name) =>
-			({
-				name,
-				...(SEQUENTIAL_TOOLS.has(name)
-					? { executionMode: "sequential" as const }
-					: {}),
-			}) as unknown as ToolRegistration,
-	);
+	return names.map((name) => ({ name }) as unknown as ToolRegistration);
 }
 
 export class CadmusBotFamilyDO extends DurableObject<Env> {
@@ -183,7 +164,6 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 	readonly credentialStore: AccountCredentialStore;
 	readonly shim: ProtocolShim = defaultJsonShim;
 
-	private readonly codingTools = createCadmusCodingTools();
 	private readonly toolsEnvController: ToolsEnvController;
 	private harnessPromise?: Promise<Harness>;
 	private harnessInstance?: Harness;
@@ -525,10 +505,9 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 		const models = this.ensureModels();
 
 		const registry = createRegistry();
-		const extensions = cadmusDefaultExtensions();
-		registry.install(this.codingTools);
-		for (const ext of extensions) {
-			registry.install(ext);
+		const descriptors = cadmusExtensionDescriptors();
+		for (const desc of descriptors) {
+			registry.install(desc.extension);
 		}
 
 		const services: CadmusServices = {
@@ -579,7 +558,7 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 				models,
 				registry,
 				settings: {
-					extensions,
+					extensions: cadmusDefaultExtensions(),
 					contextRetentionMs: 0,
 					documentRetentionMs: 0,
 				},
@@ -2361,14 +2340,9 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 		return { files };
 	}
 
-	private codingToolsSelected(extensions: AgentState["extensions"]): boolean {
-		if (!extensions) return false;
-		if (Array.isArray(extensions)) return extensions.includes("coding-tools");
-		if (extensions.remove?.includes("coding-tools")) return false;
-		return extensions.add?.includes("coding-tools") ?? false;
-	}
-
-	private async prepareCodingTools(conversationId: number): Promise<void> {
+	private async prepareConversationTools(
+		conversationId: number,
+	): Promise<void> {
 		const { harness, context } = await this.ensureHarness();
 		const agent = await harness.snapshot(
 			AgentDoc,
@@ -2378,11 +2352,67 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 		if (!agent?.cwd?.trim()) return;
 		const bot = this.familyStore.bots.getBot(agent.cwd.trim());
 		if (!bot) return;
-		const offer = await this.toolsEnvController.offerCodingTools(
+		const chat = this.familyStore.chats.getChatByConversationId(conversationId);
+		const codingToolsOffered = await this.toolsEnvController.offerCodingTools(
 			conversationId,
 			bot,
 		);
-		if (offer === this.codingToolsSelected(agent.extensions)) return;
+		const groupSession =
+			chat?.kind === "group" ||
+			chat?.kind === "group-member" ||
+			Boolean(chat?.key.startsWith("gmem:"));
+		const isGroupCaller = chat ? this.isGroupCallerSession(chat.key) : false;
+		const member = chat
+			? this.familyStore.groups.findByMemberKey(chat.key)
+			: undefined;
+		const isConsultMember =
+			member?.role === "member" && member.group.toolsReadOnly === true;
+		const hasActiveTasks = chat
+			? this.familyStore.tasks.openCount(chat.key) > 0
+			: false;
+		const provider = agent.model?.provider ?? extractModelProvider(bot.model);
+		const actCtx: ExtensionActivationContext = {
+			bot,
+			chat,
+			codingToolsOffered,
+			isGroupSession: groupSession,
+			isGroupCaller,
+			isConsultMember,
+			hasActiveTasks,
+			provider,
+		};
+		const resolved = resolveConversationExtensionsAndTools(actCtx);
+
+		const currentExt = agent.extensions;
+		const currentAdd = new Set(
+			Array.isArray(currentExt) ? currentExt : (currentExt?.add ?? []),
+		);
+		const currentRemove = new Set(
+			Array.isArray(currentExt) ? [] : (currentExt?.remove ?? []),
+		);
+		const nextAdd = new Set(resolved.extensions.add.map((e) => e.name));
+		const nextRemove = new Set(resolved.extensions.remove.map((e) => e.name));
+
+		const extMatches =
+			currentAdd.size === nextAdd.size &&
+			[...currentAdd].every((name) => nextAdd.has(name)) &&
+			currentRemove.size === nextRemove.size &&
+			[...currentRemove].every((name) => nextRemove.has(name));
+
+		const currentTools = agent.tools;
+		const currentToolNames: readonly string[] = Array.isArray(currentTools)
+			? currentTools
+			: [];
+		const nextToolNames = resolved.tools.map((t) => t.name);
+
+		const toolsMatch =
+			currentToolNames.length === nextToolNames.length &&
+			currentToolNames.every(
+				(name: string, i: number) => name === nextToolNames[i],
+			);
+
+		if (extMatches && toolsMatch) return;
+
 		const conv = await harness.conversation(
 			conversationId as ConversationId,
 			context,
@@ -2390,12 +2420,18 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 		if (!conv) return;
 		await conv.configure(
 			{
-				extensions: offer
-					? { add: [this.codingTools] }
-					: { remove: [this.codingTools] },
+				extensions: {
+					add: resolved.extensions.add,
+					remove: resolved.extensions.remove,
+				},
+				tools: resolved.tools,
 			},
 			context,
 		);
+	}
+
+	private async prepareCodingTools(conversationId: number): Promise<void> {
+		return this.prepareConversationTools(conversationId);
 	}
 
 	private async codingToolsOffered(
@@ -2534,6 +2570,7 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 			? readOnlyGroupToolNames(bot.tools)
 			: effectiveToolNames(bot.tools, {
 					codingToolsOffered,
+					model: bot.model,
 				});
 		const toolsEnvNest = await this.toolsEnvController.statusForChat(chat.key);
 		const toolsEnv = toolsEnvNest.enabled
@@ -2658,6 +2695,15 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 		const offerCoding = await this.toolsEnvController.willOffer(preview, null);
 
 		const { harness, context } = await this.ensureHarness();
+		const initialTools = resolveConversationExtensionsAndTools({
+			bot: preview,
+			codingToolsOffered: offerCoding,
+			isGroupSession: false,
+			isGroupCaller: false,
+			isConsultMember: false,
+			hasActiveTasks: false,
+			provider: modelRef?.provider ?? extractModelProvider(modelStr),
+		});
 		const rootConv = await harness.createConversation(
 			{
 				ownership: { kind: "ownerless" },
@@ -2665,12 +2711,11 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 					model: modelRef,
 					thinkingLevel: parseThinkingLevel(thinkingStr) ?? null,
 					cwd: slug,
-					extensions: offerCoding
-						? { add: [this.codingTools] }
-						: { remove: [this.codingTools] },
-					...(input.tools !== undefined
-						? { tools: toToolRegs(input.tools) }
-						: {}),
+					extensions: {
+						add: initialTools.extensions.add,
+						remove: initialTools.extensions.remove,
+					},
+					tools: initialTools.tools,
 				},
 			},
 			context,
@@ -3032,6 +3077,20 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 		const { harness, context } = await this.ensureHarness();
 		const modelRef = parseModelRef(bot.model);
 		const effectiveThinking = input.thinking ?? bot.thinking;
+		const groupSession =
+			input.kind === "group" ||
+			input.kind === "group-member" ||
+			Boolean(key.startsWith("gmem:"));
+		const isGroupCaller = this.isGroupCallerSession(key);
+		const initialTools = resolveConversationExtensionsAndTools({
+			bot,
+			codingToolsOffered: offerCoding,
+			isGroupSession: groupSession,
+			isGroupCaller,
+			isConsultMember: false,
+			hasActiveTasks: false,
+			provider: modelRef?.provider ?? extractModelProvider(bot.model),
+		});
 		const conv = await harness.createConversation(
 			{
 				ownership: { kind: "ownerless" },
@@ -3039,10 +3098,11 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 					model: modelRef,
 					thinkingLevel: parseThinkingLevel(effectiveThinking) ?? null,
 					cwd: bot.id,
-					extensions: offerCoding
-						? { add: [this.codingTools] }
-						: { remove: [this.codingTools] },
-					...(bot.tools !== undefined ? { tools: toToolRegs(bot.tools) } : {}),
+					extensions: {
+						add: initialTools.extensions.add,
+						remove: initialTools.extensions.remove,
+					},
+					tools: initialTools.tools,
 				},
 			},
 			context,
@@ -3441,7 +3501,7 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 
 		log.debug("chat input admitted", { chars: input.text.length });
 
-		await this.prepareCodingTools(chat.conversationId);
+		await this.prepareConversationTools(chat.conversationId);
 
 		const submission = await conv.submit(
 			{

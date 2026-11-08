@@ -1,6 +1,7 @@
 import { defineExtension, section } from "@earendil-works/pi-durable";
 import { requireCadmusServices } from "../context.js";
 import { isCodingTool } from "../tools-env/pure.js";
+import type { CadmusExtensionDescriptor } from "./cadmus-tools.js";
 
 export const DEFAULT_SOUL = `You are a personal assistant.
 Be direct, warm and concise. Plain text renders best; keep formatting light.
@@ -84,19 +85,6 @@ export function identityExtension(options?: { now?: () => Date }) {
 				if (!body) return undefined;
 				return `MEMORY.md (version ${mem.version}):\n${body}`;
 			}),
-			section("tools-env", async (input, context) => {
-				const botId = input.agent.cwd;
-				if (!botId) return undefined;
-				const services = requireCadmusServices(context);
-				const described = await services.describeToolsEnv({
-					conversationId: input.conversationId as unknown as number,
-					botId,
-					toolNames: input.agent.tools
-						.map((tool) => tool.name)
-						.filter(isCodingTool),
-				});
-				return described?.name === "tools-env" ? described.text : undefined;
-			}),
 			section("tools-env-unavailable", async (input, context) => {
 				const botId = input.agent.cwd;
 				if (!botId) return undefined;
@@ -123,15 +111,7 @@ export function identityExtension(options?: { now?: () => Date }) {
 				);
 				if (!chat) return undefined;
 				const member = services.familyStore.groups.findByMemberKey(chat.key);
-				if (!member) return undefined;
-				if (member.role === "caller") {
-					return `CRITICAL - YOU ARE IN AN AUTOMATED SUB-CONVERSATION WITH PEER BOTS:
-- The human user is NOT in this conversation. All incoming messages are from peer bots.
-- You initiated this group chat using message_bot to query peer bot(s).
-- Never ask questions to the user here, never send conversational pleasantries ('Understood', 'Got it', '👍'), and do not attempt to start another group chat.
-- Your SOLE objective is to evaluate the peer's reply and call the end_conversation({ response: "..." }) tool immediately.
-- As soon as the peer bot answers your question, or confirms it has no records/knowledge, you MUST call end_conversation immediately with the summary response so your main conversation with the user can resume.`;
-				}
+				if (member?.role !== "member") return undefined;
 				return `CRITICAL - YOU ARE IN AN AUTOMATED SUB-CONVERSATION WITH A PEER BOT:
 - The human user is NOT in this conversation.
 - A peer bot is asking you for information. Answer the question directly and concisely from your memory or knowledge base in a single reply.
@@ -139,4 +119,15 @@ export function identityExtension(options?: { now?: () => Date }) {
 			}),
 		],
 	});
+}
+
+export function identityExtensionDescriptor(options?: {
+	now?: () => Date;
+}): CadmusExtensionDescriptor {
+	return {
+		extension: identityExtension(options),
+		defaultEnabled: true,
+		allowlistPolicy: { mode: "always" },
+		isActive: () => true,
+	};
 }

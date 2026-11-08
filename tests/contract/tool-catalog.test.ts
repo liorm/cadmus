@@ -32,7 +32,6 @@ describe("TOOL_CATALOG", () => {
 		expect(isKnownReadOnlyTool("knowledge_read")).toBe(true);
 		expect(isKnownReadOnlyTool("memory_read")).toBe(true);
 		expect(isKnownReadOnlyTool("schedule_list")).toBe(true);
-		expect(isKnownReadOnlyTool("task_list")).toBe(true);
 		expect(isKnownReadOnlyTool("list_bots")).toBe(true);
 		expect(isKnownReadOnlyTool("web.fetch")).toBe(true);
 		expect(isKnownReadOnlyTool("read")).toBe(true);
@@ -41,6 +40,16 @@ describe("TOOL_CATALOG", () => {
 		expect(isKnownReadOnlyTool("memory_update")).toBe(false);
 		expect(isKnownReadOnlyTool("code.execute")).toBe(false);
 		expect(isKnownReadOnlyTool("mystery_read")).toBe(false);
+	});
+
+	it("excludes purely internal and situational follow-up tools from the catalog", () => {
+		const names = TOOL_CATALOG.map((entry) => entry.name);
+		expect(names).not.toContain("end_conversation");
+		expect(names).not.toContain("task_get");
+		expect(names).not.toContain("task_finish");
+		expect(names).not.toContain("task_remove");
+		expect(names).not.toContain("task_list");
+		expect(names).toContain("task_add");
 	});
 });
 
@@ -105,6 +114,21 @@ describe("available allowlist", () => {
 		const names = availableAllowlistNames(true);
 		expect(names).toContain("bash");
 		expect(names).not.toContain(CODE_EXECUTE_TOOL_NAME);
+	});
+
+	it("filters out provider tools for unsupported model providers", () => {
+		const anthropicNames = availableAllowlistNames(
+			false,
+			"anthropic/claude-3-5-sonnet",
+		);
+		expect(anthropicNames).not.toContain("web.search");
+		expect(anthropicNames).not.toContain("x.search");
+		expect(anthropicNames).not.toContain("code.execute");
+
+		const xaiNames = availableAllowlistNames(false, "xai/grok-2");
+		expect(xaiNames).toContain("web.search");
+		expect(xaiNames).toContain("x.search");
+		expect(xaiNames).toContain("code.execute");
 	});
 });
 

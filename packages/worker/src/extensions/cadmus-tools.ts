@@ -1,34 +1,221 @@
-import type { Extension } from "@earendil-works/pi-durable";
-import { scheduleExtension } from "../schedules.js";
-import { identityExtension } from "./identity.js";
-import { internalToolsExtension } from "./internal-tools.js";
-import { knowledgeExtension } from "./knowledge-tools.js";
-import { schedulesToolsExtension } from "./schedules-tools.js";
-import { tasksToolsExtension } from "./tasks-tools.js";
-import { toolGateExtension } from "./tool-gate.js";
-import { webToolsExtension } from "./web-tools.js";
+import {
+	DEFAULT_CADMUS_TOOL_NAMES,
+	isReadOnlyGroupTool,
+	TOOL_CATALOG,
+	type ToolCatalogEntry,
+} from "@cadmus/contract/tools";
+import type { Extension, ToolRegistration } from "@earendil-works/pi-durable";
+import type { ReadToolOptions } from "@earendil-works/pi-durable/tools";
+import type { BotRecord, ChatRecord } from "../protocol.js";
+import { scheduleTaskExtensionDescriptor } from "../schedules.js";
+import { codingToolsExtensionDescriptor } from "./coding-tools.js";
+import { groupCallerExtensionDescriptor } from "./group-caller-tools.js";
+import { identityExtensionDescriptor } from "./identity.js";
+import { internalToolsExtensionDescriptor } from "./internal-tools.js";
+import { knowledgeExtensionDescriptor } from "./knowledge-tools.js";
+import { schedulesToolsExtensionDescriptor } from "./schedules-tools.js";
+import {
+	tasksFollowupExtensionDescriptor,
+	tasksToolsExtensionDescriptor,
+} from "./tasks-tools.js";
+import { toolGateExtensionDescriptor } from "./tool-gate.js";
+import { webToolsExtensionDescriptor } from "./web-tools.js";
+import { xaiToolsExtensionDescriptor } from "./xai-tools.js";
 
-/**
- * Cadmus extensions installed on every family harness. Coding tools are
- * installed separately and offered when an enabled tools env resolves and
- * `bot.tools` is omitted or lists a coding tool.
- */
-export function cadmusDefaultExtensions(): Extension[] {
+export interface ExtensionActivationContext {
+	bot: BotRecord;
+	chat?: ChatRecord;
+	codingToolsOffered: boolean;
+	isGroupSession: boolean;
+	isGroupCaller: boolean;
+	isConsultMember: boolean;
+	hasActiveTasks: boolean;
+	provider: string | null;
+}
+
+export type ExtensionAllowlistPolicy =
+	| { mode: "catalog" }
+	| { mode: "always" }
+	| { mode: "impliedBy"; catalogTool: string };
+
+export interface CadmusExtensionDescriptor {
+	extension: Extension;
+	defaultEnabled: boolean;
+	allowlistPolicy: ExtensionAllowlistPolicy;
+	isActive?: (ctx: ExtensionActivationContext) => boolean;
+	nativeProviderTools?: Readonly<
+		Record<string, Readonly<Record<string, { type: string }>>>
+	>;
+}
+
+export function cadmusExtensionDescriptors(options?: {
+	now?: () => Date;
+	readToolOptions?: ReadToolOptions;
+}): readonly CadmusExtensionDescriptor[] {
 	return [
-		identityExtension(),
-		knowledgeExtension(),
-		schedulesToolsExtension(),
-		tasksToolsExtension(),
-		internalToolsExtension(),
-		toolGateExtension(),
-		webToolsExtension(),
-		scheduleExtension(),
+		identityExtensionDescriptor(options),
+		knowledgeExtensionDescriptor(),
+		schedulesToolsExtensionDescriptor(),
+		tasksToolsExtensionDescriptor(),
+		tasksFollowupExtensionDescriptor(),
+		internalToolsExtensionDescriptor(),
+		groupCallerExtensionDescriptor(),
+		webToolsExtensionDescriptor(),
+		xaiToolsExtensionDescriptor(),
+		codingToolsExtensionDescriptor(options?.readToolOptions),
+		toolGateExtensionDescriptor(),
+		scheduleTaskExtensionDescriptor(),
 	];
 }
 
+/**
+ * Default extensions enabled for root and default conversations.
+ */
+export function cadmusDefaultExtensions(): Extension[] {
+	return cadmusExtensionDescriptors()
+		.filter((desc) => desc.defaultEnabled)
+		.map((desc) => desc.extension);
+}
+
 /** Tool names offered when `bot.tools` is omitted. */
-export function defaultCadmusToolNames(): string[] {
-	return cadmusDefaultExtensions().flatMap(
-		(ext) => ext.tools?.map((tool) => tool.name) ?? [],
-	);
+export function defaultCadmusToolNames(): readonly string[] {
+	return DEFAULT_CADMUS_TOOL_NAMES;
+}
+
+/**
+ * Merge native provider tools across all descriptors.
+ */
+export function collectNativeProviderTools(
+	descriptors: readonly CadmusExtensionDescriptor[] = cadmusExtensionDescriptors(),
+): Record<string, Record<string, { type: string }>> {
+	const merged: Record<string, Record<string, { type: string }>> = {};
+	for (const desc of descriptors) {
+		if (!desc.nativeProviderTools) continue;
+		for (const [provider, tools] of Object.entries(desc.nativeProviderTools)) {
+			merged[provider] ??= {};
+			Object.assign(merged[provider], tools);
+		}
+	}
+	return merged;
+}
+
+function catalogEntry(name: string): ToolCatalogEntry | undefined {
+	return TOOL_CATALOG.find((entry) => entry.name === name);
+}
+
+function isCatalogToolRegistered(
+	name: string,
+	ctx: ExtensionActivationContext,
+): boolean {
+	const entry = catalogEntry(name);
+	if (entry) {
+		if (entry.codingEnv && !ctx.codingToolsOffered) return false;
+		if (entry.disallowedInGroup && ctx.isGroupSession) return false;
+		if (
+			entry.providers &&
+			entry.providers.length > 0 &&
+			ctx.provider !== null &&
+			!entry.providers.includes(ctx.provider)
+		) {
+			return false;
+		}
+	}
+	if (ctx.bot.tools === undefined) return true;
+	return ctx.bot.tools.includes(name);
+}
+
+function isCatalogToolActive(
+	name: string,
+	ctx: ExtensionActivationContext,
+): boolean {
+	if (!isCatalogToolRegistered(name, ctx)) return false;
+	const entry = catalogEntry(name);
+	if (entry?.suppressedByCodingEnv && ctx.codingToolsOffered) return false;
+	return true;
+}
+
+/**
+ * Resolve the dynamic extensions, registered tools, and active model-facing tool names
+ * for a conversation in a single pass.
+ */
+export function resolveConversationExtensionsAndTools(
+	ctx: ExtensionActivationContext,
+	descriptors: readonly CadmusExtensionDescriptor[] = cadmusExtensionDescriptors(),
+): {
+	extensions: { add: Extension[]; remove: Extension[] };
+	tools: ToolRegistration[];
+	effectiveToolNames: string[];
+} {
+	const add: Extension[] = [];
+	const remove: Extension[] = [];
+	const tools: ToolRegistration[] = [];
+	const activeToolNames: string[] = [];
+
+	for (const desc of descriptors) {
+		const ext = desc.extension;
+		const toolList = ext.tools ?? [];
+		const hasTools = toolList.length > 0;
+		const active = desc.isActive ? desc.isActive(ctx) : true;
+
+		if (!hasTools) {
+			if (!active) {
+				remove.push(ext);
+			} else if (!desc.defaultEnabled) {
+				add.push(ext);
+			}
+			continue;
+		}
+
+		let allowedTools: ToolRegistration[] = [];
+		if (desc.allowlistPolicy.mode === "always") {
+			allowedTools = [...toolList];
+		} else if (desc.allowlistPolicy.mode === "impliedBy") {
+			const parentAllowed = isCatalogToolRegistered(
+				desc.allowlistPolicy.catalogTool,
+				ctx,
+			);
+			if (parentAllowed) {
+				allowedTools = [...toolList];
+			}
+		} else {
+			allowedTools = toolList.filter((tool) =>
+				isCatalogToolRegistered(tool.name, ctx),
+			);
+		}
+
+		// Mid-turn batch support: if a descriptor is inactive only because tasks don't exist yet,
+		// but task_add is allowed, register the tools with agent.tools so startToolRound passes.
+		const shouldRegisterWithAgent =
+			allowedTools.length > 0 &&
+			(active ||
+				(desc.allowlistPolicy.mode === "impliedBy" &&
+					desc.allowlistPolicy.catalogTool === "task_add" &&
+					!ctx.isGroupSession &&
+					!ctx.isConsultMember));
+
+		if (shouldRegisterWithAgent) {
+			if (!desc.defaultEnabled) {
+				add.push(ext);
+			}
+			tools.push(...allowedTools);
+			if (active) {
+				const names = ctx.isConsultMember
+					? allowedTools
+							.filter((t) => isReadOnlyGroupTool(t.name))
+							.map((t) => t.name)
+					: allowedTools
+							.filter((t) => isCatalogToolActive(t.name, ctx))
+							.map((t) => t.name);
+				activeToolNames.push(...names);
+			}
+		} else {
+			remove.push(ext);
+		}
+	}
+
+	return {
+		extensions: { add, remove },
+		tools,
+		effectiveToolNames: activeToolNames,
+	};
 }

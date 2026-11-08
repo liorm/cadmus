@@ -9,6 +9,7 @@ import { Type } from "typebox";
 import { requireCadmusServices } from "../context.js";
 import { getLogger } from "../log.js";
 import { MAX_MEMORY_BYTES, SLUG_REGEX } from "../store/sqlite-family.js";
+import type { CadmusExtensionDescriptor } from "./cadmus-tools.js";
 
 export function toolError(message: string): ToolExecutionResult {
 	return {
@@ -286,4 +287,13 @@ export function knowledgeExtension() {
 			}),
 		],
 	});
+}
+
+export function knowledgeExtensionDescriptor(): CadmusExtensionDescriptor {
+	return {
+		extension: knowledgeExtension(),
+		defaultEnabled: true,
+		allowlistPolicy: { mode: "catalog" },
+		isActive: () => true,
+	};
 }

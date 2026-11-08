@@ -52,9 +52,9 @@ export function ToolAllowlist({
 		});
 	}, [bot.toolsEnv, defaultEnvId, envs]);
 
-	const catalog = availableAllowlistCatalog(codingEnvOffered);
-	const available = availableAllowlistNames(codingEnvOffered);
-	const count = allowlistCount(selected, codingEnvOffered);
+	const catalog = availableAllowlistCatalog(codingEnvOffered, bot.model);
+	const available = availableAllowlistNames(codingEnvOffered, bot.model);
+	const count = allowlistCount(selected, codingEnvOffered, bot.model);
 	const readonlyNames = knownReadOnlyToolNames(available);
 
 	useEffect(() => {
@@ -87,11 +87,12 @@ export function ToolAllowlist({
 						listed.map((env) => [env.envId, env.kind]),
 					),
 				});
-				const names = availableAllowlistNames(offered);
+				const names = availableAllowlistNames(offered, bot.model);
 				const next = displayedAllowlist({
 					stored: storedToolsRef.current,
 					available: names,
 					codingEnvOffered: offered,
+					model: bot.model,
 				});
 				setSelected(next);
 				const readonly = knownReadOnlyToolNames(names);
@@ -112,7 +113,7 @@ export function ToolAllowlist({
 		return () => {
 			cancelled = true;
 		};
-	}, [envKey, client, loadAttempt]);
+	}, [envKey, client, loadAttempt, bot.model]);
 
 	function toggle(name: string, on: boolean) {
 		setReadOnlyOn(false);
@@ -166,6 +167,7 @@ export function ToolAllowlist({
 			available,
 			previous: storedToolsRef.current,
 			codingEnvOffered,
+			model: bot.model,
 		});
 	}
 

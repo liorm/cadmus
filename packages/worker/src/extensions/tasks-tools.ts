@@ -1,5 +1,9 @@
 import type { JsonValue } from "@earendil-works/chord";
-import { defineExtension, defineTool } from "@earendil-works/pi-durable";
+import {
+	defineExtension,
+	defineTool,
+	section,
+} from "@earendil-works/pi-durable";
 import { Type } from "typebox";
 import { requireCadmusServices } from "../context.js";
 import {
@@ -9,7 +13,11 @@ import {
 	MAX_TASK_TITLE,
 } from "../tasks/limits.js";
 import { TaskContinueTask } from "../tasks/task.js";
+import type { CadmusExtensionDescriptor } from "./cadmus-tools.js";
 import { resolveBotScope, toolError, toolText } from "./knowledge-tools.js";
+
+export const TASKS_PROMPT = `When a request involves a long or multi-step workflow, break it down into discrete, manageable tasks and queue each one with task_add({ title, details }).
+- Once tasks are queued and your turn finishes, the runtime harness deterministically auto-continues round by round until all open tasks are completed.`;
 
 function markProgress(
 	services: ReturnType<typeof requireCadmusServices>,
@@ -23,6 +31,12 @@ export function tasksToolsExtension() {
 	return defineExtension({
 		name: "cadmus.tasks-tools",
 		tasks: [TaskContinueTask],
+		sections: [
+			section("tasks", (input) => {
+				const hasTaskAdd = input.agent.tools.some((t) => t.name === "task_add");
+				return hasTaskAdd ? TASKS_PROMPT : undefined;
+			}),
+		],
 		tools: [
 			defineTool({
 				name: "task_add",
@@ -71,6 +85,14 @@ export function tasksToolsExtension() {
 					return toolText(JSON.stringify(result));
 				},
 			}),
+		],
+	});
+}
+
+export function tasksFollowupExtension() {
+	return defineExtension({
+		name: "cadmus.tasks-followup",
+		tools: [
 			defineTool({
 				name: "task_remove",
 				description:
@@ -288,4 +310,23 @@ export function tasksToolsExtension() {
 			}),
 		],
 	});
+}
+
+export function tasksToolsExtensionDescriptor(): CadmusExtensionDescriptor {
+	return {
+		extension: tasksToolsExtension(),
+		defaultEnabled: true,
+		allowlistPolicy: { mode: "catalog" },
+		isActive: (ctx) => !ctx.isGroupSession && !ctx.isConsultMember,
+	};
+}
+
+export function tasksFollowupExtensionDescriptor(): CadmusExtensionDescriptor {
+	return {
+		extension: tasksFollowupExtension(),
+		defaultEnabled: false,
+		allowlistPolicy: { mode: "impliedBy", catalogTool: "task_add" },
+		isActive: (ctx) =>
+			!ctx.isGroupSession && !ctx.isConsultMember && ctx.hasActiveTasks,
+	};
 }

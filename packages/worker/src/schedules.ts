@@ -8,6 +8,7 @@ import {
 } from "@earendil-works/pi-durable";
 import { type CadmusServices, requireCadmusServices } from "./context.js";
 import { nextCron } from "./cron.js";
+import type { CadmusExtensionDescriptor } from "./extensions/cadmus-tools.js";
 import { getLogger } from "./log.js";
 import { parseThinkingLevel } from "./models.js";
 import type { HarvestNote, ScheduleRecord } from "./protocol.js";
@@ -517,4 +518,13 @@ export function scheduleExtension() {
 		name: "cadmus.schedule",
 		tasks: [ScheduleTask],
 	});
+}
+
+export function scheduleTaskExtensionDescriptor(): CadmusExtensionDescriptor {
+	return {
+		extension: scheduleExtension(),
+		defaultEnabled: true,
+		allowlistPolicy: { mode: "always" },
+		isActive: () => true,
+	};
 }

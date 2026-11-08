@@ -1,5 +1,9 @@
 import type { JsonValue } from "@earendil-works/chord";
-import { defineExtension, defineTool } from "@earendil-works/pi-durable";
+import {
+	defineExtension,
+	defineTool,
+	section,
+} from "@earendil-works/pi-durable";
 import { Type } from "typebox";
 import { requireCadmusServices } from "../context.js";
 import {
@@ -12,11 +16,25 @@ import {
 import { getLogger } from "../log.js";
 import type { ScheduleRecord, ScheduleTarget } from "../protocol.js";
 import { ThinkingLevelSchema } from "../protocol.js";
+import type { CadmusExtensionDescriptor } from "./cadmus-tools.js";
 import { resolveBotScope, toolError, toolText } from "./knowledge-tools.js";
+
+export const SCHEDULES_PROMPT = `You can schedule future or recurring tasks for yourself using schedule tools:
+- schedule_create: create a one-shot ('relative' e.g. '10m', or 'absolute' e.g. 'tomorrow at 5pm') or recurring ('cron' e.g. '0 9 * * *') schedule.
+- schedule_list: inspect all active schedules configured for this bot.
+- schedule_update / schedule_delete: edit or cancel existing schedules.`;
 
 export function schedulesToolsExtension() {
 	return defineExtension({
 		name: "cadmus.schedules-tools",
+		sections: [
+			section("schedules", (input) => {
+				const hasScheduleTools = input.agent.tools.some((t) =>
+					t.name.startsWith("schedule_"),
+				);
+				return hasScheduleTools ? SCHEDULES_PROMPT : undefined;
+			}),
+		],
 		tools: [
 			defineTool({
 				name: "schedule_create",
@@ -393,4 +411,13 @@ export function schedulesToolsExtension() {
 			}),
 		],
 	});
+}
+
+export function schedulesToolsExtensionDescriptor(): CadmusExtensionDescriptor {
+	return {
+		extension: schedulesToolsExtension(),
+		defaultEnabled: true,
+		allowlistPolicy: { mode: "catalog" },
+		isActive: (ctx) => !ctx.isConsultMember,
+	};
 }

@@ -1,8 +1,8 @@
 import {
 	CODE_EXECUTE_TOOL_NAME,
+	extractModelProvider,
 	isReadOnlyGroupTool,
 	isTaskTool,
-	readOnlyGroupToolNames,
 } from "@cadmus/contract/tools";
 import {
 	AgentDoc,
@@ -15,8 +15,12 @@ import { requireCadmusServices } from "../context.js";
 import { getLogger } from "../log.js";
 import { isCodingTool } from "../tools-env/pure.js";
 import {
+	type CadmusExtensionDescriptor,
+	type ExtensionActivationContext,
+	resolveConversationExtensionsAndTools,
+} from "./cadmus-tools.js";
+import {
 	noteProviderTools,
-	omitCodeExecuteFromProviderMessages,
 	omitProviderTools,
 	providerToolNames,
 } from "./provider-tools.js";
@@ -67,35 +71,40 @@ export function toolGateExtension() {
 					const offerEnd = chat
 						? services.isGroupCallerSession(chat.key)
 						: false;
+					const bot = botId
+						? services.familyStore.bots.getBot(botId)
+						: undefined;
 					let messages = request.messages;
-					if (consult) {
-						const bot = botId
-							? services.familyStore.bots.getBot(botId)
-							: undefined;
-						const allowed = new Set(readOnlyGroupToolNames(bot?.tools));
-						const drop = providerToolNames(messages).filter(
-							(name) => !allowed.has(name),
-						);
-						messages = omitProviderTools(messages, drop);
-					} else {
-						messages = offered
-							? omitCodeExecuteFromProviderMessages(messages)
-							: messages;
-						if (!offerEnd) {
-							messages = omitProviderTools(messages, ["end_conversation"]);
-						}
+					if (bot) {
+						const modelRef = agent?.model;
+						const provider =
+							modelRef?.provider ?? extractModelProvider(bot.model);
 						const groupSession =
 							chat?.kind === "group" ||
 							chat?.kind === "group-member" ||
 							Boolean(chat?.key.startsWith("gmem:"));
-						if (groupSession) {
-							messages = omitProviderTools(messages, [
-								"task_add",
-								"task_remove",
-								"task_get",
-								"task_finish",
-								"task_list",
-							]);
+						const hasActiveTasks = chat
+							? services.familyStore.tasks.openCount(chat.key) > 0
+							: false;
+						const ctx: ExtensionActivationContext = {
+							bot,
+							chat,
+							codingToolsOffered: offered,
+							isGroupSession: groupSession,
+							isGroupCaller: offerEnd,
+							isConsultMember: consult,
+							hasActiveTasks,
+							provider,
+						};
+						const resolved = resolveConversationExtensionsAndTools(ctx);
+						const activeSet = new Set(resolved.effectiveToolNames);
+						const drop = providerToolNames(messages).filter(
+							(name) => !activeSet.has(name),
+						);
+						messages = omitProviderTools(messages, drop);
+					} else {
+						if (!offerEnd) {
+							messages = omitProviderTools(messages, ["end_conversation"]);
 						}
 					}
 					noteProviderTools(botId, providerToolNames(messages));
@@ -240,4 +249,13 @@ export function toolGateExtension() {
 			}),
 		],
 	});
+}
+
+export function toolGateExtensionDescriptor(): CadmusExtensionDescriptor {
+	return {
+		extension: toolGateExtension(),
+		defaultEnabled: true,
+		allowlistPolicy: { mode: "always" },
+		isActive: () => true,
+	};
 }

@@ -70,7 +70,7 @@ export function ConfigPanel({
 		accountDefaultEnvId: defaultEnvId,
 		envKindById,
 	});
-	const count = allowlistCount(bot.tools, codingEnvOffered);
+	const count = allowlistCount(bot.tools, codingEnvOffered, bot.model);
 
 	useEffect(() => {
 		let cancelled = false;
