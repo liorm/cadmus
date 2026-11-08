@@ -35,6 +35,7 @@ describe("groupToolRuns", () => {
 			expect(tools.names).toEqual(["read", "list", "write"]);
 			expect(tools.startId).toBe(2);
 			expect(tools.endId).toBe(6);
+			expect(tools.calls).toHaveLength(3);
 		}
 	});
 
@@ -51,6 +52,7 @@ describe("groupToolRuns", () => {
 			expect(tools.names).toEqual(["read", "list"]);
 			expect(tools.count).toBe(3);
 			expect(tools.startId).toBe(2);
+			expect(tools.calls).toHaveLength(3);
 		}
 	});
 
@@ -64,13 +66,14 @@ describe("groupToolRuns", () => {
 			{ id: 6, role: "toolResult", text: "d", toolName: "file.read" },
 		]);
 		const tools = items.find((item) => item.type === "tools");
-		expect(tools).toEqual({
-			type: "tools",
-			names: ["file.read"],
-			count: 4,
-			startId: 3,
-			endId: 6,
-		});
+		expect(tools?.type).toBe("tools");
+		if (tools?.type === "tools") {
+			expect(tools.names).toEqual(["file.read"]);
+			expect(tools.count).toBe(4);
+			expect(tools.startId).toBe(3);
+			expect(tools.endId).toBe(6);
+			expect(tools.calls).toHaveLength(4);
+		}
 		expect(items[1]?.type).toBe("assistant");
 	});
 
@@ -83,15 +86,78 @@ describe("groupToolRuns", () => {
 				toolCalls: [{ name: "file.read" }, { name: "file.read" }],
 			},
 		]);
-		expect(items).toEqual([
+		const tools = items[0];
+		expect(tools?.type).toBe("tools");
+		if (tools?.type === "tools") {
+			expect(tools.names).toEqual(["file.read"]);
+			expect(tools.count).toBe(2);
+			expect(tools.startId).toBe(1);
+			expect(tools.endId).toBe(1);
+			expect(tools.calls).toHaveLength(2);
+		}
+	});
+
+	it("pairs assistant tool calls with toolResult by toolCallId with args and duration", () => {
+		const items = groupToolRuns([
 			{
-				type: "tools",
-				names: ["file.read"],
-				count: 2,
-				startId: 1,
-				endId: 1,
+				id: 1,
+				role: "assistant",
+				text: "",
+				toolCalls: [
+					{
+						id: "call_a",
+						name: "message_bot",
+						arguments: { slug: "researcher", topic: "Find notes" },
+					},
+				],
+			},
+			{
+				id: 2,
+				role: "toolResult",
+				toolCallId: "call_a",
+				toolName: "message_bot",
+				text: JSON.stringify({ ok: true, status: "ended" }),
+				durationMs: 340,
+				isError: false,
 			},
 		]);
+		expect(items).toHaveLength(1);
+		const tools = items[0];
+		expect(tools?.type).toBe("tools");
+		if (tools?.type === "tools") {
+			expect(tools.names).toEqual(["message_bot"]);
+			expect(tools.totalDurationMs).toBe(340);
+			expect(tools.hasError).toBeUndefined();
+			expect(tools.calls).toHaveLength(1);
+			const call = tools.calls[0];
+			expect(call?.id).toBe("call_a");
+			expect(call?.name).toBe("message_bot");
+			expect(call?.args).toEqual({ slug: "researcher", topic: "Find notes" });
+			expect(call?.durationMs).toBe(340);
+			expect(call?.isError).toBe(false);
+			expect(call?.result?.content).toBe(
+				JSON.stringify({ ok: true, status: "ended" }),
+			);
+		}
+	});
+
+	it("detects error flag in tool calls", () => {
+		const items = groupToolRuns([
+			{
+				id: 1,
+				role: "toolResult",
+				toolName: "file.read",
+				text: "File not found",
+				isError: true,
+				durationMs: 50,
+			},
+		]);
+		const tools = items[0];
+		expect(tools?.type).toBe("tools");
+		if (tools?.type === "tools") {
+			expect(tools.hasError).toBe(true);
+			expect(tools.totalDurationMs).toBe(50);
+		}
 	});
 
 	it("keeps plain assistant text without a tools row", () => {

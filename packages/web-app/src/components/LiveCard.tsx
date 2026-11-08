@@ -8,6 +8,7 @@ export function LiveCard({
 	collapsed = false,
 	onToggle,
 	children,
+	activeBanner,
 	className,
 	progress,
 	onSteer,
@@ -18,6 +19,7 @@ export function LiveCard({
 	collapsed?: boolean;
 	onToggle?: () => void;
 	children?: ReactNode;
+	activeBanner?: ReactNode;
 	className?: string;
 	progress?: number;
 	onSteer?: () => void;
@@ -53,28 +55,26 @@ export function LiveCard({
 					</button>
 				) : null}
 			</header>
+			{activeBanner ? <div className="mt-2">{activeBanner}</div> : null}
 			{collapsed ? null : (
 				<div className="mt-2 text-[length:var(--fs-sm)] text-text-muted">
 					{children}
 				</div>
 			)}
-			<div
-				className="mt-2 h-1 overflow-hidden rounded-full bg-border"
-				role="progressbar"
-				aria-valuemin={0}
-				aria-valuemax={100}
-				aria-valuenow={
-					ratio === undefined ? undefined : Math.round(ratio * 100)
-				}
-			>
+			{ratio !== undefined ? (
 				<div
-					className={cn(
-						"h-full bg-status-running",
-						ratio === undefined ? "w-1/3 cadmus-spin" : "",
-					)}
-					style={ratio === undefined ? undefined : { width: `${ratio * 100}%` }}
-				/>
-			</div>
+					className="mt-2 h-1 overflow-hidden rounded-full bg-border"
+					role="progressbar"
+					aria-valuemin={0}
+					aria-valuemax={100}
+					aria-valuenow={Math.round(ratio * 100)}
+				>
+					<div
+						className="h-full bg-status-running transition-[width] duration-300 ease-out"
+						style={{ width: `${ratio * 100}%` }}
+					/>
+				</div>
+			) : null}
 			<div className="mt-2 flex gap-2">
 				<Button
 					variant="ghost"

@@ -64,9 +64,17 @@ function loadStoredConfig(): DevAuthConfig {
 	}
 }
 
+export type ActiveToolState = {
+	toolCallId: string;
+	toolName: string;
+	args?: Record<string, unknown>;
+	startedAt: number;
+};
+
 export type ChatLiveState = ChatLiveSlice & {
 	streamText?: string;
 	lastToolName?: string;
+	activeTool?: ActiveToolState;
 	status?: ChatStatusRecord;
 };
 
@@ -417,6 +425,7 @@ export function CadmusProvider({
 							...current,
 							busy,
 							streamText: busy ? current?.streamText : "",
+							activeTool: busy ? current?.activeTool : undefined,
 							status: current?.status
 								? { ...current.status, busy }
 								: current?.status,
@@ -456,9 +465,34 @@ export function CadmusProvider({
 							...current,
 							busy: true,
 							lastToolName: event.payload.toolName,
+							activeTool: {
+								toolCallId: event.payload.toolCallId,
+								toolName: event.payload.toolName,
+								args: event.payload.args,
+								startedAt: Date.now(),
+							},
 							status: current?.status
 								? { ...current.status, busy: true }
 								: current?.status,
+						},
+					};
+				});
+				return;
+			}
+			if (event.type === "turn.tool_result") {
+				if (holdIdle.current.has(event.payload.chatKey)) return;
+				setChatStates((prev) => {
+					const current = prev[event.payload.chatKey];
+					if (!current) return prev;
+					const activeTool =
+						current.activeTool?.toolCallId === event.payload.toolCallId
+							? undefined
+							: current.activeTool;
+					return {
+						...prev,
+						[event.payload.chatKey]: {
+							...current,
+							activeTool,
 						},
 					};
 				});
@@ -502,6 +536,7 @@ export function CadmusProvider({
 						...current,
 						busy: false,
 						streamText: "",
+						activeTool: undefined,
 						failedReason: failed
 							? (event.payload.reason ?? "unanswered")
 							: undefined,

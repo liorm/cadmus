@@ -1,4 +1,5 @@
 import type {
+	BotRecord,
 	ChatRecord,
 	ChatTask,
 	RawTranscriptEntry,
@@ -11,6 +12,7 @@ import { BotBadge } from "@/components/BotBadge";
 import { ChatMenuSheet } from "@/components/ChatMenuSheet";
 import { ChatStatusIndicator } from "@/components/ChatStatusIndicator";
 import { Composer } from "@/components/Composer";
+import { GroupChatViewerSheet } from "@/components/GroupChatViewerSheet";
 import { InlineEditTitle } from "@/components/InlineEditTitle";
 import { LiveCard } from "@/components/LiveCard";
 import { Markdown } from "@/components/Markdown";
@@ -18,12 +20,19 @@ import { RawTranscript } from "@/components/RawTranscript";
 import { SegmentedControl } from "@/components/SegmentedControl";
 import { LoadError, SkeletonBlock } from "@/components/Skeleton";
 import { StatusShape } from "@/components/StatusShape";
-import { useCadmus } from "@/context/CadmusContext";
+import { ToolCallCard } from "@/components/ToolCallCard";
+import { Button } from "@/components/ui/button";
+import { type ActiveToolState, useCadmus } from "@/context/CadmusContext";
 import { isNearBottom, useAutoScroll } from "@/hooks/useAutoScroll";
 import { chatTitle } from "@/lib/format-time";
-import { groupToolRuns } from "@/lib/group-tool-runs";
+import {
+	type GroupChatMessage,
+	parseMessageBotArgs,
+} from "@/lib/group-chat-data";
+import { groupToolRuns, type TranscriptItem } from "@/lib/group-tool-runs";
 import type { LoadPhase } from "@/lib/load-state";
 import { taskProgress } from "@/lib/task-progress";
+import { cn } from "@/lib/utils";
 
 function userTextCounts(
 	messages: TranscriptMessageView[],
@@ -108,6 +117,15 @@ export function ChatPage({ view }: { view: "chat" | "raw" }) {
 	const [rawError, setRawError] = useState<string | null>(null);
 	const [loadAttempt, setLoadAttempt] = useState(0);
 	const [menuOpen, setMenuOpen] = useState(false);
+	const [viewerSheet, setViewerSheet] = useState<{
+		open: boolean;
+		topic?: string;
+		status?: string;
+		members?: string[];
+		transcript?: GroupChatMessage[];
+		response?: string;
+		groupId?: string;
+	}>({ open: false });
 	const [renaming, setRenaming] = useState(false);
 	const bot = bots.find((entry) => entry.id === (record ?? chat)?.botId);
 	const liveRef = useRef<HTMLDivElement | null>(null);
@@ -497,6 +515,17 @@ export function ChatPage({ view }: { view: "chat" | "raw" }) {
 					});
 				}}
 			/>
+			<GroupChatViewerSheet
+				open={viewerSheet.open}
+				onOpenChange={(open) => setViewerSheet((prev) => ({ ...prev, open }))}
+				topic={viewerSheet.topic}
+				status={viewerSheet.status}
+				members={viewerSheet.members}
+				transcript={viewerSheet.transcript}
+				response={viewerSheet.response}
+				groupId={viewerSheet.groupId}
+				bots={bots}
+			/>
 			<div className="flex min-h-0 flex-1 flex-col">
 				{view === "raw" ? (
 					<div className="flex justify-center px-3 pt-2">
@@ -598,7 +627,13 @@ export function ChatPage({ view }: { view: "chat" | "raw" }) {
 									return (
 										<div key={`t-${item.startId}`}>
 											{showDivider ? <NewDivider count={newCount} /> : null}
-											<ToolRunRow names={item.names} count={item.count} />
+											<ToolRunRow
+												item={item}
+												bots={bots}
+												onOpenGroupChat={(data) =>
+													setViewerSheet({ open: true, ...data })
+												}
+											/>
 										</div>
 									);
 								}
@@ -613,6 +648,18 @@ export function ChatPage({ view }: { view: "chat" | "raw" }) {
 								frozen={connectionStatus !== "connected"}
 								onToggle={() => setCollapsed((value) => !value)}
 								progress={progress.determinate ? progress.ratio : undefined}
+								activeBanner={
+									live?.activeTool ? (
+										<ActiveToolBanner
+											activeTool={live.activeTool}
+											bots={bots}
+											callerBotId={(record ?? chat)?.botId}
+											onOpenGroupChat={(data) =>
+												setViewerSheet({ open: true, ...data })
+											}
+										/>
+									) : undefined
+								}
 								onSteer={() => {
 									setSteerOn(true);
 									document
@@ -693,30 +740,171 @@ function NewDivider({ count }: { count: number }) {
 	);
 }
 
-function ToolRunRow({ names, count }: { names: string[]; count: number }) {
+function formatDuration(ms?: number): string | null {
+	if (ms === undefined || ms === null) return null;
+	if (ms < 1000) return `${ms}ms`;
+	return `${(ms / 1000).toFixed(1)}s`;
+}
+
+function ActiveToolBanner({
+	activeTool,
+	bots,
+	callerBotId,
+	onOpenGroupChat,
+}: {
+	activeTool: ActiveToolState;
+	bots: BotRecord[];
+	callerBotId?: string;
+	onOpenGroupChat: (data: {
+		topic?: string;
+		status?: string;
+		members?: string[];
+		transcript?: GroupChatMessage[];
+		response?: string;
+		groupId?: string;
+	}) => void;
+}) {
+	const isMessageBot = activeTool.toolName === "message_bot";
+	const mbArgs = isMessageBot ? parseMessageBotArgs(activeTool.args) : null;
+	const targetSlug = mbArgs?.slug ?? mbArgs?.to?.[0];
+	const targetBot = targetSlug
+		? bots.find((b) => b.id === targetSlug)
+		: undefined;
+	const topic = mbArgs?.topic;
+
+	if (isMessageBot) {
+		return (
+			<div
+				data-testid="live-active-tool-banner"
+				className="flex items-center justify-between gap-2 rounded-md border border-status-running/30 bg-surface px-2.5 py-1.5 text-[length:var(--fs-xs)] shadow-xs"
+			>
+				<div className="flex min-w-0 items-center gap-1.5">
+					<StatusShape status="running" />
+					<span className="font-semibold text-text">Delegating to:</span>
+					{targetBot || targetSlug ? (
+						<span className="inline-flex items-center gap-1 font-medium text-text">
+							<BotBadge
+								bot={
+									targetBot ?? {
+										id: targetSlug ?? "bot",
+										name: targetSlug ?? "bot",
+									}
+								}
+								className="size-4 min-h-0 min-w-0 text-[10px]"
+							/>
+							<span className="font-medium text-text">
+								{targetBot?.name ?? targetSlug}
+							</span>
+						</span>
+					) : null}
+					{topic ? (
+						<span className="truncate text-text-muted">· {topic}</span>
+					) : null}
+				</div>
+				<Button
+					type="button"
+					variant="outlined"
+					className="min-h-0 min-w-0 h-6 px-2 text-[length:var(--fs-xs)]"
+					onClick={() =>
+						onOpenGroupChat({
+							topic: topic ?? "Inter-bot delegation",
+							status: "running",
+							members: targetSlug ? [targetSlug] : [],
+							transcript: mbArgs?.text
+								? [
+										{
+											fromBotId: callerBotId ?? "caller",
+											text: mbArgs.text,
+											at: activeTool.startedAt,
+										},
+									]
+								: [],
+						})
+					}
+				>
+					View Chat ›
+				</Button>
+			</div>
+		);
+	}
+
+	return (
+		<div
+			data-testid="live-active-tool-banner"
+			className="flex items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 py-1.5 text-[length:var(--fs-xs)]"
+		>
+			<StatusShape status="running" />
+			<span className="font-mono font-medium text-text">
+				{activeTool.toolName}
+			</span>
+			<span className="text-text-muted">running...</span>
+		</div>
+	);
+}
+
+function ToolRunRow({
+	item,
+	bots,
+	onOpenGroupChat,
+}: {
+	item: Extract<TranscriptItem, { type: "tools" }>;
+	bots: BotRecord[];
+	onOpenGroupChat: (data: {
+		topic?: string;
+		status?: string;
+		members?: string[];
+		transcript?: GroupChatMessage[];
+		response?: string;
+		groupId?: string;
+	}) => void;
+}) {
 	const [open, setOpen] = useState(false);
-	const preview = names.slice(0, 2).join(", ");
+	const preview = item.names.slice(0, 2).join(", ");
+	const duration = formatDuration(item.totalDurationMs);
+	const hasError = Boolean(item.hasError);
+
 	return (
 		<div className="mb-3">
 			<button
 				type="button"
 				aria-expanded={open}
 				onClick={() => setOpen((value) => !value)}
-				className="flex min-h-tap w-full items-center gap-2 rounded-md border border-border px-3 text-left text-[length:var(--fs-sm)] text-text-muted"
+				className={cn(
+					"flex min-h-tap w-full items-center gap-2 rounded-md border border-border px-3 text-left text-[length:var(--fs-sm)] text-text-muted transition-colors hover:border-text-muted/40",
+					hasError && "border-status-failed/40 text-status-failed",
+				)}
 			>
-				<span aria-hidden="true">✓</span>
-				<span className="min-w-0 flex-1 truncate">
-					Ran {count} tool{count === 1 ? "" : "s"}
+				<span
+					className={cn(
+						"text-xs font-bold",
+						hasError ? "text-status-failed" : "text-status-success",
+					)}
+					aria-hidden="true"
+				>
+					{hasError ? "✕" : "✓"}
+				</span>
+				<span className="min-w-0 flex-1 truncate text-text">
+					Ran {item.count} tool{item.count === 1 ? "" : "s"}
 					{preview ? ` · ${preview}` : ""}
 				</span>
+				{duration ? (
+					<span className="text-[length:var(--fs-xs)] text-text-muted">
+						{duration}
+					</span>
+				) : null}
 				<span>{open ? "▾" : "›"}</span>
 			</button>
 			{open ? (
-				<ul className="mt-1 px-3 font-mono text-[length:var(--fs-xs)] text-text-muted">
-					{names.map((name) => (
-						<li key={name}>{name}</li>
+				<div className="mt-2 flex flex-col gap-2 pl-2 sm:pl-4">
+					{item.calls.map((call) => (
+						<ToolCallCard
+							key={call.id}
+							call={call}
+							bots={bots}
+							onOpenGroupChat={onOpenGroupChat}
+						/>
 					))}
-				</ul>
+				</div>
 			) : null}
 		</div>
 	);
