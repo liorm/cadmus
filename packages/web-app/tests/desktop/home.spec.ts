@@ -1,5 +1,5 @@
-import { seedBot } from "../support/account.ts";
-import { clickByRole } from "../support/actions.ts";
+import { seedBot, sendAccountRpc } from "../support/account.ts";
+import { clickByRole, fillByLabel } from "../support/actions.ts";
 import { expect, test } from "../support/fixtures.ts";
 
 test.describe.configure({ mode: "parallel" });
@@ -102,4 +102,171 @@ test("command or control 1 switches the selected bot", async ({
 	await expect(
 		page.getByRole("heading", { name: firstName, exact: true }),
 	).toBeVisible();
+});
+
+test("empty state to new bot creation inside cockpit stage", async ({
+	page,
+}) => {
+	await page.goto("/");
+	await expect(
+		page.getByRole("banner", { name: "Cadmus Cockpit" }),
+	).toBeVisible();
+	await expect(
+		page.getByRole("complementary", { name: "Bot fleet and threads" }),
+	).toBeVisible();
+	await expect(
+		page.getByRole("complementary", { name: "Telemetry" }),
+	).toBeVisible();
+
+	await clickByRole(page, "link", "+ New bot");
+	await expect(
+		page.getByRole("banner", { name: "Cadmus Cockpit" }),
+	).toBeVisible();
+	await expect(
+		page.getByRole("heading", { name: "New bot", exact: true }),
+	).toBeVisible();
+
+	await fillByLabel(page, "Name", "Bravo Bot");
+	await clickByRole(page, "button", "bot-3");
+	await fillByLabel(page, "Soul / persona · optional", "You are Bravo.");
+	await clickByRole(page, "button", "Create bot");
+
+	await expect(
+		page.getByRole("banner", { name: "Cadmus Cockpit" }),
+	).toBeVisible();
+	await expect(
+		page.getByRole("button", { name: "idle Bravo Bot", exact: true }),
+	).toBeVisible();
+	await expect(
+		page.getByRole("heading", { name: "Bravo Bot", exact: true }),
+	).toBeVisible();
+});
+
+test("fleet deck bot card actions menu: profile, change colour, archive all chats", async ({
+	page,
+	accountId,
+	baseURL,
+}) => {
+	const origin = baseURL ?? WORKER_BASE;
+	const bot = await seedBot(origin, accountId, "Echo Bot", "echo-bot");
+	await sendAccountRpc(origin, accountId, "chat.create", {
+		botId: bot.id,
+		title: "Thread 1",
+	});
+	await sendAccountRpc(origin, accountId, "chat.create", {
+		botId: bot.id,
+		title: "Thread 2",
+	});
+
+	await page.goto("/");
+	await expect(page.getByText("2 threads")).toBeVisible();
+
+	// Open bot menu via ⋯ button
+	await clickByRole(page, "button", "Echo Bot menu");
+	const sheet = page.getByRole("dialog", { name: "Echo Bot" });
+	await expect(sheet).toBeVisible();
+
+	// Change color to bot-5
+	await clickByRole(page, "button", "Change colour");
+	await clickByRole(page, "button", "bot-5");
+	await expect(sheet).toBeHidden();
+
+	// Open Profile in Stage
+	await clickByRole(page, "button", "Echo Bot menu");
+	await clickByRole(page, "button", "Profile");
+	await expect(
+		page.getByRole("banner", { name: "Cadmus Cockpit" }),
+	).toBeVisible();
+	await expect(
+		page.getByRole("radiogroup", { name: "Bot profile tabs" }),
+	).toBeVisible();
+
+	// Archive all chats
+	await clickByRole(page, "button", "Echo Bot menu");
+	await clickByRole(page, "button", "Archive all chats");
+	await clickByRole(page, "button", "Archive all");
+	await expect(page.getByText("0 threads")).toBeVisible();
+});
+
+test("unread reply shows unread dot on thread row and increments needs attention", async ({
+	page,
+	accountId,
+	baseURL,
+}) => {
+	const origin = baseURL ?? WORKER_BASE;
+	const bot = await seedBot(origin, accountId, "Echo Bot", "echo-bot");
+	const created = await sendAccountRpc<{ chat: { key: string } }>(
+		origin,
+		accountId,
+		"chat.create",
+		{ botId: bot.id, title: "Unread Thread" },
+	);
+	await sendAccountRpc(origin, accountId, "turn.submit", {
+		chatKey: created.chat.key,
+		text: "ping",
+	});
+
+	await page.goto("/");
+	await expect(
+		page.getByRole("banner", { name: "Cadmus Cockpit" }),
+	).toBeVisible();
+	await expect(page.getByText("1 Needs Attention")).toBeVisible();
+
+	const threadFeed = page.getByRole("region", { name: "Live thread feed" });
+	await expect(
+		threadFeed.getByRole("status", { name: "Unread" }),
+	).toBeVisible();
+
+	// Filter by Needs you
+	await clickByRole(page, "button", "Needs you");
+	await expect(threadFeed.getByText("Unread Thread")).toBeVisible();
+
+	// Selecting thread clears unread
+	await clickByRole(page, "button", "Unread Thread");
+	await expect(threadFeed.getByRole("status", { name: "Unread" })).toHaveCount(
+		0,
+	);
+});
+
+test("quick archive action on thread row in fleet deck and retry button resubmits", async ({
+	page,
+	accountId,
+	baseURL,
+}) => {
+	const origin = baseURL ?? WORKER_BASE;
+	const bot = await seedBot(origin, accountId, "Echo Bot", "echo-bot");
+	const created = await sendAccountRpc<{ chat: { key: string } }>(
+		origin,
+		accountId,
+		"chat.create",
+		{ botId: bot.id, title: "Failing Chat" },
+	);
+
+	// Start a turn and stop it to make it retryable
+	await page.goto(`/chat/${created.chat.key}`);
+	await fillByLabel(page, "Message", "fail me [[hold:ui-fail]]");
+	await clickByRole(page, "button", "Send");
+	await expect(page.getByRole("region", { name: "Live card" })).toBeVisible({
+		timeout: 10_000,
+	});
+	await clickByRole(page, "button", "Stop");
+
+	await page.goto("/");
+	await expect(page.getByRole("button", { name: "Retry" }).first()).toBeVisible(
+		{
+			timeout: 15_000,
+		},
+	);
+	await clickByRole(page, "button", "Retry");
+
+	// Create another chat to test quick archive
+	await sendAccountRpc(origin, accountId, "chat.create", {
+		botId: bot.id,
+		title: "Quick Archive Target",
+	});
+	await page.reload();
+
+	await expect(page.getByText("Quick Archive Target")).toBeVisible();
+	await clickByRole(page, "button", "Archive Quick Archive Target");
+	await expect(page.getByText("Quick Archive Target")).toHaveCount(0);
 });

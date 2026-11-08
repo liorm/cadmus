@@ -45,7 +45,7 @@ export function CockpitFrame({
 	onSelectBot: (botId: string) => void;
 }): JSX.Element {
 	const {
-		authConfig,
+		familyId,
 		bots: directoryBots,
 		chats,
 		chatStates,
@@ -156,9 +156,9 @@ export function CockpitFrame({
 				<Link
 					to="/settings/family"
 					className="max-w-48 truncate rounded-full border border-border bg-bg px-2 py-0.5 text-[length:var(--fs-xs)] text-accent"
-					title={authConfig.familyId}
+					title={familyId}
 				>
-					{authConfig.familyId}
+					{familyId}
 				</Link>
 				<div className="ml-auto flex min-w-0 items-center gap-3 text-[length:var(--fs-xs)] text-text-muted">
 					<span className="inline-flex items-center gap-1.5">

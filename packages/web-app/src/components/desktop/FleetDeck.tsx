@@ -1,8 +1,10 @@
-import { Link } from "@tanstack/react-router";
-import { type JSX, useMemo } from "react";
+import { Link, useNavigate } from "@tanstack/react-router";
+import { type JSX, useMemo, useState } from "react";
 import { BotBadge } from "@/components/BotBadge";
+import { GroupMenuSheet } from "@/components/GroupMenuSheet";
 import { LoadError, Skeleton } from "@/components/Skeleton";
 import { rowStatus, StatusShape } from "@/components/StatusShape";
+import { UnreadDot } from "@/components/UnreadDot";
 import { useCadmus } from "@/context/CadmusContext";
 import { chatTitle, formatRelative } from "@/lib/format-time";
 import { needsYou } from "@/lib/needs-you";
@@ -36,6 +38,8 @@ export function FleetDeck({
 	onSelectChat: (chatKey: string, botId: string) => void;
 	onNewThread: (botId: string) => void;
 }): JSX.Element {
+	const navigate = useNavigate();
+	const [menuBotId, setMenuBotId] = useState<string | null>(null);
 	const {
 		bots,
 		chats,
@@ -45,7 +49,10 @@ export function FleetDeck({
 		directoryError,
 		refreshDirectory,
 		retryChat,
+		archiveChat,
 	} = useCadmus();
+
+	const menuBot = bots.find((b) => b.id === menuBotId);
 
 	const needsKeys = useMemo(() => {
 		const keys = new Set<string>();
@@ -175,6 +182,17 @@ export function FleetDeck({
 											</button>
 											<button
 												type="button"
+												aria-label={`${bot.name} menu`}
+												className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-text-muted hover:text-text"
+												onClick={(event) => {
+													event.stopPropagation();
+													setMenuBotId(bot.id);
+												}}
+											>
+												⋯
+											</button>
+											<button
+												type="button"
 												aria-label={`New thread with ${bot.name}`}
 												className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-text-muted"
 												onClick={() => onNewThread(bot.id)}
@@ -200,6 +218,32 @@ export function FleetDeck({
 							})}
 						</div>
 					)}
+					{menuBot ? (
+						<GroupMenuSheet
+							bot={menuBot}
+							open={Boolean(menuBotId)}
+							onOpenChange={(open) => {
+								if (!open) setMenuBotId(null);
+							}}
+							openChatCount={
+								openChats.filter((c) => c.botId === menuBot.id).length
+							}
+							onProfile={() => {
+								setMenuBotId(null);
+								void navigate({
+									to: "/bot/$botId/$tab",
+									params: { botId: menuBot.id, tab: "schedules" },
+								});
+							}}
+							onNewChat={() => {
+								setMenuBotId(null);
+								onNewThread(menuBot.id);
+							}}
+							onArchived={() => {
+								setMenuBotId(null);
+							}}
+						/>
+					) : null}
 				</div>
 			</section>
 			<section
@@ -238,6 +282,10 @@ export function FleetDeck({
 								const state = chatStates[chat.key];
 								const title = chatTitle(chat, state?.lastUserText);
 								const when = state?.lastBotAt ?? chat.createdAt;
+								const at = state?.lastBotAt;
+								const seen = lastSeen[chat.key];
+								const unread =
+									at !== undefined && (seen === undefined || at > seen);
 								const botName =
 									bots.find((bot) => bot.id === chat.botId)?.name ?? chat.botId;
 								const selected = chat.key === selectedChatKey;
@@ -259,8 +307,16 @@ export function FleetDeck({
 													})}
 												/>
 												<span className="min-w-0 flex-1">
-													<span className="block truncate font-medium">
-														{title}
+													<span className="flex items-center gap-1.5">
+														<span
+															className={cn(
+																"block truncate font-medium",
+																unread && "font-semibold",
+															)}
+														>
+															{title}
+														</span>
+														{unread ? <UnreadDot /> : null}
 													</span>
 													<span className="block truncate text-[length:var(--fs-xs)] text-text-muted">
 														{botName}
@@ -269,6 +325,17 @@ export function FleetDeck({
 												<span className="shrink-0 text-[length:var(--fs-xs)] text-text-muted">
 													{formatRelative(when)}
 												</span>
+											</button>
+											<button
+												type="button"
+												aria-label={`Archive ${title}`}
+												className="shrink-0 px-2.5 text-[length:var(--fs-sm)] text-text-muted hover:text-text"
+												onClick={(event) => {
+													event.stopPropagation();
+													void archiveChat(chat.key);
+												}}
+											>
+												□
 											</button>
 											{state?.failedReason ? (
 												<button

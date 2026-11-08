@@ -2,6 +2,13 @@ import type { BotRecord } from "@cadmus/contract/types";
 import { useNavigate } from "@tanstack/react-router";
 import type { JSX, KeyboardEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { BotBadge } from "@/components/BotBadge";
+import { HighlightedText } from "@/components/HighlightedText";
+import {
+	rowStatus,
+	type StatusKind,
+	StatusShape,
+} from "@/components/StatusShape";
 import { useCadmus } from "@/context/CadmusContext";
 import { chatTitle } from "@/lib/format-time";
 
@@ -9,6 +16,8 @@ type PaletteRow = {
 	id: string;
 	label: string;
 	hint?: string;
+	bot?: BotRecord;
+	status?: StatusKind;
 	run: () => void;
 };
 
@@ -151,10 +160,18 @@ export function CommandPaletteHost({
 		for (const chat of chats) {
 			if (chat.closed) continue;
 			const key = chat.key;
+			const state = chatStates[key];
+			const bot = bots.find((b) => b.id === chat.botId);
+			const status = rowStatus({
+				busy: state?.busy,
+				failed: Boolean(state?.failedReason),
+			});
 			next.push({
 				id: `chat:${key}`,
-				label: chatTitle(chat, chatStates[key]?.lastUserText),
-				hint: key,
+				label: chatTitle(chat, state?.lastUserText),
+				hint: bot?.name ?? key,
+				bot,
+				status,
 				run: closeAnd(() => {
 					if (onOpenChat) {
 						onOpenChat(key);
@@ -265,11 +282,20 @@ export function CommandPaletteHost({
 								}}
 								type="button"
 								aria-current={rowIndex === activeIndex ? "true" : undefined}
-								className={`flex min-h-tap w-full items-baseline gap-2 px-3 py-2 text-left ${rowIndex === activeIndex ? "bg-bg" : ""}`}
+								className={`flex min-h-tap w-full items-center gap-2 px-3 py-2 text-left ${rowIndex === activeIndex ? "bg-bg" : ""}`}
 								onMouseEnter={() => setIndex(rowIndex)}
 								onClick={() => row.run()}
 							>
-								<span className="min-w-0 flex-1 truncate">{row.label}</span>
+								{row.status ? <StatusShape status={row.status} /> : null}
+								{row.bot ? (
+									<BotBadge
+										bot={row.bot}
+										className="size-5 min-h-0 min-w-0 text-[10px]"
+									/>
+								) : null}
+								<span className="min-w-0 flex-1 truncate">
+									<HighlightedText text={row.label} query={query} />
+								</span>
 								{row.hint ? (
 									<span className="truncate text-[length:var(--fs-xs)] text-text-muted">
 										{row.hint}

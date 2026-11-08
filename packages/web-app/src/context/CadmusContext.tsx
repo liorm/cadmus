@@ -3,7 +3,9 @@ import type {
 	BotRecord,
 	ChatRecord,
 	ChatStatusRecord,
+	ChatTask,
 	ServerEvent,
+	TranscriptMessageView,
 } from "@cadmus/contract/types";
 import { useNavigate } from "@tanstack/react-router";
 import {
@@ -78,6 +80,12 @@ export type ChatLiveState = ChatLiveSlice & {
 	status?: ChatStatusRecord;
 };
 
+export interface ActiveChatState {
+	chatKey: string | null;
+	messages: TranscriptMessageView[];
+	tasks: ChatTask[];
+}
+
 export interface CadmusContextValue {
 	client: CadmusClient;
 	authConfig: DevAuthConfig;
@@ -104,9 +112,17 @@ export interface CadmusContextValue {
 	retryChat: (chatKey: string) => Promise<void>;
 	noteUserText: (chatKey: string, text: string) => void;
 	markFailed: (chatKey: string, reason: string) => void;
-	createChatAndSubmit: (botId: string, text: string) => Promise<void>;
+	createChatAndSubmit: (botId: string, text: string) => Promise<string | null>;
 	queueTurn: (turn: OutboundTurn) => void;
 	refreshChatStatus: (chatKey: string) => Promise<void>;
+	activeChat: ActiveChatState;
+	setActiveChatTranscript: (
+		chatKey: string,
+		messages: TranscriptMessageView[],
+		tasks?: ChatTask[],
+	) => void;
+	setActiveChatTasks: (chatKey: string, tasks: ChatTask[]) => void;
+	clearActiveChat: (chatKey?: string) => void;
 }
 
 export interface OutboundTurn {
@@ -182,6 +198,44 @@ export function CadmusProvider({
 		`${authConfig.accountId}:${authConfig.familyId}`,
 	);
 	const directoryDetailRef = useRef(false);
+
+	const [activeChat, setActiveChat] = useState<ActiveChatState>({
+		chatKey: null,
+		messages: [],
+		tasks: [],
+	});
+
+	const setActiveChatTranscript = useCallback(
+		(
+			chatKey: string,
+			messages: TranscriptMessageView[],
+			tasks?: ChatTask[],
+		) => {
+			setActiveChat((prev) => ({
+				chatKey,
+				messages,
+				tasks: tasks ?? (prev.chatKey === chatKey ? prev.tasks : []),
+			}));
+		},
+		[],
+	);
+
+	const setActiveChatTasks = useCallback(
+		(chatKey: string, tasks: ChatTask[]) => {
+			setActiveChat((prev) => {
+				if (prev.chatKey !== chatKey) return prev;
+				return { ...prev, tasks };
+			});
+		},
+		[],
+	);
+
+	const clearActiveChat = useCallback((chatKey?: string) => {
+		setActiveChat((prev) => {
+			if (chatKey && prev.chatKey !== chatKey) return prev;
+			return { chatKey: null, messages: [], tasks: [] };
+		});
+	}, []);
 
 	// Stop clears busy before `turn.interrupt` finishes. A chat.status read
 	// that started while the turn was still running must not put Working back.
@@ -676,7 +730,7 @@ export function CadmusProvider({
 				"chat.create",
 				{ botId },
 			);
-			if (!created.ok || !created.result?.chat) return;
+			if (!created.ok || !created.result?.chat) return null;
 			const chatKey = created.result.chat.key;
 			noteUserText(chatKey, text);
 			patchState(chatKey, { busy: true });
@@ -687,6 +741,7 @@ export function CadmusProvider({
 				params: { chatKey },
 				search: { view: "chat" },
 			});
+			return chatKey;
 		},
 		[
 			client,
@@ -756,6 +811,10 @@ export function CadmusProvider({
 			createChatAndSubmit,
 			queueTurn,
 			refreshChatStatus,
+			activeChat,
+			setActiveChatTranscript,
+			setActiveChatTasks,
+			clearActiveChat,
 		}),
 		[
 			archiveChat,
@@ -785,6 +844,10 @@ export function CadmusProvider({
 			retryChat,
 			setLastBotId,
 			toggleCollapsed,
+			activeChat,
+			setActiveChatTranscript,
+			setActiveChatTasks,
+			clearActiveChat,
 		],
 	);
 

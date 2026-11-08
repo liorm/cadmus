@@ -3,6 +3,7 @@ import { Link } from "@tanstack/react-router";
 import { type JSX, useEffect, useState } from "react";
 import { Composer } from "@/components/Composer";
 import { useCadmus } from "@/context/CadmusContext";
+import { cn } from "@/lib/utils";
 import { ChatSession } from "@/routes/chat";
 
 const STARTERS = [
@@ -34,17 +35,11 @@ export function DesktopChatConsole({
 }: {
 	chatKey: string | null;
 	botId: string;
-	onChatCreated: (chatKey: string) => void;
+	onChatCreated?: (chatKey: string) => void;
 	onArchived?: () => void;
 }): JSX.Element {
-	const {
-		bots,
-		client,
-		noteUserText,
-		queueTurn,
-		refreshDirectory,
-		setLastBotId,
-	} = useCadmus();
+	const { bots, client, familyId, teamLeaderBotId, createChatAndSubmit } =
+		useCadmus();
 	const [viewFor, setViewFor] = useState<{
 		key: string | null;
 		view: "chat" | "raw";
@@ -52,6 +47,17 @@ export function DesktopChatConsole({
 	const view = viewFor.key === chatKey ? viewFor.view : "chat";
 	const [persona, setPersona] = useState<string | null>(null);
 	const [pending, setPending] = useState(false);
+	const [letTlOff, setLetTlOff] = useState(false);
+	const [scope, setScope] = useState(familyId);
+	if (scope !== familyId) {
+		setScope(familyId);
+		setLetTlOff(false);
+	}
+	const leader =
+		teamLeaderBotId && bots.some((entry) => entry.id === teamLeaderBotId)
+			? teamLeaderBotId
+			: undefined;
+	const letTl = Boolean(leader) && !letTlOff;
 	const bot = bots.find((entry) => entry.id === botId);
 
 	useEffect(() => {
@@ -75,27 +81,16 @@ export function DesktopChatConsole({
 		};
 	}, [botId, chatKey, client]);
 
-	async function beginChat(text: string, steer: boolean) {
+	async function beginChat(text: string, _steer?: boolean) {
 		const trimmed = text.trim();
-		if (!botId || !trimmed || pending) return;
+		const targetBot = letTl && leader ? leader : botId;
+		if (!targetBot || !trimmed || pending) return;
 		setPending(true);
 		try {
-			setLastBotId(botId);
-			const created = await client.callRpc("chat.create", {
-				botId,
-				kind: "direct",
-			});
-			if (!created.ok || !created.result?.chat) return;
-			const createdKey = created.result.chat.key;
-			noteUserText(createdKey, trimmed);
-			queueTurn({
-				chatKey: createdKey,
-				text: trimmed,
-				clientMsgId: crypto.randomUUID(),
-				whenBusy: steer ? "steer" : "queue",
-			});
-			onChatCreated(createdKey);
-			await refreshDirectory();
+			const newChatKey = await createChatAndSubmit(targetBot, trimmed);
+			if (newChatKey && onChatCreated) {
+				onChatCreated(newChatKey);
+			}
 		} catch {
 			return;
 		} finally {
@@ -154,6 +149,26 @@ export function DesktopChatConsole({
 			<Composer
 				disabled={pending}
 				steerEnabled
+				chips={
+					leader ? (
+						<button
+							type="button"
+							aria-pressed={letTl}
+							aria-label="Let TL route"
+							onClick={() => {
+								setLetTlOff(letTl);
+							}}
+							className={cn(
+								"inline-flex min-h-tap items-center rounded-full border px-3 text-[length:var(--fs-sm)]",
+								letTl
+									? "border-accent bg-accent text-on-accent"
+									: "border-dashed border-border text-text-muted",
+							)}
+						>
+							⇄ Let TL route
+						</button>
+					) : null
+				}
 				onSend={(text, steer) => {
 					void beginChat(text, steer);
 				}}

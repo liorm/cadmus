@@ -19,6 +19,7 @@ import { BotBadge } from "@/components/BotBadge";
 import { ChatMenuSheet } from "@/components/ChatMenuSheet";
 import { ChatStatusIndicator } from "@/components/ChatStatusIndicator";
 import { Composer } from "@/components/Composer";
+import { useDesktopViewport } from "@/components/desktop/use-desktop-viewport";
 import { GroupChatViewerSheet } from "@/components/GroupChatViewerSheet";
 import { InlineEditTitle } from "@/components/InlineEditTitle";
 import { LiveCard } from "@/components/LiveCard";
@@ -27,6 +28,7 @@ import { RawTranscript } from "@/components/RawTranscript";
 import { SegmentedControl } from "@/components/SegmentedControl";
 import { LoadError, SkeletonBlock } from "@/components/Skeleton";
 import { StatusShape } from "@/components/StatusShape";
+import { Toggle } from "@/components/Toggle";
 import { ToolCallCard } from "@/components/ToolCallCard";
 import { Button } from "@/components/ui/button";
 import { type ActiveToolState, useCadmus } from "@/context/CadmusContext";
@@ -84,7 +86,8 @@ function mergeServerMessages(
 
 export function ChatPage({ view }: { view: "chat" | "raw" }) {
 	const { chatKey } = useParams({ from: "/chat/$chatKey" });
-	return <ChatSession chatKey={chatKey} view={view} />;
+	const desktop = useDesktopViewport();
+	return <ChatSession chatKey={chatKey} view={view} embedded={desktop} />;
 }
 
 export function ChatSession({
@@ -114,6 +117,8 @@ export function ChatSession({
 		refreshChatStatus,
 		archiveChat,
 		queueTurn,
+		setActiveChatTranscript,
+		clearActiveChat,
 	} = useCadmus();
 	const chat = chats.find((entry) => entry.key === chatKey);
 	const live = chatStates[chatKey];
@@ -172,6 +177,16 @@ export function ChatSession({
 	}, []);
 
 	useEffect(() => {
+		setActiveChatTranscript(chatKey, messages, tasks);
+	}, [chatKey, messages, tasks, setActiveChatTranscript]);
+
+	useEffect(() => {
+		return () => {
+			clearActiveChat(chatKey);
+		};
+	}, [chatKey, clearActiveChat]);
+
+	useEffect(() => {
 		pendingOptimistic.current = [];
 		knownUserTexts.current = new Map();
 		void loadAttempt;
@@ -204,13 +219,6 @@ export function ChatSession({
 			}
 			setTranscriptPhase("ready");
 			if (res.result.tasks) setTasks(res.result.tasks);
-			const listed = await client.callRpc<{ tasks: ChatTask[] }>(
-				"chat.tasks.list",
-				{ chatKey },
-			);
-			if (!cancelled && listed.ok && listed.result?.tasks) {
-				setTasks(listed.result.tasks);
-			}
 			const seenAt = previous ?? 0;
 			const fresh = res.result.messages.filter((message) => {
 				if (message.role !== "assistant") return false;
@@ -337,9 +345,14 @@ export function ChatSession({
 	}, [view, chatKey, client, loadAttempt]);
 
 	const wasDown = useRef(false);
+	const hasConnected = useRef(false);
 	useEffect(() => {
 		if (connectionStatus !== "connected") {
-			wasDown.current = true;
+			if (hasConnected.current) wasDown.current = true;
+			return;
+		}
+		if (!hasConnected.current) {
+			hasConnected.current = true;
 			return;
 		}
 		if (!wasDown.current) return;
@@ -778,16 +791,54 @@ export function ChatSession({
 						</button>
 					)}
 					{bot ? (
-						<BotBadge
-							bot={bot}
-							className="size-7 min-h-0 min-w-0 text-[length:var(--fs-xs)]"
-						/>
+						<button
+							type="button"
+							aria-label={`Open ${bot.name} profile`}
+							onClick={() => {
+								void navigate({
+									to: "/bot/$botId/$tab",
+									params: { botId: bot.id, tab: "schedules" },
+								});
+							}}
+							className="flex items-center gap-1.5"
+						>
+							<BotBadge
+								bot={bot}
+								className="size-7 min-h-0 min-w-0 text-[length:var(--fs-xs)]"
+							/>
+							<span className="text-[length:var(--fs-sm)] font-medium text-text">
+								{bot.name}
+							</span>
+						</button>
 					) : null}
 					{modelLabel ? (
 						<span className="rounded-full border border-border px-2 py-0.5 text-[length:var(--fs-xs)] text-text-muted">
 							{modelLabel}
 						</span>
 					) : null}
+					<ChatStatusIndicator
+						chatKey={chatKey}
+						bot={bot}
+						status={live?.status}
+						busy={busy}
+						model={bot?.model}
+						archived={archived}
+						failed={!archived && Boolean(live?.failedReason)}
+					/>
+					{archived ? null : (
+						<Toggle
+							leading={<span aria-hidden="true">↺</span>}
+							label="Harvest this chat"
+							checked={harvestOn}
+							onCheckedChange={(on) => {
+								setRecord((prev) => {
+									const base = prev ?? chat;
+									return base ? { ...base, harvest: on } : null;
+								});
+								void client.callRpc("chat.update", { chatKey, harvest: on });
+							}}
+						/>
+					)}
 					<SegmentedControl
 						ariaLabel="Transcript view"
 						className="w-fit"

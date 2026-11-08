@@ -4,7 +4,9 @@ import {
 	createRouter,
 	Outlet,
 } from "@tanstack/react-router";
+import { DesktopCockpitShell } from "@/components/desktop/CommandCockpit";
 import { CommandPaletteHost } from "@/components/desktop/CommandPalette";
+import { useDesktopViewport } from "@/components/desktop/use-desktop-viewport";
 import { CadmusProvider } from "@/context/CadmusContext";
 import { isBotTab } from "@/lib/profile-tabs";
 import { ArchivePage } from "@/routes/archive";
@@ -26,13 +28,24 @@ import { AllSchedulesPage } from "@/routes/settings-schedules";
 import { ToolsSettingsPage } from "@/routes/settings-tools";
 import { ToolsPage } from "@/routes/tools";
 
-const rootRoute = createRootRoute({
-	component: () => (
+function RootComponent() {
+	const desktop = useDesktopViewport();
+	return (
 		<CadmusProvider>
 			<CommandPaletteHost />
-			<Outlet />
+			{desktop ? (
+				<DesktopCockpitShell>
+					<Outlet />
+				</DesktopCockpitShell>
+			) : (
+				<Outlet />
+			)}
 		</CadmusProvider>
-	),
+	);
+}
+
+const rootRoute = createRootRoute({
+	component: RootComponent,
 });
 
 const indexRoute = createRoute({

@@ -4,7 +4,7 @@ import { AppShell } from "@/components/AppShell";
 import { BotBadge } from "@/components/BotBadge";
 import { BotChip } from "@/components/BotChip";
 import { Composer } from "@/components/Composer";
-import { CommandCockpit } from "@/components/desktop/CommandCockpit";
+import { DesktopChatConsole } from "@/components/desktop/DesktopChatConsole";
 import { useDesktopViewport } from "@/components/desktop/use-desktop-viewport";
 import { GroupMenuSheet } from "@/components/GroupMenuSheet";
 import { LoadError, Skeleton } from "@/components/Skeleton";
@@ -22,8 +22,31 @@ const NEEDS_CAP = 3;
 
 export function HomePage() {
 	const desktop = useDesktopViewport();
-	if (desktop) return <CommandCockpit />;
+	if (desktop) return <DesktopHome />;
 	return <MobileHome />;
+}
+
+function DesktopHome() {
+	const navigate = useNavigate();
+	const { bots, lastBotId } = useCadmus();
+	const botId =
+		lastBotId && bots.some((b) => b.id === lastBotId)
+			? lastBotId
+			: (bots[0]?.id ?? "");
+
+	return (
+		<DesktopChatConsole
+			chatKey={null}
+			botId={botId}
+			onChatCreated={(chatKey) => {
+				void navigate({
+					to: "/chat/$chatKey",
+					params: { chatKey },
+					search: { view: "chat" },
+				});
+			}}
+		/>
+	);
 }
 
 function MobileHome() {

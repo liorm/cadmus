@@ -1,4 +1,11 @@
-import { type JSX, useCallback, useEffect, useState } from "react";
+import { useNavigate, useRouterState } from "@tanstack/react-router";
+import {
+	type JSX,
+	type ReactNode,
+	useCallback,
+	useEffect,
+	useState,
+} from "react";
 import { useCadmus } from "@/context/CadmusContext";
 import { CockpitFrame } from "./CockpitFrame";
 import { DesktopChatConsole } from "./DesktopChatConsole";
@@ -7,86 +14,82 @@ import { TelemetryDeck } from "./TelemetryDeck";
 
 type FleetFilter = "all" | "running" | "needs";
 
-function newestNotClosed(
-	botId: string,
-	chats: ReadonlyArray<{
-		key: string;
-		botId: string;
-		closed?: boolean;
-		deleted?: boolean;
-		createdAt: number;
-	}>,
-	chatStates: Record<string, { lastBotAt?: number } | undefined>,
-): string | null {
-	let bestKey: string | null = null;
-	let bestAt = Number.NEGATIVE_INFINITY;
-	for (const chat of chats) {
-		if (chat.botId !== botId || chat.closed || chat.deleted) continue;
-		const at = chatStates[chat.key]?.lastBotAt ?? chat.createdAt;
-		if (at < bestAt) continue;
-		bestAt = at;
-		bestKey = chat.key;
-	}
-	return bestKey;
-}
+export function DesktopCockpitShell({
+	children,
+}: {
+	children: ReactNode;
+}): JSX.Element {
+	const { bots, chats, lastBotId, setLastBotId } = useCadmus();
+	const routerState = useRouterState();
+	const navigate = useNavigate();
+	const pathname = routerState.location.pathname;
+	const search = routerState.location.search as Record<string, unknown>;
 
-export function CommandCockpit(): JSX.Element {
-	const { bots, chats, chatStates, lastBotId, setLastBotId } = useCadmus();
-	const [selectedBotId, setSelectedBotId] = useState(
+	const chatMatch = pathname.match(/^\/chat\/([^/]+)/);
+	const activeChatKey = chatMatch?.[1]
+		? decodeURIComponent(chatMatch[1])
+		: null;
+
+	const botMatch = pathname.match(/^\/bot\/([^/]+)/);
+	const urlBotId =
+		botMatch?.[1] && botMatch[1] !== "new"
+			? decodeURIComponent(botMatch[1])
+			: null;
+	const queryBotId = typeof search?.bot === "string" ? search.bot : null;
+	const chatBotId = activeChatKey
+		? chats.find((c) => c.key === activeChatKey)?.botId
+		: null;
+
+	const [localBotId, setLocalBotId] = useState(
 		() => lastBotId ?? bots[0]?.id ?? "",
 	);
-	const [selectedChatKey, setSelectedChatKey] = useState<string | null>(null);
 	const [filter, setFilter] = useState<FleetFilter>("all");
-	const botId = bots.some((bot) => bot.id === selectedBotId)
-		? selectedBotId
-		: lastBotId && bots.some((bot) => bot.id === lastBotId)
-			? lastBotId
-			: (bots[0]?.id ?? "");
+
+	const effectiveBotId =
+		urlBotId && bots.some((b) => b.id === urlBotId)
+			? urlBotId
+			: chatBotId && bots.some((b) => b.id === chatBotId)
+				? chatBotId
+				: queryBotId && bots.some((b) => b.id === queryBotId)
+					? queryBotId
+					: bots.some((b) => b.id === localBotId)
+						? localBotId
+						: lastBotId && bots.some((b) => b.id === lastBotId)
+							? lastBotId
+							: (bots[0]?.id ?? "");
 
 	const selectBot = useCallback(
 		(nextBotId: string) => {
 			setLastBotId(nextBotId);
-			setSelectedBotId(nextBotId);
-			setSelectedChatKey((current) => {
-				if (!current) return null;
-				const currentChat = chats.find((chat) => chat.key === current);
-				if (!currentChat || currentChat.botId === nextBotId) return current;
-				return newestNotClosed(nextBotId, chats, chatStates);
-			});
+			setLocalBotId(nextBotId);
+			if (pathname.startsWith("/chat/") || pathname.startsWith("/bot/")) {
+				void navigate({ to: "/" });
+			}
 		},
-		[chatStates, chats, setLastBotId],
+		[navigate, pathname, setLastBotId],
 	);
 
 	const selectChat = useCallback(
 		(chatKey: string, nextBotId: string) => {
-			setSelectedChatKey(chatKey);
-			setSelectedBotId(nextBotId);
 			setLastBotId(nextBotId);
+			setLocalBotId(nextBotId);
+			void navigate({
+				to: "/chat/$chatKey",
+				params: { chatKey },
+				search: { view: "chat" },
+			});
 		},
-		[setLastBotId],
+		[navigate, setLastBotId],
 	);
 
 	const startThread = useCallback(
 		(nextBotId: string) => {
-			setSelectedBotId(nextBotId);
-			setSelectedChatKey(null);
 			setLastBotId(nextBotId);
+			setLocalBotId(nextBotId);
+			void navigate({ to: "/" });
 		},
-		[setLastBotId],
+		[navigate, setLastBotId],
 	);
-
-	const onChatCreated = useCallback(
-		(chatKey: string) => {
-			setSelectedChatKey(chatKey);
-			setSelectedBotId(botId);
-			setLastBotId(botId);
-		},
-		[botId, setLastBotId],
-	);
-
-	const onArchived = useCallback(() => {
-		setSelectedChatKey(null);
-	}, []);
 
 	useEffect(() => {
 		function onOpenChat(event: Event) {
@@ -99,15 +102,19 @@ export function CommandCockpit(): JSX.Element {
 				return;
 			}
 			event.preventDefault();
-			setSelectedChatKey(detail.chatKey);
-			setSelectedBotId(detail.botId);
 			setLastBotId(detail.botId);
+			setLocalBotId(detail.botId);
+			void navigate({
+				to: "/chat/$chatKey",
+				params: { chatKey: detail.chatKey },
+				search: { view: "chat" },
+			});
 		}
 		window.addEventListener("cadmus:open-chat", onOpenChat);
 		return () => {
 			window.removeEventListener("cadmus:open-chat", onOpenChat);
 		};
-	}, [setLastBotId]);
+	}, [navigate, setLastBotId]);
 
 	return (
 		<CockpitFrame
@@ -115,8 +122,8 @@ export function CommandCockpit(): JSX.Element {
 			onSelectBot={selectBot}
 			fleet={
 				<FleetDeck
-					selectedBotId={botId}
-					selectedChatKey={selectedChatKey}
+					selectedBotId={effectiveBotId}
+					selectedChatKey={activeChatKey}
 					filter={filter}
 					onFilterChange={setFilter}
 					onSelectBot={selectBot}
@@ -124,15 +131,39 @@ export function CommandCockpit(): JSX.Element {
 					onNewThread={startThread}
 				/>
 			}
-			stage={
-				<DesktopChatConsole
-					chatKey={selectedChatKey}
-					botId={botId}
-					onChatCreated={onChatCreated}
-					onArchived={onArchived}
+			stage={children}
+			telemetry={
+				<TelemetryDeck
+					chatKey={activeChatKey}
+					botId={effectiveBotId}
+					isStageChat={Boolean(activeChatKey)}
 				/>
 			}
-			telemetry={<TelemetryDeck chatKey={selectedChatKey} botId={botId} />}
 		/>
+	);
+}
+
+export function CommandCockpit(): JSX.Element {
+	const { bots, lastBotId } = useCadmus();
+	const navigate = useNavigate();
+	const botId =
+		lastBotId && bots.some((b) => b.id === lastBotId)
+			? lastBotId
+			: (bots[0]?.id ?? "");
+
+	return (
+		<DesktopCockpitShell>
+			<DesktopChatConsole
+				chatKey={null}
+				botId={botId}
+				onChatCreated={(chatKey) => {
+					void navigate({
+						to: "/chat/$chatKey",
+						params: { chatKey },
+						search: { view: "chat" },
+					});
+				}}
+			/>
+		</DesktopCockpitShell>
 	);
 }

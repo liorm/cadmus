@@ -1,10 +1,13 @@
 import type { BotRecord } from "@cadmus/contract/types";
+import { useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { AppShell } from "@/components/AppShell";
 import { BotBadge } from "@/components/BotBadge";
 import { BotChip } from "@/components/BotChip";
 import { BottomSheet } from "@/components/BottomSheet";
 import { Composer } from "@/components/Composer";
+import { DesktopChatConsole } from "@/components/desktop/DesktopChatConsole";
+import { useDesktopViewport } from "@/components/desktop/use-desktop-viewport";
 import { useCadmus } from "@/context/CadmusContext";
 import { botColor, botColorVar } from "@/lib/bot-color";
 import { cn } from "@/lib/utils";
@@ -37,6 +40,39 @@ function ToBotChip({ bot, onOpen }: { bot: BotRecord; onOpen: () => void }) {
 }
 
 export function NewTaskPage({ botId }: { botId?: string }) {
+	const desktop = useDesktopViewport();
+	if (desktop) {
+		return <DesktopNewTaskPage botId={botId} />;
+	}
+	return <MobileNewTaskPage botId={botId} />;
+}
+
+function DesktopNewTaskPage({ botId }: { botId?: string }) {
+	const navigate = useNavigate();
+	const { bots, lastBotId } = useCadmus();
+	const targetBot =
+		botId && bots.some((b) => b.id === botId)
+			? botId
+			: lastBotId && bots.some((b) => b.id === lastBotId)
+				? lastBotId
+				: (bots[0]?.id ?? "");
+
+	return (
+		<DesktopChatConsole
+			chatKey={null}
+			botId={targetBot}
+			onChatCreated={(chatKey) => {
+				void navigate({
+					to: "/chat/$chatKey",
+					params: { chatKey },
+					search: { view: "chat" },
+				});
+			}}
+		/>
+	);
+}
+
+function MobileNewTaskPage({ botId }: { botId?: string }) {
 	const { bots, teamLeaderBotId, familyId, createChatAndSubmit } = useCadmus();
 	const [pickedBotId, setPickedBotId] = useState<string | null>(null);
 	const [pickerOpen, setPickerOpen] = useState(false);

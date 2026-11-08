@@ -44,15 +44,28 @@ function eventChatKey(event: { payload?: unknown }): string | undefined {
 export function TelemetryDeck({
 	chatKey,
 	botId,
+	isStageChat = false,
 }: {
 	chatKey: string | null;
 	botId: string;
+	isStageChat?: boolean;
 }): JSX.Element {
-	const { bots, chatStates, client, connectionStatus, subscribeEvents } =
-		useCadmus();
+	const {
+		bots,
+		chatStates,
+		client,
+		connectionStatus,
+		subscribeEvents,
+		activeChat,
+	} = useCadmus();
 	const [tab, setTab] = useState<DeckTab>("tools");
-	const [messages, setMessages] = useState<TranscriptMessageView[]>([]);
-	const [tasks, setTasks] = useState<ChatTask[]>([]);
+	const [localMessages, setLocalMessages] = useState<TranscriptMessageView[]>(
+		[],
+	);
+	const [localTasks, setLocalTasks] = useState<ChatTask[]>([]);
+	const isShared = isStageChat || activeChat.chatKey === chatKey;
+	const messages = isShared ? activeChat.messages : localMessages;
+	const tasks = isShared ? activeChat.tasks : localTasks;
 	const messageReq = useRef(0);
 	const taskReq = useRef(0);
 	const scroller = useRef<HTMLDivElement | null>(null);
@@ -64,7 +77,7 @@ export function TelemetryDeck({
 				messages?: TranscriptMessageView[];
 			}>("chat.messages", { chatKey: key });
 			if (id !== messageReq.current) return;
-			if (history.ok) setMessages(history.result?.messages ?? []);
+			if (history.ok) setLocalMessages(history.result?.messages ?? []);
 		},
 		[client],
 	);
@@ -77,27 +90,27 @@ export function TelemetryDeck({
 				{ chatKey: key },
 			);
 			if (id !== taskReq.current) return;
-			if (listed.ok) setTasks(listed.result?.tasks ?? []);
+			if (listed.ok) setLocalTasks(listed.result?.tasks ?? []);
 		},
 		[client],
 	);
 
 	useEffect(() => {
-		if (!chatKey) {
+		if (!chatKey || isStageChat || activeChat.chatKey === chatKey) {
 			messageReq.current += 1;
 			taskReq.current += 1;
-			setMessages([]);
-			setTasks([]);
+			setLocalMessages([]);
+			setLocalTasks([]);
 			return;
 		}
-		setMessages([]);
-		setTasks([]);
+		setLocalMessages([]);
+		setLocalTasks([]);
 		void loadMessages(chatKey);
 		void loadTasks(chatKey);
-	}, [chatKey, loadMessages, loadTasks]);
+	}, [chatKey, isStageChat, activeChat.chatKey, loadMessages, loadTasks]);
 
 	useEffect(() => {
-		if (!chatKey) return;
+		if (!chatKey || isStageChat || activeChat.chatKey === chatKey) return;
 		return subscribeEvents((event) => {
 			if (eventChatKey(event) !== chatKey) return;
 			if (
@@ -109,7 +122,7 @@ export function TelemetryDeck({
 			if (event.type === "chat.tasks") {
 				const incoming = event.payload.tasks;
 				taskReq.current += 1;
-				setTasks((prev) =>
+				setLocalTasks((prev) =>
 					incoming.map((task) => {
 						const existing = prev.find((item) => item.index === task.index);
 						return {
@@ -127,20 +140,32 @@ export function TelemetryDeck({
 				);
 			}
 		});
-	}, [chatKey, loadMessages, subscribeEvents]);
+	}, [chatKey, isStageChat, activeChat.chatKey, loadMessages, subscribeEvents]);
 
 	const wasDown = useRef(false);
+	const hasConnected = useRef(false);
 	useEffect(() => {
-		if (!chatKey) return;
+		if (!chatKey || isStageChat || activeChat.chatKey === chatKey) return;
 		if (connectionStatus !== "connected") {
-			wasDown.current = true;
+			if (hasConnected.current) wasDown.current = true;
+			return;
+		}
+		if (!hasConnected.current) {
+			hasConnected.current = true;
 			return;
 		}
 		if (!wasDown.current) return;
 		wasDown.current = false;
 		void loadMessages(chatKey);
 		void loadTasks(chatKey);
-	}, [chatKey, connectionStatus, loadMessages, loadTasks]);
+	}, [
+		chatKey,
+		isStageChat,
+		activeChat.chatKey,
+		connectionStatus,
+		loadMessages,
+		loadTasks,
+	]);
 
 	const calls = useMemo(() => {
 		const next: Array<{ key: string; call: ToolExecutionDetail }> = [];
