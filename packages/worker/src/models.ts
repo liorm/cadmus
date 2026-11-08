@@ -581,13 +581,13 @@ export function echoResponse(
 		return handleHarvestPrompt(context);
 	}
 
-	if (userText.startsWith("[tasks · auto-continue")) {
+	if (userText.includes("[tasks · auto-continue")) {
 		// Lets e2e pin the stuck guard: a task titled with this marker is not touched.
 		if (userText.includes("[[no-progress]]")) {
 			return fauxAssistantMessage(`echo(${userCount}): ${userText}`);
 		}
-		const inProgress = /#(\d+) \[in_progress\]/.exec(userText);
-		const pending = /#(\d+) \[pending\]/.exec(userText);
+		const inProgress = /#(\d+)[^\w\n]*\[in_progress\]/.exec(userText);
+		const pending = /#(\d+)[^\w\n]*\[pending\]/.exec(userText);
 		const index = inProgress?.[1] ?? pending?.[1];
 		if (index) {
 			const n = Number(index);

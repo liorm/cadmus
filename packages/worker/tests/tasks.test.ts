@@ -69,7 +69,7 @@ describe("chat tasks DO internals", () => {
 			return (viewed.frame.result?.messages ?? []).some(
 				(message) =>
 					message.role === "user" &&
-					message.text.startsWith("[tasks · auto-continue"),
+					message.text.includes("[tasks · auto-continue"),
 			);
 		});
 		await abortAllDurableObjects();
@@ -79,7 +79,7 @@ describe("chat tasks DO internals", () => {
 		const continues = (viewed.frame.result?.messages ?? []).filter(
 			(message) =>
 				message.role === "user" &&
-				message.text.startsWith("[tasks · auto-continue"),
+				message.text.includes("[tasks · auto-continue"),
 		);
 		expect(continues.length).toBeLessThanOrEqual(2);
 	}, 30_000);

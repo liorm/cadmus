@@ -147,7 +147,7 @@ describe("chat tasks", () => {
 			const continues = (viewed.frame.result?.messages ?? []).filter(
 				(message) =>
 					message.role === "user" &&
-					message.text.startsWith("[tasks · auto-continue"),
+					message.text.includes("[tasks · auto-continue"),
 			);
 			const open = (viewed.frame.result?.tasks ?? []).filter(
 				(task) => task.status !== "done",
@@ -170,7 +170,7 @@ describe("chat tasks", () => {
 			return (viewed.frame.result?.messages ?? []).some(
 				(message) =>
 					message.role === "user" &&
-					message.text.startsWith("[tasks · auto-continue"),
+					message.text.includes("[tasks · auto-continue"),
 			);
 		});
 		const aborted = await sendRpc("turn.abort", { chatKey: "main" }, scope);
@@ -216,9 +216,9 @@ describe("chat tasks", () => {
 			.filter((message) => message.role === "user")
 			.map((message) => message.text);
 		expect(texts.some((text) => text === "queued-user")).toBe(true);
-		expect(
-			texts.some((text) => text.startsWith("[tasks · auto-continue")),
-		).toBe(true);
+		expect(texts.some((text) => text.includes("[tasks · auto-continue"))).toBe(
+			true,
+		);
 	}, 30_000);
 
 	it("omits task tools in group-member consults and with an explicit allowlist", async () => {
@@ -425,7 +425,7 @@ describe("chat tasks", () => {
 		const continues = (viewed.frame.result?.messages ?? []).filter(
 			(message) =>
 				message.role === "user" &&
-				message.text.startsWith("[tasks · auto-continue"),
+				message.text.includes("[tasks · auto-continue"),
 		);
 		const open = (viewed.frame.result?.tasks ?? []).filter(
 			(task) => task.status !== "done",
