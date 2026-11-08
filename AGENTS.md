@@ -17,8 +17,8 @@ This document contains everything an autonomous coding agent needs to understand
 2. **Two-Tier Storage Boundary (No `pi-durable` Session `Doc`s for Domain Entities)**:
    - Do **not** use `pi-durable` `defineDoc` session documents to store bots, files, chats, schedules, or harvest notes.
    - **Rule of Thumb**:
-     - Anything that belongs inside one Bot Family's conversations and chats lives in **`FamilyStore`** ([`src/store/family-interface.ts`](src/store/family-interface.ts) -> [`SqliteFamilyStore`](src/store/sqlite-family.ts) on DO SQLite).
-     - Anything global or administrative (users, auth tokens, accounts, user-to-account memberships, account-level encrypted BYOK credentials, and the `account <-> family <-> DO` catalog) lives in **`AdminStore`** ([`src/store/admin-interface.ts`](src/store/admin-interface.ts) -> [`D1AdminStore`](src/store/d1-admin.ts) on Cloudflare D1).
+     - Anything that belongs inside one Bot Family's conversations and chats lives in **`FamilyStore`** ([`packages/worker/src/store/family-interface.ts`](packages/worker/src/store/family-interface.ts) -> [`SqliteFamilyStore`](packages/worker/src/store/sqlite-family.ts) on DO SQLite).
+     - Anything global or administrative (users, auth tokens, accounts, user-to-account memberships, account-level encrypted BYOK credentials, and the `account <-> family <-> DO` catalog) lives in **`AdminStore`** ([`packages/worker/src/store/admin-interface.ts`](packages/worker/src/store/admin-interface.ts) -> [`D1AdminStore`](packages/worker/src/store/d1-admin.ts) on Cloudflare D1).
      - `pi-durable` is used strictly for conversations, transcript entries, model turns, and durable tasks (`ScheduleTask`, `SearchBotTask`).
 
 3. **No Slash Commands; Status Is `chat.status`**:
@@ -94,7 +94,7 @@ This document contains everything an autonomous coding agent needs to understand
 Unit testing is secondary. **Black-box End-to-End (E2E) tests are paramount** to guarantee that the system as a whole behaves correctly without leaking internal implementation details:
 1. **Backend & Protocol API (`e2e/*.test.ts`)**: Black-box tests running against the real Worker runtime (`workerd` via Vitest / `cloudflare:test`), interacting strictly through HTTP/WS contract calls (`callApi`, `sendRpc`, `connectTestWs`, `workerFetch`). These guarantee that the API is solid, tenant-isolated, durable, and replay-safe across DO restarts.
 2. **Web App Frontend (`bun run test:ui`)**: Black-box Playwright tests. `packages/web-app/tests/flows/*.spec.ts` is the mobile suite (Pixel 7) and stays the phone journeys. `packages/web-app/tests/desktop/*.spec.ts` is the 1440×900 Command Cockpit suite. `bun run test:ui` runs both projects.
-3. **Always Add / Update E2E Tests**: When introducing new features or modifying behavior, prioritize adding or updating black-box E2E tests (`e2e/*.test.ts` for backend/protocol changes and Playwright flow tests in `packages/web-app/tests/flows/` for web UI changes). Unit tests should only be used for small isolated algorithmic utilities (e.g. text parsing, time formatting).
+3. **Always Add / Update E2E Tests**: When introducing new features or modifying behavior, prioritize adding or updating black-box E2E tests (`e2e/*.test.ts` for backend/protocol changes and Playwright tests in both `packages/web-app/tests/flows/` and `packages/web-app/tests/desktop/` for web UI changes). Unit tests should only be used for small isolated algorithmic utilities (e.g. text parsing, time formatting).
 
 ### Commands
 
@@ -111,7 +111,6 @@ bun run contract:check
 
 # Typecheck root, contract, cli, web-app, daemon, and worker (two projects at a time)
 bun run typecheck
-bun check
 
 # Lint and format with Biome
 bun run lint
@@ -128,7 +127,7 @@ bun run check:all
    - `e2e/` is strictly black-box: no file in `e2e/` may import from `packages/*` (`@cadmus/worker`, `@cadmus/web-app`, `@cadmus/cli`, `@cadmus/daemon`).
    - Only [`e2e/helpers.ts`](e2e/helpers.ts) may import `@cadmus/contract/{types,routes,tools,client,schemas}` and `cloudflare:test` (`SELF`). Every `e2e/*.test.ts` file imports only from `./helpers.js` (and `vitest`), calls [`useWorkerFixture`](e2e/helpers.ts) inside `describe(...)` to start/stop the Worker fixture, and interacts with the system strictly via HTTP/WS contract calls (`callApi`, `sendRpc`, `connectTestWs`, `workerFetch`).
    - Place white-box workerd tests (tests that inspect `env.CADMUS_BOT_FAMILY`, `env.CADMUS_ENV`, `env.CADMUS_ADMIN_DB`, `runDurableObjectAlarm`, `runInDurableObject`, `installProviderToolCapture`, or internal Worker modules) under `packages/worker/tests/*.test.ts` and pure Worker unit tests under `packages/worker/tests/unit/*.test.ts`.
-   - Place non-worker integration/conformance tests under `tests/{cli,daemon,web,contract,conformance,scripts}/`.
+   - Place non-worker integration/conformance tests under `tests/{conformance,contract,scripts}/` and package-scoped tests under `packages/{cli,daemon,web-app}/tests/`.
 2. Provision a fresh Cadmus account per test with [`uniqueAccountId`](e2e/helpers.ts) (`crypto.randomUUID()`). Do not hardcode a shared account id (`acct-1`, `acct`, `default-account`, and the like). A Vitest worker reuses one workerd, so D1 rows, KV keys, Durable Object names (`cadmus:${accountId}:${familyId}`, `env:${accountId}:${envId}`), auth-token hashes, and isolate memo keys collide when two tests reuse an id. Compare assertions to the generated id. A tenant-isolation test uses two ids from the helper. Omitting `accountId` on a master-secret call authenticates as `default-account`; do not do that for a test that writes. Family and bot slugs stay scoped under that account.
    Parallel-safety for the rest of the shared worker state:
    - Restore global stubs before the test returns: `globalThis.fetch`, `env.CADMUS_ADMIN_DB.prepare` / `batch`, and `setupLogger` (back to `{ type: "silent" }`). `afterEach` alone is not enough when a test replaces the stub mid-body.
@@ -164,3 +163,26 @@ Contract changes are explicit and reviewed. Edit the schemas under `packages/con
 All packages live under `packages/*` and are unified Bun workspace members. Packages depend on sibling workspace packages using `"workspace:*"`.
 
 Bump `CADMUS_SCHEMA_VERSION` only when D1 tables or columns change in [`packages/worker/src/store/d1-admin.ts`](packages/worker/src/store/d1-admin.ts). A contract or HTTP change does not bump that version. The handler map in [`packages/worker/src/command-handlers.ts`](packages/worker/src/command-handlers.ts) is typed so a missing or mismatched command handler fails `bun run typecheck`.
+
+---
+
+## 5. Multi-Surface Feature Workflow (Contract -> Backend -> Web Surfaces)
+
+Because `@cadmus/web-app` and its Playwright E2E suites (`bun run test:ui`) execute against the real local Cloudflare Worker and generated `@cadmus/contract` routes, full-stack features have a strict **sequential dependency**:
+
+1. **Phase 1 — Contract & Backend ([`.agents/skills/contract-backend/SKILL.md`](.agents/skills/contract-backend/SKILL.md))**:
+   - Lock schemas in `packages/contract/src/*`, run `bun run contract:gen`, and verify `bun run contract:check` + `bun run boundaries`.
+   - Implement Worker handlers (`packages/worker/src/family-do.ts`, `packages/worker/src/index.ts`, typed via `packages/worker/src/command-handlers.ts`), tools (`packages/worker/src/extensions/*`), and storage in `packages/worker/src/store/*` (plus CLI/Daemon updates in `packages/{cli,daemon}/` if applicable).
+   - Add/update black-box Worker E2E tests in `e2e/*.test.ts` (and `e2e/contract-conformance.test.ts` for new commands).
+   - **Gate 1**: `bun run typecheck && bun run test:conformance && bun run test` must pass before starting Phase 2.
+
+2. **Phase 2 — Dual Web Surfaces ([`.agents/skills/web-surfaces/SKILL.md`](.agents/skills/web-surfaces/SKILL.md) & [`packages/web-app/AGENTS.md`](packages/web-app/AGENTS.md))**:
+   - Wire shared state/RPC calls once in `packages/web-app/src/context/CadmusContext.tsx`, `packages/web-app/src/hooks/*`, and `packages/web-app/src/lib/*`.
+   - Deliver first-class UI on both **Mobile (`390×844`)** and the **Persistent Desktop Command Cockpit (`1440×900`)** (`CockpitFrame` Stage / `FleetDeck` / `TelemetryDeck` / `CommandPalette`, with zero mobile `AppShell` ejection on Desktop).
+   - Add/update black-box Playwright E2E tests in **both** `packages/web-app/tests/flows/*.spec.ts` (Mobile) and `packages/web-app/tests/desktop/*.spec.ts` (Desktop).
+   - **Gate 2**: `bun run typecheck && bun run test:ui` must pass.
+
+3. **Subagent Execution Strategy**:
+   - **Small / Single-Layer Changes**: A single Coder agent executes Phase 1 then Phase 2 sequentially.
+   - **Multi-Surface Features**: Dispatch a `contract-backend` Coder subagent to complete and verify Phase 1 (Gate 1 green), then dispatch a `web-surfaces` Coder subagent to complete and verify Phase 2 (Gate 2 green).
+   - **Architect Review**: Always run the `architect-review` phase across the combined diff after implementation completes.
