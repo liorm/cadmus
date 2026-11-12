@@ -38,6 +38,7 @@ export const AccountGetCommandSchema = Type.Object(
 	},
 	{
 		readOnly: true,
+		grant: "members.read",
 		description:
 			"Retrieve tenant account details including membership, configured bot families, and provider credentials.",
 	},
@@ -83,6 +84,7 @@ export const AccountUpdateCommandSchema = Type.Object(
 		),
 	},
 	{
+		grant: "account.manage",
 		description:
 			"Update account-level configuration including display name and default timezone.",
 	},
@@ -108,6 +110,7 @@ export const AccountMembersListCommandSchema = Type.Object(
 	},
 	{
 		readOnly: true,
+		grant: "members.read",
 		description:
 			"List all user members and their roles associated with the tenant account.",
 	},
@@ -146,10 +149,19 @@ export const AccountMembersAddCommandSchema = Type.Object(
 					}),
 				),
 				role: Type.Optional(
-					Type.Union([Type.Literal("owner"), Type.Literal("member")], {
-						description:
-							"Access role: 'owner' has full administrative rights; 'member' has standard access (defaults to 'member').",
-					}),
+					Type.Union(
+						[
+							Type.Literal("user"),
+							Type.Literal("account-admin"),
+							Type.Literal("super-admin"),
+							Type.Literal("owner"),
+							Type.Literal("member"),
+						],
+						{
+							description:
+								"Access role: 'account-admin' (formerly 'owner'), 'user' (formerly 'member', the default) or 'super-admin'. Old names are still accepted.",
+						},
+					),
 				),
 				token: Type.Optional(
 					Type.String({
@@ -162,6 +174,7 @@ export const AccountMembersAddCommandSchema = Type.Object(
 		),
 	},
 	{
+		grant: "members.manage",
 		description:
 			"Add or invite a user to the account with a specified access role and optional credentials.",
 	},
@@ -189,6 +202,7 @@ export const AccountCredentialsListCommandSchema = Type.Object(
 	},
 	{
 		readOnly: true,
+		grant: "credentials.read",
 		description:
 			"List configured AI provider credential summaries (excluding secret tokens).",
 	},
@@ -225,6 +239,7 @@ export const AccountCredentialsSetCommandSchema = Type.Object(
 		),
 	},
 	{
+		grant: "credentials.manage",
 		description:
 			"Store or update encrypted provider credentials (API key or OAuth token set) for the account.",
 	},
@@ -261,6 +276,7 @@ export const AccountCredentialsDeleteCommandSchema = Type.Object(
 		),
 	},
 	{
+		grant: "credentials.manage",
 		description:
 			"Permanently delete configured credentials for a provider from the account.",
 	},
@@ -304,6 +320,7 @@ export const AccountModelsListCommandSchema = Type.Object(
 	},
 	{
 		readOnly: true,
+		grant: "bot.read",
 		description:
 			"List supported LLM models and their capabilities, optionally filtered by provider or authentication status.",
 	},
@@ -331,6 +348,7 @@ export const AuthWhoamiCommandSchema = Type.Object(
 	},
 	{
 		readOnly: true,
+		grant: "tokens.self",
 		description:
 			"Return the authenticated principal (credential kind, user, account and role) that the server resolved for this request.",
 	},
@@ -356,6 +374,7 @@ export const FamilyListCommandSchema = Type.Object(
 	},
 	{
 		readOnly: true,
+		grant: "bot.read",
 		description:
 			"List all bot families (Durable Object clusters) registered to the account.",
 	},
@@ -407,6 +426,7 @@ export const FamilyCreateCommandSchema = Type.Object(
 		),
 	},
 	{
+		grant: "family.manage",
 		description:
 			"Create a new bot family, initializing its partitioned Cloudflare Durable Object instance.",
 	},
@@ -442,6 +462,7 @@ export const FamilyGetCommandSchema = Type.Object(
 	},
 	{
 		readOnly: true,
+		grant: "bot.read",
 		description:
 			"Retrieve metadata for a specific bot family or the currently scoped family.",
 	},
@@ -499,6 +520,7 @@ export const FamilyUpdateCommandSchema = Type.Object(
 		),
 	},
 	{
+		grant: "family.manage",
 		description:
 			"Update bot family settings including display name, timezone, idle harvest delay, or Team Leader bot.",
 	},
@@ -529,6 +551,7 @@ export const FamilyDeleteCommandSchema = Type.Object(
 		),
 	},
 	{
+		grant: "family.manage",
 		description:
 			"Permanently delete a bot family and cascade-delete its Durable Object data.",
 	},
@@ -554,6 +577,7 @@ export const BotListCommandSchema = Type.Object(
 	},
 	{
 		readOnly: true,
+		grant: "bot.read",
 		description: "List all bots configured within the current bot family.",
 	},
 );
@@ -655,6 +679,7 @@ export const BotCreateCommandSchema = Type.Object(
 		),
 	},
 	{
+		grant: "bot.write",
 		description:
 			"Create a new bot persona with default model, thinking budget, tool access, optional timezone and metadata, and initial virtual workspace files.",
 	},
@@ -686,6 +711,7 @@ export const BotGetCommandSchema = Type.Object(
 	},
 	{
 		readOnly: true,
+		grant: "bot.read",
 		description:
 			"Retrieve full bot configuration, system prompt (SOUL.md), memory state, and knowledge documents.",
 	},
@@ -759,6 +785,7 @@ export const BotUpdateCommandSchema = Type.Object(
 		),
 	},
 	{
+		grant: "bot.write",
 		description:
 			"Update an existing bot's model, thinking budget, tool access, display name, soul, timezone, or metadata.",
 	},
@@ -789,6 +816,7 @@ export const BotDeleteCommandSchema = Type.Object(
 		),
 	},
 	{
+		grant: "bot.delete",
 		description:
 			"Permanently delete a bot persona and cascade-delete its chat history, virtual files, and schedules.",
 	},
@@ -848,6 +876,7 @@ export const ChatCreateCommandSchema = Type.Object(
 		),
 	},
 	{
+		grant: "chat.use",
 		description:
 			"Create a new chat conversation thread with a bot, returning its unique routing key.",
 	},
@@ -894,6 +923,7 @@ export const ChatListCommandSchema = Type.Object(
 	},
 	{
 		readOnly: true,
+		grant: "chat.use",
 		description:
 			"List chat conversation sessions in this bot family, optionally filtered by botId and kinds.",
 	},
@@ -925,6 +955,7 @@ export const ChatGetCommandSchema = Type.Object(
 	},
 	{
 		readOnly: true,
+		grant: "chat.use",
 		description:
 			"Retrieve chat session metadata, active busy flag, recent messages, entries, and harvest notes.",
 	},
@@ -962,6 +993,7 @@ export const ChatUpdateCommandSchema = Type.Object(
 		),
 	},
 	{
+		grant: "chat.use",
 		description:
 			"Update a chat's tools env setting, per-chat harvest switch, or deadline overrides. deadlines null resets overrides. 0 on a field means no limit.",
 	},
@@ -990,6 +1022,7 @@ export const ChatTasksListCommandSchema = Type.Object(
 	},
 	{
 		readOnly: true,
+		grant: "chat.use",
 		description: "List tasks for a chat, including details and summaries.",
 	},
 );
@@ -1021,6 +1054,7 @@ export const ChatTasksGetCommandSchema = Type.Object(
 	},
 	{
 		readOnly: true,
+		grant: "chat.use",
 		description: "Get one chat task by index, including details and summary.",
 	},
 );
@@ -1039,6 +1073,7 @@ export const AccountToolsEnvsListCommandSchema = Type.Object(
 	},
 	{
 		readOnly: true,
+		grant: "toolsEnv.read",
 		description: "List account tools env definitions and the default binding.",
 	},
 );
@@ -1064,6 +1099,7 @@ export const AccountToolsEnvsCreateCommandSchema = Type.Object(
 		),
 	},
 	{
+		grant: "toolsEnv.manage",
 		description:
 			"Create a just-bash or local-daemon tools env definition. Daemon rows require confineToWorkspace or confinementPolicy. The workspace path is reported by the daemon process.",
 	},
@@ -1085,6 +1121,7 @@ export const AccountToolsEnvsPairCommandSchema = Type.Object(
 		),
 	},
 	{
+		grant: "toolsEnv.manage",
 		description:
 			"Mint a 15-minute single-use pairing token for a local-daemon env.",
 	},
@@ -1105,6 +1142,7 @@ export const AccountToolsEnvsDeregisterCommandSchema = Type.Object(
 		),
 	},
 	{
+		grant: "toolsEnv.manage",
 		description:
 			"Deregister a tools env. Every kind is removed the same way as delete: env state is wiped, the account row is dropped, and the account default is cleared when it pointed at this env. A local-daemon env first has its pairing revoked and any live connection closed.",
 	},
@@ -1129,7 +1167,10 @@ export const AccountToolsEnvsUpdateCommandSchema = Type.Object(
 			{ additionalProperties: false },
 		),
 	},
-	{ description: "Update a tools env definition. Kind is immutable." },
+	{
+		grant: "toolsEnv.manage",
+		description: "Update a tools env definition. Kind is immutable.",
+	},
 );
 export type AccountToolsEnvsUpdateCommand = Static<
 	typeof AccountToolsEnvsUpdateCommandSchema
@@ -1146,7 +1187,10 @@ export const AccountToolsEnvsDeleteCommandSchema = Type.Object(
 			{ additionalProperties: false },
 		),
 	},
-	{ description: "Delete a tools env definition and its env DO data." },
+	{
+		grant: "toolsEnv.manage",
+		description: "Delete a tools env definition and its env DO data.",
+	},
 );
 export type AccountToolsEnvsDeleteCommand = Static<
 	typeof AccountToolsEnvsDeleteCommandSchema
@@ -1179,6 +1223,7 @@ export const ChatRenameCommandSchema = Type.Object(
 		),
 	},
 	{
+		grant: "chat.use",
 		description: "Rename the title or topic of an existing chat session.",
 	},
 );
@@ -1208,6 +1253,7 @@ export const ChatCloseCommandSchema = Type.Object(
 		),
 	},
 	{
+		grant: "chat.use",
 		description: "Close and archive a chat conversation session.",
 	},
 );
@@ -1237,6 +1283,7 @@ export const ChatDeleteCommandSchema = Type.Object(
 		),
 	},
 	{
+		grant: "chat.use",
 		description:
 			"Soft-delete a chat conversation session, preserving conversation history and bot token/cost accounting.",
 	},
@@ -1273,6 +1320,7 @@ export const ChatResetCommandSchema = Type.Object(
 		),
 	},
 	{
+		grant: "chat.use",
 		description:
 			"Reset conversation history for a chat session while preserving its key, optionally injecting handoff context.",
 	},
@@ -1304,6 +1352,7 @@ export const ChatMessagesCommandSchema = Type.Object(
 	},
 	{
 		readOnly: true,
+		grant: "chat.use",
 		description:
 			"Fetch the user and assistant message exchange history for a chat session.",
 	},
@@ -1335,6 +1384,7 @@ export const ChatEntriesCommandSchema = Type.Object(
 	},
 	{
 		readOnly: true,
+		grant: "chat.use",
 		description:
 			"Fetch the underlying durable transcript entries (including tool calls and state records) for a chat session.",
 	},
@@ -1366,6 +1416,7 @@ export const ChatStatusCommandSchema = Type.Object(
 	},
 	{
 		readOnly: true,
+		grant: "chat.use",
 		description:
 			"Fetch live runtime execution status for a chat session without invoking the model or modifying history.",
 	},
@@ -1396,6 +1447,7 @@ export const ChatSubscribeCommandSchema = Type.Object(
 		),
 	},
 	{
+		grant: "chat.use",
 		description:
 			"Subscribe the current connection (WebSocket or SSE) to real-time streaming deltas, tool calls, and state events for a chat.",
 	},
@@ -1464,6 +1516,7 @@ export const TurnSubmitCommandSchema = Type.Object(
 		),
 	},
 	{
+		grant: "chat.use",
 		description:
 			"Submit a user message turn to a chat session, initiating model reasoning, tool calling, and response generation.",
 	},
@@ -1509,6 +1562,7 @@ export const TurnSteerCommandSchema = Type.Object(
 		),
 	},
 	{
+		grant: "chat.use",
 		description:
 			"Steer an active model turn by injecting guidance instructions into the running agent loop without cancelling it.",
 	},
@@ -1540,6 +1594,7 @@ export const TurnInterruptCommandSchema = Type.Object(
 		),
 	},
 	{
+		grant: "chat.use",
 		description:
 			"Interrupt and immediately abort the currently running model turn or tool call on a chat session.",
 	},
@@ -1571,6 +1626,7 @@ export const TurnAbortCommandSchema = Type.Object(
 		),
 	},
 	{
+		grant: "chat.use",
 		description:
 			"Abort and cancel an active turn on a chat session (synonym for turn.interrupt).",
 	},
@@ -1608,6 +1664,7 @@ export const FileListCommandSchema = Type.Object(
 	},
 	{
 		readOnly: true,
+		grant: "bot.read",
 		description:
 			"List virtual workspace files (SOUL.md, MEMORY.md, and knowledge documents) associated with a bot.",
 	},
@@ -1645,6 +1702,7 @@ export const FileReadCommandSchema = Type.Object(
 	},
 	{
 		readOnly: true,
+		grant: "bot.read",
 		description:
 			"Read a virtual workspace file's content and version metadata, or list files if path is omitted.",
 	},
@@ -1722,6 +1780,7 @@ export const FileWriteCommandSchema = Type.Object(
 		),
 	},
 	{
+		grant: "files.write",
 		description:
 			"Create, update, or delete a virtual workspace file with optimistic concurrency version control (CAS).",
 	},
@@ -1767,6 +1826,7 @@ export const FileDeleteCommandSchema = Type.Object(
 		),
 	},
 	{
+		grant: "files.write",
 		description:
 			"Delete a virtual workspace file with optimistic concurrency version verification.",
 	},
@@ -1808,6 +1868,7 @@ export const KnowledgeSearchCommandSchema = Type.Object(
 	},
 	{
 		readOnly: true,
+		grant: "bot.read",
 		description:
 			"Search across knowledge base documents for a bot using keyword and category filters.",
 	},
@@ -1890,6 +1951,7 @@ export const ScheduleCreateCommandSchema = Type.Object(
 		),
 	},
 	{
+		grant: "schedule.write",
 		description:
 			"Create a scheduled task (recurring cron, relative delay timer, or absolute timestamp) for a bot.",
 	},
@@ -1930,6 +1992,7 @@ export const ScheduleListCommandSchema = Type.Object(
 	},
 	{
 		readOnly: true,
+		grant: "bot.read",
 		description:
 			"List scheduled tasks for a bot, optionally including internal idle harvest schedules.",
 	},
@@ -2005,6 +2068,7 @@ export const ScheduleUpdateCommandSchema = Type.Object(
 		),
 	},
 	{
+		grant: "schedule.write",
 		description:
 			"Update an existing schedule's timing, prompt, destination chat, thinking budget, or enabled status.",
 	},
@@ -2035,6 +2099,7 @@ export const ScheduleDeleteCommandSchema = Type.Object(
 		),
 	},
 	{
+		grant: "schedule.write",
 		description: "Permanently delete a scheduled task by ID.",
 	},
 );

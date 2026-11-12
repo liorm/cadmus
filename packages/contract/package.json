@@ -9,6 +9,7 @@
 		"./tools": "./src/tools.ts",
 		"./client": "./src/client.ts",
 		"./schemas": "./src/schemas.ts",
+		"./grants": "./src/grants.ts",
 		"./openapi.json": "./generated/openapi.json",
 		"./asyncapi.json": "./generated/asyncapi.json"
 	},

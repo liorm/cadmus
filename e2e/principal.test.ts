@@ -20,7 +20,7 @@ const SPOOF_HEADERS: Record<string, string> = {
 			kind: "user",
 			userId: "mallory",
 			accountId: "someone-elses-account",
-			role: "owner",
+			role: "account-admin",
 		}),
 	),
 	"x-cadmus-user-id": "mallory",
@@ -49,7 +49,7 @@ describe("Principal plumbing (issue #3 phase 1)", () => {
 		expect(frame.result?.principal).toMatchObject({
 			accountId,
 			userId: "alice",
-			role: "owner",
+			role: "account-admin",
 		});
 	});
 
@@ -77,7 +77,7 @@ describe("Principal plumbing (issue #3 phase 1)", () => {
 		expect(frame.result?.principal).toMatchObject({
 			accountId,
 			userId: "alice",
-			role: "owner",
+			role: "account-admin",
 		});
 		expect(JSON.stringify(frame)).not.toContain("someone-elses-account");
 	});
@@ -120,7 +120,7 @@ describe("Principal plumbing (issue #3 phase 1)", () => {
 			expect(reply.result?.principal).toMatchObject({
 				accountId,
 				userId: "alice",
-				role: "owner",
+				role: "account-admin",
 			});
 		} finally {
 			ws.close();

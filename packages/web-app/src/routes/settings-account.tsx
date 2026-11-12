@@ -12,7 +12,7 @@ export function AccountSettingsPage() {
 	const [name, setName] = useState("");
 	const [timezone, setTimezone] = useState("UTC");
 	const [userId, setUserId] = useState("");
-	const [role, setRole] = useState<"member" | "owner">("member");
+	const [role, setRole] = useState<"user" | "account-admin">("user");
 	const [error, setError] = useState<string | null>(null);
 	const [busy, setBusy] = useState(false);
 
@@ -181,11 +181,15 @@ export function AccountSettingsPage() {
 								value={role}
 								disabled={formDisabled}
 								onChange={(event) =>
-									setRole(event.target.value === "owner" ? "owner" : "member")
+									setRole(
+										event.target.value === "account-admin"
+											? "account-admin"
+											: "user",
+									)
 								}
 							>
-								<option value="member">member</option>
-								<option value="owner">owner</option>
+								<option value="user">user</option>
+								<option value="account-admin">account admin</option>
 							</select>
 						</label>
 						<button

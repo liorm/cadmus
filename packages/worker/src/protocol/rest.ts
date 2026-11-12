@@ -22,6 +22,7 @@ export {
 type SchemaNode = {
 	type?: string;
 	readOnly?: boolean;
+	grant?: string;
 	properties?: Record<string, SchemaNode>;
 	items?: SchemaNode;
 	anyOf?: SchemaNode[];
@@ -85,6 +86,12 @@ export function getCommandSchema(
 		if (commandTypeOf(variant) === commandType) return variant;
 	}
 	return undefined;
+}
+
+/** The grant a command schema declares (`grant` option), if any. */
+export function getCommandGrant(commandType: string): string | undefined {
+	const grant = getCommandSchema(commandType)?.grant;
+	return typeof grant === "string" ? grant : undefined;
 }
 
 /** Every command type declared on `ClientCommandSchema`, in schema order. */

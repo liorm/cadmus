@@ -440,3 +440,50 @@ describe("D1 Schema Initialization & Isolate Caching (Issue #18)", () => {
 		}
 	});
 });
+
+describe("roles and accounts migration (issue #3 phase 2)", () => {
+	it("seeds the system account and is idempotent", async () => {
+		await restoreAdminSchema();
+		await ensureD1Schema(env.CADMUS_ADMIN_DB, { force: true });
+		const system = await env.CADMUS_ADMIN_DB.prepare(
+			"SELECT parent_account_id, status FROM cadmus_accounts WHERE id = 'system'",
+		).all<{ parent_account_id: string | null; status: string }>();
+		expect(system.results).toEqual([
+			{ parent_account_id: null, status: "active" },
+		]);
+	});
+
+	it("rejects a second parentless account", async () => {
+		await restoreAdminSchema();
+		await expect(
+			env.CADMUS_ADMIN_DB.prepare(
+				`INSERT INTO cadmus_accounts (id, name, timezone, created_at, parent_account_id)
+         VALUES ('rogue', 'Rogue', 'UTC', 1, NULL)`,
+			).run(),
+		).rejects.toThrow();
+	});
+
+	it("renames stored roles and parents existing tenants to system", async () => {
+		await restoreAdminSchema();
+		const acct = uniqueAccountId("legacy");
+		await env.CADMUS_ADMIN_DB.batch([
+			env.CADMUS_ADMIN_DB.prepare(
+				`INSERT INTO cadmus_accounts (id, name, timezone, created_at) VALUES (?1, 'L', 'UTC', 1)`,
+			).bind(acct),
+			env.CADMUS_ADMIN_DB.prepare(
+				`INSERT INTO cadmus_users (id, name, created_at) VALUES ('u1', 'u1', 1) ON CONFLICT(id) DO NOTHING`,
+			),
+			env.CADMUS_ADMIN_DB.prepare(
+				`INSERT INTO cadmus_account_members (account_id, user_id, role, created_at) VALUES (?1, 'u1', 'owner', 1)`,
+			).bind(acct),
+		]);
+		await ensureD1Schema(env.CADMUS_ADMIN_DB, { force: true });
+		const row = await env.CADMUS_ADMIN_DB.prepare(
+			`SELECT m.role, a.parent_account_id FROM cadmus_account_members m
+       JOIN cadmus_accounts a ON a.id = m.account_id WHERE m.account_id = ?1`,
+		)
+			.bind(acct)
+			.first<{ role: string; parent_account_id: string }>();
+		expect(row).toEqual({ role: "account-admin", parent_account_id: "system" });
+	});
+});

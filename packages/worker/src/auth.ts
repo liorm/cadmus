@@ -1,3 +1,4 @@
+import { SYSTEM_ACCOUNT_ID } from "@cadmus/contract/grants";
 import {
 	type EdgeCache,
 	getEdgeCache,
@@ -228,11 +229,19 @@ export async function authenticateRequest(
 			url.searchParams.get("userId")?.trim() ||
 			`user:${accountId}`;
 
+		if (accountId === SYSTEM_ACCOUNT_ID) {
+			return {
+				ok: false,
+				code: "unauthorized",
+				message: `Account id '${SYSTEM_ACCOUNT_ID}' is reserved`,
+			};
+		}
+
 		if (!isMasterUserEnsured(accountId, userId)) {
 			await adminStore.ensureAccountAndUser({
 				accountId,
 				userId,
-				role: "owner",
+				role: "account-admin",
 			});
 			markMasterUserEnsured(accountId, userId);
 		}
@@ -247,7 +256,7 @@ export async function authenticateRequest(
 			scope: {
 				accountId,
 				userId,
-				role: "owner",
+				role: "account-admin",
 				familyId: requestedFamilyId,
 			},
 		};

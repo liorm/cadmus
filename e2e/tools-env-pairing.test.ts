@@ -228,7 +228,7 @@ describe("tools-env automated pairing and registration", () => {
 		expect(await denied.json()).toEqual({
 			error: {
 				code: "forbidden",
-				message: "Only account owners can deregister an env",
+				message: expect.stringContaining("toolsEnv.manage"),
 			},
 		});
 
@@ -240,7 +240,7 @@ describe("tools-env automated pairing and registration", () => {
 		expect(rpcDenied.status).toBe(400);
 		expect(rpcDenied.frame.error).toEqual({
 			code: "forbidden",
-			message: "Only account owners can deregister an env",
+			message: expect.stringContaining("toolsEnv.manage"),
 		});
 
 		const stayedOpen = await Promise.race([

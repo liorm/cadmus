@@ -19,6 +19,7 @@
 		"/api/account/get": {
 			"get": {
 				"operationId": "account.get",
+				"x-cadmus-grant": "members.read",
 				"summary": "Retrieve tenant account details including membership, configured bot families, and provider credentials.",
 				"parameters": [],
 				"responses": {
@@ -54,6 +55,7 @@
 			},
 			"head": {
 				"operationId": "account.get.head",
+				"x-cadmus-grant": "members.read",
 				"summary": "Retrieve tenant account details including membership, configured bot families, and provider credentials.",
 				"parameters": [],
 				"responses": {
@@ -78,6 +80,7 @@
 		"/api/account/update": {
 			"post": {
 				"operationId": "account.update",
+				"x-cadmus-grant": "account.manage",
 				"summary": "Update account-level configuration including display name and default timezone.",
 				"requestBody": {
 					"required": true,
@@ -148,6 +151,7 @@
 		"/api/account/members/list": {
 			"get": {
 				"operationId": "account.members.list",
+				"x-cadmus-grant": "members.read",
 				"summary": "List all user members and their roles associated with the tenant account.",
 				"parameters": [],
 				"responses": {
@@ -183,6 +187,7 @@
 			},
 			"head": {
 				"operationId": "account.members.list.head",
+				"x-cadmus-grant": "members.read",
 				"summary": "List all user members and their roles associated with the tenant account.",
 				"parameters": [],
 				"responses": {
@@ -207,6 +212,7 @@
 		"/api/account/members/add": {
 			"post": {
 				"operationId": "account.members.add",
+				"x-cadmus-grant": "members.manage",
 				"summary": "Add or invite a user to the account with a specified access role and optional credentials.",
 				"requestBody": {
 					"required": true,
@@ -233,6 +239,18 @@
 										"anyOf": [
 											{
 												"type": "string",
+												"const": "user"
+											},
+											{
+												"type": "string",
+												"const": "account-admin"
+											},
+											{
+												"type": "string",
+												"const": "super-admin"
+											},
+											{
+												"type": "string",
 												"const": "owner"
 											},
 											{
@@ -240,7 +258,7 @@
 												"const": "member"
 											}
 										],
-										"description": "Access role: 'owner' has full administrative rights; 'member' has standard access (defaults to 'member')."
+										"description": "Access role: 'account-admin' (formerly 'owner'), 'user' (formerly 'member', the default) or 'super-admin'. Old names are still accepted."
 									},
 									"token": {
 										"type": "string",
@@ -287,6 +305,7 @@
 		"/api/account/credentials/list": {
 			"get": {
 				"operationId": "account.credentials.list",
+				"x-cadmus-grant": "credentials.read",
 				"summary": "List configured AI provider credential summaries (excluding secret tokens).",
 				"parameters": [],
 				"responses": {
@@ -322,6 +341,7 @@
 			},
 			"head": {
 				"operationId": "account.credentials.list.head",
+				"x-cadmus-grant": "credentials.read",
 				"summary": "List configured AI provider credential summaries (excluding secret tokens).",
 				"parameters": [],
 				"responses": {
@@ -346,6 +366,7 @@
 		"/api/account/credentials/set": {
 			"post": {
 				"operationId": "account.credentials.set",
+				"x-cadmus-grant": "credentials.manage",
 				"summary": "Store or update encrypted provider credentials (API key or OAuth token set) for the account.",
 				"requestBody": {
 					"required": true,
@@ -404,6 +425,7 @@
 		"/api/account/credentials/delete": {
 			"post": {
 				"operationId": "account.credentials.delete",
+				"x-cadmus-grant": "credentials.manage",
 				"summary": "Permanently delete configured credentials for a provider from the account.",
 				"requestBody": {
 					"required": true,
@@ -459,6 +481,7 @@
 		"/api/account/models/list": {
 			"get": {
 				"operationId": "account.models.list",
+				"x-cadmus-grant": "bot.read",
 				"summary": "List supported LLM models and their capabilities, optionally filtered by provider or authentication status.",
 				"parameters": [
 					{
@@ -515,6 +538,7 @@
 			},
 			"head": {
 				"operationId": "account.models.list.head",
+				"x-cadmus-grant": "bot.read",
 				"summary": "List supported LLM models and their capabilities, optionally filtered by provider or authentication status.",
 				"parameters": [
 					{
@@ -560,6 +584,7 @@
 		"/api/account/oauth/providers": {
 			"get": {
 				"operationId": "account.oauth.providers",
+				"x-cadmus-grant": "credentials.read",
 				"summary": "Command to list all supported OAuth providers and their authorization requirements.",
 				"parameters": [],
 				"responses": {
@@ -595,6 +620,7 @@
 			},
 			"head": {
 				"operationId": "account.oauth.providers.head",
+				"x-cadmus-grant": "credentials.read",
 				"summary": "Command to list all supported OAuth providers and their authorization requirements.",
 				"parameters": [],
 				"responses": {
@@ -619,6 +645,7 @@
 		"/api/account/oauth/start": {
 			"post": {
 				"operationId": "account.oauth.start",
+				"x-cadmus-grant": "credentials.manage",
 				"summary": "Command to begin an OAuth authentication process for a provider, returning verification URLs and flowId.",
 				"requestBody": {
 					"required": true,
@@ -678,6 +705,7 @@
 		"/api/account/oauth/status": {
 			"get": {
 				"operationId": "account.oauth.status",
+				"x-cadmus-grant": "credentials.read",
 				"summary": "Command to query the current progress, prompt, or completion status of an active OAuth flow.",
 				"parameters": [
 					{
@@ -725,6 +753,7 @@
 			},
 			"head": {
 				"operationId": "account.oauth.status.head",
+				"x-cadmus-grant": "credentials.read",
 				"summary": "Command to query the current progress, prompt, or completion status of an active OAuth flow.",
 				"parameters": [
 					{
@@ -761,6 +790,7 @@
 		"/api/account/oauth/submit": {
 			"post": {
 				"operationId": "account.oauth.submit",
+				"x-cadmus-grant": "credentials.manage",
 				"summary": "Command to advance an interactive or code-submission OAuth step with user-supplied input.",
 				"requestBody": {
 					"required": true,
@@ -821,6 +851,7 @@
 		"/api/account/oauth/cancel": {
 			"post": {
 				"operationId": "account.oauth.cancel",
+				"x-cadmus-grant": "credentials.manage",
 				"summary": "Command to immediately abort an active OAuth flow and release pending resources.",
 				"requestBody": {
 					"required": true,
@@ -876,6 +907,7 @@
 		"/api/auth/whoami": {
 			"get": {
 				"operationId": "auth.whoami",
+				"x-cadmus-grant": "tokens.self",
 				"summary": "Return the authenticated principal (credential kind, user, account and role) that the server resolved for this request.",
 				"parameters": [],
 				"responses": {
@@ -911,6 +943,7 @@
 			},
 			"head": {
 				"operationId": "auth.whoami.head",
+				"x-cadmus-grant": "tokens.self",
 				"summary": "Return the authenticated principal (credential kind, user, account and role) that the server resolved for this request.",
 				"parameters": [],
 				"responses": {
@@ -935,6 +968,7 @@
 		"/api/family/list": {
 			"get": {
 				"operationId": "family.list",
+				"x-cadmus-grant": "bot.read",
 				"summary": "List all bot families (Durable Object clusters) registered to the account.",
 				"parameters": [],
 				"responses": {
@@ -970,6 +1004,7 @@
 			},
 			"head": {
 				"operationId": "family.list.head",
+				"x-cadmus-grant": "bot.read",
 				"summary": "List all bot families (Durable Object clusters) registered to the account.",
 				"parameters": [],
 				"responses": {
@@ -994,6 +1029,7 @@
 		"/api/family/create": {
 			"post": {
 				"operationId": "family.create",
+				"x-cadmus-grant": "family.manage",
 				"summary": "Create a new bot family, initializing its partitioned Cloudflare Durable Object instance.",
 				"requestBody": {
 					"required": true,
@@ -1062,6 +1098,7 @@
 		"/api/family/get": {
 			"get": {
 				"operationId": "family.get",
+				"x-cadmus-grant": "bot.read",
 				"summary": "Retrieve metadata for a specific bot family or the currently scoped family.",
 				"parameters": [
 					{
@@ -1108,6 +1145,7 @@
 			},
 			"head": {
 				"operationId": "family.get.head",
+				"x-cadmus-grant": "bot.read",
 				"summary": "Retrieve metadata for a specific bot family or the currently scoped family.",
 				"parameters": [
 					{
@@ -1143,6 +1181,7 @@
 		"/api/family/update": {
 			"post": {
 				"operationId": "family.update",
+				"x-cadmus-grant": "family.manage",
 				"summary": "Update bot family settings including display name, timezone, idle harvest delay, or Team Leader bot.",
 				"requestBody": {
 					"required": true,
@@ -1220,6 +1259,7 @@
 		"/api/family/delete": {
 			"post": {
 				"operationId": "family.delete",
+				"x-cadmus-grant": "family.manage",
 				"summary": "Permanently delete a bot family and cascade-delete its Durable Object data.",
 				"requestBody": {
 					"required": true,
@@ -1275,6 +1315,7 @@
 		"/api/bot/list": {
 			"get": {
 				"operationId": "bot.list",
+				"x-cadmus-grant": "bot.read",
 				"summary": "List all bots configured within the current bot family.",
 				"parameters": [],
 				"responses": {
@@ -1310,6 +1351,7 @@
 			},
 			"head": {
 				"operationId": "bot.list.head",
+				"x-cadmus-grant": "bot.read",
 				"summary": "List all bots configured within the current bot family.",
 				"parameters": [],
 				"responses": {
@@ -1334,6 +1376,7 @@
 		"/api/bot/create": {
 			"post": {
 				"operationId": "bot.create",
+				"x-cadmus-grant": "bot.write",
 				"summary": "Create a new bot persona with default model, thinking budget, tool access, optional timezone and metadata, and initial virtual workspace files.",
 				"requestBody": {
 					"required": true,
@@ -1453,6 +1496,7 @@
 		"/api/bot/get": {
 			"get": {
 				"operationId": "bot.get",
+				"x-cadmus-grant": "bot.read",
 				"summary": "Retrieve full bot configuration, system prompt (SOUL.md), memory state, and knowledge documents.",
 				"parameters": [
 					{
@@ -1500,6 +1544,7 @@
 			},
 			"head": {
 				"operationId": "bot.get.head",
+				"x-cadmus-grant": "bot.read",
 				"summary": "Retrieve full bot configuration, system prompt (SOUL.md), memory state, and knowledge documents.",
 				"parameters": [
 					{
@@ -1536,6 +1581,7 @@
 		"/api/bot/update": {
 			"post": {
 				"operationId": "bot.update",
+				"x-cadmus-grant": "bot.write",
 				"summary": "Update an existing bot's model, thinking budget, tool access, display name, soul, timezone, or metadata.",
 				"requestBody": {
 					"required": true,
@@ -1632,6 +1678,7 @@
 		"/api/bot/delete": {
 			"post": {
 				"operationId": "bot.delete",
+				"x-cadmus-grant": "bot.delete",
 				"summary": "Permanently delete a bot persona and cascade-delete its chat history, virtual files, and schedules.",
 				"requestBody": {
 					"required": true,
@@ -1687,6 +1734,7 @@
 		"/api/chat/create": {
 			"post": {
 				"operationId": "chat.create",
+				"x-cadmus-grant": "chat.use",
 				"summary": "Create a new chat conversation thread with a bot, returning its unique routing key.",
 				"requestBody": {
 					"required": true,
@@ -1777,6 +1825,7 @@
 		"/api/chat/list": {
 			"get": {
 				"operationId": "chat.list",
+				"x-cadmus-grant": "chat.use",
 				"summary": "List chat conversation sessions in this bot family, optionally filtered by botId and kinds.",
 				"parameters": [
 					{
@@ -1846,6 +1895,7 @@
 			},
 			"head": {
 				"operationId": "chat.list.head",
+				"x-cadmus-grant": "chat.use",
 				"summary": "List chat conversation sessions in this bot family, optionally filtered by botId and kinds.",
 				"parameters": [
 					{
@@ -1904,6 +1954,7 @@
 		"/api/chat/get": {
 			"get": {
 				"operationId": "chat.get",
+				"x-cadmus-grant": "chat.use",
 				"summary": "Retrieve chat session metadata, active busy flag, recent messages, entries, and harvest notes.",
 				"parameters": [
 					{
@@ -1951,6 +2002,7 @@
 			},
 			"head": {
 				"operationId": "chat.get.head",
+				"x-cadmus-grant": "chat.use",
 				"summary": "Retrieve chat session metadata, active busy flag, recent messages, entries, and harvest notes.",
 				"parameters": [
 					{
@@ -1987,6 +2039,7 @@
 		"/api/chat/rename": {
 			"post": {
 				"operationId": "chat.rename",
+				"x-cadmus-grant": "chat.use",
 				"summary": "Rename the title or topic of an existing chat session.",
 				"requestBody": {
 					"required": true,
@@ -2046,6 +2099,7 @@
 		"/api/chat/close": {
 			"post": {
 				"operationId": "chat.close",
+				"x-cadmus-grant": "chat.use",
 				"summary": "Close and archive a chat conversation session.",
 				"requestBody": {
 					"required": true,
@@ -2101,6 +2155,7 @@
 		"/api/chat/delete": {
 			"post": {
 				"operationId": "chat.delete",
+				"x-cadmus-grant": "chat.use",
 				"summary": "Soft-delete a chat conversation session, preserving conversation history and bot token/cost accounting.",
 				"requestBody": {
 					"required": true,
@@ -2156,6 +2211,7 @@
 		"/api/chat/reset": {
 			"post": {
 				"operationId": "chat.reset",
+				"x-cadmus-grant": "chat.use",
 				"summary": "Reset conversation history for a chat session while preserving its key, optionally injecting handoff context.",
 				"requestBody": {
 					"required": true,
@@ -2215,6 +2271,7 @@
 		"/api/chat/messages": {
 			"get": {
 				"operationId": "chat.messages",
+				"x-cadmus-grant": "chat.use",
 				"summary": "Fetch the user and assistant message exchange history for a chat session.",
 				"parameters": [
 					{
@@ -2262,6 +2319,7 @@
 			},
 			"head": {
 				"operationId": "chat.messages.head",
+				"x-cadmus-grant": "chat.use",
 				"summary": "Fetch the user and assistant message exchange history for a chat session.",
 				"parameters": [
 					{
@@ -2298,6 +2356,7 @@
 		"/api/chat/entries": {
 			"get": {
 				"operationId": "chat.entries",
+				"x-cadmus-grant": "chat.use",
 				"summary": "Fetch the underlying durable transcript entries (including tool calls and state records) for a chat session.",
 				"parameters": [
 					{
@@ -2345,6 +2404,7 @@
 			},
 			"head": {
 				"operationId": "chat.entries.head",
+				"x-cadmus-grant": "chat.use",
 				"summary": "Fetch the underlying durable transcript entries (including tool calls and state records) for a chat session.",
 				"parameters": [
 					{
@@ -2381,6 +2441,7 @@
 		"/api/chat/status": {
 			"get": {
 				"operationId": "chat.status",
+				"x-cadmus-grant": "chat.use",
 				"summary": "Fetch live runtime execution status for a chat session without invoking the model or modifying history.",
 				"parameters": [
 					{
@@ -2428,6 +2489,7 @@
 			},
 			"head": {
 				"operationId": "chat.status.head",
+				"x-cadmus-grant": "chat.use",
 				"summary": "Fetch live runtime execution status for a chat session without invoking the model or modifying history.",
 				"parameters": [
 					{
@@ -2464,6 +2526,7 @@
 		"/api/chat/subscribe": {
 			"post": {
 				"operationId": "chat.subscribe",
+				"x-cadmus-grant": "chat.use",
 				"summary": "Subscribe the current connection (WebSocket or SSE) to real-time streaming deltas, tool calls, and state events for a chat.",
 				"requestBody": {
 					"required": true,
@@ -2519,6 +2582,7 @@
 		"/api/chat/update": {
 			"post": {
 				"operationId": "chat.update",
+				"x-cadmus-grant": "chat.use",
 				"summary": "Update a chat's tools env setting, per-chat harvest switch, or deadline overrides. deadlines null resets overrides. 0 on a field means no limit.",
 				"requestBody": {
 					"required": true,
@@ -2591,6 +2655,7 @@
 		"/api/chat/tasks/list": {
 			"get": {
 				"operationId": "chat.tasks.list",
+				"x-cadmus-grant": "chat.use",
 				"summary": "List tasks for a chat, including details and summaries.",
 				"parameters": [
 					{
@@ -2638,6 +2703,7 @@
 			},
 			"head": {
 				"operationId": "chat.tasks.list.head",
+				"x-cadmus-grant": "chat.use",
 				"summary": "List tasks for a chat, including details and summaries.",
 				"parameters": [
 					{
@@ -2674,6 +2740,7 @@
 		"/api/chat/tasks/get": {
 			"get": {
 				"operationId": "chat.tasks.get",
+				"x-cadmus-grant": "chat.use",
 				"summary": "Get one chat task by index, including details and summary.",
 				"parameters": [
 					{
@@ -2732,6 +2799,7 @@
 			},
 			"head": {
 				"operationId": "chat.tasks.get.head",
+				"x-cadmus-grant": "chat.use",
 				"summary": "Get one chat task by index, including details and summary.",
 				"parameters": [
 					{
@@ -2779,6 +2847,7 @@
 		"/api/turn/submit": {
 			"post": {
 				"operationId": "turn.submit",
+				"x-cadmus-grant": "chat.use",
 				"summary": "Submit a user message turn to a chat session, initiating model reasoning, tool calling, and response generation.",
 				"requestBody": {
 					"required": true,
@@ -2867,6 +2936,7 @@
 		"/api/turn/steer": {
 			"post": {
 				"operationId": "turn.steer",
+				"x-cadmus-grant": "chat.use",
 				"summary": "Steer an active model turn by injecting guidance instructions into the running agent loop without cancelling it.",
 				"requestBody": {
 					"required": true,
@@ -2935,6 +3005,7 @@
 		"/api/turn/interrupt": {
 			"post": {
 				"operationId": "turn.interrupt",
+				"x-cadmus-grant": "chat.use",
 				"summary": "Interrupt and immediately abort the currently running model turn or tool call on a chat session.",
 				"requestBody": {
 					"required": true,
@@ -2990,6 +3061,7 @@
 		"/api/turn/abort": {
 			"post": {
 				"operationId": "turn.abort",
+				"x-cadmus-grant": "chat.use",
 				"summary": "Abort and cancel an active turn on a chat session (synonym for turn.interrupt).",
 				"requestBody": {
 					"required": true,
@@ -3045,6 +3117,7 @@
 		"/api/file/list": {
 			"get": {
 				"operationId": "file.list",
+				"x-cadmus-grant": "bot.read",
 				"summary": "List virtual workspace files (SOUL.md, MEMORY.md, and knowledge documents) associated with a bot.",
 				"parameters": [
 					{
@@ -3102,6 +3175,7 @@
 			},
 			"head": {
 				"operationId": "file.list.head",
+				"x-cadmus-grant": "bot.read",
 				"summary": "List virtual workspace files (SOUL.md, MEMORY.md, and knowledge documents) associated with a bot.",
 				"parameters": [
 					{
@@ -3148,6 +3222,7 @@
 		"/api/file/read": {
 			"get": {
 				"operationId": "file.read",
+				"x-cadmus-grant": "bot.read",
 				"summary": "Read a virtual workspace file's content and version metadata, or list files if path is omitted.",
 				"parameters": [
 					{
@@ -3205,6 +3280,7 @@
 			},
 			"head": {
 				"operationId": "file.read.head",
+				"x-cadmus-grant": "bot.read",
 				"summary": "Read a virtual workspace file's content and version metadata, or list files if path is omitted.",
 				"parameters": [
 					{
@@ -3251,6 +3327,7 @@
 		"/api/file/write": {
 			"post": {
 				"operationId": "file.write",
+				"x-cadmus-grant": "files.write",
 				"summary": "Create, update, or delete a virtual workspace file with optimistic concurrency version control (CAS).",
 				"requestBody": {
 					"required": true,
@@ -3343,6 +3420,7 @@
 		"/api/file/delete": {
 			"post": {
 				"operationId": "file.delete",
+				"x-cadmus-grant": "files.write",
 				"summary": "Delete a virtual workspace file with optimistic concurrency version verification.",
 				"requestBody": {
 					"required": true,
@@ -3411,6 +3489,7 @@
 		"/api/knowledge/search": {
 			"get": {
 				"operationId": "knowledge.search",
+				"x-cadmus-grant": "bot.read",
 				"summary": "Search across knowledge base documents for a bot using keyword and category filters.",
 				"parameters": [
 					{
@@ -3478,6 +3557,7 @@
 			},
 			"head": {
 				"operationId": "knowledge.search.head",
+				"x-cadmus-grant": "bot.read",
 				"summary": "Search across knowledge base documents for a bot using keyword and category filters.",
 				"parameters": [
 					{
@@ -3534,6 +3614,7 @@
 		"/api/schedule/create": {
 			"post": {
 				"operationId": "schedule.create",
+				"x-cadmus-grant": "schedule.write",
 				"summary": "Create a scheduled task (recurring cron, relative delay timer, or absolute timestamp) for a bot.",
 				"requestBody": {
 					"required": true,
@@ -3643,6 +3724,7 @@
 		"/api/schedule/list": {
 			"get": {
 				"operationId": "schedule.list",
+				"x-cadmus-grant": "bot.read",
 				"summary": "List scheduled tasks for a bot, optionally including internal idle harvest schedules.",
 				"parameters": [
 					{
@@ -3699,6 +3781,7 @@
 			},
 			"head": {
 				"operationId": "schedule.list.head",
+				"x-cadmus-grant": "bot.read",
 				"summary": "List scheduled tasks for a bot, optionally including internal idle harvest schedules.",
 				"parameters": [
 					{
@@ -3744,6 +3827,7 @@
 		"/api/schedule/update": {
 			"post": {
 				"operationId": "schedule.update",
+				"x-cadmus-grant": "schedule.write",
 				"summary": "Update an existing schedule's timing, prompt, destination chat, thinking budget, or enabled status.",
 				"requestBody": {
 					"required": true,
@@ -3848,6 +3932,7 @@
 		"/api/schedule/delete": {
 			"post": {
 				"operationId": "schedule.delete",
+				"x-cadmus-grant": "schedule.write",
 				"summary": "Permanently delete a scheduled task by ID.",
 				"requestBody": {
 					"required": true,
@@ -3903,6 +3988,7 @@
 		"/api/account/toolsEnvs/list": {
 			"get": {
 				"operationId": "account.toolsEnvs.list",
+				"x-cadmus-grant": "toolsEnv.read",
 				"summary": "List account tools env definitions and the default binding.",
 				"parameters": [],
 				"responses": {
@@ -3938,6 +4024,7 @@
 			},
 			"head": {
 				"operationId": "account.toolsEnvs.list.head",
+				"x-cadmus-grant": "toolsEnv.read",
 				"summary": "List account tools env definitions and the default binding.",
 				"parameters": [],
 				"responses": {
@@ -3962,6 +4049,7 @@
 		"/api/account/toolsEnvs/create": {
 			"post": {
 				"operationId": "account.toolsEnvs.create",
+				"x-cadmus-grant": "toolsEnv.manage",
 				"summary": "Create a just-bash or local-daemon tools env definition. Daemon rows require confineToWorkspace or confinementPolicy. The workspace path is reported by the daemon process.",
 				"requestBody": {
 					"required": true,
@@ -4042,6 +4130,7 @@
 		"/api/account/toolsEnvs/update": {
 			"post": {
 				"operationId": "account.toolsEnvs.update",
+				"x-cadmus-grant": "toolsEnv.manage",
 				"summary": "Update a tools env definition. Kind is immutable.",
 				"requestBody": {
 					"required": true,
@@ -4111,6 +4200,7 @@
 		"/api/account/toolsEnvs/delete": {
 			"post": {
 				"operationId": "account.toolsEnvs.delete",
+				"x-cadmus-grant": "toolsEnv.manage",
 				"summary": "Delete a tools env definition and its env DO data.",
 				"requestBody": {
 					"required": true,
@@ -4165,6 +4255,7 @@
 		"/api/account/toolsEnvs/pair": {
 			"post": {
 				"operationId": "account.toolsEnvs.pair",
+				"x-cadmus-grant": "toolsEnv.manage",
 				"summary": "Mint a 15-minute single-use pairing token for a local-daemon env.",
 				"requestBody": {
 					"required": true,
@@ -4222,6 +4313,7 @@
 		"/api/account/toolsEnvs/deregister": {
 			"post": {
 				"operationId": "account.toolsEnvs.deregister",
+				"x-cadmus-grant": "toolsEnv.manage",
 				"summary": "Deregister a tools env. Every kind is removed the same way as delete: env state is wiped, the account row is dropped, and the account default is cleared when it pointed at this env. A local-daemon env first has its pairing revoked and any live connection closed.",
 				"requestBody": {
 					"required": true,
@@ -4376,6 +4468,18 @@
 						"anyOf": [
 							{
 								"type": "string",
+								"const": "user"
+							},
+							{
+								"type": "string",
+								"const": "account-admin"
+							},
+							{
+								"type": "string",
+								"const": "super-admin"
+							},
+							{
+								"type": "string",
 								"const": "owner"
 							},
 							{
@@ -4383,7 +4487,7 @@
 								"const": "member"
 							}
 						],
-						"description": "Access role: 'owner' has full administrative rights (credentials, members, families); 'member' has standard access."
+						"description": "Access role: 'account-admin' (formerly 'owner') administers the account; 'user' (formerly 'member') has standard access; 'super-admin' operates the system account only."
 					},
 					"createdAt": {
 						"type": "number",
@@ -4682,6 +4786,18 @@
 							},
 							"role": {
 								"anyOf": [
+									{
+										"type": "string",
+										"const": "user"
+									},
+									{
+										"type": "string",
+										"const": "account-admin"
+									},
+									{
+										"type": "string",
+										"const": "super-admin"
+									},
 									{
 										"type": "string",
 										"const": "owner"

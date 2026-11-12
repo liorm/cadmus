@@ -242,6 +242,7 @@ export const AccountOAuthProvidersCommandSchema = Type.Object(
 	},
 	{
 		readOnly: true,
+		grant: "credentials.read",
 		description:
 			"Command to list all supported OAuth providers and their authorization requirements.",
 	},
@@ -281,6 +282,7 @@ export const AccountOAuthStartCommandSchema = Type.Object(
 		),
 	},
 	{
+		grant: "credentials.manage",
 		description:
 			"Command to begin an OAuth authentication process for a provider, returning verification URLs and flowId.",
 	},
@@ -315,6 +317,7 @@ export const AccountOAuthStatusCommandSchema = Type.Object(
 	},
 	{
 		readOnly: true,
+		grant: "credentials.read",
 		description:
 			"Command to query the current progress, prompt, or completion status of an active OAuth flow.",
 	},
@@ -356,6 +359,7 @@ export const AccountOAuthSubmitCommandSchema = Type.Object(
 		),
 	},
 	{
+		grant: "credentials.manage",
 		description:
 			"Command to advance an interactive or code-submission OAuth step with user-supplied input.",
 	},
@@ -388,6 +392,7 @@ export const AccountOAuthCancelCommandSchema = Type.Object(
 		),
 	},
 	{
+		grant: "credentials.manage",
 		description:
 			"Command to immediately abort an active OAuth flow and release pending resources.",
 	},

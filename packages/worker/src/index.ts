@@ -6,6 +6,7 @@ import {
 } from "./api-adapter.js";
 import { authenticateRequest, type ResolvedRequestScope } from "./auth.js";
 import {
+	authorize,
 	encodePrincipal,
 	isClientIdentityHeader,
 	PRINCIPAL_HEADER,
@@ -293,6 +294,7 @@ async function dispatchDecodedCommand(
 			: requestedFamilyId;
 
 	if (command.type === "family.create") {
+		authorize(principal, command.type);
 		const created = await adminStore.createFamily(accountId, {
 			familyId: command.payload.familyId,
 			name: command.payload.name,

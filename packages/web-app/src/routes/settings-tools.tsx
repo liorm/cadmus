@@ -61,7 +61,9 @@ export function ToolsSettingsPage() {
 		const me = members.result?.members?.find(
 			(member) => member.userId === client.getUserId(),
 		);
-		setCanDeregister(me?.role === "owner");
+		setCanDeregister(
+			me?.role === "account-admin" || me?.role === "super-admin",
+		);
 		if (!listed.ok || !members.ok) {
 			throw new Error(
 				listed.error?.message ??

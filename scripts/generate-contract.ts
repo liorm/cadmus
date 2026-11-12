@@ -42,6 +42,7 @@ type SchemaNode = {
 	type?: string;
 	description?: string;
 	readOnly?: boolean;
+	grant?: string;
 	properties?: Record<string, SchemaNode>;
 	required?: string[];
 	const?: string;
@@ -211,6 +212,13 @@ function commandPath(command: string): string {
 	return `/api/${command.replaceAll(".", "/")}`;
 }
 
+/** OpenAPI `x-cadmus-grant`: the grant the command declares in its schema. */
+function grantExtension(schema: SchemaNode): Record<string, string> {
+	return typeof schema.grant === "string"
+		? { "x-cadmus-grant": schema.grant }
+		: {};
+}
+
 function isReadOnly(schema: SchemaNode): boolean {
 	return schema.readOnly === true;
 }
@@ -367,12 +375,14 @@ function operation(
 		return {
 			get: {
 				operationId: name,
+				...grantExtension(entry.command),
 				summary,
 				parameters,
 				responses,
 			},
 			head: {
 				operationId: `${name}.head`,
+				...grantExtension(entry.command),
 				summary,
 				parameters,
 				responses: {
@@ -388,6 +398,7 @@ function operation(
 	return {
 		post: {
 			operationId: name,
+			...grantExtension(entry.command),
 			summary,
 			requestBody: {
 				required: true,

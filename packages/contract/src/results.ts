@@ -181,9 +181,18 @@ export const AuthWhoamiResultSchema = Type.Object(
 					Type.String({ description: "Authenticated user id, when known." }),
 				),
 				accountId: Type.String({ description: "Account the request acts in." }),
-				role: Type.Union([Type.Literal("owner"), Type.Literal("member")], {
-					description: "Membership role in that account.",
-				}),
+				role: Type.Union(
+					[
+						Type.Literal("user"),
+						Type.Literal("account-admin"),
+						Type.Literal("super-admin"),
+						Type.Literal("owner"),
+						Type.Literal("member"),
+					],
+					{
+						description: "Membership role in that account.",
+					},
+				),
 			},
 			{ description: "Resolved principal." },
 		),

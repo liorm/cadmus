@@ -1,3 +1,9 @@
+import {
+	normalizeRole,
+	type Role,
+	type RoleInput,
+	SYSTEM_ACCOUNT_ID,
+} from "@cadmus/contract/grants";
 import type { Credential } from "@earendil-works/pi-ai";
 import { type EdgeCache, sha256Hex } from "../edge-cache.js";
 import { getLogger } from "../log.js";
@@ -154,7 +160,7 @@ function slugifyId(text: string): string {
 	);
 }
 
-export const CADMUS_SCHEMA_VERSION = 5;
+export const CADMUS_SCHEMA_VERSION = 6;
 
 export function isMissingSchemaError(error: unknown): boolean {
 	if (!error) return false;
@@ -371,6 +377,8 @@ export async function runD1SchemaMigrations(db: D1Database): Promise<void> {
 		}
 	}
 
+	await migrateRolesAndAccounts(db);
+
 	await db
 		.prepare(
 			`INSERT INTO cadmus_schema_meta (key, value)
@@ -379,6 +387,62 @@ export async function runD1SchemaMigrations(db: D1Database): Promise<void> {
 		)
 		.bind(String(CADMUS_SCHEMA_VERSION))
 		.run();
+}
+
+/**
+ * Issue #3 phase 2. Idempotent and non-destructive:
+ * - accounts gain `parent_account_id` (every tenant defaults to the system
+ *   account; the CHECK allows a NULL parent only for the system account),
+ *   `status` and `suspended_at`;
+ * - the one built-in system account is seeded;
+ * - roles are renamed owner -> account-admin and member -> user;
+ * - the audit table is created.
+ */
+async function migrateRolesAndAccounts(db: D1Database): Promise<void> {
+	await addColumnIfNotExists(
+		db,
+		"cadmus_accounts",
+		"parent_account_id",
+		`TEXT DEFAULT '${SYSTEM_ACCOUNT_ID}' CHECK ((id = '${SYSTEM_ACCOUNT_ID}') = (parent_account_id IS NULL))`,
+	);
+	await addColumnIfNotExists(
+		db,
+		"cadmus_accounts",
+		"status",
+		"TEXT NOT NULL DEFAULT 'active'",
+	);
+	await addColumnIfNotExists(db, "cadmus_accounts", "suspended_at", "INTEGER");
+	await db.batch([
+		db
+			.prepare(
+				`INSERT OR IGNORE INTO cadmus_accounts
+           (id, name, timezone, created_at, parent_account_id, status)
+         VALUES (?1, 'System', 'UTC', ?2, NULL, 'active')`,
+			)
+			.bind(SYSTEM_ACCOUNT_ID, Date.now()),
+		db.prepare(
+			`UPDATE cadmus_account_members SET role = 'account-admin' WHERE role = 'owner'`,
+		),
+		db.prepare(
+			`UPDATE cadmus_account_members SET role = 'user' WHERE role = 'member'`,
+		),
+		db.prepare(`
+        CREATE TABLE IF NOT EXISTS cadmus_audit (
+          id TEXT PRIMARY KEY,
+          account_id TEXT NOT NULL,
+          actor_user_id TEXT,
+          actor_kind TEXT NOT NULL,
+          action TEXT NOT NULL,
+          target_account_id TEXT,
+          target TEXT,
+          data TEXT,
+          at INTEGER NOT NULL
+        )
+      `),
+		db.prepare(
+			`CREATE INDEX IF NOT EXISTS idx_cadmus_audit_account_at ON cadmus_audit(account_id, at)`,
+		),
+	]);
 }
 
 /**
@@ -669,13 +733,13 @@ export class D1AdminStore implements AdminStore {
 			.first<{
 				user_id: string;
 				account_id: string;
-				role: "owner" | "member";
+				role: string;
 			}>();
 		if (!row) return undefined;
 		return {
 			userId: row.user_id,
 			accountId: row.account_id,
-			role: row.role,
+			role: normalizeRole(row.role) ?? "user",
 		};
 	}
 
@@ -703,19 +767,22 @@ export class D1AdminStore implements AdminStore {
 		userId: string;
 		accountName?: string;
 		userName?: string;
-		role?: "owner" | "member";
+		role?: RoleInput;
 		timezone?: string;
 	}): Promise<AccountRecord> {
 		await this.initialize();
+		if (input.accountId === SYSTEM_ACCOUNT_ID) {
+			throw new Error(`'${SYSTEM_ACCOUNT_ID}' is a reserved account id`);
+		}
 		const now = Date.now();
 		const accountName = input.accountName ?? input.accountId;
 		const userName = input.userName ?? input.userId;
-		const role = input.role ?? "owner";
+		const role = normalizeRole(input.role) ?? "account-admin";
 		const timezone = input.timezone ?? this.#defaultTimezone;
 
 		const inserted = await this.#db
 			.prepare(
-				`INSERT OR IGNORE INTO cadmus_accounts (id, name, timezone, created_at) VALUES (?1, ?2, ?3, ?4)`,
+				`INSERT OR IGNORE INTO cadmus_accounts (id, name, timezone, created_at, parent_account_id, status) VALUES (?1, ?2, ?3, ?4, '${SYSTEM_ACCOUNT_ID}', 'active')`,
 			)
 			.bind(input.accountId, accountName, timezone, now)
 			.run();
@@ -853,13 +920,13 @@ export class D1AdminStore implements AdminStore {
 			.all<{
 				account_id: string;
 				user_id: string;
-				role: "owner" | "member";
+				role: string;
 				created_at: number;
 			}>();
 		return results.map((r) => ({
 			accountId: r.account_id,
 			userId: r.user_id,
-			role: r.role,
+			role: normalizeRole(r.role) ?? "user",
 			createdAt: r.created_at,
 		}));
 	}
@@ -869,12 +936,12 @@ export class D1AdminStore implements AdminStore {
 		userId: string;
 		name?: string;
 		email?: string;
-		role?: "owner" | "member";
+		role?: RoleInput;
 		rawToken?: string;
 	}): Promise<AccountMember> {
 		await this.initialize();
 		const now = Date.now();
-		const role = input.role ?? "member";
+		const role = normalizeRole(input.role) ?? "user";
 		const statements = [
 			this.#db
 				.prepare(

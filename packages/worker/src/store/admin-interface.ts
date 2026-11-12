@@ -1,3 +1,9 @@
+import {
+	normalizeRole,
+	type Role,
+	type RoleInput,
+	SYSTEM_ACCOUNT_ID,
+} from "@cadmus/contract/grants";
 import type { Credential } from "@earendil-works/pi-ai";
 import type {
 	AccountMember,
@@ -13,7 +19,7 @@ export type { AccountRecord };
 export interface AuthenticatedIdentity {
 	userId: string;
 	accountId: string;
-	role: "owner" | "member";
+	role: Role;
 }
 
 export interface UserRecord {
@@ -60,7 +66,7 @@ export interface AdminStore {
 		userId: string;
 		accountName?: string;
 		userName?: string;
-		role?: "owner" | "member";
+		role?: RoleInput;
 		timezone?: string;
 	}): Promise<AccountRecord>;
 	getAccount(accountId: string): Promise<AccountRecord | undefined>;
@@ -78,7 +84,7 @@ export interface AdminStore {
 		userId: string;
 		name?: string;
 		email?: string;
-		role?: "owner" | "member";
+		role?: RoleInput;
 		rawToken?: string;
 	}): Promise<AccountMember>;
 

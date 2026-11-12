@@ -421,7 +421,7 @@ describe("Edge Caching for Tokens and Family DO Routing (Issue #19)", () => {
 		await edgeCache.setToken(tokenHash, {
 			userId: "kv-user",
 			accountId,
-			role: "owner",
+			role: "account-admin",
 		});
 
 		// Verify KV has the entry
@@ -554,7 +554,7 @@ describe("Edge Caching for Tokens and Family DO Routing (Issue #19)", () => {
 		await edgeCache.setToken(tokenHash, {
 			userId: "old-user",
 			accountId,
-			role: "member",
+			role: "user",
 		});
 		expect(await edgeCache.getToken(tokenHash)).toBeDefined();
 

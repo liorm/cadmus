@@ -1,3 +1,10 @@
+import {
+	type Grant,
+	normalizeRole,
+	ROLE_GRANTS,
+	type Role,
+} from "@cadmus/contract/grants";
+import { getCommandGrant } from "./protocol/rest.js";
 import { ProtocolValidationError } from "./protocol.js";
 
 /**
@@ -10,7 +17,7 @@ export interface Principal {
 	kind: "user" | "token" | "daemon";
 	userId?: string;
 	accountId: string;
-	role: "owner" | "member";
+	role: Role;
 }
 
 /**
@@ -19,7 +26,7 @@ export interface Principal {
  * calls it; issue #3 phase 2 absorbs it into grant-based authorization.
  */
 export interface CallerMeta {
-	role?: "owner" | "member";
+	role?: Role;
 	userId?: string;
 	accountId?: string;
 	kind?: Principal["kind"];
@@ -66,7 +73,8 @@ export function callerMetaFromPrincipal(value: unknown): CallerMeta {
 	if (!value || typeof value !== "object") return {};
 	const raw = value as Record<string, unknown>;
 	const meta: CallerMeta = {};
-	if (raw.role === "owner" || raw.role === "member") meta.role = raw.role;
+	const role = normalizeRole(raw.role);
+	if (role) meta.role = role;
 	if (typeof raw.userId === "string" && raw.userId) meta.userId = raw.userId;
 	if (typeof raw.accountId === "string" && raw.accountId) {
 		meta.accountId = raw.accountId;
@@ -90,11 +98,28 @@ export function callerMetaFromAttachment(value: unknown): CallerMeta {
 	return callerMetaFromPrincipal(value);
 }
 
-export function requireOwner(meta: CallerMeta): void {
-	if (meta.role !== "owner") {
+/**
+ * The single authorization check for every transport (/api, /rpc, /ws).
+ * A command is allowed when the principal's role holds the grant the command
+ * schema declares. A command with no known grant is denied.
+ *
+ * Elevation (admin mode) is not enforced yet: grants flagged `elevation` are
+ * checked like the rest until phase 6 adds the `elevation_required` result.
+ */
+export function authorize(caller: CallerMeta, commandType: string): Grant {
+	const grant = getCommandGrant(commandType) as Grant | undefined;
+	if (!grant) {
 		throw new ProtocolValidationError(
-			"Only account owners can deregister an env",
+			`Command '${commandType}' declares no grant`,
 			"forbidden",
 		);
 	}
+	const held: readonly Grant[] = caller.role ? ROLE_GRANTS[caller.role] : [];
+	if (!held.includes(grant)) {
+		throw new ProtocolValidationError(
+			`Role '${caller.role ?? "none"}' does not hold grant '${grant}' required by '${commandType}'`,
+			"forbidden",
+		);
+	}
+	return grant;
 }

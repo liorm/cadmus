@@ -125,6 +125,7 @@
 						"description": "Parameters identifying the provider credential to delete."
 					}
 				},
+				"grant": "credentials.manage",
 				"description": "Permanently delete configured credentials for a provider from the account."
 			},
 			"AccountCredentialsListCommand": {
@@ -148,6 +149,7 @@
 					}
 				},
 				"readOnly": true,
+				"grant": "credentials.read",
 				"description": "List configured AI provider credential summaries (excluding secret tokens)."
 			},
 			"AccountCredentialsSetCommand": {
@@ -180,6 +182,7 @@
 						"description": "Parameters containing the provider credentials to store."
 					}
 				},
+				"grant": "credentials.manage",
 				"description": "Store or update encrypted provider credentials (API key or OAuth token set) for the account."
 			},
 			"AccountEvent": {
@@ -254,6 +257,7 @@
 					}
 				},
 				"readOnly": true,
+				"grant": "members.read",
 				"description": "Retrieve tenant account details including membership, configured bot families, and provider credentials."
 			},
 			"AccountMembersAddCommand": {
@@ -291,6 +295,18 @@
 								"anyOf": [
 									{
 										"type": "string",
+										"const": "user"
+									},
+									{
+										"type": "string",
+										"const": "account-admin"
+									},
+									{
+										"type": "string",
+										"const": "super-admin"
+									},
+									{
+										"type": "string",
 										"const": "owner"
 									},
 									{
@@ -298,7 +314,7 @@
 										"const": "member"
 									}
 								],
-								"description": "Access role: 'owner' has full administrative rights; 'member' has standard access (defaults to 'member')."
+								"description": "Access role: 'account-admin' (formerly 'owner'), 'user' (formerly 'member', the default) or 'super-admin'. Old names are still accepted."
 							},
 							"token": {
 								"type": "string",
@@ -308,6 +324,7 @@
 						"description": "Parameters for adding or inviting an account member."
 					}
 				},
+				"grant": "members.manage",
 				"description": "Add or invite a user to the account with a specified access role and optional credentials."
 			},
 			"AccountMembersListCommand": {
@@ -331,6 +348,7 @@
 					}
 				},
 				"readOnly": true,
+				"grant": "members.read",
 				"description": "List all user members and their roles associated with the tenant account."
 			},
 			"AccountModelsListCommand": {
@@ -363,6 +381,7 @@
 					}
 				},
 				"readOnly": true,
+				"grant": "bot.read",
 				"description": "List supported LLM models and their capabilities, optionally filtered by provider or authentication status."
 			},
 			"AccountOAuthCancelCommand": {
@@ -392,6 +411,7 @@
 						"description": "Parameters identifying the OAuth flow to cancel."
 					}
 				},
+				"grant": "credentials.manage",
 				"description": "Command to immediately abort an active OAuth flow and release pending resources."
 			},
 			"AccountOAuthEvent": {
@@ -430,6 +450,7 @@
 					}
 				},
 				"readOnly": true,
+				"grant": "credentials.read",
 				"description": "Command to list all supported OAuth providers and their authorization requirements."
 			},
 			"AccountOAuthStartCommand": {
@@ -463,6 +484,7 @@
 						"description": "Parameters for starting the OAuth flow."
 					}
 				},
+				"grant": "credentials.manage",
 				"description": "Command to begin an OAuth authentication process for a provider, returning verification URLs and flowId."
 			},
 			"AccountOAuthStatusCommand": {
@@ -493,6 +515,7 @@
 					}
 				},
 				"readOnly": true,
+				"grant": "credentials.read",
 				"description": "Command to query the current progress, prompt, or completion status of an active OAuth flow."
 			},
 			"AccountOAuthSubmitCommand": {
@@ -527,6 +550,7 @@
 						"description": "Parameters containing the user response for the active flow."
 					}
 				},
+				"grant": "credentials.manage",
 				"description": "Command to advance an interactive or code-submission OAuth step with user-supplied input."
 			},
 			"AccountToolsEnvsCreateCommand": {
@@ -579,6 +603,7 @@
 						"additionalProperties": false
 					}
 				},
+				"grant": "toolsEnv.manage",
 				"description": "Create a just-bash or local-daemon tools env definition. Daemon rows require confineToWorkspace or confinementPolicy. The workspace path is reported by the daemon process."
 			},
 			"AccountToolsEnvsDeleteCommand": {
@@ -605,6 +630,7 @@
 						"additionalProperties": false
 					}
 				},
+				"grant": "toolsEnv.manage",
 				"description": "Delete a tools env definition and its env DO data."
 			},
 			"AccountToolsEnvsDeregisterCommand": {
@@ -631,6 +657,7 @@
 						"additionalProperties": false
 					}
 				},
+				"grant": "toolsEnv.manage",
 				"description": "Deregister a tools env. Every kind is removed the same way as delete: env state is wiped, the account row is dropped, and the account default is cleared when it pointed at this env. A local-daemon env first has its pairing revoked and any live connection closed."
 			},
 			"AccountToolsEnvsListCommand": {
@@ -652,6 +679,7 @@
 					}
 				},
 				"readOnly": true,
+				"grant": "toolsEnv.read",
 				"description": "List account tools env definitions and the default binding."
 			},
 			"AccountToolsEnvsPairCommand": {
@@ -681,6 +709,7 @@
 						"additionalProperties": false
 					}
 				},
+				"grant": "toolsEnv.manage",
 				"description": "Mint a 15-minute single-use pairing token for a local-daemon env."
 			},
 			"AccountToolsEnvsUpdateCommand": {
@@ -722,6 +751,7 @@
 						"additionalProperties": false
 					}
 				},
+				"grant": "toolsEnv.manage",
 				"description": "Update a tools env definition. Kind is immutable."
 			},
 			"AccountUpdateCommand": {
@@ -766,6 +796,7 @@
 						"description": "Account settings to update."
 					}
 				},
+				"grant": "account.manage",
 				"description": "Update account-level configuration including display name and default timezone."
 			},
 			"AuthWhoamiCommand": {
@@ -789,6 +820,7 @@
 					}
 				},
 				"readOnly": true,
+				"grant": "tokens.self",
 				"description": "Return the authenticated principal (credential kind, user, account and role) that the server resolved for this request."
 			},
 			"BotCreateCommand": {
@@ -882,6 +914,7 @@
 						"description": "Parameters for creating a new bot persona, including optional timezone and metadata."
 					}
 				},
+				"grant": "bot.write",
 				"description": "Create a new bot persona with default model, thinking budget, tool access, optional timezone and metadata, and initial virtual workspace files."
 			},
 			"BotDeleteCommand": {
@@ -911,6 +944,7 @@
 						"description": "Parameters identifying the bot to delete."
 					}
 				},
+				"grant": "bot.delete",
 				"description": "Permanently delete a bot persona and cascade-delete its chat history, virtual files, and schedules."
 			},
 			"BotGetCommand": {
@@ -941,6 +975,7 @@
 					}
 				},
 				"readOnly": true,
+				"grant": "bot.read",
 				"description": "Retrieve full bot configuration, system prompt (SOUL.md), memory state, and knowledge documents."
 			},
 			"BotListCommand": {
@@ -964,6 +999,7 @@
 					}
 				},
 				"readOnly": true,
+				"grant": "bot.read",
 				"description": "List all bots configured within the current bot family."
 			},
 			"BotMessageEvent": {
@@ -1114,6 +1150,7 @@
 						"description": "Parameters for updating bot configuration. `metadata` is a patch: string values set keys, `null` deletes them."
 					}
 				},
+				"grant": "bot.write",
 				"description": "Update an existing bot's model, thinking budget, tool access, display name, soul, timezone, or metadata."
 			},
 			"ChatCloseCommand": {
@@ -1143,6 +1180,7 @@
 						"description": "Parameters identifying the chat session to close."
 					}
 				},
+				"grant": "chat.use",
 				"description": "Close and archive a chat conversation session."
 			},
 			"ChatCreateCommand": {
@@ -1207,6 +1245,7 @@
 						"description": "Parameters for creating a new chat session."
 					}
 				},
+				"grant": "chat.use",
 				"description": "Create a new chat conversation thread with a bot, returning its unique routing key."
 			},
 			"ChatDeleteCommand": {
@@ -1236,6 +1275,7 @@
 						"description": "Parameters identifying the chat session to delete."
 					}
 				},
+				"grant": "chat.use",
 				"description": "Soft-delete a chat conversation session, preserving conversation history and bot token/cost accounting."
 			},
 			"ChatEntriesCommand": {
@@ -1266,6 +1306,7 @@
 					}
 				},
 				"readOnly": true,
+				"grant": "chat.use",
 				"description": "Fetch the underlying durable transcript entries (including tool calls and state records) for a chat session."
 			},
 			"ChatGetCommand": {
@@ -1296,6 +1337,7 @@
 					}
 				},
 				"readOnly": true,
+				"grant": "chat.use",
 				"description": "Retrieve chat session metadata, active busy flag, recent messages, entries, and harvest notes."
 			},
 			"ChatKind": {
@@ -1356,6 +1398,7 @@
 					}
 				},
 				"readOnly": true,
+				"grant": "chat.use",
 				"description": "List chat conversation sessions in this bot family, optionally filtered by botId and kinds."
 			},
 			"ChatMessagesCommand": {
@@ -1386,6 +1429,7 @@
 					}
 				},
 				"readOnly": true,
+				"grant": "chat.use",
 				"description": "Fetch the user and assistant message exchange history for a chat session."
 			},
 			"ChatRenameCommand": {
@@ -1419,6 +1463,7 @@
 						"description": "Parameters for renaming a chat session."
 					}
 				},
+				"grant": "chat.use",
 				"description": "Rename the title or topic of an existing chat session."
 			},
 			"ChatResetCommand": {
@@ -1452,6 +1497,7 @@
 						"description": "Parameters for resetting a chat conversation."
 					}
 				},
+				"grant": "chat.use",
 				"description": "Reset conversation history for a chat session while preserving its key, optionally injecting handoff context."
 			},
 			"ChatStateEvent": {
@@ -1532,6 +1578,7 @@
 					}
 				},
 				"readOnly": true,
+				"grant": "chat.use",
 				"description": "Fetch live runtime execution status for a chat session without invoking the model or modifying history."
 			},
 			"ChatSubscribeCommand": {
@@ -1561,6 +1608,7 @@
 						"description": "Parameters identifying the chat session."
 					}
 				},
+				"grant": "chat.use",
 				"description": "Subscribe the current connection (WebSocket or SSE) to real-time streaming deltas, tool calls, and state events for a chat."
 			},
 			"ChatTaskLoop": {
@@ -1696,6 +1744,7 @@
 					}
 				},
 				"readOnly": true,
+				"grant": "chat.use",
 				"description": "Get one chat task by index, including details and summary."
 			},
 			"ChatTasksListCommand": {
@@ -1726,6 +1775,7 @@
 					}
 				},
 				"readOnly": true,
+				"grant": "chat.use",
 				"description": "List tasks for a chat, including details and summaries."
 			},
 			"ChatUpdateCommand": {
@@ -1770,6 +1820,7 @@
 						"additionalProperties": false
 					}
 				},
+				"grant": "chat.use",
 				"description": "Update a chat's tools env setting, per-chat harvest switch, or deadline overrides. deadlines null resets overrides. 0 on a field means no limit."
 			},
 			"ClientCommand": {
@@ -2132,6 +2183,7 @@
 						"description": "Configuration parameters for creating a new bot family."
 					}
 				},
+				"grant": "family.manage",
 				"description": "Create a new bot family, initializing its partitioned Cloudflare Durable Object instance."
 			},
 			"FamilyDeleteCommand": {
@@ -2161,6 +2213,7 @@
 						"description": "Parameters identifying the bot family to delete."
 					}
 				},
+				"grant": "family.manage",
 				"description": "Permanently delete a bot family and cascade-delete its Durable Object data."
 			},
 			"FamilyGetCommand": {
@@ -2189,6 +2242,7 @@
 					}
 				},
 				"readOnly": true,
+				"grant": "bot.read",
 				"description": "Retrieve metadata for a specific bot family or the currently scoped family."
 			},
 			"FamilyListCommand": {
@@ -2212,6 +2266,7 @@
 					}
 				},
 				"readOnly": true,
+				"grant": "bot.read",
 				"description": "List all bot families (Durable Object clusters) registered to the account."
 			},
 			"FamilyUpdateCommand": {
@@ -2263,6 +2318,7 @@
 						"description": "Parameters for updating bot family configuration, including the optional Team Leader bot id."
 					}
 				},
+				"grant": "family.manage",
 				"description": "Update bot family settings including display name, timezone, idle harvest delay, or Team Leader bot."
 			},
 			"FileDeleteCommand": {
@@ -2305,6 +2361,7 @@
 						"description": "Parameters identifying the file to delete."
 					}
 				},
+				"grant": "files.write",
 				"description": "Delete a virtual workspace file with optimistic concurrency version verification."
 			},
 			"FileListCommand": {
@@ -2339,6 +2396,7 @@
 					}
 				},
 				"readOnly": true,
+				"grant": "bot.read",
 				"description": "List virtual workspace files (SOUL.md, MEMORY.md, and knowledge documents) associated with a bot."
 			},
 			"FileReadCommand": {
@@ -2373,6 +2431,7 @@
 					}
 				},
 				"readOnly": true,
+				"grant": "bot.read",
 				"description": "Read a virtual workspace file's content and version metadata, or list files if path is omitted."
 			},
 			"FileWriteCommand": {
@@ -2439,6 +2498,7 @@
 						"description": "Parameters for writing or deleting a virtual file."
 					}
 				},
+				"grant": "files.write",
 				"description": "Create, update, or delete a virtual workspace file with optimistic concurrency version control (CAS)."
 			},
 			"HarvestFileDiff": {
@@ -2533,6 +2593,7 @@
 					}
 				},
 				"readOnly": true,
+				"grant": "bot.read",
 				"description": "Search across knowledge base documents for a bot using keyword and category filters."
 			},
 			"OAuthFlowRecord": {
@@ -2821,6 +2882,7 @@
 						"description": "Parameters for creating a scheduled task."
 					}
 				},
+				"grant": "schedule.write",
 				"description": "Create a scheduled task (recurring cron, relative delay timer, or absolute timestamp) for a bot."
 			},
 			"ScheduleDeleteCommand": {
@@ -2850,6 +2912,7 @@
 						"description": "Parameters identifying the schedule to delete."
 					}
 				},
+				"grant": "schedule.write",
 				"description": "Permanently delete a scheduled task by ID."
 			},
 			"ScheduleListCommand": {
@@ -2882,6 +2945,7 @@
 					}
 				},
 				"readOnly": true,
+				"grant": "bot.read",
 				"description": "List scheduled tasks for a bot, optionally including internal idle harvest schedules."
 			},
 			"ScheduleTarget": {
@@ -3019,6 +3083,7 @@
 						"description": "Parameters for updating a scheduled task."
 					}
 				},
+				"grant": "schedule.write",
 				"description": "Update an existing schedule's timing, prompt, destination chat, thinking budget, or enabled status."
 			},
 			"ServerEvent": {
@@ -3173,6 +3238,7 @@
 						"description": "Parameters identifying the chat session to abort."
 					}
 				},
+				"grant": "chat.use",
 				"description": "Abort and cancel an active turn on a chat session (synonym for turn.interrupt)."
 			},
 			"TurnBlock": {
@@ -3355,6 +3421,7 @@
 						"description": "Parameters identifying the chat session to interrupt."
 					}
 				},
+				"grant": "chat.use",
 				"description": "Interrupt and immediately abort the currently running model turn or tool call on a chat session."
 			},
 			"TurnSteerCommand": {
@@ -3397,6 +3464,7 @@
 						"description": "Parameters for steering an active turn."
 					}
 				},
+				"grant": "chat.use",
 				"description": "Steer an active model turn by injecting guidance instructions into the running agent loop without cancelling it."
 			},
 			"TurnSubmitCommand": {
@@ -3459,6 +3527,7 @@
 						"description": "Parameters for submitting a user message turn."
 					}
 				},
+				"grant": "chat.use",
 				"description": "Submit a user message turn to a chat session, initiating model reasoning, tool calling, and response generation."
 			},
 			"TurnToolCallEvent": {

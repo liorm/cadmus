@@ -29,11 +29,11 @@ import {
 import { openDurableObjectSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/cloudflare";
 import { syncDurableObjectAlarm } from "./alarms.js";
 import {
+	authorize,
 	type CallerMeta,
 	callerMetaFromAttachment,
 	callerMetaFromHeader,
 	PRINCIPAL_HEADER,
-	requireOwner,
 } from "./authz.js";
 import { assertBotMetadata, mergeMetadataPatch } from "./bot-metadata.js";
 import {
@@ -966,6 +966,7 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 		command: ClientCommand,
 		caller: CallerMeta,
 	): Promise<RpcResult<CommandType>> {
+		authorize(caller, command.type);
 		return callCommandHandler(this.commandHandlers(caller), command);
 	}
 
@@ -1195,7 +1196,6 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 				};
 			},
 			"account.toolsEnvs.deregister": async (command) => {
-				requireOwner(caller);
 				await this.toolsEnvController.deregisterEnv(command.payload.envId);
 				await this.fanOutToolsEnvCatalog(null, null);
 				return { deregistered: command.payload.envId };
@@ -1355,7 +1355,7 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 						kind: caller.kind ?? "token",
 						...(caller.userId ? { userId: caller.userId } : {}),
 						accountId: caller.accountId ?? meta.accountId,
-						role: caller.role ?? "member",
+						role: caller.role ?? "user",
 					},
 				};
 			},
