@@ -262,6 +262,24 @@ export async function authenticateRequest(
 		};
 	}
 
+	// 1b. Cadmus-issued session access tokens (never cached: D1 is the source of
+	// truth, so revocation and suspension take effect immediately).
+	if (rawToken.startsWith("cad_at_")) {
+		const session = await adminStore.resolveAccessToken(rawToken);
+		if (!session) {
+			return { ok: false, code: "unauthorized", message: UNAUTHORIZED_MESSAGE };
+		}
+		return {
+			ok: true,
+			scope: {
+				accountId: session.accountId,
+				userId: session.userId,
+				role: session.role,
+				familyId: requestedFamilyId,
+			},
+		};
+	}
+
 	// 2. Check Edge Cache (L1 in-memory LRU + optional L2 KV) by token hash
 	const tokenHash = await sha256Hex(rawToken);
 	const cached = await edgeCache.getToken(tokenHash);

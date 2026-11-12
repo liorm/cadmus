@@ -22,6 +22,16 @@ import type {
 	FamilySettingsPatch,
 	StoredToolsEnv,
 } from "./admin-interface.js";
+import {
+	type CreateSessionInput,
+	createSession,
+	type RefreshResult,
+	resolveAccessToken,
+	revokeSession,
+	rotateRefreshToken,
+	type SessionIdentity,
+	type SessionTokens,
+} from "./d1-sessions.js";
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -160,7 +170,7 @@ function slugifyId(text: string): string {
 	);
 }
 
-export const CADMUS_SCHEMA_VERSION = 6;
+export const CADMUS_SCHEMA_VERSION = 7;
 
 export function isMissingSchemaError(error: unknown): boolean {
 	if (!error) return false;
@@ -378,6 +388,7 @@ export async function runD1SchemaMigrations(db: D1Database): Promise<void> {
 	}
 
 	await migrateRolesAndAccounts(db);
+	await migrateSessionsSchema(db);
 
 	await db
 		.prepare(
@@ -442,6 +453,117 @@ async function migrateRolesAndAccounts(db: D1Database): Promise<void> {
 		db.prepare(
 			`CREATE INDEX IF NOT EXISTS idx_cadmus_audit_account_at ON cadmus_audit(account_id, at)`,
 		),
+	]);
+}
+
+/**
+ * Issue #3 phase 3a. Idempotent. Adds the user identity columns, the token
+ * metadata columns (legacy tokens become `pat` rows labelled legacy), and the
+ * invite, login method, session and bootstrap tables.
+ */
+async function migrateSessionsSchema(db: D1Database): Promise<void> {
+	await addColumnIfNotExists(db, "cadmus_users", "primary_email", "TEXT");
+	await addColumnIfNotExists(db, "cadmus_users", "disabled_at", "INTEGER");
+	await addColumnIfNotExists(db, "cadmus_auth_tokens", "id", "TEXT");
+	await addColumnIfNotExists(
+		db,
+		"cadmus_auth_tokens",
+		"kind",
+		"TEXT NOT NULL DEFAULT 'pat'",
+	);
+	await addColumnIfNotExists(db, "cadmus_auth_tokens", "grants", "TEXT");
+	await addColumnIfNotExists(db, "cadmus_auth_tokens", "created_by", "TEXT");
+	await addColumnIfNotExists(
+		db,
+		"cadmus_auth_tokens",
+		"elevated",
+		"INTEGER NOT NULL DEFAULT 0",
+	);
+	await addColumnIfNotExists(db, "cadmus_auth_tokens", "expires_at", "INTEGER");
+	await addColumnIfNotExists(
+		db,
+		"cadmus_auth_tokens",
+		"last_used_at",
+		"INTEGER",
+	);
+	await addColumnIfNotExists(db, "cadmus_auth_tokens", "revoked_at", "INTEGER");
+	await db.batch([
+		db.prepare(
+			`UPDATE cadmus_auth_tokens
+         SET id = 'tok_' || lower(hex(randomblob(8)))
+       WHERE id IS NULL`,
+		),
+		db.prepare(
+			`UPDATE cadmus_auth_tokens SET label = 'legacy' WHERE label IS NULL OR label = 'member-token'`,
+		),
+		db.prepare(
+			`CREATE UNIQUE INDEX IF NOT EXISTS idx_cadmus_auth_tokens_id ON cadmus_auth_tokens(id)`,
+		),
+		db.prepare(`
+        CREATE TABLE IF NOT EXISTS cadmus_invites (
+          id TEXT PRIMARY KEY,
+          account_id TEXT NOT NULL,
+          email TEXT NOT NULL,
+          role TEXT NOT NULL,
+          invited_by TEXT,
+          created_at INTEGER NOT NULL,
+          expires_at INTEGER NOT NULL,
+          accepted_at INTEGER,
+          revoked_at INTEGER
+        )
+      `),
+		db.prepare(
+			`CREATE INDEX IF NOT EXISTS idx_cadmus_invites_email ON cadmus_invites(email)`,
+		),
+		db.prepare(`
+        CREATE TABLE IF NOT EXISTS cadmus_login_methods (
+          id TEXT PRIMARY KEY,
+          user_id TEXT NOT NULL,
+          provider TEXT NOT NULL,
+          subject TEXT NOT NULL,
+          display TEXT,
+          data TEXT,
+          created_at INTEGER NOT NULL,
+          last_used_at INTEGER,
+          revoked_at INTEGER,
+          UNIQUE (provider, subject)
+        )
+      `),
+		db.prepare(`
+        CREATE TABLE IF NOT EXISTS cadmus_sessions (
+          id TEXT PRIMARY KEY,
+          session_family_id TEXT NOT NULL,
+          user_id TEXT NOT NULL,
+          account_id TEXT NOT NULL,
+          login_method_id TEXT,
+          token_id TEXT,
+          refresh_hash TEXT NOT NULL UNIQUE,
+          previous_refresh_hash TEXT,
+          access_hash TEXT NOT NULL,
+          access_expires_at INTEGER NOT NULL,
+          elevated_until INTEGER,
+          user_agent TEXT,
+          ip_country TEXT,
+          created_at INTEGER NOT NULL,
+          last_used_at INTEGER NOT NULL,
+          idle_expires_at INTEGER NOT NULL,
+          absolute_expires_at INTEGER NOT NULL,
+          revoked_at INTEGER
+        )
+      `),
+		db.prepare(
+			`CREATE INDEX IF NOT EXISTS idx_cadmus_sessions_access ON cadmus_sessions(access_hash)`,
+		),
+		db.prepare(
+			`CREATE INDEX IF NOT EXISTS idx_cadmus_sessions_prev ON cadmus_sessions(previous_refresh_hash)`,
+		),
+		db.prepare(`
+        CREATE TABLE IF NOT EXISTS cadmus_bootstrap (
+          id INTEGER PRIMARY KEY CHECK (id = 1),
+          claimed_at INTEGER NOT NULL,
+          user_id TEXT NOT NULL
+        )
+      `),
 	]);
 }
 
@@ -714,6 +836,28 @@ export class D1AdminStore implements AdminStore {
 
 	async #seedJustBashDefault(accountId: string, now: number): Promise<void> {
 		await seedJustBashDefault(this.#db, accountId, now);
+	}
+
+	async createSession(input: CreateSessionInput): Promise<SessionTokens> {
+		await this.initialize();
+		return createSession(this.#db, input);
+	}
+
+	async resolveAccessToken(
+		rawToken: string,
+	): Promise<SessionIdentity | undefined> {
+		await this.initialize();
+		return resolveAccessToken(this.#db, rawToken);
+	}
+
+	async rotateRefreshToken(rawRefresh: string): Promise<RefreshResult> {
+		await this.initialize();
+		return rotateRefreshToken(this.#db, rawRefresh);
+	}
+
+	async revokeSession(sessionId: string): Promise<boolean> {
+		await this.initialize();
+		return revokeSession(this.#db, sessionId);
 	}
 
 	async resolveToken(

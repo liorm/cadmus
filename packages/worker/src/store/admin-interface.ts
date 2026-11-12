@@ -13,6 +13,12 @@ import type {
 	CredentialSummary,
 	FamilyRecord,
 } from "../protocol.js";
+import type {
+	CreateSessionInput,
+	RefreshResult,
+	SessionIdentity,
+	SessionTokens,
+} from "./d1-sessions.js";
 
 export type { AccountRecord };
 
@@ -55,6 +61,11 @@ export interface FamilySettingsPatch {
  * and the Bot Families catalog (`account_id <-> family_id <-> do_name`).
  */
 export interface AdminStore {
+	// Sessions (issue #3 phase 3)
+	createSession(input: CreateSessionInput): Promise<SessionTokens>;
+	resolveAccessToken(rawToken: string): Promise<SessionIdentity | undefined>;
+	rotateRefreshToken(rawRefresh: string): Promise<RefreshResult>;
+	revokeSession(sessionId: string): Promise<boolean>;
 	initialize(options?: { force?: boolean }): Promise<void>;
 
 	// Auth & Accounts

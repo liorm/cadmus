@@ -5,6 +5,7 @@ import {
 	withPrivateApiCache,
 } from "./api-adapter.js";
 import { authenticateRequest, type ResolvedRequestScope } from "./auth.js";
+import { handleRefresh, isAuthRoute } from "./auth-routes.js";
 import {
 	authorize,
 	encodePrincipal,
@@ -69,6 +70,10 @@ export default {
 			edgeCache,
 		});
 		await adminStore.initialize();
+
+		if (isAuthRoute(url.pathname)) {
+			return handleRefresh(request, adminStore);
+		}
 
 		if (url.pathname === "/tools-env/ws") {
 			return handleToolsEnvWebsocket(request, env, adminStore, url);
