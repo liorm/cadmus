@@ -167,6 +167,32 @@ export type AccountModelsListResult = Static<
 >;
 
 /**
+ * Result returned by auth.whoami: the principal resolved at the edge.
+ */
+export const AuthWhoamiResultSchema = Type.Object(
+	{
+		principal: Type.Object(
+			{
+				kind: Type.Union(
+					[Type.Literal("user"), Type.Literal("token"), Type.Literal("daemon")],
+					{ description: "Credential kind that authenticated the request." },
+				),
+				userId: Type.Optional(
+					Type.String({ description: "Authenticated user id, when known." }),
+				),
+				accountId: Type.String({ description: "Account the request acts in." }),
+				role: Type.Union([Type.Literal("owner"), Type.Literal("member")], {
+					description: "Membership role in that account.",
+				}),
+			},
+			{ description: "Resolved principal." },
+		),
+	},
+	{ description: "Result payload returned by auth.whoami." },
+);
+export type AuthWhoamiResult = Static<typeof AuthWhoamiResultSchema>;
+
+/**
  * Result returned by family.list containing all bot families in the account.
  */
 export const FamilyListResultSchema = Type.Object(

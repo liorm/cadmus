@@ -873,6 +873,65 @@
 				}
 			}
 		},
+		"/api/auth/whoami": {
+			"get": {
+				"operationId": "auth.whoami",
+				"summary": "Return the authenticated principal (credential kind, user, account and role) that the server resolved for this request.",
+				"parameters": [],
+				"responses": {
+					"200": {
+						"description": "Command result",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/AuthWhoamiResult"
+								}
+							}
+						}
+					},
+					"400": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"401": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"404": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"405": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"409": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"500": {
+						"$ref": "#/components/responses/ApiError"
+					}
+				}
+			},
+			"head": {
+				"operationId": "auth.whoami.head",
+				"summary": "Return the authenticated principal (credential kind, user, account and role) that the server resolved for this request.",
+				"parameters": [],
+				"responses": {
+					"200": {
+						"description": "Same as GET with an empty body"
+					},
+					"400": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"401": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"404": {
+						"$ref": "#/components/responses/ApiError"
+					},
+					"405": {
+						"$ref": "#/components/responses/ApiError"
+					}
+				}
+			}
+		},
 		"/api/family/list": {
 			"get": {
 				"operationId": "family.list",
@@ -4588,6 +4647,58 @@
 				},
 				"description": "JSON error envelope returned by /api for auth failures, validation failures, missing paths, method mismatches, and failed commands."
 			},
+			"AuthWhoamiResult": {
+				"type": "object",
+				"required": ["principal"],
+				"properties": {
+					"principal": {
+						"type": "object",
+						"required": ["kind", "accountId", "role"],
+						"properties": {
+							"kind": {
+								"anyOf": [
+									{
+										"type": "string",
+										"const": "user"
+									},
+									{
+										"type": "string",
+										"const": "token"
+									},
+									{
+										"type": "string",
+										"const": "daemon"
+									}
+								],
+								"description": "Credential kind that authenticated the request."
+							},
+							"userId": {
+								"type": "string",
+								"description": "Authenticated user id, when known."
+							},
+							"accountId": {
+								"type": "string",
+								"description": "Account the request acts in."
+							},
+							"role": {
+								"anyOf": [
+									{
+										"type": "string",
+										"const": "owner"
+									},
+									{
+										"type": "string",
+										"const": "member"
+									}
+								],
+								"description": "Membership role in that account."
+							}
+						},
+						"description": "Resolved principal."
+					}
+				},
+				"description": "Result payload returned by auth.whoami."
+			},
 			"BotCreateResult": {
 				"type": "object",
 				"required": ["bot"],
@@ -6888,6 +6999,10 @@
 					"fromBotId": {
 						"type": "string",
 						"description": "Bot that posted this group-chat message. Present on member-attributed group logs."
+					},
+					"authorUserId": {
+						"type": "string",
+						"description": "User who authored this user message, as authenticated by the server. Absent for messages written before authorship was recorded and for bot-originated turns."
 					}
 				}
 			},

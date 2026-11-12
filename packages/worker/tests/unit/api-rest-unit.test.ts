@@ -22,6 +22,7 @@ const READONLY = [
 	"account.oauth.providers",
 	"account.oauth.status",
 	"account.toolsEnvs.list",
+	"auth.whoami",
 	"bot.get",
 	"bot.list",
 	"chat.entries",

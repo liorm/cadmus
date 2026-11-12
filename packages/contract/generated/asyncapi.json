@@ -768,6 +768,29 @@
 				},
 				"description": "Update account-level configuration including display name and default timezone."
 			},
+			"AuthWhoamiCommand": {
+				"type": "object",
+				"required": ["id", "type"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Non-empty unique correlation identifier for this command request."
+					},
+					"type": {
+						"type": "string",
+						"const": "auth.whoami",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"properties": {},
+						"description": "Empty parameter payload."
+					}
+				},
+				"readOnly": true,
+				"description": "Return the authenticated principal (credential kind, user, account and role) that the server resolved for this request."
+			},
 			"BotCreateCommand": {
 				"type": "object",
 				"required": ["id", "type", "payload"],
@@ -1789,6 +1812,9 @@
 					},
 					{
 						"$ref": "#/components/schemas/AccountOAuthCancelCommand"
+					},
+					{
+						"$ref": "#/components/schemas/AuthWhoamiCommand"
 					},
 					{
 						"$ref": "#/components/schemas/FamilyListCommand"

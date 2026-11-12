@@ -114,6 +114,10 @@ export interface ChatStore {
 	listChildChats(originChatKey: string): ChatRecord[];
 	setTurnRoot(chatKey: string, rootRequestId: string): void;
 	getTurnRoot(chatKey: string): string | undefined;
+	/** Records which user authored a transcript entry (trusted principal, never client-asserted). */
+	setEntryAuthor(chatKey: string, entryId: number, userId: string): void;
+	/** Entry id to authoring user id for one chat. */
+	listEntryAuthors(chatKey: string): Map<number, string>;
 	getConversationRoute(conversationId: number): ConversationRoute | undefined;
 	listConversationRoutes(chatKey: string): ConversationRoute[];
 	listConversationRoutesForBot(botId: string): ConversationRoute[];

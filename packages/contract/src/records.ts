@@ -1163,6 +1163,12 @@ export const TranscriptMessageViewSchema = Type.Object({
 				"Bot that posted this group-chat message. Present on member-attributed group logs.",
 		}),
 	),
+	authorUserId: Type.Optional(
+		Type.String({
+			description:
+				"User who authored this user message, as authenticated by the server. Absent for messages written before authorship was recorded and for bot-originated turns.",
+		}),
+	),
 });
 export type TranscriptMessageView = Static<typeof TranscriptMessageViewSchema>;
 

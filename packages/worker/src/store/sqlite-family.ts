@@ -793,6 +793,27 @@ class SqliteChatStore implements ChatStore {
 		);
 	}
 
+	setEntryAuthor(chatKey: string, entryId: number, userId: string): void {
+		this.sql.exec(
+			`INSERT OR IGNORE INTO cadmus_entry_authors (chat_key, entry_id, user_id)
+       VALUES (?, ?, ?)`,
+			chatKey,
+			entryId,
+			userId,
+		);
+	}
+
+	listEntryAuthors(chatKey: string): Map<number, string> {
+		const authors = new Map<number, string>();
+		for (const row of this.sql.exec<{ entry_id: number; user_id: string }>(
+			`SELECT entry_id, user_id FROM cadmus_entry_authors WHERE chat_key = ?`,
+			chatKey,
+		)) {
+			authors.set(Number(row.entry_id), row.user_id);
+		}
+		return authors;
+	}
+
 	getTurnRoot(chatKey: string): string | undefined {
 		const rows = this.sql
 			.exec<{ root_request_id: string }>(
@@ -1869,6 +1890,13 @@ export class SqliteFamilyStore implements FamilyStore {
 
       CREATE INDEX IF NOT EXISTS idx_cadmus_harvest_notes_chat
         ON cadmus_harvest_notes(chat_key, id);
+
+      CREATE TABLE IF NOT EXISTS cadmus_entry_authors (
+        chat_key TEXT NOT NULL,
+        entry_id INTEGER NOT NULL,
+        user_id TEXT NOT NULL,
+        PRIMARY KEY (chat_key, entry_id)
+      );
 
       CREATE TABLE IF NOT EXISTS cadmus_turn_roots (
         chat_key TEXT PRIMARY KEY,

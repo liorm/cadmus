@@ -13,6 +13,7 @@ import type {
 	AccountToolsEnvsPairCommand,
 	AccountToolsEnvsUpdateCommand,
 	AccountUpdateCommand,
+	AuthWhoamiCommand,
 	BotCreateCommand,
 	BotDeleteCommand,
 	BotGetCommand,
@@ -80,6 +81,7 @@ import type {
 	AccountToolsEnvsPairResult,
 	AccountToolsEnvsUpdateResult,
 	AccountUpdateResult,
+	AuthWhoamiResult,
 	BotCreateResult,
 	BotDeleteResult,
 	BotGetResult,
@@ -213,6 +215,7 @@ export type AccountOAuthCancelRpc = Rpc<
 >;
 
 /** RPC contract for `family.list`: lists all bot families belonging to the account. */
+export type AuthWhoamiRpc = Rpc<AuthWhoamiCommand, AuthWhoamiResult>;
 export type FamilyListRpc = Rpc<FamilyListCommand, FamilyListResult>;
 
 /** RPC contract for `family.create`: registers and provisions a new bot family Durable Object instance. */
@@ -371,6 +374,7 @@ export interface RpcMap {
 	"account.oauth.status": AccountOAuthStatusRpc;
 	"account.oauth.submit": AccountOAuthSubmitRpc;
 	"account.oauth.cancel": AccountOAuthCancelRpc;
+	"auth.whoami": AuthWhoamiRpc;
 	"family.list": FamilyListRpc;
 	"family.create": FamilyCreateRpc;
 	"family.get": FamilyGetRpc;

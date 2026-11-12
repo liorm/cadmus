@@ -14,6 +14,7 @@ import {
 	AccountToolsEnvsPairCommandSchema,
 	AccountToolsEnvsUpdateCommandSchema,
 	AccountUpdateCommandSchema,
+	AuthWhoamiCommandSchema,
 	BotCreateCommandSchema,
 	BotDeleteCommandSchema,
 	BotGetCommandSchema,
@@ -79,6 +80,7 @@ import {
 	AccountToolsEnvsPairResultSchema,
 	AccountToolsEnvsUpdateResultSchema,
 	AccountUpdateResultSchema,
+	AuthWhoamiResultSchema,
 	BotCreateResultSchema,
 	BotDeleteResultSchema,
 	BotGetResultSchema,
@@ -170,6 +172,10 @@ export const commandCatalog = {
 	"account.oauth.cancel": {
 		command: AccountOAuthCancelCommandSchema,
 		result: AccountOAuthCancelResultSchema,
+	},
+	"auth.whoami": {
+		command: AuthWhoamiCommandSchema,
+		result: AuthWhoamiResultSchema,
 	},
 	"family.list": {
 		command: FamilyListCommandSchema,

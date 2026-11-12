@@ -88,6 +88,12 @@ export const API_ROUTES = {
 		allow: "POST",
 		readOnly: false,
 	},
+	"auth.whoami": {
+		method: "GET",
+		path: "/api/auth/whoami",
+		allow: "GET, HEAD",
+		readOnly: true,
+	},
 	"family.list": {
 		method: "GET",
 		path: "/api/family/list",

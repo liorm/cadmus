@@ -29,10 +29,10 @@ import {
 import { openDurableObjectSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/cloudflare";
 import { syncDurableObjectAlarm } from "./alarms.js";
 import {
-	CALLER_ROLE_HEADER,
 	type CallerMeta,
 	callerMetaFromAttachment,
 	callerMetaFromHeader,
+	PRINCIPAL_HEADER,
 	requireOwner,
 } from "./authz.js";
 import { assertBotMetadata, mergeMetadataPatch } from "./bot-metadata.js";
@@ -682,7 +682,7 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 			const client = pair[0];
 			const server = pair[1];
 			const caller = callerMetaFromHeader(
-				request.headers.get(CALLER_ROLE_HEADER),
+				request.headers.get(PRINCIPAL_HEADER),
 			);
 			this.ctx.acceptWebSocket(server);
 			server.serializeAttachment(caller);
@@ -700,7 +700,7 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 		if (url.pathname === "/rpc" && request.method === "POST") {
 			const raw = await request.text();
 			const caller = callerMetaFromHeader(
-				request.headers.get(CALLER_ROLE_HEADER),
+				request.headers.get(PRINCIPAL_HEADER),
 			);
 			return this.handleRpcRequest(raw, caller);
 		}
@@ -1016,9 +1016,16 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 			if (conv) {
 				await this.attachConversationWatch(chat, conv, context);
 			}
-			const { messages, entries } = conv
+			const transcript = conv
 				? await this.readTranscriptData(conv, context)
 				: { messages: [], entries: [] };
+			const authors = this.familyStore.chats.listEntryAuthors(chat.key);
+			const messages = transcript.messages.map((message) => {
+				const authorUserId =
+					message.role === "user" ? authors.get(message.id) : undefined;
+				return authorUserId ? { ...message, authorUserId } : message;
+			});
+			const { entries } = transcript;
 			const live = await harness.snapshot(
 				LiveDoc,
 				chat.conversationId as ConversationId,
@@ -1341,6 +1348,16 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 			"account.oauth.cancel": async (command) => {
 				const flow = this.oauthManager.cancelFlow(command.payload.flowId);
 				return { flow, cancelled: true };
+			},
+			"auth.whoami": async (_command) => {
+				return {
+					principal: {
+						kind: caller.kind ?? "token",
+						...(caller.userId ? { userId: caller.userId } : {}),
+						accountId: caller.accountId ?? meta.accountId,
+						role: caller.role ?? "member",
+					},
+				};
 			},
 			"family.list": async (_command) => {
 				const families = await this.adminStore.listFamilies(meta.accountId);
@@ -1861,6 +1878,7 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 					text: command.payload.text,
 					requestId: command.payload.requestId ?? command.payload.clientMsgId,
 					whenBusy: command.payload.whenBusy,
+					authorUserId: caller.userId,
 				});
 			},
 			"turn.steer": async (command) => {
@@ -1870,6 +1888,7 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 					text: command.payload.text,
 					requestId: command.payload.requestId ?? command.payload.clientMsgId,
 					whenBusy: "steer",
+					authorUserId: caller.userId,
 				});
 			},
 			"turn.abort": abortTurn,
@@ -3433,6 +3452,8 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 		whenBusy?: "queue" | "steer" | "reject";
 		replyTimeoutMs?: number;
 		hopChain?: readonly string[];
+		/** Trusted author from the edge principal. Absent for bot-originated turns. */
+		authorUserId?: string;
 	}): Promise<{
 		chatKey: string;
 		conversationId: number;
@@ -3467,6 +3488,13 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 		}
 
 		await this.attachConversationWatch(chat, conv, context);
+
+		const lastEntryBefore = input.authorUserId
+			? (await conv.context(context)).entries.reduce(
+					(max, entry) => Math.max(max, Number(entry.id)),
+					0,
+				)
+			: 0;
 
 		const requestId =
 			input.requestId ?? `turn:${chat.key}:${crypto.randomUUID().slice(0, 8)}`;
@@ -3529,6 +3557,18 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 		log.debug("chat turn settled", { status: settled.status });
 
 		const view = await conv.context(context);
+		if (input.authorUserId) {
+			for (const entry of view.entries) {
+				const entryId = Number(entry.id);
+				if (entryId > lastEntryBefore && entry.model?.[0]?.role === "user") {
+					this.familyStore.chats.setEntryAuthor(
+						chat.key,
+						entryId,
+						input.authorUserId,
+					);
+				}
+			}
+		}
 		const reply = extractLatestAssistantReply(view.messages);
 		const blocks = extractTurnBlocks(view.messages);
 		const latestEntry = view.entries[view.entries.length - 1];

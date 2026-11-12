@@ -164,6 +164,7 @@ describe("contract conformance", () => {
 			envId: requireString(deletable, ["env", "envId"]),
 		});
 
+		await call("auth.whoami");
 		await call("family.list");
 		await call("family.get", { familyId });
 		await call("family.update", {

@@ -313,6 +313,31 @@ export type AccountModelsListCommand = Static<
 >;
 
 /**
+ * Command to read the principal the edge authenticated for this request.
+ */
+export const AuthWhoamiCommandSchema = Type.Object(
+	{
+		id: Type.String({
+			minLength: 1,
+			description:
+				"Non-empty unique correlation identifier for this command request.",
+		}),
+		type: Type.Literal("auth.whoami", {
+			description: "Command type identifier.",
+		}),
+		payload: Type.Optional(
+			Type.Object({}, { description: "Empty parameter payload." }),
+		),
+	},
+	{
+		readOnly: true,
+		description:
+			"Return the authenticated principal (credential kind, user, account and role) that the server resolved for this request.",
+	},
+);
+export type AuthWhoamiCommand = Static<typeof AuthWhoamiCommandSchema>;
+
+/**
  * Command to list all bot families belonging to the account.
  */
 export const FamilyListCommandSchema = Type.Object(
@@ -2033,6 +2058,7 @@ export const ClientCommandSchema = Type.Union(
 		AccountOAuthStatusCommandSchema,
 		AccountOAuthSubmitCommandSchema,
 		AccountOAuthCancelCommandSchema,
+		AuthWhoamiCommandSchema,
 		FamilyListCommandSchema,
 		FamilyCreateCommandSchema,
 		FamilyGetCommandSchema,
