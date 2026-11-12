@@ -17,7 +17,10 @@ export function cadmusPlaywright(
 		testDir,
 		fullyParallel: true,
 		forbidOnly: Boolean(process.env.CI),
-		retries: 0,
+		// CI runs wrangler dev and Obscura on a 2-core runner; a different UI test
+		// times out under load on most failing main runs. One retry keeps the
+		// gate while Playwright still reports the test as flaky.
+		retries: process.env.CI ? 1 : 0,
 		workers: process.env.CI ? 2 : undefined,
 		globalSetup: "./tests/support/global-setup.ts",
 		globalTeardown: "./tests/support/global-teardown.ts",
