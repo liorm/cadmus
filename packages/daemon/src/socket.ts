@@ -3,6 +3,10 @@ import { connect as tlsConnect } from "node:tls";
 
 /** Handshake budget. A hung SYN or a silent peer uses the same backoff as a refused dial. */
 export const DAEMON_CONNECT_TIMEOUT_MS = 10_000;
+/** Interval between WebSocket ping frames to detect silent/dropped connections. */
+export const DAEMON_PING_INTERVAL_MS = 25_000;
+/** Budget to receive any frame (including pong) after sending a WebSocket ping. */
+export const DAEMON_PONG_TIMEOUT_MS = 10_000;
 
 export interface DaemonSocket {
 	send(text: string): void;
@@ -16,6 +20,8 @@ export async function openDaemonSocket(input: {
 	url: string;
 	headers: Record<string, string>;
 	timeoutMs?: number;
+	pingIntervalMs?: number;
+	pongTimeoutMs?: number;
 }): Promise<{ status: number; socket?: DaemonSocket; error?: string }> {
 	const url = new URL(input.url);
 	const secure = url.protocol === "wss:" || url.protocol === "https:";
@@ -46,11 +52,15 @@ export async function openDaemonSocket(input: {
 		const timer = setTimeout(() => {
 			fail(new Error("connect timeout"));
 		}, timeoutMs);
+		const onHandshakeClose = () => {
+			fail(new Error("socket closed before handshake"));
+		};
 		const fail = (error: unknown) => {
 			if (settled) return;
 			settled = true;
 			clearTimeout(timer);
 			raw.off("error", fail);
+			raw.off("close", onHandshakeClose);
 			raw.on("error", () => {});
 			raw.destroy();
 			reject(error instanceof Error ? error : new Error(String(error)));
@@ -64,10 +74,13 @@ export async function openDaemonSocket(input: {
 			settled = true;
 			clearTimeout(timer);
 			raw.off("error", fail);
+			raw.off("close", onHandshakeClose);
 			resolve(value);
 		};
 		raw.once("error", fail);
+		raw.once("close", onHandshakeClose);
 		raw.once("connect", () => {
+			raw.setKeepAlive?.(true, 15_000);
 			raw.write(headerLines.join("\r\n"));
 			let buf = Buffer.alloc(0);
 			const onData = (chunk: Buffer) => {
@@ -84,14 +97,24 @@ export async function openDaemonSocket(input: {
 					succeed({ status, error: bodyText || undefined });
 					return;
 				}
-				succeed({ status, socket: wrapSocket(raw, rest) });
+				succeed({
+					status,
+					socket: wrapSocket(raw, rest, {
+						pingIntervalMs: input.pingIntervalMs,
+						pongTimeoutMs: input.pongTimeoutMs,
+					}),
+				});
 			};
 			raw.on("data", onData);
 		});
 	});
 }
 
-function wrapSocket(raw: Socket, initial: Buffer): DaemonSocket {
+function wrapSocket(
+	raw: Socket,
+	initial: Buffer,
+	options?: { pingIntervalMs?: number; pongTimeoutMs?: number },
+): DaemonSocket {
 	let buf = Buffer.from(initial);
 	let closed = false;
 	const messages: Array<(text: string) => void> = [];
@@ -100,9 +123,23 @@ function wrapSocket(raw: Socket, initial: Buffer): DaemonSocket {
 	const closedPromise = new Promise<void>((resolve) => {
 		resolveClosed = resolve;
 	});
+	const pingIntervalMs = options?.pingIntervalMs ?? DAEMON_PING_INTERVAL_MS;
+	const pongTimeoutMs = options?.pongTimeoutMs ?? DAEMON_PONG_TIMEOUT_MS;
+	let pingTimer: ReturnType<typeof setInterval> | null = null;
+	let pongTimer: ReturnType<typeof setTimeout> | null = null;
+	const clearPongTimer = () => {
+		if (!pongTimer) return;
+		clearTimeout(pongTimer);
+		pongTimer = null;
+	};
 	const finish = () => {
 		if (closed) return;
 		closed = true;
+		if (pingTimer) {
+			clearInterval(pingTimer);
+			pingTimer = null;
+		}
+		clearPongTimer();
 		resolveClosed();
 		for (const listener of closes) listener();
 		raw.destroy();
@@ -170,11 +207,26 @@ function wrapSocket(raw: Socket, initial: Buffer): DaemonSocket {
 		}
 	};
 	raw.on("data", (chunk: Buffer) => {
+		clearPongTimer();
 		buf = Buffer.concat([buf, chunk]);
 		pump();
 	});
 	raw.on("close", finish);
 	raw.on("error", finish);
+	if (pingIntervalMs > 0) {
+		pingTimer = setInterval(() => {
+			if (closed) return;
+			sendFrame(0x9, Buffer.alloc(0));
+			if (pongTimeoutMs > 0 && !pongTimer) {
+				pongTimer = setTimeout(() => {
+					pongTimer = null;
+					finish();
+				}, pongTimeoutMs);
+				pongTimer.unref?.();
+			}
+		}, pingIntervalMs);
+		pingTimer.unref?.();
+	}
 	if (initial.length > 0) pump();
 	return {
 		send(text: string) {

@@ -463,6 +463,64 @@ export const AccountOAuthEventSchema = Type.Object(
 export type AccountOAuthEvent = Static<typeof AccountOAuthEventSchema>;
 
 /**
+ * Event emitted when a tools environment daemon connects or disconnects.
+ */
+export const AccountToolsEnvEventSchema = Type.Object(
+	{
+		type: Type.Literal("account.toolsEnv.event", {
+			description:
+				"Event type identifier for tools environment connection status updates.",
+		}),
+		payload: Type.Object(
+			{
+				envId: Type.String({
+					description: "Identifier of the tools environment.",
+				}),
+				status: Type.Union(
+					[Type.Literal("connected"), Type.Literal("disconnected")],
+					{
+						description: "Current connection status of the tools environment.",
+					},
+				),
+				connectedAt: Type.Optional(
+					Type.Number({
+						description:
+							"Epoch timestamp in milliseconds when the daemon connected.",
+					}),
+				),
+				disconnectedAt: Type.Optional(
+					Type.Number({
+						description:
+							"Epoch timestamp in milliseconds when the daemon disconnected.",
+					}),
+				),
+				workspacePath: Type.Optional(
+					Type.String({
+						description: "Reported host workspace path while connected.",
+					}),
+				),
+				lastError: Type.Optional(
+					Type.Union([Type.String(), Type.Null()], {
+						description: "Last connection or disconnect error, if any.",
+					}),
+				),
+				confined: Type.Optional(
+					Type.Boolean({
+						description: "Whether confinement is active on the connection.",
+					}),
+				),
+			},
+			{ description: "Tools environment connection status payload." },
+		),
+	},
+	{
+		description:
+			"Broadcast event emitted when a tools environment daemon connects or disconnects.",
+	},
+);
+export type AccountToolsEnvEvent = Static<typeof AccountToolsEnvEventSchema>;
+
+/**
  * Event emitted when a connection-level or unrecoverable protocol error occurs.
  */
 export const ProtocolErrorEventSchema = Type.Object(
@@ -500,6 +558,7 @@ export const ServerEventSchema = Type.Union(
 		BotMessageEventSchema,
 		AccountEventSchema,
 		AccountOAuthEventSchema,
+		AccountToolsEnvEventSchema,
 		ProtocolErrorEventSchema,
 	],
 	{

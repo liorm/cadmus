@@ -61,7 +61,22 @@ export async function runDaemon(options: RunDaemonOptions): Promise<void> {
 	const dial = options.dial ?? openDaemonSocket;
 	const sleep =
 		options.sleep ??
-		((ms: number) => new Promise((resolve) => setTimeout(resolve, ms)));
+		((ms: number) =>
+			new Promise<void>((resolve) => {
+				if (options.signal?.aborted) {
+					resolve();
+					return;
+				}
+				const onAbort = () => {
+					clearTimeout(timer);
+					resolve();
+				};
+				const timer = setTimeout(() => {
+					options.signal?.removeEventListener("abort", onAbort);
+					resolve();
+				}, ms);
+				options.signal?.addEventListener("abort", onAbort, { once: true });
+			}));
 	const random = options.random ?? Math.random;
 	let prepared = false;
 	let cwd = options.workspacePath;
@@ -155,8 +170,20 @@ async function runSocket(
 		logger.info("session.disconnected");
 		session.dispose();
 	});
-	await socket.closed;
-	session.dispose();
+	const onAbort = () => {
+		socket.close();
+	};
+	if (options.signal?.aborted) {
+		socket.close();
+	} else {
+		options.signal?.addEventListener("abort", onAbort, { once: true });
+	}
+	try {
+		await socket.closed;
+	} finally {
+		options.signal?.removeEventListener("abort", onAbort);
+		session.dispose();
+	}
 }
 
 function configStamp(options: RunDaemonOptions): string {

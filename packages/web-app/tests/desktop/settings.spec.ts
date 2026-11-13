@@ -1,4 +1,9 @@
-import { seedBot, sendAccountRpc } from "../support/account.ts";
+import {
+	connectDaemonWs,
+	pairDaemonEnv,
+	seedBot,
+	sendAccountRpc,
+} from "../support/account.ts";
 import { clickByRole, fillByLabel } from "../support/actions.ts";
 import { expect, test } from "../support/fixtures.ts";
 
@@ -191,4 +196,40 @@ test("switching family in settings updates header pill and refreshes fleet", asy
 		name: "secondary-fam",
 	});
 	await expect(headerLink).toBeVisible();
+});
+
+test("tools settings in cockpit updates live when daemon connects and disconnects", async ({
+	page,
+	accountId,
+	baseURL,
+}) => {
+	const origin = baseURL ?? WORKER_BASE;
+	const { envId, token } = await pairDaemonEnv(
+		origin,
+		accountId,
+		"Desktop Live Daemon",
+	);
+	await page.goto("/settings/tools");
+	await expect(
+		page.getByRole("banner", { name: "Cadmus Cockpit" }),
+	).toBeVisible();
+	await expect(page.getByText(envId)).toBeVisible();
+	await expect(page.getByText("disconnected")).toBeVisible();
+
+	const conn = await connectDaemonWs({
+		origin,
+		envId,
+		token,
+		workspace: "/tmp/desktop-live-ws",
+	});
+	try {
+		await expect(
+			page.getByText("connected · /tmp/desktop-live-ws · Unconfined"),
+		).toBeVisible({ timeout: 10_000 });
+	} finally {
+		conn.close();
+	}
+	await expect(page.getByText("disconnected · socket_closed")).toBeVisible({
+		timeout: 10_000,
+	});
 });

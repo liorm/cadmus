@@ -553,6 +553,69 @@
 				"grant": "credentials.manage",
 				"description": "Command to advance an interactive or code-submission OAuth step with user-supplied input."
 			},
+			"AccountToolsEnvEvent": {
+				"type": "object",
+				"required": ["type", "payload"],
+				"properties": {
+					"type": {
+						"type": "string",
+						"const": "account.toolsEnv.event",
+						"description": "Event type identifier for tools environment connection status updates."
+					},
+					"payload": {
+						"type": "object",
+						"required": ["envId", "status"],
+						"properties": {
+							"envId": {
+								"type": "string",
+								"description": "Identifier of the tools environment."
+							},
+							"status": {
+								"anyOf": [
+									{
+										"type": "string",
+										"const": "connected"
+									},
+									{
+										"type": "string",
+										"const": "disconnected"
+									}
+								],
+								"description": "Current connection status of the tools environment."
+							},
+							"connectedAt": {
+								"type": "number",
+								"description": "Epoch timestamp in milliseconds when the daemon connected."
+							},
+							"disconnectedAt": {
+								"type": "number",
+								"description": "Epoch timestamp in milliseconds when the daemon disconnected."
+							},
+							"workspacePath": {
+								"type": "string",
+								"description": "Reported host workspace path while connected."
+							},
+							"lastError": {
+								"anyOf": [
+									{
+										"type": "string"
+									},
+									{
+										"type": "null"
+									}
+								],
+								"description": "Last connection or disconnect error, if any."
+							},
+							"confined": {
+								"type": "boolean",
+								"description": "Whether confinement is active on the connection."
+							}
+						},
+						"description": "Tools environment connection status payload."
+					}
+				},
+				"description": "Broadcast event emitted when a tools environment daemon connects or disconnects."
+			},
 			"AccountToolsEnvsCreateCommand": {
 				"type": "object",
 				"required": ["id", "type", "payload"],
@@ -3117,6 +3180,9 @@
 					},
 					{
 						"$ref": "#/components/schemas/AccountOAuthEvent"
+					},
+					{
+						"$ref": "#/components/schemas/AccountToolsEnvEvent"
 					},
 					{
 						"$ref": "#/components/schemas/ProtocolErrorEvent"

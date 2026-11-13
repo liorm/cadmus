@@ -1,4 +1,9 @@
-import { env, runDurableObjectAlarm, SELF } from "cloudflare:test";
+import {
+	env,
+	runDurableObjectAlarm,
+	runInDurableObject,
+	SELF,
+} from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import type { ServerEvent } from "../src/protocol.js";
 import { resolveHeartbeatMs } from "../src/tools-env/wire.js";
@@ -356,4 +361,181 @@ describe("daemon websocket DO internals (generation, alarms, fork routes, heartb
 		},
 		HEARTBEAT_TEST_BUDGET_MS,
 	);
+
+	it("broadcasts account.toolsEnv.event on connect/disconnect and reconciles stale connected rows", async () => {
+		const options = scope("live-events");
+		const secret = await registerDaemon(options);
+		const envId = secret.envId;
+		await sendRpc(
+			"bot.create",
+			{
+				slug: "assistant",
+				name: "Assistant",
+				model: "faux/echo",
+				tools: CODING_TOOLS,
+				toolsEnv: { enabled: true, binding: { envId } },
+			},
+			options,
+		);
+		await sendRpc("chat.create", { botId: "assistant", key: "main" }, options);
+
+		const ws = await connectTestWs(options);
+		try {
+			ws.events.length = 0;
+			const first = await ScriptedDaemon.upgrade({
+				token: secret.token,
+				envId,
+				workspace: "/tmp/live-ws",
+			});
+			expect(first.status).toBe(101);
+			const sawConnected = await waitFor(
+				() =>
+					ws.events.some(
+						(e) =>
+							e.type === "account.toolsEnv.event" &&
+							e.payload.envId === envId &&
+							e.payload.status === "connected",
+					),
+				5_000,
+			);
+			expect(sawConnected).toBe(true);
+			const connectedEv = ws.events.find(
+				(e): e is Extract<ServerEvent, { type: "account.toolsEnv.event" }> =>
+					e.type === "account.toolsEnv.event" &&
+					e.payload.status === "connected",
+			);
+			expect(connectedEv?.payload.workspacePath).toBe("/tmp/live-ws");
+			expect(typeof connectedEv?.payload.connectedAt).toBe("number");
+
+			ws.events.length = 0;
+			first.peer?.close();
+			const sawDisconnected = await waitFor(
+				() =>
+					ws.events.some(
+						(e) =>
+							e.type === "account.toolsEnv.event" &&
+							e.payload.envId === envId &&
+							e.payload.status === "disconnected",
+					),
+				5_000,
+			);
+			expect(sawDisconnected).toBe(true);
+
+			// Simulate a stale "connected" row left behind by an unclean drop or DO restart.
+			const stub = envStub(options.accountId, envId);
+			await runInDurableObject(stub, async (_instance, state) => {
+				state.storage.sql.exec(
+					`UPDATE cadmus_env_connection
+					 SET status = 'connected', disconnected_at = NULL, last_error = NULL
+					 WHERE env_id = ?`,
+					envId,
+				);
+			});
+
+			// getConnection must reconcile against openSockets() and report disconnected.
+			const reconciled = await connection(options.accountId, envId);
+			expect(reconciled.status).toBe("disconnected");
+			expect(reconciled.lastError).toBe("socket_closed");
+		} finally {
+			ws.close();
+		}
+	});
+
+	it("updates system prompt tools-env vs tools-env-unavailable across connect, stale disconnect, and reconnect", async () => {
+		const options = scope("prompt-fresh");
+		const secret = await registerDaemon(options);
+		const envId = secret.envId;
+		await sendRpc(
+			"bot.create",
+			{
+				slug: "assistant",
+				name: "Assistant",
+				model: "faux/echo",
+				tools: CODING_TOOLS,
+				toolsEnv: { enabled: true, binding: { envId } },
+			},
+			options,
+		);
+		const created = await sendRpc<{ chat: { conversationId: number } }>(
+			"chat.create",
+			{ botId: "assistant", key: "main" },
+			options,
+		);
+		const conversationId = created.frame.result?.chat.conversationId ?? 0;
+		const familyStub = env.CADMUS_BOT_FAMILY.getByName(
+			`cadmus:${options.accountId}:default`,
+		);
+		const readPromptSection = async () =>
+			runInDurableObject(familyStub, async (instance) => {
+				const fn = (
+					instance as unknown as {
+						describeToolsEnv: (input: {
+							conversationId: number;
+							botId: string;
+							toolNames: readonly string[];
+						}) => Promise<{ name: string; text: string } | undefined>;
+					}
+				).describeToolsEnv;
+				return fn.call(instance, {
+					conversationId,
+					botId: "assistant",
+					toolNames: ["bash"],
+				});
+			});
+
+		// 1. Disconnected initially -> tools-env-unavailable
+		expect((await readPromptSection())?.name).toBe("tools-env-unavailable");
+
+		// 2. Daemon connects -> tools-env
+		const daemon1 = await ScriptedDaemon.upgrade({
+			token: secret.token,
+			envId,
+			workspace: "/tmp/prompt-ws",
+		});
+		expect(daemon1.status).toBe(101);
+		const connectedSection = await readPromptSection();
+		expect(connectedSection?.name).toBe("tools-env");
+		expect(connectedSection?.text).toContain("/tmp/prompt-ws");
+
+		// 3. Disconnect and force a stale 'connected' row -> describeToolsEnv & turn.submit must reconcile & see unavailable
+		daemon1.peer?.close();
+		await waitFor(
+			async () =>
+				(await connection(options.accountId, envId)).status === "disconnected",
+			5_000,
+		);
+		await runInDurableObject(
+			envStub(options.accountId, envId),
+			async (_instance, state) => {
+				state.storage.sql.exec(
+					`UPDATE cadmus_env_connection
+					 SET status = 'connected', disconnected_at = NULL, last_error = NULL
+					 WHERE env_id = ?`,
+					envId,
+				);
+			},
+		);
+		expect((await readPromptSection())?.name).toBe("tools-env-unavailable");
+		const offlineTurn = await toolTurn(options, "main", "bash", {
+			command: "echo offline",
+		});
+		expect(offlineTurn.payload?.content ?? "").toContain(
+			"The tools env for this chat is offline (env disconnected)",
+		);
+
+		// 4. Daemon reconnects -> tools-env again
+		const daemon2 = await ScriptedDaemon.upgrade({
+			token: secret.token,
+			envId,
+			workspace: "/tmp/prompt-ws-2",
+		});
+		expect(daemon2.status).toBe(101);
+		try {
+			const reconnectedSection = await readPromptSection();
+			expect(reconnectedSection?.name).toBe("tools-env");
+			expect(reconnectedSection?.text).toContain("/tmp/prompt-ws-2");
+		} finally {
+			daemon2.peer?.close();
+		}
+	});
 });

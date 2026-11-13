@@ -1,5 +1,10 @@
 import type { Page } from "@playwright/test";
-import { seedBot, sendAccountRpc } from "../support/account.ts";
+import {
+	connectDaemonWs,
+	pairDaemonEnv,
+	seedBot,
+	sendAccountRpc,
+} from "../support/account.ts";
 import {
 	chooseTimezone,
 	clickByRole,
@@ -294,4 +299,37 @@ test("family timezone combobox saves a chosen zone and ignores free text", async
 	await expect(
 		page.getByRole("combobox", { name: "Family timezone" }),
 	).toHaveValue("America/New_York");
+});
+
+test("tools settings updates live when daemon connects and disconnects", async ({
+	page,
+	accountId,
+	baseURL,
+}) => {
+	const origin = baseURL ?? WORKER_BASE;
+	const { envId, token } = await pairDaemonEnv(
+		origin,
+		accountId,
+		"Mobile Live Daemon",
+	);
+	await page.goto("/settings/tools");
+	await expect(page.getByText(envId)).toBeVisible();
+	await expect(page.getByText("disconnected")).toBeVisible();
+
+	const conn = await connectDaemonWs({
+		origin,
+		envId,
+		token,
+		workspace: "/tmp/mobile-live-ws",
+	});
+	try {
+		await expect(
+			page.getByText("connected · /tmp/mobile-live-ws · Unconfined"),
+		).toBeVisible({ timeout: 10_000 });
+	} finally {
+		conn.close();
+	}
+	await expect(page.getByText("disconnected · socket_closed")).toBeVisible({
+		timeout: 10_000,
+	});
 });

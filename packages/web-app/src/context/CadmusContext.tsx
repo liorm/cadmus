@@ -623,6 +623,36 @@ export function CadmusProvider({
 					lastBotText: event.payload.reply ?? event.payload.text,
 					lastBotAt: event.payload.when,
 				});
+				return;
+			}
+			if (event.type === "account.toolsEnv.event") {
+				setChatStates((prev) => {
+					let changed = false;
+					const next: Record<string, ChatLiveState> = {};
+					for (const [chatKey, state] of Object.entries(prev)) {
+						const env = state.status?.toolsEnv;
+						if (state.status && env && env.envId === event.payload.envId) {
+							changed = true;
+							next[chatKey] = {
+								...state,
+								status: {
+									...state.status,
+									toolsEnv: {
+										...env,
+										status: event.payload.status,
+										...(event.payload.connectedAt !== undefined
+											? { connectedAt: event.payload.connectedAt }
+											: {}),
+										lastError: event.payload.lastError ?? undefined,
+									},
+								},
+							};
+						} else {
+							next[chatKey] = state;
+						}
+					}
+					return changed ? next : prev;
+				});
 			}
 		});
 	}, [bumpStatusEpoch, client, patchState, persistFailed, refreshDirectory]);

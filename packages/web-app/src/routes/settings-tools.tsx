@@ -1,4 +1,8 @@
-import type { AccountMember, ToolsEnvRecord } from "@cadmus/contract/types";
+import type {
+	AccountMember,
+	ServerEvent,
+	ToolsEnvRecord,
+} from "@cadmus/contract/types";
 import { useCallback, useEffect, useState } from "react";
 import { AppShell } from "@/components/AppShell";
 import { fieldClass } from "@/components/SettingsRows";
@@ -25,7 +29,7 @@ function connectionLabel(env: ToolsEnvRecord): string {
 }
 
 export function ToolsSettingsPage() {
-	const { client } = useCadmus();
+	const { client, connectionStatus, subscribeEvents } = useCadmus();
 	const [envs, setEnvs] = useState<ToolsEnvRecord[]>([]);
 	const [defaultEnvId, setDefaultEnvId] = useState("");
 	const [canDeregister, setCanDeregister] = useState(false);
@@ -94,6 +98,53 @@ export function ToolsSettingsPage() {
 			cancelled = true;
 		};
 	}, [attempt, load]);
+
+	useEffect(() => {
+		return subscribeEvents((event: ServerEvent) => {
+			if (event.type !== "account.toolsEnv.event") return;
+			const payload = event.payload;
+			setEnvs((prev) => {
+				let matched = false;
+				const next = prev.map((env) => {
+					if (env.envId !== payload.envId) return env;
+					matched = true;
+					return {
+						...env,
+						connection: {
+							status: payload.status,
+							...(payload.connectedAt !== undefined
+								? { connectedAt: payload.connectedAt }
+								: env.connection?.connectedAt !== undefined
+									? { connectedAt: env.connection.connectedAt }
+									: {}),
+							...(payload.lastError ? { lastError: payload.lastError } : {}),
+							...(payload.status === "connected" && payload.workspacePath
+								? { workspacePath: payload.workspacePath }
+								: {}),
+							...(payload.status === "connected" &&
+							payload.confined !== undefined
+								? { confined: payload.confined }
+								: {}),
+						},
+					};
+				});
+				return matched ? next : prev;
+			});
+		});
+	}, [subscribeEvents]);
+
+	useEffect(() => {
+		if (connectionStatus !== "connected" || phase !== "ready") return;
+		void load().catch(() => undefined);
+	}, [connectionStatus, load, phase]);
+
+	useEffect(() => {
+		if (phase !== "ready") return;
+		const timer = setInterval(() => {
+			void load().catch(() => undefined);
+		}, 2_000);
+		return () => clearInterval(timer);
+	}, [load, phase]);
 
 	return (
 		<AppShell title="Tools environments" backTo="/settings">

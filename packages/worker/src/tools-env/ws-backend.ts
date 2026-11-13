@@ -88,6 +88,10 @@ export class WsRemoteBackend {
 		private readonly sql: SqlStorage,
 		private readonly sockets: () => WebSocket[],
 		private readonly heartbeatMs = HEARTBEAT_MS,
+		private readonly onDisconnect?: (
+			envId: string,
+			snap: ConnectionSnapshot,
+		) => void,
 	) {
 		this.caller = new WireCaller((text) => this.sendRaw(text));
 	}
@@ -125,7 +129,19 @@ export class WsRemoteBackend {
 		if (kind !== "local-daemon") return { status: "connected" };
 		const row = this.readRow();
 		if (!row) return { status: "disconnected" };
+		if (row.status === "connected" && this.openSockets().length === 0) {
+			const updated = this.casDisconnect(row.generation, "socket_closed");
+			if (updated > 0) {
+				const fresh = this.readRow();
+				return fresh ? snapshot(fresh) : { status: "disconnected" };
+			}
+		}
 		return snapshot(row);
+	}
+
+	readStoredSnapshot(): ConnectionSnapshot {
+		const row = this.readRow();
+		return row ? snapshot(row) : { status: "disconnected" };
 	}
 
 	/** One write. Returns the generation now stored on the row. */
@@ -629,7 +645,12 @@ export class WsRemoteBackend {
 			generation,
 		);
 		cursor.toArray();
-		return cursor.rowsWritten ?? 0;
+		const written = cursor.rowsWritten ?? 0;
+		if (written > 0 && this.onDisconnect) {
+			const fresh = this.readRow();
+			if (fresh) this.onDisconnect(fresh.env_id, snapshot(fresh));
+		}
+		return written;
 	}
 
 	private readRow(): ConnectionRow | undefined {

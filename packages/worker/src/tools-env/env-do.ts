@@ -1,7 +1,8 @@
 import { DurableObject } from "cloudflare:workers";
-import { getLogger } from "../log.js";
+import type { AccountToolsEnvEvent } from "@cadmus/contract/types";
+import { ensureLogger, getLogger } from "../log.js";
 import type { ConfinementPolicy } from "../protocol.js";
-import { D1AdminStore, sha256Hex } from "../store/d1-admin.js";
+import { D1AdminStore, sha256Hex, toDoName } from "../store/d1-admin.js";
 import type { Env } from "../types.js";
 import {
 	type FsSnapshotRow,
@@ -69,17 +70,24 @@ export class CadmusEnvDO extends DurableObject<Env> {
 	private readonly tails = new Map<string, Promise<unknown>>();
 	private readonly ws: WsRemoteBackend;
 	private inFlight = 0;
+	private accountIdCache: string | null = null;
 	private schemaReady: Promise<void>;
 
 	constructor(ctx: DurableObjectState, env: Env) {
 		super(ctx, env);
+		ensureLogger(env.CADMUS_LOG_LEVEL ?? env.LOG_LEVEL);
 		this.ws = new WsRemoteBackend(
 			ctx.storage.sql,
 			() => ctx.getWebSockets("tools-env-daemon"),
 			resolveHeartbeatMs(env.CADMUS_HEARTBEAT_MS),
+			(envId, snap) => {
+				this.ctx.waitUntil(this.notifyConnectionSnapshot(envId, snap));
+			},
 		);
 		this.schemaReady = ctx.blockConcurrencyWhile(async () => {
 			this.ensureSchema();
+			this.accountIdCache =
+				(await this.ctx.storage.get<string>("account_id")) ?? null;
 		});
 	}
 
@@ -166,6 +174,7 @@ export class CadmusEnvDO extends DurableObject<Env> {
 			wsUrl: input.wsUrl,
 		};
 		await this.ctx.storage.put("pending_pairing", pending);
+		await this.rememberAccountId(input.accountId);
 		await this.ctx.storage.setAlarm(expiresAt);
 		const requireConfinement =
 			input.confinementPolicy === "required" ||
@@ -297,9 +306,99 @@ export class CadmusEnvDO extends DurableObject<Env> {
 
 	async deregister(accountId: string, envId: string): Promise<void> {
 		await this.schemaReady;
+		await this.rememberAccountId(accountId);
 		await this.ws.revoke();
 		await this.getAdminStore().clearToolsEnvDaemonToken(accountId, envId);
 		await this.fanOutCatalog(accountId);
+	}
+
+	private async rememberAccountId(accountId: string): Promise<void> {
+		const trimmed = accountId.trim();
+		if (!trimmed || this.accountIdCache === trimmed) return;
+		this.accountIdCache = trimmed;
+		await this.ctx.storage.put("account_id", trimmed);
+	}
+
+	private async getAccountId(): Promise<string | null> {
+		if (this.accountIdCache) return this.accountIdCache;
+		const stored = await this.ctx.storage.get<string>("account_id");
+		this.accountIdCache = stored ?? null;
+		return this.accountIdCache;
+	}
+
+	private async notifyConnectionSnapshot(
+		envId: string,
+		snap: ConnectionSnapshot,
+	): Promise<void> {
+		const accountId = await this.getAccountId();
+		if (!accountId || !envId) return;
+		const event: AccountToolsEnvEvent["payload"] = {
+			envId,
+			status: snap.status,
+			...(snap.connectedAt !== undefined
+				? { connectedAt: snap.connectedAt }
+				: {}),
+			...(snap.disconnectedAt !== undefined
+				? { disconnectedAt: snap.disconnectedAt }
+				: {}),
+			...(snap.status === "connected" && snap.workspacePath
+				? { workspacePath: snap.workspacePath }
+				: {}),
+			lastError: snap.lastError ?? null,
+			...(snap.status === "connected" && snap.confined !== undefined
+				? { confined: snap.confined }
+				: {}),
+		};
+		const adminStore = this.getAdminStore();
+		try {
+			const families = await adminStore.listFamilies(accountId);
+			const targets =
+				families.length > 0
+					? families
+					: [{ doName: toDoName(accountId, "default") }];
+			await Promise.allSettled(
+				targets.map(async (family) => {
+					try {
+						const doId = this.env.CADMUS_BOT_FAMILY.idFromName(family.doName);
+						const stub = this.env.CADMUS_BOT_FAMILY.get(doId);
+						let delivered = false;
+						if (typeof stub.notifyToolsEnvConnection === "function") {
+							try {
+								await stub.notifyToolsEnvConnection(event);
+								delivered = true;
+							} catch (rpcError) {
+								getLogger()
+									.child({ envId, doName: family.doName })
+									.warn(
+										"notifyToolsEnvConnection RPC failed, falling back to fetch",
+										{
+											error: rpcError,
+										},
+									);
+							}
+						}
+						if (!delivered) {
+							await stub.fetch(
+								"https://cadmus.internal/__internal/tools-env/connection",
+								{
+									method: "POST",
+									headers: { "Content-Type": "application/json" },
+									body: JSON.stringify(event),
+								},
+							);
+						}
+					} catch (error) {
+						getLogger()
+							.child({ envId, doName: family.doName })
+							.warn("notifyToolsEnvConnection failed", { error });
+					}
+				}),
+			);
+		} catch (error) {
+			getLogger()
+				.child({ envId, accountId })
+				.warn("notifyConnectionSnapshot listFamilies failed", { error });
+		}
 	}
 
 	private getAdminStore(): D1AdminStore {
@@ -315,8 +414,12 @@ export class CadmusEnvDO extends DurableObject<Env> {
 		const adminStore = this.getAdminStore();
 		try {
 			const families = await adminStore.listFamilies(accountId);
+			const targets =
+				families.length > 0
+					? families
+					: [{ doName: toDoName(accountId, "default") }];
 			await Promise.allSettled(
-				families.map(async (family) => {
+				targets.map(async (family) => {
 					try {
 						const doId = this.env.CADMUS_BOT_FAMILY.idFromName(family.doName);
 						const stub = this.env.CADMUS_BOT_FAMILY.get(doId);
@@ -367,7 +470,12 @@ export class CadmusEnvDO extends DurableObject<Env> {
 		if (policy === "required" && !confined) {
 			const message =
 				"Environment requires confinement, but daemon connected with confinement disabled (or lacks bwrap/sandbox-exec)";
+			await this.rememberAccountId(accountId);
 			this.ws.noteConfinementUnavailable(envId, "confinement_unavailable");
+			await this.notifyConnectionSnapshot(
+				envId,
+				this.ws.getConnection("local-daemon"),
+			);
 			return new Response(
 				JSON.stringify({
 					error: {
@@ -388,6 +496,7 @@ export class CadmusEnvDO extends DurableObject<Env> {
 			return new Response("workspace_required", { status: 400 });
 		}
 		const effectiveConfined = policy !== "disabled" && confined;
+		await this.rememberAccountId(accountId);
 		const pair = new WebSocketPair();
 		const client = pair[0];
 		const server = pair[1];
@@ -403,6 +512,7 @@ export class CadmusEnvDO extends DurableObject<Env> {
 			confined: effectiveConfined,
 		});
 		this.ws.supersede(server, generation);
+		await this.notifyConnectionSnapshot(envId, this.ws.readStoredSnapshot());
 		return new Response(null, { status: 101, webSocket: client });
 	}
 

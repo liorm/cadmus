@@ -257,6 +257,18 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 		);
 	}
 
+	async notifyToolsEnvConnection(
+		payload: Extract<
+			ServerEvent,
+			{ type: "account.toolsEnv.event" }
+		>["payload"],
+	): Promise<void> {
+		this.broadcastEvent({
+			type: "account.toolsEnv.event",
+			payload,
+		});
+	}
+
 	async readCredential(providerId: string) {
 		return this.credentialStore.read(providerId);
 	}
@@ -675,6 +687,18 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 			}
 			await this.invalidateCredentialCache(body.providerId);
 			return Response.json({ ok: true, providerId: body.providerId });
+		}
+
+		if (
+			url.pathname === "/__internal/tools-env/connection" &&
+			request.method === "POST"
+		) {
+			const payload = (await request.json()) as Extract<
+				ServerEvent,
+				{ type: "account.toolsEnv.event" }
+			>["payload"];
+			await this.notifyToolsEnvConnection(payload);
+			return Response.json({ ok: true });
 		}
 
 		if (url.pathname === "/ws") {
