@@ -186,3 +186,17 @@ Because `@cadmus/web-app` and its Playwright E2E suites (`bun run test:ui`) exec
    - **Small / Single-Layer Changes**: A single Coder agent executes Phase 1 then Phase 2 sequentially.
    - **Multi-Surface Features**: Dispatch a `contract-backend` Coder subagent to complete and verify Phase 1 (Gate 1 green), then dispatch a `web-surfaces` Coder subagent to complete and verify Phase 2 (Gate 2 green).
    - **Architect Review**: Always run the `architect-review` phase across the combined diff after implementation completes.
+
+---
+
+## 6. Issue Labels and Workflow
+
+Issue labels on GitHub control whether an agent may work on an issue and what it may do on its own.
+
+- **`needs-*` (any label starting with `needs-`)**: Lior is gating the issue. Do not start implementing it until he removes the label.
+  - **`needs-plan`**: the plan must be worked out with Lior and approved by him before work starts.
+  - **`needs-ui-prototype`**: iterate on a UI prototype with Lior before work starts.
+- **`ready-for-dev`**: an agent may implement the issue end to end and squash-merge its PR without further approval, once review, `bun run check:all` and CI all pass. Without this label, or an explicit go-ahead from Lior, an agent never merges a PR.
+- **`in-progress`**: add it when work on the issue starts, and remove it when the work ends (the PR is merged or the work stops).
+
+When an issue's plan or design changes, update the issue description itself rather than adding a comment, so the description always holds the current plan.
