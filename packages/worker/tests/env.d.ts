@@ -1,3 +1,4 @@
+import type { CadmusAuthLimiterDO } from "../src/auth-limiter.js";
 import type { CadmusBotFamilyDO } from "../src/family-do.js";
 import type { CadmusEnvDO } from "../src/tools-env/env-do.js";
 
@@ -11,10 +12,22 @@ declare module "vitest" {
 }
 
 declare global {
+	// Vite's `import.meta.glob`, as the tests call it (query ?raw, eager). The
+	// root `bun check` project has no Vite client types.
+	interface ImportMeta {
+		glob(
+			pattern: string,
+			options: { query: string; import: string; eager: true },
+		): Record<string, string>;
+	}
 	namespace Cloudflare {
 		interface Env {
 			CADMUS_BOT_FAMILY: DurableObjectNamespace<CadmusBotFamilyDO>;
 			CADMUS_ENV: DurableObjectNamespace<CadmusEnvDO>;
+			CADMUS_AUTH_LIMITER: DurableObjectNamespace<CadmusAuthLimiterDO>;
+			CADMUS_AUTH_RATELIMIT: RateLimit;
+			CADMUS_AUTH_REFRESH_RATELIMIT: RateLimit;
+			CADMUS_AUTH_RPC_RATELIMIT: RateLimit;
 			CADMUS_ADMIN_DB: D1Database;
 			CADMUS_AUTH_SECRET?: string;
 			CADMUS_ENCRYPTION_KEY?: string;

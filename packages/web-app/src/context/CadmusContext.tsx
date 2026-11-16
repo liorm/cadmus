@@ -20,6 +20,13 @@ import {
 } from "react";
 import type { ChatLiveSlice } from "@/lib/needs-you";
 import {
+	onSessionEnded,
+	onSessionTokens,
+	REFRESH_MARGIN_MS,
+	refreshSession,
+	selectedAccountId,
+} from "@/lib/session";
+import {
 	type CollapsedMap,
 	type FailedMap,
 	type LastSeenMap,
@@ -31,6 +38,7 @@ import {
 	saveFailed,
 	saveLastBotId,
 	saveLastSeen,
+	setStorageScope,
 } from "@/lib/storage";
 
 export interface DevAuthConfig {
@@ -41,6 +49,7 @@ export interface DevAuthConfig {
 }
 
 const STORAGE_KEY = "cadmus.dev.config";
+const REFRESH_RETRY_MS = 30_000;
 
 const DEFAULT_AUTH_CONFIG: DevAuthConfig = {
 	userId: "dev",
@@ -100,6 +109,7 @@ export interface CadmusContextValue {
 	directoryReady: boolean;
 	directoryDetailReady: boolean;
 	directoryError?: string;
+	skipTenantSync: boolean;
 	refreshDirectory: () => Promise<void>;
 	subscribeEvents: (listener: (event: ServerEvent) => void) => () => void;
 	toggleCollapsed: (botId: string) => void;
@@ -144,11 +154,19 @@ export function CadmusProvider({
 	children,
 	clientOverride,
 	initialConfig,
+	sessionMode = false,
+	skipTenantSync = false,
 }: {
 	children: ReactNode;
 	clientOverride?: CadmusClient;
 	initialConfig?: Partial<DevAuthConfig>;
+	/** A Cadmus session is active: keep its access token fresh. */
+	sessionMode?: boolean;
+	/** True for system-only principals (super-admin) without tenant grants. */
+	skipTenantSync?: boolean;
 }) {
+	// Set before any stored state is read below; idempotent per render.
+	setStorageScope(sessionMode ? initialConfig?.accountId : undefined);
 	const [authConfig] = useState<DevAuthConfig>(() => ({
 		...loadStoredConfig(),
 		...initialConfig,
@@ -158,11 +176,53 @@ export function CadmusProvider({
 		return new CadmusClient({
 			baseUrl: "",
 			userId: authConfig.userId,
-			accountId: authConfig.accountId,
+			// A signed-in session never sends the dev default account: the server
+			// treats an account id as a membership selection and refuses a foreign
+			// one. Only an account this tab chose is sent.
+			accountId: sessionMode ? selectedAccountId() : authConfig.accountId,
 			familyId: authConfig.familyId,
 			token: authConfig.token,
+			useTickets: sessionMode,
 		});
-	}, [authConfig, clientOverride]);
+	}, [authConfig, clientOverride, sessionMode]);
+
+	// Silent refresh. The socket keeps its connection; only the token that the
+	// next reconnect or request uses changes.
+	useEffect(() => {
+		if (!sessionMode || clientOverride) return;
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		let stopped = false;
+		const schedule = (expiresAt: number) => {
+			const wait = Math.max(5_000, expiresAt - Date.now() - REFRESH_MARGIN_MS);
+			timer = setTimeout(async () => {
+				const next = await refreshSession();
+				if (stopped) return;
+				if (next) {
+					client.setToken(next.accessToken, { reconnect: false });
+					schedule(next.expiresAt);
+				} else {
+					// A transient failure must not end silent refresh for good: the
+					// access token lasts 15 minutes, so retry soon while it is valid.
+					schedule(Date.now() + REFRESH_MARGIN_MS + REFRESH_RETRY_MS);
+				}
+			}, wait);
+		};
+		schedule(Date.now() + 15 * 60_000);
+		// A refresh in another tab rotated the access token: use the new one.
+		const unsubscribe = onSessionTokens((tokens) => {
+			client.setToken(tokens.accessToken, { reconnect: false });
+		});
+		// Another tab signed this session out: leave the signed-in view.
+		const unsubscribeEnded = onSessionEnded(() => {
+			window.location.assign("/");
+		});
+		return () => {
+			unsubscribe();
+			unsubscribeEnded();
+			stopped = true;
+			if (timer) clearTimeout(timer);
+		};
+	}, [sessionMode, clientOverride, client]);
 
 	const navigate = useNavigate();
 	const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>(
@@ -194,8 +254,11 @@ export function CadmusProvider({
 	const [directoryReady, setDirectoryReady] = useState(false);
 	const [directoryDetailReady, setDirectoryDetailReady] = useState(false);
 	const [directoryError, setDirectoryError] = useState<string | undefined>();
+	// Same expression refreshDirectory compares against. In session mode the
+	// client's account is the selected one, not authConfig.accountId, and a
+	// mismatch makes the first refresh wipe the failed turns read at init.
 	const directoryScopeRef = useRef(
-		`${authConfig.accountId}:${authConfig.familyId}`,
+		`${client.getAccountId()}:${authConfig.familyId}`,
 	);
 	const directoryDetailRef = useRef(false);
 
@@ -357,14 +420,16 @@ export function CadmusProvider({
 			await Promise.all(
 				listed.map(async (chat) => {
 					try {
-						await refreshChatStatus(chat.key);
-						const detail = await client.callRpc<{
-							messages?: Array<{
-								role: string;
-								text: string;
-								timestamp?: number;
-							}>;
-						}>("chat.get", { chatKey: chat.key });
+						const [, detail] = await Promise.all([
+							refreshChatStatus(chat.key),
+							client.callRpc<{
+								messages?: Array<{
+									role: string;
+									text: string;
+									timestamp?: number;
+								}>;
+							}>("chat.get", { chatKey: chat.key }),
+						]);
 						if (!detail.ok) return;
 						const messages = detail.result?.messages;
 						const lastAssistant = messages?.findLast(
@@ -417,6 +482,15 @@ export function CadmusProvider({
 	}, [clearDirectory, client, patchState, refreshChatStatus]);
 
 	useEffect(() => {
+		if (skipTenantSync) {
+			client.close();
+			setBots([]);
+			setChats([]);
+			setDirectoryReady(true);
+			setDirectoryDetailReady(true);
+			setDirectoryError(undefined);
+			return;
+		}
 		let timer: ReturnType<typeof setTimeout> | undefined;
 		let attempt = 0;
 		let closed = false;
@@ -461,11 +535,14 @@ export function CadmusProvider({
 			off();
 			client.close();
 		};
-	}, [client, deliverTurn, refreshDirectory]);
+	}, [client, deliverTurn, refreshDirectory, skipTenantSync]);
 
 	useEffect(() => {
 		return client.subscribe((event: ServerEvent) => {
 			if (event.type === "chat.state") {
+				// A chat.status read that started before this event is stale.
+				// Drop it so it cannot clear a turn that has already started.
+				bumpStatusEpoch(event.payload.chatKey);
 				if (!event.payload.busy) holdIdle.current.delete(event.payload.chatKey);
 				if (event.payload.busy && holdIdle.current.has(event.payload.chatKey)) {
 					return;
@@ -489,6 +566,7 @@ export function CadmusProvider({
 				return;
 			}
 			if (event.type === "turn.delta") {
+				bumpStatusEpoch(event.payload.chatKey);
 				if (holdIdle.current.has(event.payload.chatKey)) return;
 				setChatStates((prev) => {
 					const current = prev[event.payload.chatKey];
@@ -510,6 +588,7 @@ export function CadmusProvider({
 				return;
 			}
 			if (event.type === "turn.tool_call") {
+				bumpStatusEpoch(event.payload.chatKey);
 				if (holdIdle.current.has(event.payload.chatKey)) return;
 				setChatStates((prev) => {
 					const current = prev[event.payload.chatKey];
@@ -684,13 +763,20 @@ export function CadmusProvider({
 			if (!trimmed) return;
 			try {
 				const raw = localStorage.getItem(STORAGE_KEY);
-				const parsed = raw
+				// Never persist the live session access token: with no stored dev
+				// config, keep only the non-secret selection fields.
+				const parsed: Partial<DevAuthConfig> = raw
 					? (JSON.parse(raw) as Partial<DevAuthConfig>)
-					: authConfig;
-				localStorage.setItem(
-					STORAGE_KEY,
-					JSON.stringify({ ...parsed, familyId: trimmed }),
-				);
+					: {
+							userId: authConfig.userId,
+							accountId: authConfig.accountId,
+							familyId: authConfig.familyId,
+						};
+				const next: Partial<DevAuthConfig> = { ...parsed, familyId: trimmed };
+				// A session access token must never reach storage, even if an old
+				// record carries one.
+				if (next.token?.startsWith("cad_at_")) delete next.token;
+				localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
 			} catch {
 				/* private mode */
 			}
@@ -828,6 +914,7 @@ export function CadmusProvider({
 			directoryReady,
 			directoryDetailReady,
 			directoryError,
+			skipTenantSync,
 			refreshDirectory,
 			subscribeEvents: (listener) => client.subscribe(listener),
 			toggleCollapsed,
@@ -864,6 +951,7 @@ export function CadmusProvider({
 			directoryReady,
 			directoryDetailReady,
 			directoryError,
+			skipTenantSync,
 			lastSeen,
 			markChatSeen,
 			markFailed,

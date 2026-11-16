@@ -1,6 +1,7 @@
 import { readFileSync, rmSync } from "node:fs";
 import { writeCoverageReport } from "./coverage.ts";
 import { CDP_URL_FILE, ENGINE_PID_FILE } from "./engine.ts";
+import { removeHarnessEnvFile } from "./harness-env-file.ts";
 
 export default async function globalTeardown() {
 	writeCoverageReport();
@@ -12,4 +13,5 @@ export default async function globalTeardown() {
 	}
 	rmSync(CDP_URL_FILE, { force: true });
 	rmSync(ENGINE_PID_FILE, { force: true });
+	removeHarnessEnvFile();
 }

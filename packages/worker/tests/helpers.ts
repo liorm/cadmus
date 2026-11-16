@@ -1,6 +1,8 @@
-import { SELF } from "cloudflare:test";
+import { env, SELF } from "cloudflare:test";
+import { getEdgeCache } from "../src/edge-cache.js";
 import { setupLogger } from "../src/log.js";
 import type {
+	AccountMember,
 	CommandResultFrame,
 	RpcPayload,
 	RpcResult,
@@ -8,10 +10,44 @@ import type {
 	ServerEvent,
 	ServerFrame,
 } from "../src/protocol.js";
+import { D1AdminStore } from "../src/store/d1-admin.js";
 
 setupLogger({ type: "silent" });
 
 export const TEST_TOKEN = "test-cadmus-secret";
+
+/**
+ * Test fixture: a member with a caller-chosen legacy bearer token, written
+ * through the store. `account.members.add` no longer accepts a token over RPC
+ * (issue #3), so legacy-token tests seed the row here instead.
+ */
+export async function addLegacyMember(input: {
+	accountId: string;
+	userId: string;
+	name?: string;
+	email?: string;
+	role?: "user" | "account-admin" | "member" | "owner";
+	token: string;
+}): Promise<AccountMember> {
+	const store = new D1AdminStore({
+		db: env.CADMUS_ADMIN_DB,
+		encryptionKey: env.CADMUS_ENCRYPTION_KEY,
+		edgeCache: getEdgeCache(env),
+	});
+	await store.ensureAccountAndUser({
+		accountId: input.accountId,
+		userId: input.userId,
+		role: "user",
+	});
+	return store.addMember({
+		accountId: input.accountId,
+		userId: input.userId,
+		name: input.name,
+		email: input.email,
+		role: input.role,
+		rawToken: input.token,
+	});
+}
 
 /**
  * Fresh Cadmus account id. A Vitest worker reuses one workerd, so D1, KV,
@@ -97,6 +133,49 @@ export async function sendRpc<T = unknown>(
 	};
 }
 
+/** Convenience wrapper around `sendRpc` for tests that only need the result frame. */
+export async function rpc<K extends RpcType>(
+	token: string,
+	type: K,
+	payload?: RpcPayload<K>,
+	accountId?: string,
+): Promise<CommandResultFrame<RpcResult<K>>>;
+export async function rpc<T = Record<string, unknown>>(
+	token: string,
+	type: string,
+	payload?: object,
+	accountId?: string,
+): Promise<CommandResultFrame<T>>;
+export async function rpc<T = Record<string, unknown>>(
+	token: string,
+	type: string,
+	payload: object = {},
+	accountId?: string,
+): Promise<CommandResultFrame<T>> {
+	const { frame } = await sendRpc<T>(type, payload as Record<string, unknown>, {
+		token,
+		accountId,
+	});
+	return frame;
+}
+
+/**
+ * Every credential opens /ws and /events with a single-use ticket minted over
+ * the header-authenticated `auth.ticket` call; `?token=` is retired.
+ */
+export async function streamAuthParams(
+	target: "ws" | "events",
+	options: RpcOptions,
+): Promise<Record<string, string>> {
+	const issued = await sendRpc("auth.ticket", { target }, options);
+	const ticket = (issued.frame.result as { ticket?: string } | undefined)
+		?.ticket;
+	if (!issued.frame.ok || !ticket) {
+		throw new Error(`could not mint a ${target} ticket`);
+	}
+	return { ticket };
+}
+
 export async function connectTestWs(options: RpcOptions = {}): Promise<{
 	ws: WebSocket;
 	events: ServerEvent[];
@@ -113,15 +192,14 @@ export async function connectTestWs(options: RpcOptions = {}): Promise<{
 	close: () => void;
 }> {
 	const url = new URL("http://example.com/ws");
-	url.searchParams.set("token", options.token ?? TEST_TOKEN);
+	const headers: Record<string, string> = { Upgrade: "websocket" };
+	for (const [k, v] of Object.entries(await streamAuthParams("ws", options))) {
+		url.searchParams.set(k, v);
+	}
 	if (options.accountId) url.searchParams.set("accountId", options.accountId);
 	if (options.familyId) url.searchParams.set("familyId", options.familyId);
 
-	const res = await SELF.fetch(url.toString(), {
-		headers: {
-			Upgrade: "websocket",
-		},
-	});
+	const res = await SELF.fetch(url.toString(), { headers });
 	const ws = res.webSocket;
 	if (!ws) {
 		throw new Error(`Expected WebSocket 101 upgrade, got status ${res.status}`);

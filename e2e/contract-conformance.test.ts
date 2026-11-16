@@ -21,6 +21,37 @@ const MAY_FAIL_OFFLINE = new Set<CommandType>([
 	"account.oauth.status",
 	"account.oauth.submit",
 	"account.oauth.cancel",
+	// Need a signed-in session; the master secret has none, so they answer forbidden.
+	"auth.ticket",
+	"auth.sessions.list",
+	"auth.sessions.revoke",
+	"auth.sessions.revokeOthers",
+	"auth.elevate",
+	"auth.passkeys.begin",
+	"auth.passkeys.finish",
+	"auth.elevation.end",
+	// System console: the master secret maps to account-admin, so these answer forbidden.
+	"system.accounts.list",
+	"system.accounts.create",
+	"system.accounts.suspend",
+	"system.accounts.resume",
+	"system.accounts.rename",
+	"system.audit.list",
+	"system.members.list",
+	"system.members.invite",
+	"system.members.update",
+	"system.members.remove",
+	"system.users.disable",
+	"system.users.enable",
+	"system.users.revokeSessions",
+	"system.users.resetPasskeys",
+	"auth.tokens.list",
+	"auth.tokens.create",
+	"auth.tokens.revoke",
+	"auth.memberships.list",
+	"auth.methods.list",
+	"auth.methods.revoke",
+	"auth.methods.link.start",
 ]);
 
 type Payload = Record<string, unknown>;
@@ -125,6 +156,17 @@ describe("contract conformance", () => {
 			userId: `member-${suffix}`,
 			role: "member",
 		});
+		await call("account.members.invite", {
+			email: `invitee-${suffix}@example.com`,
+		});
+		await call("account.invites.list");
+		await call("account.audit.list", { limit: 5 });
+		await call("account.invites.revoke", { inviteId: "inv_missing" });
+		await call("account.members.update", {
+			userId: `member-${suffix}`,
+			role: "user",
+		});
+		await call("account.members.remove", { userId: `member-${suffix}` });
 		await call("account.credentials.list");
 		await call("account.credentials.set", {
 			providerId: "faux",
@@ -165,6 +207,60 @@ describe("contract conformance", () => {
 		});
 
 		await call("auth.whoami");
+		// Session-bound commands: the master secret has no session, so these
+		// answer forbidden. Session-backed behavior is covered in
+		// packages/worker/tests/sessions.test.ts.
+		await call("auth.ticket", { target: "ws" });
+		await call("auth.sessions.list");
+		await call("auth.sessions.revoke", { sessionId: "ses_missing" });
+		await call("auth.sessions.revokeOthers");
+		await call("auth.elevate");
+		await call("auth.passkeys.begin", { purpose: "register" });
+		await call("auth.passkeys.finish", {
+			purpose: "register",
+			challengeId: "pkc_missing",
+			response: {},
+		});
+		await call("auth.elevation.end");
+		await call("system.accounts.list");
+		await call("system.accounts.create", { name: "Conformance" });
+		await call("system.accounts.suspend", { accountId: "acc_missing" });
+		await call("system.accounts.resume", { accountId: "acc_missing" });
+		await call("system.accounts.rename", {
+			accountId: "acc_missing",
+			name: "x",
+		});
+		await call("system.audit.list");
+		await call("system.members.list", { accountId: "acc_missing" });
+		await call("system.members.invite", {
+			accountId: "acc_missing",
+			email: "x@example.com",
+		});
+		await call("system.members.update", {
+			accountId: "acc_missing",
+			userId: "usr_missing",
+			role: "user",
+		});
+		await call("system.members.remove", {
+			accountId: "acc_missing",
+			userId: "usr_missing",
+		});
+		await call("system.users.disable", { userId: "usr_missing" });
+		await call("system.users.enable", { userId: "usr_missing" });
+		await call("system.users.revokeSessions", { userId: "usr_missing" });
+		await call("system.users.resetPasskeys", { userId: "usr_missing" });
+		await call("auth.tokens.list");
+		await call("auth.tokens.create", {
+			kind: "pat",
+			label: "conformance",
+			grants: ["chat.use"],
+			ttlDays: 1,
+		});
+		await call("auth.tokens.revoke", { tokenId: "tok_missing" });
+		await call("auth.memberships.list");
+		await call("auth.methods.list");
+		await call("auth.methods.revoke", { methodId: "lm_missing" });
+		await call("auth.methods.link.start", { provider: "google" });
 		await call("family.list");
 		await call("family.get", { familyId });
 		await call("family.update", {

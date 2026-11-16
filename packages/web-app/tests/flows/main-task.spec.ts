@@ -2,6 +2,9 @@ import { seedBot, sendAccountRpc } from "../support/account.ts";
 import { clickByRole, fillByLabel, swipeLeft } from "../support/actions.ts";
 import { expect, test } from "../support/fixtures.ts";
 
+// Ordinary user-level journey: signs in through token login with the user-role grants, no master token.
+test.use({ signIn: "user" });
+
 test.describe.configure({ mode: "parallel" });
 
 const WORKER_BASE = "http://127.0.0.1:8799";
@@ -119,7 +122,9 @@ test("unread reply shows a dot and a Needs-you entry", async ({
 	await expect(
 		page.getByRole("status", { name: "Unread" }).first(),
 	).toBeVisible();
-	await clickByRole(page, "button", "Hello");
+	// The Needs-you entry is labelled exactly with the chat title; the thread
+	// row's name also carries the last message.
+	await clickByRole(page, "button", "Hello", { exact: true });
 	await expect(page.getByText(/new/)).toBeVisible();
 	await clickByRole(page, "link", "Back");
 	await expect(page.getByRole("heading", { name: /Needs you/ })).toHaveCount(0);
@@ -140,7 +145,9 @@ test("failed turn Retry resubmits", async ({ page, accountId, baseURL }) => {
 	await expect(page.getByRole("button", { name: "Retry" }).first()).toBeVisible(
 		{ timeout: 15_000 },
 	);
-	await clickByRole(page, "button", "Retry");
+	await clickByRole(page, "button", "Retry", {
+		within: page.getByRole("region", { name: "Echo Bot" }),
+	});
 	await expect(
 		page.getByRole("status", { name: "Running" }).first(),
 	).toBeVisible({ timeout: 15_000 });

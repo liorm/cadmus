@@ -145,7 +145,7 @@ export function apiRouteForCommand(commandType: CommandType): {
  * | code | status |
  * | --- | --- |
  * | `unauthorized` | 401 |
- * | `forbidden` | 403 |
+ * | `forbidden`, `elevation_required` | 403 |
  * | `not_found`, `family_not_found`, or any `*_not_found` | 404 |
  * | `cas_conflict`, `conflict` | 409 |
  * | `command_failed` | 500 |

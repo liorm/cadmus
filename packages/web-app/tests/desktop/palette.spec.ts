@@ -7,6 +7,9 @@ import {
 	restoreWebSocket,
 } from "../support/sockets.ts";
 
+// Ordinary user-level journey: signs in through token login with the user-role grants, no master token.
+test.use({ signIn: "user" });
+
 test.describe.configure({ mode: "parallel" });
 
 const WORKER_BASE = "http://127.0.0.1:8799";
@@ -16,6 +19,14 @@ test("command palette navigates to destinations inside Cockpit Stage without mob
 	accountId,
 	baseURL,
 }) => {
+	// Margin, not a cause fix. Eight palette destinations in one test. Measured
+	// on Obscura: about 19 s untraced; with traces on (CI records every
+	// attempt) 30.5 s and above, up to 47.2 s, so the 30 s default is too tight.
+	// In the hosted Obscura trace most palette clicks spent 2 s timing out on a
+	// pointer-intercept before the DOM fallback; real Chrome has none of that.
+	// Why tracing adds the extra time, and why Obscura intercepts, is not
+	// established. 90 s is about twice the slowest measured run.
+	test.setTimeout(90_000);
 	const origin = baseURL ?? WORKER_BASE;
 	await seedBot(origin, accountId, "Echo Bot", "echo-bot");
 	await page.goto("/");
@@ -58,7 +69,8 @@ test("command palette navigates to destinations inside Cockpit Stage without mob
 	await page.keyboard.press("Control+k");
 	await expect(dialog).toBeVisible();
 	await fillByLabel(page, "Command filter", "account");
-	await clickByRole(page, "button", "Account");
+	// "Account" alone also matches "Tool environments account.toolsEnvs".
+	await clickByRole(page, "button", "Account account.get", { within: dialog });
 	await expect(dialog).toBeHidden();
 	await expect(
 		page.getByRole("banner", { name: "Cadmus Cockpit" }),
@@ -156,6 +168,10 @@ test("searching chat titles in command palette highlights matches and opens chat
 	});
 
 	await page.goto("/");
+	// The shortcut is only bound once the signed-in app has rendered.
+	await expect(
+		page.getByRole("banner", { name: "Cadmus Cockpit" }),
+	).toBeVisible();
 	await page.keyboard.press("Control+k");
 	const dialog = page.getByRole("dialog", { name: "Command palette" });
 	await expect(dialog).toBeVisible();
@@ -166,7 +182,10 @@ test("searching chat titles in command palette highlights matches and opens chat
 	await expect(matchMark).toContainText("Thermo", { ignoreCase: true });
 
 	// Click matching item
-	await clickByRole(page, "button", "Thermostat control check");
+	// The sidebar thread row and its Archive button repeat the title.
+	await clickByRole(page, "button", "Thermostat control check", {
+		within: dialog,
+	});
 	await expect(
 		page.getByRole("banner", { name: "Cadmus Cockpit" }),
 	).toBeVisible();

@@ -10,6 +10,7 @@ import { SegmentedControl } from "@/components/SegmentedControl";
 import { SettingsLink, SettingsSection } from "@/components/SettingsRows";
 import { HintSkeleton, LoadError } from "@/components/Skeleton";
 import { useCadmus } from "@/context/CadmusContext";
+import { useSession } from "@/context/SessionContext";
 import { useScopedResource } from "@/hooks/useScopedResource";
 import { getTheme, setTheme, THEMES, type ThemeName } from "@/theme/theme";
 
@@ -21,53 +22,75 @@ export function SettingsPage() {
 		teamLeaderBotId,
 		directoryReady,
 		familyId,
+		skipTenantSync,
 	} = useCadmus();
+	const session = useSession();
+	const superAdmin =
+		session.principal?.kind === "user" &&
+		!session.principal.viaToken &&
+		session.principal.role === "super-admin";
 	const [theme, setThemeState] = useState<ThemeName>(() => getTheme());
 	const [savingLeader, setSavingLeader] = useState(false);
 	const [leaderError, setLeaderError] = useState<string | null>(null);
-	const hub = useScopedResource(familyId, async () => {
-		const [accountRes, envRes, scheduleRes, chatRes, familyRes] =
-			await Promise.all([
-				client.callRpc<{
-					account?: AccountRecord;
-					members?: unknown[];
-					credentials?: CredentialSummary[];
-				}>("account.get"),
-				client.callRpc<{ envs?: ToolsEnvRecord[] }>("account.toolsEnvs.list"),
-				client.callRpc<{ schedules?: ScheduleRecord[] }>("schedule.list"),
-				client.callRpc<{ chats?: Array<{ closed?: boolean }> }>("chat.list", {
-					kinds: ["direct"],
-				}),
-				client.callRpc<{ family?: { name?: string } }>("family.get"),
-			]);
-		if (
-			!accountRes.ok ||
-			!envRes.ok ||
-			!scheduleRes.ok ||
-			!chatRes.ok ||
-			!familyRes.ok
-		) {
-			throw new Error(
-				accountRes.error?.message ??
-					envRes.error?.message ??
-					"Could not load settings",
+	const hub = useScopedResource(
+		skipTenantSync ? `${familyId}:system` : familyId,
+		async () => {
+			if (skipTenantSync) {
+				return {
+					account: null,
+					memberCount: 0,
+					credentials: [],
+					envs: [],
+					scheduleCount: 0,
+					scheduleBots: 0,
+					archiveCount: 0,
+					familyName: "",
+				};
+			}
+			const [accountRes, envRes, scheduleRes, chatRes, familyRes] =
+				await Promise.all([
+					client.callRpc<{
+						account?: AccountRecord;
+						members?: unknown[];
+						credentials?: CredentialSummary[];
+					}>("account.get"),
+					client.callRpc<{ envs?: ToolsEnvRecord[] }>("account.toolsEnvs.list"),
+					client.callRpc<{ schedules?: ScheduleRecord[] }>("schedule.list"),
+					client.callRpc<{ chats?: Array<{ closed?: boolean }> }>("chat.list", {
+						kinds: ["direct"],
+					}),
+					client.callRpc<{ family?: { name?: string } }>("family.get"),
+				]);
+			if (
+				!accountRes.ok ||
+				!envRes.ok ||
+				!scheduleRes.ok ||
+				!chatRes.ok ||
+				!familyRes.ok
+			) {
+				throw new Error(
+					accountRes.error?.message ??
+						envRes.error?.message ??
+						"Could not load settings",
+				);
+			}
+			const schedules = (scheduleRes.result?.schedules ?? []).filter(
+				(schedule) => !schedule.internal,
 			);
-		}
-		const schedules = (scheduleRes.result?.schedules ?? []).filter(
-			(schedule) => !schedule.internal,
-		);
-		return {
-			account: accountRes.result?.account ?? null,
-			memberCount: accountRes.result?.members?.length ?? 0,
-			credentials: accountRes.result?.credentials ?? [],
-			envs: envRes.result?.envs ?? [],
-			scheduleCount: schedules.length,
-			scheduleBots: new Set(schedules.map((schedule) => schedule.botId)).size,
-			archiveCount: (chatRes.result?.chats ?? []).filter((chat) => chat.closed)
-				.length,
-			familyName: familyRes.result?.family?.name ?? "",
-		};
-	});
+			return {
+				account: accountRes.result?.account ?? null,
+				memberCount: accountRes.result?.members?.length ?? 0,
+				credentials: accountRes.result?.credentials ?? [],
+				envs: envRes.result?.envs ?? [],
+				scheduleCount: schedules.length,
+				scheduleBots: new Set(schedules.map((schedule) => schedule.botId)).size,
+				archiveCount: (chatRes.result?.chats ?? []).filter(
+					(chat) => chat.closed,
+				).length,
+				familyName: familyRes.result?.family?.name ?? "",
+			};
+		},
+	);
 
 	const ready = hub.phase === "ready" && hub.data;
 	const account = hub.data?.account ?? null;
@@ -131,6 +154,27 @@ export function SettingsPage() {
 						)}
 					/>
 				</SettingsSection>
+				<SettingsSection title="Security">
+					<SettingsLink
+						to="/settings/tokens"
+						title="API tokens"
+						hint="Scoped tokens for agents and scripts"
+					/>
+					<SettingsLink
+						to="/settings/security"
+						title="Sign-in and sessions"
+						hint="Where you are signed in, and how"
+					/>
+				</SettingsSection>
+				{superAdmin ? (
+					<SettingsSection title="System">
+						<SettingsLink
+							to="/system"
+							title="System console"
+							hint="Accounts, members, sign-ins and audit"
+						/>
+					</SettingsSection>
+				) : null}
 				<SettingsSection title="Family">
 					<SettingsLink
 						to="/settings/family"

@@ -56,6 +56,10 @@ describe("wrangler preview config", () => {
 				name: "CADMUS_ENV",
 				class_name: "CadmusEnvDO",
 			},
+			{
+				name: "CADMUS_AUTH_LIMITER",
+				class_name: "CadmusAuthLimiterDO",
+			},
 		]);
 		expect(previews.vars).toEqual(
 			expect.objectContaining({
@@ -94,5 +98,40 @@ describe("wrangler preview config", () => {
 			expect(previewCacheKv?.id).toBeDefined();
 			expect(previewCacheKv?.id).not.toBe(cacheKv.id);
 		}
+	});
+
+	it("declares the auth rate limits and the lockout Durable Object in production and previews (issue #3 phase 8)", () => {
+		const limits = (block: {
+			ratelimits: {
+				name: string;
+				namespace_id: string;
+				simple: { limit: number; period: number };
+			}[];
+		}) =>
+			Object.fromEntries(
+				block.ratelimits.map((r) => [
+					r.name,
+					`${r.simple.limit}/${r.simple.period}s`,
+				]),
+			);
+		expect(limits(config)).toEqual({
+			CADMUS_AUTH_RATELIMIT: "20/60s",
+			CADMUS_AUTH_REFRESH_RATELIMIT: "120/60s",
+			CADMUS_AUTH_RPC_RATELIMIT: "60/60s",
+		});
+		expect(limits(config.previews)).toEqual(limits(config));
+		// A namespace id names one limiter, so production and previews must not share it.
+		const ids = [...config.ratelimits, ...config.previews.ratelimits].map(
+			(r: { namespace_id: string }) => r.namespace_id,
+		);
+		expect(new Set(ids).size).toBe(ids.length);
+		expect(config.durable_objects.bindings).toContainEqual({
+			name: "CADMUS_AUTH_LIMITER",
+			class_name: "CadmusAuthLimiterDO",
+		});
+		expect(config.migrations.at(-1)).toEqual({
+			tag: "v5",
+			new_sqlite_classes: ["CadmusAuthLimiterDO"],
+		});
 	});
 });

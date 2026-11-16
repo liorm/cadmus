@@ -81,6 +81,80 @@ export type AccountMembersListResult = Static<
 /**
  * Result returned by account.members.add containing the newly added or updated member record.
  */
+export const AccountMembersInviteResultSchema = Type.Object(
+	{
+		invite: Type.Object(
+			{
+				id: Type.String(),
+				email: Type.String(),
+				role: Type.String(),
+				invitedBy: Type.Union([Type.String(), Type.Null()]),
+				createdAt: Type.Number(),
+				expiresAt: Type.Number(),
+				acceptedAt: Type.Union([Type.Number(), Type.Null()]),
+				revokedAt: Type.Union([Type.Number(), Type.Null()]),
+			},
+			{ description: "One invite." },
+		),
+	},
+	{ description: "Result payload returned by account.members.invite." },
+);
+export type AccountMembersInviteResult = Static<
+	typeof AccountMembersInviteResultSchema
+>;
+
+export const AccountMembersUpdateResultSchema = Type.Object(
+	{ updated: Type.Boolean(), tokensRevoked: Type.Number() },
+	{ description: "Result payload returned by account.members.update." },
+);
+export type AccountMembersUpdateResult = Static<
+	typeof AccountMembersUpdateResultSchema
+>;
+
+export const AccountMembersRemoveResultSchema = Type.Object(
+	{
+		removed: Type.Boolean(),
+		tokensRevoked: Type.Number(),
+		sessionsRevoked: Type.Number(),
+	},
+	{ description: "Result payload returned by account.members.remove." },
+);
+export type AccountMembersRemoveResult = Static<
+	typeof AccountMembersRemoveResultSchema
+>;
+
+export const AccountInvitesListResultSchema = Type.Object(
+	{
+		invites: Type.Array(
+			Type.Object(
+				{
+					id: Type.String(),
+					email: Type.String(),
+					role: Type.String(),
+					invitedBy: Type.Union([Type.String(), Type.Null()]),
+					createdAt: Type.Number(),
+					expiresAt: Type.Number(),
+					acceptedAt: Type.Union([Type.Number(), Type.Null()]),
+					revokedAt: Type.Union([Type.Number(), Type.Null()]),
+				},
+				{ description: "One invite." },
+			),
+		),
+	},
+	{ description: "Result payload returned by account.invites.list." },
+);
+export type AccountInvitesListResult = Static<
+	typeof AccountInvitesListResultSchema
+>;
+
+export const AccountInvitesRevokeResultSchema = Type.Object(
+	{ revoked: Type.Boolean() },
+	{ description: "Result payload returned by account.invites.revoke." },
+);
+export type AccountInvitesRevokeResult = Static<
+	typeof AccountInvitesRevokeResultSchema
+>;
+
 export const AccountMembersAddResultSchema = Type.Object(
 	{
 		member: AccountMemberSchema,
@@ -181,6 +255,18 @@ export const AuthWhoamiResultSchema = Type.Object(
 					Type.String({ description: "Authenticated user id, when known." }),
 				),
 				accountId: Type.String({ description: "Account the request acts in." }),
+				viaToken: Type.Optional(
+					Type.Boolean({
+						description:
+							"True when the session was opened by an API token. Such sessions cannot enter admin mode.",
+					}),
+				),
+				elevatedUntil: Type.Optional(
+					Type.Number({
+						description:
+							"Epoch ms when admin mode on this session ends. Absent when it is off.",
+					}),
+				),
 				role: Type.Union(
 					[
 						Type.Literal("user"),
@@ -200,6 +286,435 @@ export const AuthWhoamiResultSchema = Type.Object(
 	{ description: "Result payload returned by auth.whoami." },
 );
 export type AuthWhoamiResult = Static<typeof AuthWhoamiResultSchema>;
+
+export const AuthTicketResultSchema = Type.Object(
+	{
+		ticket: Type.String({
+			description: "Single-use ticket. Send it as the ticket query parameter.",
+		}),
+		expiresAt: Type.Number({
+			description: "Epoch ms when the ticket expires.",
+		}),
+	},
+	{ description: "Result payload returned by auth.ticket." },
+);
+export type AuthTicketResult = Static<typeof AuthTicketResultSchema>;
+
+export const AuthSessionsListResultSchema = Type.Object(
+	{
+		sessions: Type.Array(
+			Type.Object(
+				{
+					id: Type.String(),
+					accountId: Type.String(),
+					current: Type.Boolean(),
+					loginMethod: Type.Optional(
+						Type.String({ description: "Login method provider, e.g. google." }),
+					),
+					tokenId: Type.Optional(Type.String()),
+					userAgent: Type.Optional(Type.String()),
+					ipCountry: Type.Optional(Type.String()),
+					createdAt: Type.Number(),
+					lastUsedAt: Type.Number(),
+				},
+				{ description: "One active session." },
+			),
+		),
+	},
+	{ description: "Result payload returned by auth.sessions.list." },
+);
+export type AuthSessionsListResult = Static<
+	typeof AuthSessionsListResultSchema
+>;
+
+export const AuthSessionsRevokeResultSchema = Type.Object(
+	{
+		revoked: Type.Boolean({
+			description: "True when the session was active and is now revoked.",
+		}),
+	},
+	{ description: "Result payload returned by auth.sessions.revoke." },
+);
+export type AuthSessionsRevokeResult = Static<
+	typeof AuthSessionsRevokeResultSchema
+>;
+
+export const SystemAccountSummarySchema = Type.Object(
+	{
+		id: Type.String({ description: "Tenant account id." }),
+		name: Type.String({ description: "Display name." }),
+		timezone: Type.String({ description: "IANA timezone." }),
+		createdAt: Type.Number({ description: "Epoch ms of creation." }),
+		status: Type.Union([Type.Literal("active"), Type.Literal("suspended")], {
+			description: "Whether the account accepts sign-ins and commands.",
+		}),
+		suspendedAt: Type.Optional(
+			Type.Number({ description: "Epoch ms when it was suspended." }),
+		),
+		memberCount: Type.Number({ description: "Number of members." }),
+	},
+	{ description: "A tenant account as the system console sees it." },
+);
+export type SystemAccountSummary = Static<typeof SystemAccountSummarySchema>;
+
+export const SystemAccountsListResultSchema = Type.Object(
+	{ accounts: Type.Array(SystemAccountSummarySchema) },
+	{ description: "Result payload returned by system.accounts.list." },
+);
+export type SystemAccountsListResult = Static<
+	typeof SystemAccountsListResultSchema
+>;
+
+export const SystemAccountsCreateResultSchema = Type.Object(
+	{ account: SystemAccountSummarySchema },
+	{ description: "Result payload returned by system.accounts.create." },
+);
+export type SystemAccountsCreateResult = Static<
+	typeof SystemAccountsCreateResultSchema
+>;
+
+export const SystemAccountsSuspendResultSchema = Type.Object(
+	{
+		account: SystemAccountSummarySchema,
+		changed: Type.Boolean({
+			description: "False when the account was already suspended.",
+		}),
+	},
+	{ description: "Result payload returned by system.accounts.suspend." },
+);
+export type SystemAccountsSuspendResult = Static<
+	typeof SystemAccountsSuspendResultSchema
+>;
+
+export const SystemAccountsResumeResultSchema = Type.Object(
+	{
+		account: SystemAccountSummarySchema,
+		changed: Type.Boolean({
+			description: "False when the account was already active.",
+		}),
+	},
+	{ description: "Result payload returned by system.accounts.resume." },
+);
+export type SystemAccountsResumeResult = Static<
+	typeof SystemAccountsResumeResultSchema
+>;
+
+export const SystemAccountsRenameResultSchema = Type.Object(
+	{
+		account: SystemAccountSummarySchema,
+		changed: Type.Boolean({
+			description: "False when the name was already the same.",
+		}),
+	},
+	{ description: "Result payload returned by system.accounts.rename." },
+);
+export type SystemAccountsRenameResult = Static<
+	typeof SystemAccountsRenameResultSchema
+>;
+
+export const AccountAuditEventSchema = Type.Object(
+	{
+		id: Type.String({ description: "Audit row id." }),
+		accountId: Type.String({ description: "Account the row is kept in." }),
+		actorUserId: Type.Optional(Type.String({ description: "Acting user." })),
+		actorKind: Type.String({ description: "Kind of actor." }),
+		action: Type.String({ description: "What happened." }),
+		targetAccountId: Type.Optional(
+			Type.String({ description: "Account the action was about." }),
+		),
+		target: Type.Optional(Type.String({ description: "Target id." })),
+		data: Type.Optional(
+			Type.Unknown({
+				description:
+					"Action details. Show as text; its shape depends on the action.",
+			}),
+		),
+		at: Type.Number({ description: "Epoch ms." }),
+	},
+	{ description: "One audit event kept in an account." },
+);
+export type AccountAuditEvent = Static<typeof AccountAuditEventSchema>;
+
+export const AccountAuditListResultSchema = Type.Object(
+	{ events: Type.Array(AccountAuditEventSchema) },
+	{ description: "Result payload returned by account.audit.list." },
+);
+export type AccountAuditListResult = Static<
+	typeof AccountAuditListResultSchema
+>;
+
+export const SystemAuditEventSchema = Type.Object(
+	{
+		id: Type.String({ description: "Audit row id." }),
+		accountId: Type.String({ description: "Account the row is kept in." }),
+		actorUserId: Type.Optional(Type.String({ description: "Acting user." })),
+		actorKind: Type.String({ description: "Kind of actor." }),
+		action: Type.String({ description: "What happened." }),
+		targetAccountId: Type.Optional(
+			Type.String({ description: "Account the action was about." }),
+		),
+		target: Type.Optional(Type.String({ description: "Target id." })),
+		data: Type.Optional(Type.Unknown({ description: "Action details." })),
+		at: Type.Number({ description: "Epoch ms." }),
+	},
+	{ description: "One system-scope audit event." },
+);
+export type SystemAuditEvent = Static<typeof SystemAuditEventSchema>;
+
+export const SystemAuditListResultSchema = Type.Object(
+	{ events: Type.Array(SystemAuditEventSchema) },
+	{ description: "Result payload returned by system.audit.list." },
+);
+export type SystemAuditListResult = Static<typeof SystemAuditListResultSchema>;
+
+export const SystemMemberSchema = Type.Object(
+	{
+		userId: Type.String({ description: "User id." }),
+		name: Type.String({ description: "Display name." }),
+		email: Type.Optional(Type.String({ description: "Primary email." })),
+		role: Type.String({ description: "Role in this account." }),
+		createdAt: Type.Number({ description: "Epoch ms the membership began." }),
+		disabledAt: Type.Optional(
+			Type.Number({ description: "Epoch ms the user was disabled." }),
+		),
+	},
+	{
+		description: "A member of a tenant account as the system console sees it.",
+	},
+);
+export type SystemMember = Static<typeof SystemMemberSchema>;
+
+export const SystemMembersListResultSchema = Type.Object(
+	{ members: Type.Array(SystemMemberSchema) },
+	{ description: "Result payload returned by system.members.list." },
+);
+export type SystemMembersListResult = Static<
+	typeof SystemMembersListResultSchema
+>;
+
+export const SystemUsersDisableResultSchema = Type.Object(
+	{ changed: Type.Boolean({ description: "False when already disabled." }) },
+	{ description: "Result payload returned by system.users.disable." },
+);
+export type SystemUsersDisableResult = Static<
+	typeof SystemUsersDisableResultSchema
+>;
+
+export const SystemUsersEnableResultSchema = Type.Object(
+	{ changed: Type.Boolean({ description: "False when already enabled." }) },
+	{ description: "Result payload returned by system.users.enable." },
+);
+export type SystemUsersEnableResult = Static<
+	typeof SystemUsersEnableResultSchema
+>;
+
+export const SystemUsersRevokeSessionsResultSchema = Type.Object(
+	{ revoked: Type.Number({ description: "Sessions revoked." }) },
+	{ description: "Result payload returned by system.users.revokeSessions." },
+);
+export type SystemUsersRevokeSessionsResult = Static<
+	typeof SystemUsersRevokeSessionsResultSchema
+>;
+
+export const SystemUsersResetPasskeysResultSchema = Type.Object(
+	{
+		passkeys: Type.Number({ description: "Passkeys removed." }),
+		sessions: Type.Number({ description: "Sessions ended." }),
+	},
+	{ description: "Result payload returned by system.users.resetPasskeys." },
+);
+export type SystemUsersResetPasskeysResult = Static<
+	typeof SystemUsersResetPasskeysResultSchema
+>;
+
+export const AuthElevateResultSchema = Type.Object(
+	{
+		elevatedUntil: Type.Number({
+			description: "Epoch ms when admin mode on this session ends.",
+		}),
+	},
+	{ description: "Result payload returned by auth.elevate." },
+);
+export type AuthElevateResult = Static<typeof AuthElevateResultSchema>;
+
+export const AuthPasskeysBeginResultSchema = Type.Object(
+	{
+		challengeId: Type.String({ description: "Pass back to finish." }),
+		options: Type.Object(
+			{},
+			{
+				additionalProperties: true,
+				description: "WebAuthn creation or request options.",
+			},
+		),
+	},
+	{ description: "Result payload returned by auth.passkeys.begin." },
+);
+export type AuthPasskeysBeginResult = Static<
+	typeof AuthPasskeysBeginResultSchema
+>;
+
+export const AuthPasskeysFinishResultSchema = Type.Object(
+	{
+		elevatedUntil: Type.Optional(
+			Type.Number({ description: "Set for elevate: when admin mode ends." }),
+		),
+		methodId: Type.Optional(
+			Type.String({ description: "Set for register: the new login method." }),
+		),
+		removedMethodId: Type.Optional(
+			Type.String({ description: "Set for remove: the removed login method." }),
+		),
+	},
+	{ description: "Result payload returned by auth.passkeys.finish." },
+);
+export type AuthPasskeysFinishResult = Static<
+	typeof AuthPasskeysFinishResultSchema
+>;
+
+export const AuthElevationEndResultSchema = Type.Object(
+	{
+		ended: Type.Boolean({
+			description: "True when admin mode was on and is now off.",
+		}),
+	},
+	{ description: "Result payload returned by auth.elevation.end." },
+);
+export type AuthElevationEndResult = Static<
+	typeof AuthElevationEndResultSchema
+>;
+
+export const AuthSessionsRevokeOthersResultSchema = Type.Object(
+	{
+		revoked: Type.Number({ description: "Number of other sessions revoked." }),
+	},
+	{ description: "Result payload returned by auth.sessions.revokeOthers." },
+);
+export type AuthSessionsRevokeOthersResult = Static<
+	typeof AuthSessionsRevokeOthersResultSchema
+>;
+
+export const AuthTokensListResultSchema = Type.Object(
+	{
+		tokens: Type.Array(
+			Type.Object(
+				{
+					id: Type.String(),
+					kind: Type.Union([Type.Literal("pat"), Type.Literal("service")]),
+					label: Type.String(),
+					grants: Type.Array(Type.String()),
+					createdBy: Type.Union([Type.String(), Type.Null()]),
+					createdAt: Type.Number(),
+					expiresAt: Type.Union([Type.Number(), Type.Null()]),
+					lastUsedAt: Type.Union([Type.Number(), Type.Null()]),
+					revokedAt: Type.Union([Type.Number(), Type.Null()]),
+					elevated: Type.Boolean(),
+				},
+				{ description: "One API token (never the secret)." },
+			),
+		),
+	},
+	{ description: "Result payload returned by auth.tokens.list." },
+);
+export type AuthTokensListResult = Static<typeof AuthTokensListResultSchema>;
+
+export const AuthTokensCreateResultSchema = Type.Object(
+	{
+		token: Type.String({ description: "The secret, shown once." }),
+		summary: Type.Object(
+			{
+				id: Type.String(),
+				kind: Type.Union([Type.Literal("pat"), Type.Literal("service")]),
+				label: Type.String(),
+				grants: Type.Array(Type.String()),
+				createdBy: Type.Union([Type.String(), Type.Null()]),
+				createdAt: Type.Number(),
+				expiresAt: Type.Union([Type.Number(), Type.Null()]),
+				lastUsedAt: Type.Union([Type.Number(), Type.Null()]),
+				revokedAt: Type.Union([Type.Number(), Type.Null()]),
+				elevated: Type.Boolean(),
+			},
+			{ description: "One API token (never the secret)." },
+		),
+	},
+	{ description: "Result payload returned by auth.tokens.create." },
+);
+export type AuthTokensCreateResult = Static<
+	typeof AuthTokensCreateResultSchema
+>;
+
+export const AuthTokensRevokeResultSchema = Type.Object(
+	{ revoked: Type.Boolean() },
+	{ description: "Result payload returned by auth.tokens.revoke." },
+);
+export type AuthTokensRevokeResult = Static<
+	typeof AuthTokensRevokeResultSchema
+>;
+
+export const AuthMethodsListResultSchema = Type.Object(
+	{
+		methods: Type.Array(
+			Type.Object(
+				{
+					id: Type.String(),
+					provider: Type.String(),
+					display: Type.Optional(Type.String()),
+					createdAt: Type.Number(),
+					lastUsedAt: Type.Optional(Type.Number()),
+				},
+				{ description: "One active login method." },
+			),
+		),
+	},
+	{ description: "Result payload returned by auth.methods.list." },
+);
+export type AuthMethodsListResult = Static<typeof AuthMethodsListResultSchema>;
+
+export const AuthMembershipsListResultSchema = Type.Object(
+	{
+		memberships: Type.Array(
+			Type.Object(
+				{
+					accountId: Type.String(),
+					name: Type.String(),
+					role: Type.String(),
+				},
+				{ description: "One active account the caller belongs to." },
+			),
+		),
+	},
+	{ description: "Result payload returned by auth.memberships.list." },
+);
+export type AuthMembershipsListResult = Static<
+	typeof AuthMembershipsListResultSchema
+>;
+
+export const AuthMethodsLinkStartResultSchema = Type.Object(
+	{
+		ticket: Type.String({ description: "Short-lived signed link ticket." }),
+		bind: Type.String({ description: "Value of the link bind cookie." }),
+		expiresAt: Type.Number({ description: "Epoch ms the ticket expires." }),
+	},
+	{ description: "Result payload returned by auth.methods.link.start." },
+);
+export type AuthMethodsLinkStartResult = Static<
+	typeof AuthMethodsLinkStartResultSchema
+>;
+
+export const AuthMethodsRevokeResultSchema = Type.Object(
+	{
+		revoked: Type.Boolean({
+			description: "True when the method was active and is now revoked.",
+		}),
+		sessionsRevoked: Type.Number({
+			description: "Sessions revoked with the method.",
+		}),
+	},
+	{ description: "Result payload returned by auth.methods.revoke." },
+);
+export type AuthMethodsRevokeResult = Static<
+	typeof AuthMethodsRevokeResultSchema
+>;
 
 /**
  * Result returned by family.list containing all bot families in the account.

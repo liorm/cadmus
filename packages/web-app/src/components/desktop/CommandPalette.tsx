@@ -22,7 +22,7 @@ type PaletteRow = {
 };
 
 export function openCommandPalette(): void {
-	window.dispatchEvent(new CustomEvent("cadmus:open-command-palette"));
+	document.dispatchEvent(new CustomEvent("cadmus:open-command-palette"));
 }
 
 export function CommandPaletteHost({
@@ -53,23 +53,25 @@ export function CommandPaletteHost({
 			if (!(event.metaKey || event.ctrlKey) || event.altKey) return;
 			if (event.key.toLowerCase() !== "k") return;
 			event.preventDefault();
-			setOpen((current) => {
-				if (current) return false;
-				setQuery("");
-				setIndex(0);
-				return true;
-			});
+			setOpen((current) => !current);
 		}
-		window.addEventListener("cadmus:open-command-palette", onOpen);
-		window.addEventListener("keydown", onKey);
+		// Attach to `document` rather than `window`: Obscura stores listeners in a
+		// WeakMap where `window` (`globalThis`) entries can be dropped across SPA
+		// navigations, whereas `document` remains anchored in the DOM cache.
+		document.addEventListener("cadmus:open-command-palette", onOpen);
+		document.addEventListener("keydown", onKey);
 		return () => {
-			window.removeEventListener("cadmus:open-command-palette", onOpen);
-			window.removeEventListener("keydown", onKey);
+			document.removeEventListener("cadmus:open-command-palette", onOpen);
+			document.removeEventListener("keydown", onKey);
 		};
 	}, [show]);
 
 	useEffect(() => {
-		if (!open) return;
+		if (!open) {
+			setQuery("");
+			setIndex(0);
+			return;
+		}
 		inputRef.current?.focus();
 	}, [open]);
 
@@ -181,7 +183,7 @@ export function CommandPaletteHost({
 						cancelable: true,
 						detail: { chatKey: key, botId: chat.botId },
 					});
-					window.dispatchEvent(event);
+					document.dispatchEvent(event);
 					if (event.defaultPrevented) return;
 					void navigate({
 						to: "/chat/$chatKey",

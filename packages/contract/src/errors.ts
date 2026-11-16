@@ -10,6 +10,7 @@ export const ERROR_CODES = [
 	"query_token_not_allowed",
 	"header_required",
 	"forbidden",
+	"elevation_required",
 	"not_found",
 	"family_not_found",
 	"cas_conflict",

@@ -34,6 +34,12 @@ export interface ProtocolClientOptions {
 	webSocketImpl?: WebSocketConstructor;
 	/** Abort a REST call or a WebSocket command after this many milliseconds. */
 	timeoutMs?: number;
+	/**
+	 * Open `/ws` with a single-use `auth.ticket` minted over the header-backed
+	 * RPC, so the credential never rides in the URL. Default true; the worker
+	 * refuses `?token=` on `/ws`.
+	 */
+	useTickets?: boolean;
 }
 
 export interface SocketHooks {
@@ -92,6 +98,7 @@ export class ProtocolClient {
 	timeoutMs?: number;
 
 	private ws?: WebSocket;
+	private connectGeneration = 0;
 	private hooks: SocketHooks = {};
 	private pending = new Map<
 		string,
@@ -111,7 +118,10 @@ export class ProtocolClient {
 		this.fetchImpl = options.fetchImpl ?? globalThis.fetch.bind(globalThis);
 		this.webSocketImpl = options.webSocketImpl ?? WebSocket;
 		this.timeoutMs = options.timeoutMs;
+		this.useTickets = options.useTickets ?? true;
 	}
+
+	useTickets: boolean;
 
 	hasSocket(): boolean {
 		return this.ws !== undefined;
@@ -128,10 +138,10 @@ export class ProtocolClient {
 	}
 
 	/**
-	 * Page-relative and absolute base URLs. The token is a query parameter,
-	 * matching `/ws` (it is never placed on `/api`).
+	 * Page-relative and absolute base URLs. `/ws` carries a single-use ticket.
+	 * The bearer is never placed on `/ws` or `/api`.
 	 */
-	webSocketUrl(): string {
+	webSocketUrl(ticket?: string): string {
 		let origin: string;
 		const pageOrigin = browserOrigin();
 		if (this.baseUrl) {
@@ -155,7 +165,7 @@ export class ProtocolClient {
 			.replace(/^https:/i, "wss:")
 			.replace(/\/+$/, "");
 		const wsUrl = new URL(`${wsBase}/ws`);
-		wsUrl.searchParams.set("token", this.token);
+		if (ticket) wsUrl.searchParams.set("ticket", ticket);
 		if (this.accountId) wsUrl.searchParams.set("accountId", this.accountId);
 		if (this.userId) wsUrl.searchParams.set("userId", this.userId);
 		if (this.familyId) wsUrl.searchParams.set("familyId", this.familyId);
@@ -203,8 +213,21 @@ export class ProtocolClient {
 		});
 		// Callers that only use status hooks must not see an unhandled rejection.
 		opened.catch(() => {});
-		try {
-			const socket = new this.webSocketImpl(this.webSocketUrl());
+		const generation = ++this.connectGeneration;
+		const start = async () => {
+			let ticket: string | undefined;
+			if (this.useTickets) {
+				const issued = await this.callRpc<{ ticket: string }>("auth.ticket", {
+					target: "ws",
+				});
+				if (!issued.ok || !issued.result?.ticket) {
+					throw new Error("could not get a websocket ticket");
+				}
+				ticket = issued.result.ticket;
+			}
+			// A newer connect() or a close() superseded this attempt.
+			if (generation !== this.connectGeneration) return;
+			const socket = new this.webSocketImpl(this.webSocketUrl(ticket));
 			this.ws = socket;
 			socket.addEventListener("open", () => {
 				if (this.ws !== socket) return;
@@ -227,12 +250,14 @@ export class ProtocolClient {
 				this.hooks.onClose?.();
 				rejectOpen(new Error("websocket closed"));
 			});
-		} catch (error) {
+		};
+		start().catch((error) => {
+			if (generation !== this.connectGeneration) return;
 			this.ws = undefined;
 			this.hooks.onError?.();
 			const reason = error instanceof Error ? error : new Error(String(error));
 			rejectOpen(reason);
-		}
+		});
 		return opened;
 	}
 
@@ -270,6 +295,7 @@ export class ProtocolClient {
 	}
 
 	close(): void {
+		this.connectGeneration++;
 		const socket = this.ws;
 		this.ws = undefined;
 		this.rejectPending(new Error("websocket closed"));
@@ -389,6 +415,8 @@ export interface CadmusClientOptions {
 	accountId?: string;
 	familyId?: string;
 	fetchImpl?: typeof globalThis.fetch | FetchFunction;
+	/** A signed-in client: it never invents an account id (see the constructor). */
+	useTickets?: boolean;
 }
 
 /**
@@ -408,9 +436,17 @@ export class CadmusClient {
 			baseUrl: options.baseUrl ?? "",
 			token: options.token ?? "dev-cadmus-secret",
 			userId: options.userId ?? "dev",
-			accountId: options.accountId ?? "default-account",
+			// A ticket (signed-in) client never invents an account: the server reads
+			// an account id as a membership selection and refuses one the user is not
+			// in, so with no choice the session acts in its own account.
+			accountId: options.useTickets
+				? options.accountId
+				: (options.accountId ?? "default-account"),
 			familyId: options.familyId ?? "default",
 			fetchImpl: options.fetchImpl,
+			// The socket always opens with a header-minted ticket; the worker
+			// refuses ?token=. `options.useTickets` only decides the account default.
+			useTickets: true,
 		});
 	}
 
@@ -429,10 +465,12 @@ export class CadmusClient {
 		return this.protocol.token;
 	}
 
-	setToken(token: string): void {
+	setToken(token: string, options: { reconnect?: boolean } = {}): void {
 		if (this.protocol.token !== token) {
 			this.protocol.token = token;
-			if (this.protocol.hasSocket()) this.connectWebSocket();
+			if (options.reconnect !== false && this.protocol.hasSocket()) {
+				this.connectWebSocket();
+			}
 		}
 	}
 

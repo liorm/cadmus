@@ -2,6 +2,9 @@ import { seedBot, sendAccountRpc } from "../support/account.ts";
 import { clickByRole, fillByLabel } from "../support/actions.ts";
 import { expect, test } from "../support/fixtures.ts";
 
+// Ordinary user-level journey: signs in through token login with the user-role grants, no master token.
+test.use({ signIn: "user" });
+
 test.describe.configure({ mode: "parallel" });
 
 const WORKER_BASE = "http://127.0.0.1:8799";
@@ -118,7 +121,13 @@ test("empty state to new bot creation inside cockpit stage", async ({
 		page.getByRole("complementary", { name: "Telemetry" }),
 	).toBeVisible();
 
-	await clickByRole(page, "link", "+ New bot");
+	// The fleet header and the empty state each have a "+ New bot" link to the
+	// same route. This test is the empty state, so take that one.
+	await clickByRole(page, "link", "+ New bot", {
+		within: page.locator(
+			"div:has(> p:text-is('No bots yet. Create one to start a thread.'))",
+		),
+	});
 	await expect(
 		page.getByRole("banner", { name: "Cadmus Cockpit" }),
 	).toBeVisible();
@@ -128,7 +137,7 @@ test("empty state to new bot creation inside cockpit stage", async ({
 
 	await fillByLabel(page, "Name", "Bravo Bot");
 	await clickByRole(page, "button", "bot-3");
-	await fillByLabel(page, "Soul / persona · optional", "You are Bravo.");
+	await fillByLabel(page, "Soul", "You are Bravo.");
 	await clickByRole(page, "button", "Create bot");
 
 	await expect(
@@ -169,6 +178,9 @@ test("fleet deck bot card actions menu: profile, change colour, archive all chat
 	// Change color to bot-5
 	await clickByRole(page, "button", "Change colour");
 	await clickByRole(page, "button", "bot-5");
+	await expect(
+		page.getByRole("dialog", { name: "Change colour" }),
+	).toBeHidden();
 	await expect(sheet).toBeHidden();
 
 	// Open Profile in Stage
@@ -222,7 +234,12 @@ test("unread reply shows unread dot on thread row and increments needs attention
 	await expect(threadFeed.getByText("Unread Thread")).toBeVisible();
 
 	// Selecting thread clears unread
-	await clickByRole(page, "button", "Unread Thread");
+	// "Unread Thread" alone also matches the "Archive Unread Thread" button. The
+	// row's accessible name (hosted log) is "Unread Thread Unread Echo Bot": the
+	// title, the unread status, then the bot name.
+	await clickByRole(page, "button", "Unread Thread Unread Echo Bot", {
+		within: threadFeed,
+	});
 	await expect(threadFeed.getByRole("status", { name: "Unread" })).toHaveCount(
 		0,
 	);

@@ -98,6 +98,45 @@
 			}
 		},
 		"schemas": {
+			"AccountAuditListCommand": {
+				"type": "object",
+				"required": ["id", "type"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Non-empty unique correlation identifier for this command request."
+					},
+					"type": {
+						"type": "string",
+						"const": "account.audit.list",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"properties": {
+							"limit": {
+								"type": "number",
+								"minimum": 1,
+								"maximum": 200,
+								"description": "Page size."
+							},
+							"before": {
+								"type": "number",
+								"description": "Page cursor: epoch ms of the last event of the previous page."
+							},
+							"beforeId": {
+								"type": "string",
+								"description": "Page cursor: id of the last event of the previous page. Needed with before so events at the same millisecond are not skipped."
+							}
+						},
+						"description": "Command parameters."
+					}
+				},
+				"readOnly": true,
+				"grant": "audit.read",
+				"description": "List this account's audit events, newest first. Only rows kept in the caller's own account are returned, including membership changes a super-admin made inside it. Rows kept in the system scope are not included, even when they are about this account."
+			},
 			"AccountCredentialsDeleteCommand": {
 				"type": "object",
 				"required": ["id", "type", "payload"],
@@ -260,6 +299,59 @@
 				"grant": "members.read",
 				"description": "Retrieve tenant account details including membership, configured bot families, and provider credentials."
 			},
+			"AccountInvitesListCommand": {
+				"type": "object",
+				"required": ["id", "type"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Non-empty unique correlation identifier for this command request."
+					},
+					"type": {
+						"type": "string",
+						"const": "account.invites.list",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"properties": {},
+						"description": "Empty parameter payload."
+					}
+				},
+				"readOnly": true,
+				"grant": "members.manage",
+				"description": "List the account's invites."
+			},
+			"AccountInvitesRevokeCommand": {
+				"type": "object",
+				"required": ["id", "type", "payload"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Non-empty unique correlation identifier for this command request."
+					},
+					"type": {
+						"type": "string",
+						"const": "account.invites.revoke",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"required": ["inviteId"],
+						"properties": {
+							"inviteId": {
+								"type": "string",
+								"minLength": 1
+							}
+						},
+						"description": "Invite to revoke."
+					}
+				},
+				"grant": "members.manage",
+				"description": "Revoke a pending invite."
+			},
 			"AccountMembersAddCommand": {
 				"type": "object",
 				"required": ["id", "type", "payload"],
@@ -315,17 +407,61 @@
 									}
 								],
 								"description": "Access role: 'account-admin' (formerly 'owner'), 'user' (formerly 'member', the default) or 'super-admin'. Old names are still accepted."
-							},
-							"token": {
-								"type": "string",
-								"description": "Optional authentication token associated with this user."
 							}
 						},
 						"description": "Parameters for adding or inviting an account member."
 					}
 				},
 				"grant": "members.manage",
-				"description": "Add or invite a user to the account with a specified access role and optional credentials."
+				"description": "Add or invite a user to the account with a specified access role. A caller-chosen token is not accepted; API tokens are server-generated (auth.tokens.create)."
+			},
+			"AccountMembersInviteCommand": {
+				"type": "object",
+				"required": ["id", "type", "payload"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Non-empty unique correlation identifier for this command request."
+					},
+					"type": {
+						"type": "string",
+						"const": "account.members.invite",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"required": ["email"],
+						"properties": {
+							"email": {
+								"type": "string",
+								"minLength": 3,
+								"maxLength": 254
+							},
+							"role": {
+								"anyOf": [
+									{
+										"type": "string",
+										"const": "user"
+									},
+									{
+										"type": "string",
+										"const": "account-admin"
+									}
+								],
+								"description": "Role to give: user or account-admin."
+							},
+							"ttlDays": {
+								"type": "number",
+								"minimum": 0.01,
+								"maximum": 60
+							}
+						},
+						"description": "Invite to create."
+					}
+				},
+				"grant": "members.manage",
+				"description": "Invite an email address. The invite is accepted on the first verified Google sign-in with that email."
 			},
 			"AccountMembersListCommand": {
 				"type": "object",
@@ -350,6 +486,77 @@
 				"readOnly": true,
 				"grant": "members.read",
 				"description": "List all user members and their roles associated with the tenant account."
+			},
+			"AccountMembersRemoveCommand": {
+				"type": "object",
+				"required": ["id", "type", "payload"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Non-empty unique correlation identifier for this command request."
+					},
+					"type": {
+						"type": "string",
+						"const": "account.members.remove",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"required": ["userId"],
+						"properties": {
+							"userId": {
+								"type": "string",
+								"minLength": 1
+							}
+						},
+						"description": "Member to remove."
+					}
+				},
+				"grant": "members.manage",
+				"description": "Remove a member from the account. Revokes their sessions and personal tokens; the last account-admin cannot be removed."
+			},
+			"AccountMembersUpdateCommand": {
+				"type": "object",
+				"required": ["id", "type", "payload"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Non-empty unique correlation identifier for this command request."
+					},
+					"type": {
+						"type": "string",
+						"const": "account.members.update",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"required": ["userId", "role"],
+						"properties": {
+							"userId": {
+								"type": "string",
+								"minLength": 1
+							},
+							"role": {
+								"anyOf": [
+									{
+										"type": "string",
+										"const": "user"
+									},
+									{
+										"type": "string",
+										"const": "account-admin"
+									}
+								],
+								"description": "Role to give: user or account-admin."
+							}
+						},
+						"description": "Member and new role."
+					}
+				},
+				"grant": "members.manage",
+				"description": "Change a member's role. Demoting an account-admin revokes their personal tokens; the last account-admin cannot be demoted."
 			},
 			"AccountModelsListCommand": {
 				"type": "object",
@@ -515,7 +722,7 @@
 					}
 				},
 				"readOnly": true,
-				"grant": "credentials.read",
+				"grant": "credentials.manage",
 				"description": "Command to query the current progress, prompt, or completion status of an active OAuth flow."
 			},
 			"AccountOAuthSubmitCommand": {
@@ -861,6 +1068,492 @@
 				},
 				"grant": "account.manage",
 				"description": "Update account-level configuration including display name and default timezone."
+			},
+			"AuthElevateCommand": {
+				"type": "object",
+				"required": ["id", "type"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Non-empty unique correlation identifier for this command request."
+					},
+					"type": {
+						"type": "string",
+						"const": "auth.elevate",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"properties": {},
+						"description": "Empty parameter payload."
+					}
+				},
+				"grant": "admin.elevate",
+				"description": "Turn on admin mode for the caller's session for 15 minutes. Needs a signed-in session of an account-admin or super-admin."
+			},
+			"AuthElevationEndCommand": {
+				"type": "object",
+				"required": ["id", "type"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Non-empty unique correlation identifier for this command request."
+					},
+					"type": {
+						"type": "string",
+						"const": "auth.elevation.end",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"properties": {},
+						"description": "Empty parameter payload."
+					}
+				},
+				"grant": "admin.elevate",
+				"description": "Leave admin mode on the caller's session."
+			},
+			"AuthMembershipsListCommand": {
+				"type": "object",
+				"required": ["id", "type"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Non-empty unique correlation identifier for this command request."
+					},
+					"type": {
+						"type": "string",
+						"const": "auth.memberships.list",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"properties": {},
+						"description": "Empty parameter payload."
+					}
+				},
+				"readOnly": true,
+				"grant": "tokens.self",
+				"description": "List the active accounts the caller is a member of."
+			},
+			"AuthMethodsLinkStartCommand": {
+				"type": "object",
+				"required": ["id", "type", "payload"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Non-empty unique correlation identifier for this command request."
+					},
+					"type": {
+						"type": "string",
+						"const": "auth.methods.link.start",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"required": ["provider"],
+						"properties": {
+							"provider": {
+								"type": "string",
+								"const": "google",
+								"description": "Provider."
+							}
+						},
+						"description": "Provider to link."
+					}
+				},
+				"grant": "tokens.self",
+				"description": "Start linking a Google login to the signed-in user. Open `/auth/login/google?link=<ticket>` with the `bind` cookie set; the ticket lasts two minutes. An email match alone never merges users."
+			},
+			"AuthMethodsListCommand": {
+				"type": "object",
+				"required": ["id", "type"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Non-empty unique correlation identifier for this command request."
+					},
+					"type": {
+						"type": "string",
+						"const": "auth.methods.list",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"properties": {},
+						"description": "Empty parameter payload."
+					}
+				},
+				"readOnly": true,
+				"grant": "tokens.self",
+				"description": "List the caller's login methods."
+			},
+			"AuthMethodsRevokeCommand": {
+				"type": "object",
+				"required": ["id", "type", "payload"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Non-empty unique correlation identifier for this command request."
+					},
+					"type": {
+						"type": "string",
+						"const": "auth.methods.revoke",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"required": ["methodId"],
+						"properties": {
+							"methodId": {
+								"type": "string",
+								"minLength": 1,
+								"description": "Login method to revoke."
+							}
+						},
+						"description": "Login method to revoke."
+					}
+				},
+				"grant": "tokens.self",
+				"description": "Revoke one of the caller's login methods and the sessions created through it. The last active method cannot be revoked (last_login_method)."
+			},
+			"AuthPasskeysBeginCommand": {
+				"type": "object",
+				"required": ["id", "type", "payload"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Non-empty unique correlation identifier for this command request."
+					},
+					"type": {
+						"type": "string",
+						"const": "auth.passkeys.begin",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"required": ["purpose"],
+						"properties": {
+							"purpose": {
+								"anyOf": [
+									{
+										"type": "string",
+										"const": "register"
+									},
+									{
+										"type": "string",
+										"const": "elevate"
+									},
+									{
+										"type": "string",
+										"const": "remove"
+									}
+								],
+								"description": "register enrolls a passkey; elevate proves one; remove proves one to remove methodId."
+							},
+							"methodId": {
+								"type": "string",
+								"minLength": 1,
+								"description": "For remove: the passkey login method to remove."
+							}
+						},
+						"description": "What the passkey ceremony is for."
+					}
+				},
+				"grant": "tokens.self",
+				"description": "Start a passkey ceremony for the signed-in session and return WebAuthn options. Register needs a session from a fresh Google sign-in (/auth/login/google?fresh=1, verified authentication time within 5 minutes) while the user has no passkey, and an elevated session once they have one; elevate needs admin.elevate. Remove needs a passkey and a passkey method id."
+			},
+			"AuthPasskeysFinishCommand": {
+				"type": "object",
+				"required": ["id", "type", "payload"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Non-empty unique correlation identifier for this command request."
+					},
+					"type": {
+						"type": "string",
+						"const": "auth.passkeys.finish",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"required": ["purpose", "challengeId", "response"],
+						"properties": {
+							"purpose": {
+								"anyOf": [
+									{
+										"type": "string",
+										"const": "register"
+									},
+									{
+										"type": "string",
+										"const": "elevate"
+									},
+									{
+										"type": "string",
+										"const": "remove"
+									}
+								],
+								"description": "Must match the begin call."
+							},
+							"challengeId": {
+								"type": "string",
+								"minLength": 1,
+								"description": "Challenge id returned by begin."
+							},
+							"response": {
+								"type": "object",
+								"properties": {},
+								"additionalProperties": true,
+								"description": "The WebAuthn credential JSON from the browser."
+							}
+						},
+						"description": "The finished ceremony."
+					}
+				},
+				"grant": "tokens.self",
+				"description": "Verify a passkey ceremony. Register stores the passkey. Elevate turns on admin mode for 15 minutes. Remove deletes the passkey chosen at begin, never the last login method. Every failure returns the same forbidden error."
+			},
+			"AuthSessionsListCommand": {
+				"type": "object",
+				"required": ["id", "type"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Non-empty unique correlation identifier for this command request."
+					},
+					"type": {
+						"type": "string",
+						"const": "auth.sessions.list",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"properties": {},
+						"description": "Empty parameter payload."
+					}
+				},
+				"readOnly": true,
+				"grant": "tokens.self",
+				"description": "List the caller's active sessions with login method or token, user agent, IP country, created and last used."
+			},
+			"AuthSessionsRevokeCommand": {
+				"type": "object",
+				"required": ["id", "type", "payload"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Non-empty unique correlation identifier for this command request."
+					},
+					"type": {
+						"type": "string",
+						"const": "auth.sessions.revoke",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"required": ["sessionId"],
+						"properties": {
+							"sessionId": {
+								"type": "string",
+								"minLength": 1,
+								"description": "Session to revoke."
+							}
+						},
+						"description": "Session to revoke."
+					}
+				},
+				"grant": "tokens.self",
+				"description": "Revoke one of the caller's own sessions."
+			},
+			"AuthSessionsRevokeOthersCommand": {
+				"type": "object",
+				"required": ["id", "type"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Non-empty unique correlation identifier for this command request."
+					},
+					"type": {
+						"type": "string",
+						"const": "auth.sessions.revokeOthers",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"properties": {},
+						"description": "Empty parameter payload."
+					}
+				},
+				"grant": "tokens.self",
+				"description": "Revoke every session of the caller except the current one."
+			},
+			"AuthTicketCommand": {
+				"type": "object",
+				"required": ["id", "type", "payload"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Non-empty unique correlation identifier for this command request."
+					},
+					"type": {
+						"type": "string",
+						"const": "auth.ticket",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"required": ["target"],
+						"properties": {
+							"target": {
+								"anyOf": [
+									{
+										"type": "string",
+										"const": "ws"
+									},
+									{
+										"type": "string",
+										"const": "events"
+									}
+								],
+								"description": "Stream the ticket is for."
+							}
+						},
+						"description": "Ticket request."
+					}
+				},
+				"grant": "chat.use",
+				"description": "Issue a single-use ticket (60 seconds) for opening the WebSocket or SSE events stream for this session."
+			},
+			"AuthTokensCreateCommand": {
+				"type": "object",
+				"required": ["id", "type", "payload"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Non-empty unique correlation identifier for this command request."
+					},
+					"type": {
+						"type": "string",
+						"const": "auth.tokens.create",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"required": ["kind", "label", "grants"],
+						"properties": {
+							"kind": {
+								"anyOf": [
+									{
+										"type": "string",
+										"const": "pat"
+									},
+									{
+										"type": "string",
+										"const": "service"
+									}
+								],
+								"description": "pat is personal; service needs tokens.manage."
+							},
+							"label": {
+								"type": "string",
+								"minLength": 1,
+								"maxLength": 80
+							},
+							"grants": {
+								"type": "array",
+								"items": {
+									"type": "string",
+									"minLength": 1
+								},
+								"minItems": 1,
+								"description": "Explicit subset of the caller's grants."
+							},
+							"ttlDays": {
+								"type": "number",
+								"minimum": 0.01,
+								"maximum": 365,
+								"description": "Expiry in days. Required for a personal token that carries no elevated grant (max 365). An elevated personal token that omits it expires in 30 days (max 30). A service token defaults to 7 days and maxes out at 30."
+							}
+						},
+						"description": "Token to create."
+					}
+				},
+				"grant": "tokens.self",
+				"description": "Create a server-generated cad_pat_ or cad_svc_ token. The secret is returned once."
+			},
+			"AuthTokensListCommand": {
+				"type": "object",
+				"required": ["id", "type"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Non-empty unique correlation identifier for this command request."
+					},
+					"type": {
+						"type": "string",
+						"const": "auth.tokens.list",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"properties": {
+							"all": {
+								"type": "boolean",
+								"description": "List every token in the account (needs tokens.manage). Default lists the caller's own."
+							}
+						},
+						"description": "List filter."
+					}
+				},
+				"readOnly": true,
+				"grant": "tokens.self",
+				"description": "List API tokens: the caller's own, or all in the account for admins."
+			},
+			"AuthTokensRevokeCommand": {
+				"type": "object",
+				"required": ["id", "type", "payload"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Non-empty unique correlation identifier for this command request."
+					},
+					"type": {
+						"type": "string",
+						"const": "auth.tokens.revoke",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"required": ["tokenId"],
+						"properties": {
+							"tokenId": {
+								"type": "string",
+								"minLength": 1,
+								"description": "Token to revoke."
+							}
+						},
+						"description": "Token to revoke."
+					}
+				},
+				"grant": "tokens.self",
+				"description": "Revoke a token and every session started from it."
 			},
 			"AuthWhoamiCommand": {
 				"type": "object",
@@ -1901,6 +2594,24 @@
 						"$ref": "#/components/schemas/AccountMembersAddCommand"
 					},
 					{
+						"$ref": "#/components/schemas/AccountMembersInviteCommand"
+					},
+					{
+						"$ref": "#/components/schemas/AccountMembersUpdateCommand"
+					},
+					{
+						"$ref": "#/components/schemas/AccountMembersRemoveCommand"
+					},
+					{
+						"$ref": "#/components/schemas/AccountInvitesListCommand"
+					},
+					{
+						"$ref": "#/components/schemas/AccountAuditListCommand"
+					},
+					{
+						"$ref": "#/components/schemas/AccountInvitesRevokeCommand"
+					},
+					{
 						"$ref": "#/components/schemas/AccountCredentialsListCommand"
 					},
 					{
@@ -1929,6 +2640,93 @@
 					},
 					{
 						"$ref": "#/components/schemas/AuthWhoamiCommand"
+					},
+					{
+						"$ref": "#/components/schemas/AuthTicketCommand"
+					},
+					{
+						"$ref": "#/components/schemas/AuthSessionsListCommand"
+					},
+					{
+						"$ref": "#/components/schemas/AuthSessionsRevokeCommand"
+					},
+					{
+						"$ref": "#/components/schemas/AuthSessionsRevokeOthersCommand"
+					},
+					{
+						"$ref": "#/components/schemas/AuthElevateCommand"
+					},
+					{
+						"$ref": "#/components/schemas/AuthElevationEndCommand"
+					},
+					{
+						"$ref": "#/components/schemas/SystemAccountsListCommand"
+					},
+					{
+						"$ref": "#/components/schemas/SystemAccountsCreateCommand"
+					},
+					{
+						"$ref": "#/components/schemas/SystemAccountsSuspendCommand"
+					},
+					{
+						"$ref": "#/components/schemas/SystemAccountsResumeCommand"
+					},
+					{
+						"$ref": "#/components/schemas/SystemAccountsRenameCommand"
+					},
+					{
+						"$ref": "#/components/schemas/SystemAuditListCommand"
+					},
+					{
+						"$ref": "#/components/schemas/SystemMembersListCommand"
+					},
+					{
+						"$ref": "#/components/schemas/SystemMembersInviteCommand"
+					},
+					{
+						"$ref": "#/components/schemas/SystemMembersUpdateCommand"
+					},
+					{
+						"$ref": "#/components/schemas/SystemMembersRemoveCommand"
+					},
+					{
+						"$ref": "#/components/schemas/SystemUsersDisableCommand"
+					},
+					{
+						"$ref": "#/components/schemas/SystemUsersEnableCommand"
+					},
+					{
+						"$ref": "#/components/schemas/SystemUsersRevokeSessionsCommand"
+					},
+					{
+						"$ref": "#/components/schemas/SystemUsersResetPasskeysCommand"
+					},
+					{
+						"$ref": "#/components/schemas/AuthTokensListCommand"
+					},
+					{
+						"$ref": "#/components/schemas/AuthTokensCreateCommand"
+					},
+					{
+						"$ref": "#/components/schemas/AuthTokensRevokeCommand"
+					},
+					{
+						"$ref": "#/components/schemas/AuthMethodsListCommand"
+					},
+					{
+						"$ref": "#/components/schemas/AuthMembershipsListCommand"
+					},
+					{
+						"$ref": "#/components/schemas/AuthMethodsRevokeCommand"
+					},
+					{
+						"$ref": "#/components/schemas/AuthMethodsLinkStartCommand"
+					},
+					{
+						"$ref": "#/components/schemas/AuthPasskeysBeginCommand"
+					},
+					{
+						"$ref": "#/components/schemas/AuthPasskeysFinishCommand"
 					},
 					{
 						"$ref": "#/components/schemas/FamilyListCommand"
@@ -3200,6 +3998,491 @@
 					}
 				],
 				"description": "Complete union of all possible frames sent from server to client over WebSocket, SSE, or RPC."
+			},
+			"SystemAccountsCreateCommand": {
+				"type": "object",
+				"required": ["id", "type", "payload"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Non-empty unique correlation identifier for this command request."
+					},
+					"type": {
+						"type": "string",
+						"const": "system.accounts.create",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"required": ["name"],
+						"properties": {
+							"name": {
+								"type": "string",
+								"minLength": 1,
+								"maxLength": 80,
+								"description": "Display name of the new account."
+							},
+							"timezone": {
+								"type": "string",
+								"description": "IANA timezone for the account."
+							}
+						},
+						"description": "Command parameters."
+					}
+				},
+				"grant": "system.accounts.manage",
+				"description": "Create a tenant account. Needs admin mode."
+			},
+			"SystemAccountsListCommand": {
+				"type": "object",
+				"required": ["id", "type"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Non-empty unique correlation identifier for this command request."
+					},
+					"type": {
+						"type": "string",
+						"const": "system.accounts.list",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"properties": {},
+						"description": "Empty parameter payload."
+					}
+				},
+				"readOnly": true,
+				"grant": "system.accounts.read",
+				"description": "List every tenant account with its status and member count. Super-admin only. Account records only, never tenant data."
+			},
+			"SystemAccountsRenameCommand": {
+				"type": "object",
+				"required": ["id", "type", "payload"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Non-empty unique correlation identifier for this command request."
+					},
+					"type": {
+						"type": "string",
+						"const": "system.accounts.rename",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"required": ["accountId", "name"],
+						"properties": {
+							"accountId": {
+								"type": "string",
+								"minLength": 1,
+								"description": "Tenant account to rename."
+							},
+							"name": {
+								"type": "string",
+								"minLength": 1,
+								"maxLength": 80,
+								"description": "New display name."
+							}
+						},
+						"description": "Command parameters."
+					}
+				},
+				"grant": "system.accounts.manage",
+				"description": "Rename a tenant account. Needs admin mode."
+			},
+			"SystemAccountsResumeCommand": {
+				"type": "object",
+				"required": ["id", "type", "payload"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Non-empty unique correlation identifier for this command request."
+					},
+					"type": {
+						"type": "string",
+						"const": "system.accounts.resume",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"required": ["accountId"],
+						"properties": {
+							"accountId": {
+								"type": "string",
+								"minLength": 1,
+								"description": "Tenant account to resume."
+							}
+						},
+						"description": "Command parameters."
+					}
+				},
+				"grant": "system.accounts.manage",
+				"description": "Resume a suspended tenant account. Needs admin mode."
+			},
+			"SystemAccountsSuspendCommand": {
+				"type": "object",
+				"required": ["id", "type", "payload"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Non-empty unique correlation identifier for this command request."
+					},
+					"type": {
+						"type": "string",
+						"const": "system.accounts.suspend",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"required": ["accountId"],
+						"properties": {
+							"accountId": {
+								"type": "string",
+								"minLength": 1,
+								"description": "Tenant account to suspend."
+							}
+						},
+						"description": "Command parameters."
+					}
+				},
+				"grant": "system.accounts.manage",
+				"description": "Suspend a tenant account. Its principals are refused and live sockets are closed. Needs admin mode."
+			},
+			"SystemAuditListCommand": {
+				"type": "object",
+				"required": ["id", "type", "payload"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Non-empty unique correlation identifier for this command request."
+					},
+					"type": {
+						"type": "string",
+						"const": "system.audit.list",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"properties": {
+							"limit": {
+								"type": "number",
+								"minimum": 1,
+								"maximum": 200,
+								"description": "Page size."
+							},
+							"accountId": {
+								"type": "string",
+								"description": "Only events about this tenant account."
+							},
+							"before": {
+								"type": "number",
+								"description": "Page cursor: epoch ms of the last event of the previous page."
+							},
+							"beforeId": {
+								"type": "string",
+								"description": "Page cursor: id of the last event of the previous page. Needed with before so events at the same millisecond are not skipped."
+							}
+						},
+						"description": "Command parameters."
+					}
+				},
+				"readOnly": true,
+				"grant": "system.audit.read",
+				"description": "List system-scope audit events (account changes made by super-admins), newest first. Also includes membership changes a super-admin made inside a tenant (actor kind super-admin); ordinary tenant audit rows are not included."
+			},
+			"SystemMembersInviteCommand": {
+				"type": "object",
+				"required": ["id", "type", "payload"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Non-empty unique correlation identifier for this command request."
+					},
+					"type": {
+						"type": "string",
+						"const": "system.members.invite",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"required": ["accountId", "email"],
+						"properties": {
+							"accountId": {
+								"type": "string",
+								"minLength": 1,
+								"description": "Tenant account the change is about."
+							},
+							"email": {
+								"type": "string",
+								"minLength": 3,
+								"maxLength": 254
+							},
+							"role": {
+								"anyOf": [
+									{
+										"type": "string",
+										"const": "user"
+									},
+									{
+										"type": "string",
+										"const": "account-admin"
+									}
+								],
+								"description": "Role to give: user or account-admin."
+							},
+							"ttlDays": {
+								"type": "number",
+								"minimum": 0.01,
+								"maximum": 60
+							}
+						},
+						"description": "Command parameters."
+					}
+				},
+				"grant": "system.members.manage",
+				"description": "Invite an email address to a tenant account, for example to assign its first account-admin. Needs admin mode."
+			},
+			"SystemMembersListCommand": {
+				"type": "object",
+				"required": ["id", "type", "payload"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Non-empty unique correlation identifier for this command request."
+					},
+					"type": {
+						"type": "string",
+						"const": "system.members.list",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"required": ["accountId"],
+						"properties": {
+							"accountId": {
+								"type": "string",
+								"minLength": 1,
+								"description": "Tenant account the change is about."
+							}
+						},
+						"description": "Command parameters."
+					}
+				},
+				"readOnly": true,
+				"grant": "system.members.manage",
+				"description": "List the members of one tenant account with their identity and disabled state. Needs admin mode. Membership data only, never tenant data."
+			},
+			"SystemMembersRemoveCommand": {
+				"type": "object",
+				"required": ["id", "type", "payload"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Non-empty unique correlation identifier for this command request."
+					},
+					"type": {
+						"type": "string",
+						"const": "system.members.remove",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"required": ["accountId", "userId"],
+						"properties": {
+							"accountId": {
+								"type": "string",
+								"minLength": 1,
+								"description": "Tenant account the change is about."
+							},
+							"userId": {
+								"type": "string",
+								"minLength": 1,
+								"description": "Target user."
+							}
+						},
+						"description": "Command parameters."
+					}
+				},
+				"grant": "system.members.manage",
+				"description": "Remove a member from a tenant account. The last account-admin cannot be removed. Needs admin mode."
+			},
+			"SystemMembersUpdateCommand": {
+				"type": "object",
+				"required": ["id", "type", "payload"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Non-empty unique correlation identifier for this command request."
+					},
+					"type": {
+						"type": "string",
+						"const": "system.members.update",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"required": ["accountId", "userId", "role"],
+						"properties": {
+							"accountId": {
+								"type": "string",
+								"minLength": 1,
+								"description": "Tenant account the change is about."
+							},
+							"userId": {
+								"type": "string",
+								"minLength": 1,
+								"description": "Target user."
+							},
+							"role": {
+								"anyOf": [
+									{
+										"type": "string",
+										"const": "user"
+									},
+									{
+										"type": "string",
+										"const": "account-admin"
+									}
+								],
+								"description": "Role to give: user or account-admin."
+							}
+						},
+						"description": "Command parameters."
+					}
+				},
+				"grant": "system.members.manage",
+				"description": "Change a member's role in a tenant account. The last account-admin cannot be demoted. Needs admin mode."
+			},
+			"SystemUsersDisableCommand": {
+				"type": "object",
+				"required": ["id", "type", "payload"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Non-empty unique correlation identifier for this command request."
+					},
+					"type": {
+						"type": "string",
+						"const": "system.users.disable",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"required": ["userId"],
+						"properties": {
+							"userId": {
+								"type": "string",
+								"minLength": 1,
+								"description": "Target user."
+							}
+						},
+						"description": "Command parameters."
+					}
+				},
+				"grant": "system.users.manage",
+				"description": "Disable a user in every account. Their sessions are refused and live sockets close. Super-admins cannot be disabled here, and you cannot disable yourself. Needs admin mode."
+			},
+			"SystemUsersEnableCommand": {
+				"type": "object",
+				"required": ["id", "type", "payload"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Non-empty unique correlation identifier for this command request."
+					},
+					"type": {
+						"type": "string",
+						"const": "system.users.enable",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"required": ["userId"],
+						"properties": {
+							"userId": {
+								"type": "string",
+								"minLength": 1,
+								"description": "Target user."
+							}
+						},
+						"description": "Command parameters."
+					}
+				},
+				"grant": "system.users.manage",
+				"description": "Enable a disabled user again. Needs admin mode."
+			},
+			"SystemUsersResetPasskeysCommand": {
+				"type": "object",
+				"required": ["id", "type", "payload"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Non-empty unique correlation identifier for this command request."
+					},
+					"type": {
+						"type": "string",
+						"const": "system.users.resetPasskeys",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"required": ["userId"],
+						"properties": {
+							"userId": {
+								"type": "string",
+								"minLength": 1,
+								"description": "Target user."
+							}
+						},
+						"description": "Command parameters."
+					}
+				},
+				"grant": "system.users.manage",
+				"description": "Remove a user's passkeys in every account and sign them out. Needs admin mode."
+			},
+			"SystemUsersRevokeSessionsCommand": {
+				"type": "object",
+				"required": ["id", "type", "payload"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Non-empty unique correlation identifier for this command request."
+					},
+					"type": {
+						"type": "string",
+						"const": "system.users.revokeSessions",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"required": ["userId"],
+						"properties": {
+							"userId": {
+								"type": "string",
+								"minLength": 1,
+								"description": "Target user."
+							}
+						},
+						"description": "Command parameters."
+					}
+				},
+				"grant": "system.users.manage",
+				"description": "Revoke every live session of a user. Needs admin mode."
 			},
 			"ThinkingLevel": {
 				"anyOf": [

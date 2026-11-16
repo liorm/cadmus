@@ -317,7 +317,7 @@ export const AccountOAuthStatusCommandSchema = Type.Object(
 	},
 	{
 		readOnly: true,
-		grant: "credentials.read",
+		grant: "credentials.manage",
 		description:
 			"Command to query the current progress, prompt, or completion status of an active OAuth flow.",
 	},

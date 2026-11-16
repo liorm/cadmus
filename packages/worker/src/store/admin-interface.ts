@@ -1,10 +1,6 @@
-import {
-	normalizeRole,
-	type Role,
-	type RoleInput,
-	SYSTEM_ACCOUNT_ID,
-} from "@cadmus/contract/grants";
+import type { Grant, Role, RoleInput } from "@cadmus/contract/grants";
 import type { Credential } from "@earendil-works/pi-ai";
+import type { LoginIdentity } from "../auth/google.js";
 import type {
 	AccountMember,
 	AccountRecord,
@@ -13,19 +9,57 @@ import type {
 	CredentialSummary,
 	FamilyRecord,
 } from "../protocol.js";
+import type { LinkMethodResult, LoginResult } from "./d1-login.js";
+import type {
+	InviteResult,
+	InviteSummary,
+	MemberChangeResult,
+} from "./d1-members.js";
 import type {
 	CreateSessionInput,
+	ElevatedCommandPhase,
+	ElevatedOperation,
+	LoginMethodSummary,
+	MembershipSummary,
 	RefreshResult,
+	RevokeMethodResult,
 	SessionIdentity,
+	SessionSummary,
 	SessionTokens,
+	TicketIdentity,
+	TicketTarget,
 } from "./d1-sessions.js";
+import type {
+	SystemAccount,
+	SystemAuditEvent,
+	SystemMember,
+	SystemResult,
+} from "./d1-system.js";
+import type {
+	CreateTokenInput,
+	CreateTokenResult,
+	TokenLoginResult,
+	TokenSummary,
+} from "./d1-tokens.js";
 
 export type { AccountRecord };
 
 export interface AuthenticatedIdentity {
+	/** Set when a Cadmus session authenticated the request. */
+	sessionId?: string;
 	userId: string;
 	accountId: string;
 	role: Role;
+	/** Token-backed sessions only: grants clamped to the token. */
+	grants?: Grant[];
+	/** User sessions only: epoch ms when admin mode ends, while it is on. */
+	elevatedUntil?: number;
+	/**
+	 * Sessionless credentials only, set by the edge: "master" for the master
+	 * secret, "member-token:<sha256>" for a legacy member token,
+	 * "api-token:<domain-hash>" for a cad_pat_ / cad_svc_ bearer.
+	 */
+	credential?: string;
 }
 
 export interface UserRecord {
@@ -61,11 +95,201 @@ export interface FamilySettingsPatch {
  * and the Bot Families catalog (`account_id <-> family_id <-> do_name`).
  */
 export interface AdminStore {
+	inviteMember(input: {
+		accountId: string;
+		invitedBy: string;
+		email: string;
+		role: Role;
+		ttlMs?: number;
+		actorKind?: "user" | "super-admin";
+	}): Promise<InviteResult>;
+	listInvites(accountId: string): Promise<InviteSummary[]>;
+	revokeInvite(input: {
+		accountId: string;
+		inviteId: string;
+		actor: string;
+	}): Promise<boolean>;
+	updateMemberRole(input: {
+		accountId: string;
+		userId: string;
+		role: Role;
+		actor: string;
+		actorKind?: "user" | "super-admin";
+	}): Promise<MemberChangeResult>;
+	removeMember(input: {
+		accountId: string;
+		userId: string;
+		actor: string;
+		actorKind?: "user" | "super-admin";
+	}): Promise<MemberChangeResult>;
+	createToken(input: CreateTokenInput): Promise<CreateTokenResult>;
+	listTokens(
+		accountId: string,
+		userId: string,
+		all: boolean,
+	): Promise<TokenSummary[]>;
+	revokeTokenById(input: {
+		accountId: string;
+		userId: string;
+		tokenId: string;
+		all: boolean;
+	}): Promise<boolean>;
+	tokenLogin(
+		rawToken: string,
+		meta: { userAgent?: string; ipCountry?: string },
+	): Promise<TokenLoginResult>;
+	/**
+	 * Direct `Authorization: Bearer cad_pat_|cad_svc_` lookup. Undefined when
+	 * the token is not a live API token.
+	 */
+	resolveApiToken(rawToken: string): Promise<
+		| {
+				userId: string;
+				accountId: string;
+				role: Role;
+				grants: Grant[];
+				credential: string;
+		  }
+		| undefined
+	>;
+	/**
+	 * One use of an API-token credential: refreshes last_used_at and, for a
+	 * service token or an elevated token, writes `token.use`. False when the
+	 * token is revoked, expired, or its user, account, or membership is no
+	 * longer live.
+	 */
+	recordApiTokenUse(input: {
+		credential: string;
+		userId: string;
+		accountId: string;
+		use: string;
+	}): Promise<boolean>;
+	createTicket(
+		sessionId: string,
+		target: TicketTarget,
+		accountId?: string,
+	): Promise<{ ticket: string; expiresAt: number }>;
+	createLegacyTicket(
+		userId: string,
+		accountId: string,
+		target: TicketTarget,
+		credential: string | undefined,
+	): Promise<{ ticket: string; expiresAt: number }>;
+	consumeTicket(
+		ticket: string,
+		target: TicketTarget,
+	): Promise<TicketIdentity | undefined>;
+	/**
+	 * Re-checks a sessionless credential (master secret or legacy member
+	 * token): the token row is live, the membership, user and account are
+	 * active. Returns the role and, for a legacy token, the `user` grant set.
+	 */
+	resolveLegacyCredential(
+		credential: string | undefined,
+		userId: string,
+		accountId: string,
+	): Promise<{ role: Role; grants?: Grant[] } | undefined>;
+	/** Close code for a sessionless credential that no longer resolves: 4403 when its user is disabled or account suspended, else 4401. */
+	legacyEndCode(userId: string, accountId: string): Promise<4401 | 4403>;
+	listSessions(userId: string): Promise<SessionSummary[]>;
+	revokeOwnSession(userId: string, sessionId: string): Promise<boolean>;
+	revokeOtherSessions(
+		userId: string,
+		currentSessionId: string,
+	): Promise<number>;
+	listLoginMethods(userId: string): Promise<LoginMethodSummary[]>;
+	listMemberships(userId: string): Promise<MembershipSummary[]>;
+	revokeLoginMethod(
+		userId: string,
+		methodId: string,
+	): Promise<RevokeMethodResult>;
+	linkLoginMethod(
+		userId: string,
+		sessionId: string,
+		identity: LoginIdentity,
+	): Promise<LinkMethodResult>;
+	completeLogin(
+		identity: LoginIdentity,
+		options?: {
+			bootstrapEmail?: string;
+			userAgent?: string;
+			ipCountry?: string;
+			freshGoogleAt?: number;
+		},
+	): Promise<LoginResult>;
 	// Sessions (issue #3 phase 3)
 	createSession(input: CreateSessionInput): Promise<SessionTokens>;
-	resolveAccessToken(rawToken: string): Promise<SessionIdentity | undefined>;
+	resolveAccessToken(
+		rawToken: string,
+		selectedAccountId?: string,
+	): Promise<SessionIdentity | undefined>;
+	resolveSession(
+		sessionId: string,
+		accountId?: string,
+	): Promise<SessionIdentity | undefined>;
 	rotateRefreshToken(rawRefresh: string): Promise<RefreshResult>;
 	revokeSession(sessionId: string): Promise<boolean>;
+	sessionRefusalReason(
+		sessionId: string,
+		accountId?: string,
+	): Promise<"account_suspended" | "user_disabled" | undefined>;
+	// System console (issue #3 phase 6b): account records only
+	listSystemAccounts(): Promise<SystemAccount[]>;
+	listAccountMembers(
+		accountId: string,
+	): Promise<SystemResult<{ members: SystemMember[] }>>;
+	setUserDisabled(input: {
+		userId: string;
+		disabled: boolean;
+		actor: string;
+	}): Promise<SystemResult<{ changed: boolean }>>;
+	revokeUserSessions(input: {
+		userId: string;
+		actor: string;
+	}): Promise<SystemResult<{ revoked: number }>>;
+	resetUserPasskeys(input: {
+		userId: string;
+		actor: string;
+		actorSessionId: string;
+	}): Promise<SystemResult<{ passkeys: number; sessions: number }>>;
+	createSystemAccount(input: {
+		name: string;
+		timezone?: string;
+		actor: string;
+	}): Promise<SystemResult<{ account: SystemAccount }>>;
+	setSystemAccountStatus(input: {
+		accountId: string;
+		status: "active" | "suspended";
+		actor: string;
+	}): Promise<SystemResult<{ account: SystemAccount; changed: boolean }>>;
+	renameSystemAccount(input: {
+		accountId: string;
+		name: string;
+		actor: string;
+	}): Promise<SystemResult<{ account: SystemAccount; changed: boolean }>>;
+	listSystemAudit(input: {
+		limit: number;
+		accountId?: string;
+		before?: number;
+		beforeId?: string;
+	}): Promise<SystemAuditEvent[]>;
+	listAccountAudit(input: {
+		accountId: string;
+		limit: number;
+		before?: number;
+		beforeId?: string;
+	}): Promise<SystemAuditEvent[]>;
+	startElevation(
+		sessionId: string,
+		accountId?: string,
+	): Promise<number | undefined>;
+	endElevation(sessionId: string): Promise<boolean>;
+	auditElevatedCommand(
+		sessionId: string,
+		commandType: string,
+		phase: ElevatedCommandPhase,
+		operation: ElevatedOperation,
+	): Promise<void>;
 	initialize(options?: { force?: boolean }): Promise<void>;
 
 	// Auth & Accounts

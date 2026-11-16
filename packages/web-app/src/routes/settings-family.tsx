@@ -1,5 +1,5 @@
 import type { FamilyRecord } from "@cadmus/contract/types";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AppShell } from "@/components/AppShell";
 import { fieldClass } from "@/components/SettingsRows";
 import { LoadGate } from "@/components/Skeleton";
@@ -27,11 +27,31 @@ export function FamilySettingsPage() {
 	});
 	const families = loaded.data ?? [];
 	const current = families.find((family) => family.familyId === familyId);
+	const syncedRef = useRef<{
+		familyId: string;
+		name: string;
+		timezone: string;
+		harvestDelayMs: number;
+	} | null>(null);
 	useEffect(() => {
 		if (!current) return;
-		setName(current.name);
-		setTimezone(current.timezone);
-		setHarvestDelayMs(String(current.harvestDelayMs));
+		const prev = syncedRef.current;
+		const switched = !prev || prev.familyId !== current.familyId;
+		if (switched || prev.name !== current.name) {
+			setName(current.name);
+		}
+		if (switched || prev.timezone !== current.timezone) {
+			setTimezone(current.timezone);
+		}
+		if (switched || prev.harvestDelayMs !== current.harvestDelayMs) {
+			setHarvestDelayMs(String(current.harvestDelayMs));
+		}
+		syncedRef.current = {
+			familyId: current.familyId,
+			name: current.name,
+			timezone: current.timezone,
+			harvestDelayMs: current.harvestDelayMs,
+		};
 	}, [current]);
 	const formDisabled = busy || loaded.phase !== "ready";
 

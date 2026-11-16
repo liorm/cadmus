@@ -1,10 +1,12 @@
 import {
 	normalizeRole,
+	ROLE_GRANTS,
 	type Role,
 	type RoleInput,
 	SYSTEM_ACCOUNT_ID,
 } from "@cadmus/contract/grants";
 import type { Credential } from "@earendil-works/pi-ai";
+import type { LoginIdentity } from "../auth/google.js";
 import { type EdgeCache, sha256Hex } from "../edge-cache.js";
 import { getLogger } from "../log.js";
 import type {
@@ -23,15 +25,71 @@ import type {
 	StoredToolsEnv,
 } from "./admin-interface.js";
 import {
+	completeLogin,
+	type LoginResult,
+	linkLoginMethod,
+} from "./d1-login.js";
+import {
+	inviteMember,
+	listInvites,
+	removeMember,
+	revokeInvite,
+	updateMemberRole,
+} from "./d1-members.js";
+import {
+	auditElevatedCommand,
 	type CreateSessionInput,
+	consumeTicket,
+	createLegacyTicket,
 	createSession,
+	createTicket,
+	type ElevatedCommandPhase,
+	type ElevatedOperation,
+	endElevation,
+	legacyEndCode,
+	listLoginMethods,
+	listMemberships,
+	listSessions,
 	type RefreshResult,
 	resolveAccessToken,
+	resolveLegacyCredential,
+	resolveSessionById,
+	revokeLoginMethod,
+	revokeOtherSessions,
+	revokeOwnSession,
 	revokeSession,
 	rotateRefreshToken,
 	type SessionIdentity,
 	type SessionTokens,
+	sessionRefusalReason,
+	startElevation,
+	type TicketTarget,
 } from "./d1-sessions.js";
+import {
+	accountCreateAudit,
+	cleanName,
+	listAccountAudit,
+	listAccountMembers,
+	listSystemAccounts,
+	listSystemAudit,
+	renameAccount,
+	resetUserPasskeys,
+	revokeUserSessions,
+	type SystemAccount,
+	type SystemAuditEvent,
+	type SystemResult,
+	setAccountStatus,
+	setUserDisabled,
+} from "./d1-system.js";
+import {
+	type CreateTokenInput,
+	createToken,
+	listTokens,
+	recordApiTokenUse,
+	resolveApiToken,
+	revokeTokenById,
+	tokenLogin,
+} from "./d1-tokens.js";
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -170,7 +228,7 @@ function slugifyId(text: string): string {
 	);
 }
 
-export const CADMUS_SCHEMA_VERSION = 7;
+export const CADMUS_SCHEMA_VERSION = 12;
 
 export function isMissingSchemaError(error: unknown): boolean {
 	if (!error) return false;
@@ -241,20 +299,27 @@ export async function readSchemaVersion(
 	}
 }
 
-async function seedJustBashDefault(
+function seedJustBashStatement(
 	db: D1Database,
 	accountId: string,
 	now: number,
-): Promise<void> {
-	await db
+): D1PreparedStatement {
+	return db
 		.prepare(
 			`INSERT OR IGNORE INTO cadmus_tools_envs (
           account_id, env_id, kind, label, workspace_path, persist,
           confine_to_workspace, confinement_policy, shared_workspace, updated_at
         ) VALUES (?1, 'jb_default', 'just-bash', 'Default just-bash', NULL, 1, 1, 'required', 0, ?2)`,
 		)
-		.bind(accountId, now)
-		.run();
+		.bind(accountId, now);
+}
+
+async function seedJustBashDefault(
+	db: D1Database,
+	accountId: string,
+	now: number,
+): Promise<void> {
+	await seedJustBashStatement(db, accountId, now).run();
 }
 
 export async function runD1SchemaMigrations(db: D1Database): Promise<void> {
@@ -389,6 +454,27 @@ export async function runD1SchemaMigrations(db: D1Database): Promise<void> {
 
 	await migrateRolesAndAccounts(db);
 	await migrateSessionsSchema(db);
+	// Phase 7: verified Google auth_time (epoch ms) for a fresh-sign-in session.
+	await addColumnIfNotExists(
+		db,
+		"cadmus_sessions",
+		"fresh_google_at",
+		"INTEGER",
+	);
+	// Removal challenges name the passkey login method they authorize removing.
+	await addColumnIfNotExists(
+		db,
+		"cadmus_passkey_challenges",
+		"target_method_id",
+		"TEXT",
+	);
+	// Set by the removal batch itself when its own revoke changed a row.
+	await addColumnIfNotExists(
+		db,
+		"cadmus_passkey_challenges",
+		"removed_exec",
+		"TEXT",
+	);
 
 	await db
 		.prepare(
@@ -464,6 +550,8 @@ async function migrateRolesAndAccounts(db: D1Database): Promise<void> {
 async function migrateSessionsSchema(db: D1Database): Promise<void> {
 	await addColumnIfNotExists(db, "cadmus_users", "primary_email", "TEXT");
 	await addColumnIfNotExists(db, "cadmus_users", "disabled_at", "INTEGER");
+	// Phase 7: one stable opaque WebAuthn user handle per user, set atomically.
+	await addColumnIfNotExists(db, "cadmus_users", "passkey_handle", "TEXT");
 	await addColumnIfNotExists(db, "cadmus_auth_tokens", "id", "TEXT");
 	await addColumnIfNotExists(
 		db,
@@ -529,6 +617,48 @@ async function migrateSessionsSchema(db: D1Database): Promise<void> {
           UNIQUE (provider, subject)
         )
       `),
+		// Issue #3 phase 7. Typed passkey data for a `passkey` login method. The
+		// login method row owns revocation; this row owns the key and counter.
+		db.prepare(`
+        CREATE TABLE IF NOT EXISTS cadmus_passkeys (
+          login_method_id TEXT PRIMARY KEY,
+          user_id TEXT NOT NULL,
+          credential_id TEXT NOT NULL UNIQUE,
+          public_key TEXT NOT NULL,
+          counter INTEGER NOT NULL,
+          user_handle TEXT NOT NULL,
+          transports TEXT NOT NULL DEFAULT '[]',
+          device_type TEXT NOT NULL,
+          backed_up INTEGER NOT NULL,
+          created_at INTEGER NOT NULL,
+          last_used_at INTEGER,
+          last_attempt_id TEXT
+        )
+      `),
+		db.prepare(
+			`CREATE INDEX IF NOT EXISTS idx_cadmus_passkeys_user ON cadmus_passkeys(user_id)`,
+		),
+		db.prepare(`
+        CREATE TABLE IF NOT EXISTS cadmus_passkey_challenges (
+          id TEXT PRIMARY KEY,
+          purpose TEXT NOT NULL,
+          user_id TEXT NOT NULL,
+          session_id TEXT NOT NULL,
+          challenge TEXT NOT NULL UNIQUE,
+          rp_id TEXT NOT NULL,
+          origin TEXT NOT NULL,
+          created_at INTEGER NOT NULL,
+          expires_at INTEGER NOT NULL,
+          consumed_at INTEGER,
+          consumed_attempt_id TEXT,
+          effect_exec TEXT,
+          target_method_id TEXT,
+          removed_exec TEXT
+        )
+      `),
+		db.prepare(
+			`CREATE INDEX IF NOT EXISTS idx_cadmus_passkey_challenges_user ON cadmus_passkey_challenges(user_id, purpose)`,
+		),
 		db.prepare(`
         CREATE TABLE IF NOT EXISTS cadmus_sessions (
           id TEXT PRIMARY KEY,
@@ -542,6 +672,7 @@ async function migrateSessionsSchema(db: D1Database): Promise<void> {
           access_hash TEXT NOT NULL,
           access_expires_at INTEGER NOT NULL,
           elevated_until INTEGER,
+          elevated_account_id TEXT,
           user_agent TEXT,
           ip_country TEXT,
           created_at INTEGER NOT NULL,
@@ -558,6 +689,18 @@ async function migrateSessionsSchema(db: D1Database): Promise<void> {
 			`CREATE INDEX IF NOT EXISTS idx_cadmus_sessions_prev ON cadmus_sessions(previous_refresh_hash)`,
 		),
 		db.prepare(`
+        CREATE TABLE IF NOT EXISTS cadmus_tickets (
+          ticket_hash TEXT PRIMARY KEY,
+          session_id TEXT NOT NULL,
+          target TEXT NOT NULL,
+          expires_at INTEGER NOT NULL,
+          used_at INTEGER,
+          account_id TEXT,
+          user_id TEXT,
+          credential TEXT
+        )
+      `),
+		db.prepare(`
         CREATE TABLE IF NOT EXISTS cadmus_bootstrap (
           id INTEGER PRIMARY KEY CHECK (id = 1),
           claimed_at INTEGER NOT NULL,
@@ -565,6 +708,25 @@ async function migrateSessionsSchema(db: D1Database): Promise<void> {
         )
       `),
 	]);
+	// Account admin mode was enabled in (NULL: the session's own account).
+	await addColumnIfNotExists(
+		db,
+		"cadmus_sessions",
+		"elevated_account_id",
+		"TEXT",
+	);
+	// When an explicit x-account-id selection last used the membership; feeds
+	// the next sign-in default. NULL on older rows.
+	await addColumnIfNotExists(
+		db,
+		"cadmus_account_members",
+		"last_used_at",
+		"INTEGER",
+	);
+	// Event/ws tickets carry the account selected when they were minted.
+	await addColumnIfNotExists(db, "cadmus_tickets", "account_id", "TEXT");
+	await addColumnIfNotExists(db, "cadmus_tickets", "user_id", "TEXT");
+	await addColumnIfNotExists(db, "cadmus_tickets", "credential", "TEXT");
 }
 
 /**
@@ -838,16 +1000,213 @@ export class D1AdminStore implements AdminStore {
 		await seedJustBashDefault(this.#db, accountId, now);
 	}
 
+	async completeLogin(
+		identity: LoginIdentity,
+		options: {
+			bootstrapEmail?: string;
+			userAgent?: string;
+			ipCountry?: string;
+			freshGoogleAt?: number;
+		} = {},
+	): Promise<LoginResult> {
+		await this.initialize();
+		return completeLogin(this.#db, identity, options);
+	}
+
+	async createTicket(
+		sessionId: string,
+		target: TicketTarget,
+		accountId?: string,
+	) {
+		await this.initialize();
+		return createTicket(this.#db, sessionId, target, accountId);
+	}
+
+	async createLegacyTicket(
+		userId: string,
+		accountId: string,
+		target: TicketTarget,
+		credential: string | undefined,
+	) {
+		await this.initialize();
+		return createLegacyTicket(this.#db, userId, accountId, target, credential);
+	}
+
+	async consumeTicket(ticket: string, target: TicketTarget) {
+		await this.initialize();
+		return consumeTicket(this.#db, ticket, target);
+	}
+
+	async listSessions(userId: string) {
+		await this.initialize();
+		return listSessions(this.#db, userId);
+	}
+
+	async revokeOwnSession(userId: string, sessionId: string) {
+		await this.initialize();
+		return revokeOwnSession(this.#db, userId, sessionId);
+	}
+
+	async inviteMember(input: {
+		accountId: string;
+		invitedBy: string;
+		email: string;
+		role: Role;
+		ttlMs?: number;
+		actorKind?: "user" | "super-admin";
+	}) {
+		await this.initialize();
+		return inviteMember(this.#db, input);
+	}
+
+	async listInvites(accountId: string) {
+		await this.initialize();
+		return listInvites(this.#db, accountId);
+	}
+
+	async revokeInvite(input: {
+		accountId: string;
+		inviteId: string;
+		actor: string;
+	}) {
+		await this.initialize();
+		return revokeInvite(this.#db, input);
+	}
+
+	async updateMemberRole(input: {
+		accountId: string;
+		userId: string;
+		role: Role;
+		actor: string;
+		actorKind?: "user" | "super-admin";
+	}) {
+		await this.initialize();
+		const result = await updateMemberRole(this.#db, input);
+		await this.#dropCachedTokens({
+			userId: input.userId,
+			accountId: input.accountId,
+		});
+		return result;
+	}
+
+	async removeMember(input: {
+		accountId: string;
+		userId: string;
+		actor: string;
+		actorKind?: "user" | "super-admin";
+	}) {
+		await this.initialize();
+		const result = await removeMember(this.#db, input);
+		await this.#dropCachedTokens({
+			userId: input.userId,
+			accountId: input.accountId,
+		});
+		return result;
+	}
+
+	async createToken(input: CreateTokenInput) {
+		await this.initialize();
+		return createToken(this.#db, input);
+	}
+
+	async listTokens(accountId: string, userId: string, all: boolean) {
+		await this.initialize();
+		return listTokens(this.#db, accountId, userId, all);
+	}
+
+	async revokeTokenById(input: {
+		accountId: string;
+		userId: string;
+		tokenId: string;
+		all: boolean;
+	}) {
+		await this.initialize();
+		// Capture the hash first so this isolate's cache entry can be dropped
+		// right after the revoke (other isolates: at most the cache TTL).
+		const row = await this.#db
+			.prepare(
+				`SELECT token_hash FROM cadmus_auth_tokens WHERE id = ?1 AND account_id = ?2`,
+			)
+			.bind(input.tokenId, input.accountId)
+			.first<{ token_hash: string | null }>();
+		const revoked = await revokeTokenById(this.#db, input);
+		if (row?.token_hash && this.#edgeCache) {
+			await this.#edgeCache.invalidateToken(row.token_hash, true);
+		}
+		return revoked;
+	}
+
+	async tokenLogin(
+		rawToken: string,
+		meta: { userAgent?: string; ipCountry?: string },
+	) {
+		await this.initialize();
+		return tokenLogin(this.#db, rawToken, meta);
+	}
+
+	async resolveApiToken(rawToken: string) {
+		await this.initialize();
+		return resolveApiToken(this.#db, rawToken);
+	}
+
+	async recordApiTokenUse(input: {
+		credential: string;
+		userId: string;
+		accountId: string;
+		use: string;
+	}) {
+		await this.initialize();
+		return recordApiTokenUse(this.#db, input);
+	}
+
+	async revokeOtherSessions(userId: string, currentSessionId: string) {
+		await this.initialize();
+		return revokeOtherSessions(this.#db, userId, currentSessionId);
+	}
+
+	async listMemberships(userId: string) {
+		await this.initialize();
+		return listMemberships(this.#db, userId);
+	}
+
+	async listLoginMethods(userId: string) {
+		await this.initialize();
+		return listLoginMethods(this.#db, userId);
+	}
+
+	async linkLoginMethod(
+		userId: string,
+		sessionId: string,
+		identity: LoginIdentity,
+	) {
+		await this.initialize();
+		return linkLoginMethod(this.#db, userId, sessionId, identity);
+	}
+
+	async revokeLoginMethod(userId: string, methodId: string) {
+		await this.initialize();
+		return revokeLoginMethod(this.#db, userId, methodId);
+	}
+
 	async createSession(input: CreateSessionInput): Promise<SessionTokens> {
 		await this.initialize();
 		return createSession(this.#db, input);
 	}
 
-	async resolveAccessToken(
-		rawToken: string,
+	async resolveSession(
+		sessionId: string,
+		accountId?: string,
 	): Promise<SessionIdentity | undefined> {
 		await this.initialize();
-		return resolveAccessToken(this.#db, rawToken);
+		return resolveSessionById(this.#db, sessionId, accountId);
+	}
+
+	async resolveAccessToken(
+		rawToken: string,
+		selectedAccountId?: string,
+	): Promise<SessionIdentity | undefined> {
+		await this.initialize();
+		return resolveAccessToken(this.#db, rawToken, selectedAccountId);
 	}
 
 	async rotateRefreshToken(rawRefresh: string): Promise<RefreshResult> {
@@ -858,6 +1217,173 @@ export class D1AdminStore implements AdminStore {
 	async revokeSession(sessionId: string): Promise<boolean> {
 		await this.initialize();
 		return revokeSession(this.#db, sessionId);
+	}
+
+	async listAccountMembers(accountId: string) {
+		await this.initialize();
+		return listAccountMembers(this.#db, accountId);
+	}
+
+	async setUserDisabled(input: {
+		userId: string;
+		disabled: boolean;
+		actor: string;
+	}) {
+		await this.initialize();
+		const result = await setUserDisabled(this.#db, input);
+		await this.#dropCachedTokens({ userId: input.userId });
+		return result;
+	}
+
+	async resetUserPasskeys(input: {
+		userId: string;
+		actor: string;
+		actorSessionId: string;
+	}) {
+		await this.initialize();
+		return resetUserPasskeys(this.#db, input);
+	}
+
+	async revokeUserSessions(input: { userId: string; actor: string }) {
+		await this.initialize();
+		return revokeUserSessions(this.#db, input);
+	}
+
+	async listSystemAccounts(): Promise<SystemAccount[]> {
+		await this.initialize();
+		return listSystemAccounts(this.#db);
+	}
+
+	async createSystemAccount(input: {
+		name: string;
+		timezone?: string;
+		actor: string;
+	}): Promise<SystemResult<{ account: SystemAccount }>> {
+		await this.initialize();
+		const name = cleanName(input.name);
+		if (!name) {
+			return {
+				ok: false,
+				code: "invalid",
+				message: "Account name must be 1 to 80 characters",
+			};
+		}
+		const timezone = input.timezone?.trim() || this.#defaultTimezone;
+		try {
+			new Intl.DateTimeFormat("en-US", { timeZone: timezone });
+		} catch {
+			return { ok: false, code: "invalid", message: "Unknown timezone" };
+		}
+		const now = Date.now();
+		const bytes = crypto.getRandomValues(new Uint8Array(8));
+		const accountId = `acc_${Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("")}`;
+		await this.#db.batch([
+			this.#db
+				.prepare(
+					`INSERT INTO cadmus_accounts (id, name, timezone, created_at, parent_account_id, status, default_tools_env_json) VALUES (?1, ?2, ?3, ?4, '${SYSTEM_ACCOUNT_ID}', 'active', ?5)`,
+				)
+				.bind(
+					accountId,
+					name,
+					timezone,
+					now,
+					JSON.stringify({ envId: "jb_default" }),
+				),
+			accountCreateAudit(
+				this.#db,
+				{ accountId, actor: input.actor, name },
+				now,
+			),
+			// In the same batch, so a failure leaves no half-created account.
+			seedJustBashStatement(this.#db, accountId, now),
+		]);
+		const created = (await this.listSystemAccounts()).find(
+			(a) => a.id === accountId,
+		);
+		if (!created) {
+			return { ok: false, code: "not_found", message: "Account not found" };
+		}
+		return { ok: true, account: created };
+	}
+
+	async setSystemAccountStatus(input: {
+		accountId: string;
+		status: "active" | "suspended";
+		actor: string;
+	}) {
+		await this.initialize();
+		const result = await setAccountStatus(this.#db, input);
+		await this.#dropCachedTokens({ accountId: input.accountId });
+		return result;
+	}
+
+	async renameSystemAccount(input: {
+		accountId: string;
+		name: string;
+		actor: string;
+	}) {
+		await this.initialize();
+		return renameAccount(this.#db, input);
+	}
+
+	async listSystemAudit(input: {
+		limit: number;
+		accountId?: string;
+		before?: number;
+		beforeId?: string;
+	}): Promise<SystemAuditEvent[]> {
+		await this.initialize();
+		return listSystemAudit(this.#db, input);
+	}
+
+	async listAccountAudit(input: {
+		accountId: string;
+		limit: number;
+		before?: number;
+		beforeId?: string;
+	}): Promise<SystemAuditEvent[]> {
+		await this.initialize();
+		return listAccountAudit(this.#db, input);
+	}
+
+	async sessionRefusalReason(sessionId: string, accountId?: string) {
+		await this.initialize();
+		return sessionRefusalReason(this.#db, sessionId, accountId);
+	}
+
+	/** The initialized admin database, for the passkey storage functions. */
+	async passkeyDb(): Promise<D1Database> {
+		await this.initialize();
+		return this.#db;
+	}
+
+	async startElevation(
+		sessionId: string,
+		accountId?: string,
+	): Promise<number | undefined> {
+		await this.initialize();
+		return startElevation(this.#db, sessionId, Date.now(), accountId);
+	}
+
+	async endElevation(sessionId: string): Promise<boolean> {
+		await this.initialize();
+		return endElevation(this.#db, sessionId);
+	}
+
+	async auditElevatedCommand(
+		sessionId: string,
+		commandType: string,
+		phase: ElevatedCommandPhase,
+		operation: ElevatedOperation,
+	): Promise<void> {
+		await this.initialize();
+		return auditElevatedCommand(
+			this.#db,
+			sessionId,
+			commandType,
+			phase,
+			operation,
+		);
 	}
 
 	async resolveToken(
@@ -871,20 +1397,88 @@ export class D1AdminStore implements AdminStore {
          FROM cadmus_auth_tokens t
          JOIN cadmus_account_members m
            ON m.account_id = t.account_id AND m.user_id = t.user_id
-         WHERE t.token_hash = ?1`,
+         JOIN cadmus_accounts a ON a.id = t.account_id
+         JOIN cadmus_users u ON u.id = t.user_id
+         WHERE t.token_hash = ?1 AND t.revoked_at IS NULL
+           AND a.status = 'active' AND u.disabled_at IS NULL
+           AND (t.expires_at IS NULL OR t.expires_at > ?2)`,
 			)
-			.bind(tokenHash)
+			.bind(tokenHash, Date.now())
 			.first<{
 				user_id: string;
 				account_id: string;
 				role: string;
 			}>();
 		if (!row) return undefined;
+		// Issue #3: legacy rows are `pat` rows with the `user` grant set. The role
+		// stays the member's live role so callerGrants() can only narrow.
 		return {
 			userId: row.user_id,
 			accountId: row.account_id,
 			role: normalizeRole(row.role) ?? "user",
+			grants: [...ROLE_GRANTS.user],
 		};
+	}
+
+	/**
+	 * Drops this isolate's (and the KV) cache entries for the legacy tokens of a
+	 * user and/or account whose authority just changed (member removed or
+	 * demoted, user disabled, account suspended or resumed). Other isolates
+	 * serve a cached scope for at most the cache TTL from the write.
+	 */
+	async #dropCachedTokens(who: { userId?: string; accountId?: string }) {
+		const cache = this.#edgeCache;
+		if (!cache) return;
+		try {
+			await this.#dropCachedTokensOrThrow(cache, who);
+		} catch (err) {
+			// The authority change is already committed, so a failed lookup must
+			// not fail it. Floor this isolate's token cache instead: L1 cleared, KV
+			// entries written before now refused, in-flight older resolves not
+			// cached. Immediate here; other isolates are bounded by the 60 s age.
+			getLogger().warn("token cache invalidation failed; cleared isolate L1", {
+				error: err,
+			});
+			cache.floorTokens();
+		}
+	}
+
+	async #dropCachedTokensOrThrow(
+		cache: EdgeCache,
+		who: { userId?: string; accountId?: string },
+	) {
+		const { results } = await this.#db
+			.prepare(
+				`SELECT token_hash FROM cadmus_auth_tokens
+         WHERE (?1 IS NULL OR user_id = ?1) AND (?2 IS NULL OR account_id = ?2)
+           AND token_hash IS NOT NULL`,
+			)
+			.bind(who.userId ?? null, who.accountId ?? null)
+			.all<{ token_hash: string }>();
+		// Every token of the user/account, in batches: same-isolate invalidation
+		// must be complete, so there is no row cap.
+		for (let i = 0; i < results.length; i += 50) {
+			await Promise.all(
+				results
+					.slice(i, i + 50)
+					.map((row) => cache.invalidateToken(row.token_hash, true)),
+			);
+		}
+	}
+
+	async legacyEndCode(userId: string, accountId: string) {
+		await this.initialize();
+		return legacyEndCode(this.#db, userId, accountId);
+	}
+
+	/** Live authority of a sessionless credential; see resolveLegacyCredential. */
+	async resolveLegacyCredential(
+		credential: string | undefined,
+		userId: string,
+		accountId: string,
+	) {
+		await this.initialize();
+		return resolveLegacyCredential(this.#db, credential, userId, accountId);
 	}
 
 	async revokeToken(rawToken: string): Promise<boolean> {

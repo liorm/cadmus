@@ -1,10 +1,16 @@
 import type {
+	AccountAuditListCommand,
 	AccountCredentialsDeleteCommand,
 	AccountCredentialsListCommand,
 	AccountCredentialsSetCommand,
 	AccountGetCommand,
+	AccountInvitesListCommand,
+	AccountInvitesRevokeCommand,
 	AccountMembersAddCommand,
+	AccountMembersInviteCommand,
 	AccountMembersListCommand,
+	AccountMembersRemoveCommand,
+	AccountMembersUpdateCommand,
 	AccountModelsListCommand,
 	AccountToolsEnvsCreateCommand,
 	AccountToolsEnvsDeleteCommand,
@@ -13,6 +19,21 @@ import type {
 	AccountToolsEnvsPairCommand,
 	AccountToolsEnvsUpdateCommand,
 	AccountUpdateCommand,
+	AuthElevateCommand,
+	AuthElevationEndCommand,
+	AuthMembershipsListCommand,
+	AuthMethodsLinkStartCommand,
+	AuthMethodsListCommand,
+	AuthMethodsRevokeCommand,
+	AuthPasskeysBeginCommand,
+	AuthPasskeysFinishCommand,
+	AuthSessionsListCommand,
+	AuthSessionsRevokeCommand,
+	AuthSessionsRevokeOthersCommand,
+	AuthTicketCommand,
+	AuthTokensCreateCommand,
+	AuthTokensListCommand,
+	AuthTokensRevokeCommand,
 	AuthWhoamiCommand,
 	BotCreateCommand,
 	BotDeleteCommand,
@@ -48,6 +69,20 @@ import type {
 	ScheduleDeleteCommand,
 	ScheduleListCommand,
 	ScheduleUpdateCommand,
+	SystemAccountsCreateCommand,
+	SystemAccountsListCommand,
+	SystemAccountsRenameCommand,
+	SystemAccountsResumeCommand,
+	SystemAccountsSuspendCommand,
+	SystemAuditListCommand,
+	SystemMembersInviteCommand,
+	SystemMembersListCommand,
+	SystemMembersRemoveCommand,
+	SystemMembersUpdateCommand,
+	SystemUsersDisableCommand,
+	SystemUsersEnableCommand,
+	SystemUsersResetPasskeysCommand,
+	SystemUsersRevokeSessionsCommand,
 	TurnAbortCommand,
 	TurnInterruptCommand,
 	TurnSteerCommand,
@@ -67,12 +102,18 @@ import type {
 	AccountOAuthSubmitResult,
 } from "./oauth.js";
 import type {
+	AccountAuditListResult,
 	AccountCredentialsDeleteResult,
 	AccountCredentialsListResult,
 	AccountCredentialsSetResult,
 	AccountGetResult,
+	AccountInvitesListResult,
+	AccountInvitesRevokeResult,
 	AccountMembersAddResult,
+	AccountMembersInviteResult,
 	AccountMembersListResult,
+	AccountMembersRemoveResult,
+	AccountMembersUpdateResult,
 	AccountModelsListResult,
 	AccountToolsEnvsCreateResult,
 	AccountToolsEnvsDeleteResult,
@@ -81,6 +122,21 @@ import type {
 	AccountToolsEnvsPairResult,
 	AccountToolsEnvsUpdateResult,
 	AccountUpdateResult,
+	AuthElevateResult,
+	AuthElevationEndResult,
+	AuthMembershipsListResult,
+	AuthMethodsLinkStartResult,
+	AuthMethodsListResult,
+	AuthMethodsRevokeResult,
+	AuthPasskeysBeginResult,
+	AuthPasskeysFinishResult,
+	AuthSessionsListResult,
+	AuthSessionsRevokeOthersResult,
+	AuthSessionsRevokeResult,
+	AuthTicketResult,
+	AuthTokensCreateResult,
+	AuthTokensListResult,
+	AuthTokensRevokeResult,
 	AuthWhoamiResult,
 	BotCreateResult,
 	BotDeleteResult,
@@ -115,6 +171,17 @@ import type {
 	ScheduleDeleteResult,
 	ScheduleListResult,
 	ScheduleUpdateResult,
+	SystemAccountsCreateResult,
+	SystemAccountsListResult,
+	SystemAccountsRenameResult,
+	SystemAccountsResumeResult,
+	SystemAccountsSuspendResult,
+	SystemAuditListResult,
+	SystemMembersListResult,
+	SystemUsersDisableResult,
+	SystemUsersEnableResult,
+	SystemUsersResetPasskeysResult,
+	SystemUsersRevokeSessionsResult,
 	TurnAbortResult,
 	TurnInterruptResult,
 	TurnSteerResult,
@@ -155,6 +222,30 @@ export type AccountMembersListRpc = Rpc<
 >;
 
 /** RPC contract for `account.members.add`: adds or invites a user to the account. */
+export type AccountMembersInviteRpc = Rpc<
+	AccountMembersInviteCommand,
+	AccountMembersInviteResult
+>;
+export type AccountMembersUpdateRpc = Rpc<
+	AccountMembersUpdateCommand,
+	AccountMembersUpdateResult
+>;
+export type AccountMembersRemoveRpc = Rpc<
+	AccountMembersRemoveCommand,
+	AccountMembersRemoveResult
+>;
+export type AccountAuditListRpc = Rpc<
+	AccountAuditListCommand,
+	AccountAuditListResult
+>;
+export type AccountInvitesListRpc = Rpc<
+	AccountInvitesListCommand,
+	AccountInvitesListResult
+>;
+export type AccountInvitesRevokeRpc = Rpc<
+	AccountInvitesRevokeCommand,
+	AccountInvitesRevokeResult
+>;
 export type AccountMembersAddRpc = Rpc<
 	AccountMembersAddCommand,
 	AccountMembersAddResult
@@ -216,6 +307,116 @@ export type AccountOAuthCancelRpc = Rpc<
 
 /** RPC contract for `family.list`: lists all bot families belonging to the account. */
 export type AuthWhoamiRpc = Rpc<AuthWhoamiCommand, AuthWhoamiResult>;
+export type AuthTicketRpc = Rpc<AuthTicketCommand, AuthTicketResult>;
+export type AuthSessionsListRpc = Rpc<
+	AuthSessionsListCommand,
+	AuthSessionsListResult
+>;
+export type AuthSessionsRevokeRpc = Rpc<
+	AuthSessionsRevokeCommand,
+	AuthSessionsRevokeResult
+>;
+export type SystemAccountsListRpc = Rpc<
+	SystemAccountsListCommand,
+	SystemAccountsListResult
+>;
+export type SystemAccountsCreateRpc = Rpc<
+	SystemAccountsCreateCommand,
+	SystemAccountsCreateResult
+>;
+export type SystemAccountsSuspendRpc = Rpc<
+	SystemAccountsSuspendCommand,
+	SystemAccountsSuspendResult
+>;
+export type SystemAccountsResumeRpc = Rpc<
+	SystemAccountsResumeCommand,
+	SystemAccountsResumeResult
+>;
+export type SystemAccountsRenameRpc = Rpc<
+	SystemAccountsRenameCommand,
+	SystemAccountsRenameResult
+>;
+export type SystemAuditListRpc = Rpc<
+	SystemAuditListCommand,
+	SystemAuditListResult
+>;
+export type SystemMembersListRpc = Rpc<
+	SystemMembersListCommand,
+	SystemMembersListResult
+>;
+export type SystemMembersInviteRpc = Rpc<
+	SystemMembersInviteCommand,
+	AccountMembersInviteResult
+>;
+export type SystemMembersUpdateRpc = Rpc<
+	SystemMembersUpdateCommand,
+	AccountMembersUpdateResult
+>;
+export type SystemMembersRemoveRpc = Rpc<
+	SystemMembersRemoveCommand,
+	AccountMembersRemoveResult
+>;
+export type SystemUsersDisableRpc = Rpc<
+	SystemUsersDisableCommand,
+	SystemUsersDisableResult
+>;
+export type SystemUsersEnableRpc = Rpc<
+	SystemUsersEnableCommand,
+	SystemUsersEnableResult
+>;
+export type SystemUsersRevokeSessionsRpc = Rpc<
+	SystemUsersRevokeSessionsCommand,
+	SystemUsersRevokeSessionsResult
+>;
+export type SystemUsersResetPasskeysRpc = Rpc<
+	SystemUsersResetPasskeysCommand,
+	SystemUsersResetPasskeysResult
+>;
+export type AuthElevateRpc = Rpc<AuthElevateCommand, AuthElevateResult>;
+export type AuthElevationEndRpc = Rpc<
+	AuthElevationEndCommand,
+	AuthElevationEndResult
+>;
+export type AuthSessionsRevokeOthersRpc = Rpc<
+	AuthSessionsRevokeOthersCommand,
+	AuthSessionsRevokeOthersResult
+>;
+export type AuthTokensListRpc = Rpc<
+	AuthTokensListCommand,
+	AuthTokensListResult
+>;
+export type AuthTokensCreateRpc = Rpc<
+	AuthTokensCreateCommand,
+	AuthTokensCreateResult
+>;
+export type AuthTokensRevokeRpc = Rpc<
+	AuthTokensRevokeCommand,
+	AuthTokensRevokeResult
+>;
+export type AuthMembershipsListRpc = Rpc<
+	AuthMembershipsListCommand,
+	AuthMembershipsListResult
+>;
+export type AuthMethodsListRpc = Rpc<
+	AuthMethodsListCommand,
+	AuthMethodsListResult
+>;
+export type AuthMethodsLinkStartRpc = Rpc<
+	AuthMethodsLinkStartCommand,
+	AuthMethodsLinkStartResult
+>;
+export type AuthMethodsRevokeRpc = Rpc<
+	AuthMethodsRevokeCommand,
+	AuthMethodsRevokeResult
+>;
+export type AuthPasskeysBeginRpc = Rpc<
+	AuthPasskeysBeginCommand,
+	AuthPasskeysBeginResult
+>;
+export type AuthPasskeysFinishRpc = Rpc<
+	AuthPasskeysFinishCommand,
+	AuthPasskeysFinishResult
+>;
 export type FamilyListRpc = Rpc<FamilyListCommand, FamilyListResult>;
 
 /** RPC contract for `family.create`: registers and provisions a new bot family Durable Object instance. */
@@ -364,6 +565,12 @@ export interface RpcMap {
 	"account.get": AccountGetRpc;
 	"account.update": AccountUpdateRpc;
 	"account.members.list": AccountMembersListRpc;
+	"account.members.invite": AccountMembersInviteRpc;
+	"account.members.update": AccountMembersUpdateRpc;
+	"account.members.remove": AccountMembersRemoveRpc;
+	"account.invites.list": AccountInvitesListRpc;
+	"account.audit.list": AccountAuditListRpc;
+	"account.invites.revoke": AccountInvitesRevokeRpc;
 	"account.members.add": AccountMembersAddRpc;
 	"account.credentials.list": AccountCredentialsListRpc;
 	"account.credentials.set": AccountCredentialsSetRpc;
@@ -375,6 +582,35 @@ export interface RpcMap {
 	"account.oauth.submit": AccountOAuthSubmitRpc;
 	"account.oauth.cancel": AccountOAuthCancelRpc;
 	"auth.whoami": AuthWhoamiRpc;
+	"auth.ticket": AuthTicketRpc;
+	"auth.sessions.list": AuthSessionsListRpc;
+	"auth.sessions.revoke": AuthSessionsRevokeRpc;
+	"auth.sessions.revokeOthers": AuthSessionsRevokeOthersRpc;
+	"auth.elevate": AuthElevateRpc;
+	"system.accounts.list": SystemAccountsListRpc;
+	"system.accounts.create": SystemAccountsCreateRpc;
+	"system.accounts.suspend": SystemAccountsSuspendRpc;
+	"system.accounts.resume": SystemAccountsResumeRpc;
+	"system.accounts.rename": SystemAccountsRenameRpc;
+	"system.audit.list": SystemAuditListRpc;
+	"system.members.list": SystemMembersListRpc;
+	"system.members.invite": SystemMembersInviteRpc;
+	"system.members.update": SystemMembersUpdateRpc;
+	"system.members.remove": SystemMembersRemoveRpc;
+	"system.users.disable": SystemUsersDisableRpc;
+	"system.users.enable": SystemUsersEnableRpc;
+	"system.users.revokeSessions": SystemUsersRevokeSessionsRpc;
+	"system.users.resetPasskeys": SystemUsersResetPasskeysRpc;
+	"auth.elevation.end": AuthElevationEndRpc;
+	"auth.tokens.list": AuthTokensListRpc;
+	"auth.tokens.create": AuthTokensCreateRpc;
+	"auth.tokens.revoke": AuthTokensRevokeRpc;
+	"auth.memberships.list": AuthMembershipsListRpc;
+	"auth.methods.list": AuthMethodsListRpc;
+	"auth.methods.link.start": AuthMethodsLinkStartRpc;
+	"auth.methods.revoke": AuthMethodsRevokeRpc;
+	"auth.passkeys.begin": AuthPasskeysBeginRpc;
+	"auth.passkeys.finish": AuthPasskeysFinishRpc;
 	"family.list": FamilyListRpc;
 	"family.create": FamilyCreateRpc;
 	"family.get": FamilyGetRpc;

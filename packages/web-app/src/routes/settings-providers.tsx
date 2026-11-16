@@ -8,7 +8,12 @@ import type {
 import { useEffect, useState } from "react";
 import { AppShell } from "@/components/AppShell";
 import { fieldClass } from "@/components/SettingsRows";
-import { HintSkeleton, LoadError, SkeletonBlock } from "@/components/Skeleton";
+import {
+	HintSkeleton,
+	isRefusalMessage,
+	LoadError,
+	SkeletonBlock,
+} from "@/components/Skeleton";
 import { useCadmus } from "@/context/CadmusContext";
 import { useScopedResource } from "@/hooks/useScopedResource";
 
@@ -106,6 +111,10 @@ export function ProvidersSettingsPage() {
 		]),
 	);
 
+	// A refused sign-in has nothing to manage here, so the cards are hidden.
+	const refused =
+		loaded.phase === "error" && isRefusalMessage(loaded.error ?? "");
+
 	return (
 		<AppShell title="AI providers" backTo="/settings">
 			<div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-3 py-4">
@@ -121,7 +130,13 @@ export function ProvidersSettingsPage() {
 				{note ? <p className="text-[length:var(--fs-sm)]">{note}</p> : null}
 				<fieldset
 					disabled={loaded.phase !== "ready" || busy}
-					className="flex flex-col gap-3 border-0 p-0"
+					className={`flex-col gap-3 border-0 p-0 ${
+						refused
+							? "hidden"
+							: loaded.phase === "ready"
+								? "flex"
+								: "flex opacity-50"
+					}`}
 				>
 					{flow ? (
 						<section

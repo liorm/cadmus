@@ -112,6 +112,200 @@ export {
 };
 
 export const TEST_TOKEN = "test-cadmus-secret";
+
+/** Password for the vitest worker's CADMUS_DEV_PASSWORD_HASH (`dev-pass`). */
+export const DEV_PASSWORD = "dev-pass";
+/** Bootstrap super-admin email on the vitest worker. */
+export const BOOTSTRAP_EMAIL = "boss@example.com";
+
+const REFRESH_COOKIE = "__Secure-cadmus_refresh";
+/** Dev-password login is refused unless the request host is local. */
+const DEV_LOGIN_ORIGIN = "http://127.0.0.1";
+
+export interface DevLogin {
+	accessToken: string;
+	/** `name=value` pair for the Cookie header. Empty when the response set none. */
+	refreshCookie: string;
+	email: string;
+}
+
+export function setCookieLines(res: Response): string[] {
+	if (typeof res.headers.getSetCookie === "function") {
+		return res.headers.getSetCookie();
+	}
+	const single = res.headers.get("set-cookie");
+	return single ? [single] : [];
+}
+
+export function cookiePair(lines: string[], name: string): string {
+	for (const line of lines) {
+		const pair = line.split(";")[0]?.trim() ?? "";
+		if (pair.startsWith(`${name}=`)) return pair;
+	}
+	return "";
+}
+
+/**
+ * POST /auth/login/dev-password. The bootstrap claim can lose a race
+ * (`not_invited`) until the winner's login method exists, so that code retries.
+ */
+export async function loginDevPassword(
+	email = BOOTSTRAP_EMAIL,
+): Promise<DevLogin> {
+	let last = "";
+	for (let attempt = 0; attempt < 6; attempt++) {
+		const res = await workerFetch(
+			`${DEV_LOGIN_ORIGIN}/auth/login/dev-password`,
+			{
+				method: "POST",
+				headers: {
+					Origin: DEV_LOGIN_ORIGIN,
+					"Content-Type": "application/json",
+				},
+				body: JSON.stringify({ email, password: DEV_PASSWORD }),
+			},
+		);
+		const text = await res.text();
+		if (res.ok) {
+			const body = JSON.parse(text) as { accessToken?: string };
+			if (!body.accessToken) {
+				throw new Error(`dev-password login missing access token: ${text}`);
+			}
+			return {
+				accessToken: body.accessToken,
+				refreshCookie: cookiePair(setCookieLines(res), REFRESH_COOKIE),
+				email,
+			};
+		}
+		last = `${res.status} ${text}`;
+		const retry =
+			text.includes("not_invited") || res.status === 429 || res.status >= 500;
+		if (retry && attempt < 5) continue;
+		break;
+	}
+	throw new Error(`dev-password login failed for ${email}: ${last}`);
+}
+
+export async function elevateAccessToken(accessToken: string): Promise<void> {
+	const elevated = await sendRpc("auth.elevate", {}, { token: accessToken });
+	if (!elevated.frame.ok) {
+		throw new Error(`auth.elevate failed: ${JSON.stringify(elevated.frame)}`);
+	}
+}
+
+/**
+ * Super-admin creates a tenant and invites `email`. The invite is accepted by
+ * signing that email in. Returns the invited member's session.
+ */
+export async function provisionInvitedMember(input: {
+	role: "user" | "account-admin";
+	email?: string;
+	name?: string;
+}): Promise<{
+	accountId: string;
+	accountName: string;
+	email: string;
+	accessToken: string;
+	userId: string;
+}> {
+	const boss = await loginDevPassword();
+	await elevateAccessToken(boss.accessToken);
+	const accountName = input.name ?? `Tenant ${crypto.randomUUID().slice(0, 8)}`;
+	const created = await sendRpc<{ account: { id: string; name: string } }>(
+		"system.accounts.create",
+		{ name: accountName },
+		{ token: boss.accessToken },
+	);
+	if (!created.frame.ok || !created.frame.result) {
+		throw new Error(
+			`system.accounts.create failed: ${JSON.stringify(created.frame)}`,
+		);
+	}
+	const accountId = created.frame.result.account.id;
+	const email = (
+		input.email ?? `${input.role}-${crypto.randomUUID()}@example.com`
+	).toLowerCase();
+	const invite = await sendRpc(
+		"system.members.invite",
+		{ accountId, email, role: input.role },
+		{ token: boss.accessToken },
+	);
+	if (!invite.frame.ok) {
+		throw new Error(
+			`system.members.invite failed: ${JSON.stringify(invite.frame)}`,
+		);
+	}
+	const session = await loginDevPassword(email);
+	const who = await sendRpc<{
+		principal: { userId?: string; role?: string; accountId?: string };
+	}>("auth.whoami", {}, { token: session.accessToken });
+	if (!who.frame.ok || !who.frame.result?.principal.userId) {
+		throw new Error(`auth.whoami failed: ${JSON.stringify(who.frame)}`);
+	}
+	return {
+		accountId,
+		accountName,
+		email,
+		accessToken: session.accessToken,
+		userId: who.frame.result.principal.userId,
+	};
+}
+
+/**
+ * Invite a member onto an existing account and return a short-lived `cad_pat_`
+ * they can send as `Authorization: Bearer`. The token's grants are a user
+ * subset, so it cannot run account-admin commands.
+ */
+export async function addMemberBearer(input: {
+	accountId: string;
+	role?: "user" | "account-admin";
+	grants?: string[];
+}): Promise<{ userId: string; email: string; token: string }> {
+	const boss = await loginDevPassword();
+	await elevateAccessToken(boss.accessToken);
+	const email = `member-${crypto.randomUUID()}@example.com`;
+	const role = input.role ?? "user";
+	const invite = await sendRpc(
+		"system.members.invite",
+		{ accountId: input.accountId, email, role },
+		{ token: boss.accessToken },
+	);
+	if (!invite.frame.ok) {
+		throw new Error(
+			`system.members.invite failed: ${JSON.stringify(invite.frame)}`,
+		);
+	}
+	const session = await loginDevPassword(email);
+	const who = await sendRpc<{ principal: { userId?: string } }>(
+		"auth.whoami",
+		{},
+		{ token: session.accessToken },
+	);
+	if (!who.frame.ok || !who.frame.result?.principal.userId) {
+		throw new Error(`auth.whoami failed: ${JSON.stringify(who.frame)}`);
+	}
+	const minted = await sendRpc<{ token: string }>(
+		"auth.tokens.create",
+		{
+			kind: "pat",
+			label: "member",
+			grants: input.grants ?? ["chat.use", "members.read", "tokens.self"],
+			ttlDays: 1,
+		},
+		{ token: session.accessToken },
+	);
+	if (!minted.frame.ok || !minted.frame.result?.token) {
+		throw new Error(
+			`auth.tokens.create failed: ${JSON.stringify(minted.frame)}`,
+		);
+	}
+	return {
+		userId: who.frame.result.principal.userId,
+		email,
+		token: minted.frame.result.token,
+	};
+}
+
 export const WORKER_BASE_URL = "http://example.com";
 
 let fixtureRunning = false;
@@ -321,7 +515,16 @@ export async function connectTestWs(options: RpcOptions = {}): Promise<{
 	close: () => void;
 }> {
 	const url = new URL(`${WORKER_BASE_URL}/ws`);
-	url.searchParams.set("token", options.token ?? TEST_TOKEN);
+	// ?token= is retired: the socket opens with a ticket minted over the header.
+	const issued = await sendRpc<{ ticket: string }>(
+		"auth.ticket",
+		{ target: "ws" },
+		options,
+	);
+	if (!issued.frame.ok || !issued.frame.result?.ticket) {
+		throw new Error(`could not mint a ws ticket: ${issued.status}`);
+	}
+	url.searchParams.set("ticket", issued.frame.result.ticket);
 	if (options.accountId) url.searchParams.set("accountId", options.accountId);
 	if (options.familyId) url.searchParams.set("familyId", options.familyId);
 

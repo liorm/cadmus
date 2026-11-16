@@ -9,7 +9,7 @@
 	],
 	"scripts": {
 		"build": "bun run web-app:build",
-		"dev": "wrangler dev",
+		"dev": "wrangler dev --var CADMUS_DEPLOY_ENV:development",
 		"deploy": "wrangler deploy --keep-vars",
 		"deploy:preview": "wrangler preview",
 		"cli": "bun packages/cli/src/cli.ts",

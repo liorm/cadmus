@@ -224,13 +224,19 @@ describe("Inter-Bot Co-Location Tools (create_bot, search_bot, message_bot)", ()
 		).toBe(true);
 	});
 
-	it("refuses a cycle, depth above 3, and the 6th peer action", async () => {
+	// Three scenarios, each with its own scope and five bots, so each gets its
+	// own default test timeout. They used to share one scope and one 5 s cap.
+	const limitsScope = async () => {
 		const scope = {
 			accountId: uniqueAccountId("group-limits"),
 			familyId: "default",
 		};
 		await bots(["a", "b", "c", "d", "e"], scope);
+		return scope;
+	};
 
+	it("refuses a message_bot cycle", async () => {
+		const scope = await limitsScope();
 		const cycle = await sendRpc<{ reply: string }>(
 			"turn.submit",
 			{
@@ -244,7 +250,10 @@ describe("Inter-Bot Co-Location Tools (create_bot, search_bot, message_bot)", ()
 			scope,
 		);
 		expect(cycle.frame.result?.reply).toContain("already on the hop chain");
+	});
 
+	it("refuses depth above 3", async () => {
+		const scope = await limitsScope();
 		const nest = (botId: string, text: string) =>
 			`[tool:message_bot ${JSON.stringify({ botId, topic: "depth", text })}]`;
 		const depth = await sendRpc<{ reply: string }>(
@@ -256,7 +265,10 @@ describe("Inter-Bot Co-Location Tools (create_bot, search_bot, message_bot)", ()
 			scope,
 		);
 		expect(depth.frame.result?.reply).toContain("max depth is 3");
+	});
 
+	it("refuses the 6th peer action in one turn", async () => {
+		const scope = await limitsScope();
 		const call = (n: number) =>
 			`[tool:message_bot ${JSON.stringify({
 				botId: "b",

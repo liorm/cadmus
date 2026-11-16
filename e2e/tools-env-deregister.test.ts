@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+	addMemberBearer,
 	connectTestWs,
 	ScriptedDaemon,
 	sendRpc,
@@ -61,23 +62,13 @@ describe("tools env deregister", () => {
 			ws.close();
 		}
 
-		const memberToken = crypto.randomUUID();
-		const added = await sendRpc(
-			"account.members.add",
-			{
-				userId: `member-${crypto.randomUUID()}`,
-				name: "Member",
-				role: "member",
-				token: memberToken,
-			},
-			options,
-		);
-		expect(added.frame.ok).toBe(true);
+		const added = await addMemberBearer({ accountId: options.accountId });
+		expect(added.userId).toBeTruthy();
 
 		const denied = await sendRpc(
 			"account.toolsEnvs.deregister",
 			{ envId },
-			{ token: memberToken },
+			{ token: added.token },
 		);
 		expect(denied.frame.ok).toBe(false);
 		expect(denied.frame.error?.code).toBe("forbidden");
@@ -194,23 +185,13 @@ describe("tools env deregister", () => {
 		const envId = created.frame.result?.env.envId ?? "";
 		expect(created.frame.result?.env.connection?.status).toBe("disconnected");
 
-		const memberToken = crypto.randomUUID();
-		const added = await sendRpc(
-			"account.members.add",
-			{
-				userId: `member-${crypto.randomUUID()}`,
-				name: "Member",
-				role: "member",
-				token: memberToken,
-			},
-			options,
-		);
-		expect(added.frame.ok).toBe(true);
+		const added = await addMemberBearer({ accountId: options.accountId });
+		expect(added.userId).toBeTruthy();
 
 		const denied = await sendRpc(
 			"account.toolsEnvs.deregister",
 			{ envId },
-			{ token: memberToken },
+			{ token: added.token },
 		);
 		expect(denied.frame.ok).toBe(false);
 		expect(denied.frame.error?.code).toBe("forbidden");

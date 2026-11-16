@@ -87,7 +87,7 @@ Success responses are HTTP **200** and the unwrapped `result` (not the `command.
 | `command_failed` | 500 |
 | validation codes and anything else | 400 |
 
-Unauthenticated `/api/*` requests never reach the adapter. They use `authenticateRequest` with `{ allowQueryToken: false, allowCookie: false }`. The only accepted credential is `Authorization: Bearer`. Missing or invalid tokens return the same **401** `protocol.error` body as `/rpc`. A `token` query parameter returns **401** `{ error: { code: "query_token_not_allowed" } }`. A `cadmus_session` cookie without the header returns **401** `{ error: { code: "header_required" } }`. `/rpc`, `/ws`, and `/events` still accept `?token=` and the session cookie. `readOnly` is part of the TypeBox schema, so `GET /protocol/schema` includes it on each readonly command.
+Unauthenticated `/api/*` requests never reach the adapter. They use `authenticateRequest` with `{ allowQueryToken: false, allowCookie: false }`. The only accepted credential is `Authorization: Bearer`. Missing or invalid tokens return the same **401** `protocol.error` body as `/rpc`. A `token` query parameter returns **401** `{ error: { code: "query_token_not_allowed" } }`. A `cadmus_session` cookie without the header returns **401** `{ error: { code: "header_required" } }`. `/rpc`, `/ws`, and `/events` take that same bearer and refuse both `?token=` and the session cookie. `/ws` and `/events` open with a single-use ticket from `auth.ticket`. `readOnly` is part of the TypeBox schema, so `GET /protocol/schema` includes it on each readonly command.
 
 Every `/api/*` response (success, error, **401**, **404**, **405**, and `HEAD`) sends `Cache-Control: private, no-store` and `Vary: Authorization, Cookie, X-Cadmus-Family-Id` (merged with any `Vary` already on the response). These bodies are private per-tenant data, so a shared cache must not store them.
 
@@ -99,7 +99,7 @@ Every `/api/*` response (success, error, **401**, **404**, **405**, and `HEAD`) 
 
 - Readonly commands are `GET /api/...`. The payload is `encodePayloadQuery` (the inverse of `coerceSearchParamsToPayload`). `undefined` fields are omitted. GET and HEAD do not send `Content-Type`.
 - Mutating commands are `POST /api/...` with the payload object as the JSON body and `Content-Type: application/json`.
-- `Authorization: Bearer`, `x-user-id`, `x-account-id`, and `X-Cadmus-Family-Id` are sent on every `/api` call. The bearer token is never copied into the `/api` URL. The WebSocket URL still carries `token` for `GET /ws`.
+- `Authorization: Bearer`, `x-user-id`, `x-account-id`, and `X-Cadmus-Family-Id` are sent on every `/api` call. The bearer token is never copied into the `/api` URL. `GET /ws` carries a single-use `ticket` from `auth.ticket`, not the bearer.
 - A `fetch` throw rejects with that error. A non-JSON body rejects from `response.json()`, same as the previous `/rpc` client. HTTP error JSON and `protocol.error` frames resolve as `{ ok: false, error }`.
 - The web bundle imports `@cadmus/contract/client`, `@cadmus/contract/routes`, `@cadmus/contract/types`, and `@cadmus/contract/tools`. It does not import command schemas, OpenAPI, or AsyncAPI.
 - `GET /ws` is unchanged and carries `ServerEvent` frames only. Commands do not go over the socket.

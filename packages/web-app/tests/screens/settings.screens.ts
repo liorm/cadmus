@@ -1,40 +1,18 @@
-import { mkdirSync } from "node:fs";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-import type { Page } from "@playwright/test";
-import { THEMES, type ThemeName } from "../../src/theme/theme.ts";
+import { resolve } from "node:path";
+import { THEMES } from "../../src/theme/theme.ts";
 import { seedBot, sendAccountRpc } from "../support/account.ts";
 import { expect, test } from "../support/fixtures.ts";
+import {
+	ensureScreensDir,
+	openThemed,
+	SCREENS_OUT_DIR,
+	WORKER_BASE,
+} from "../support/screens.ts";
 
-const OUT_DIR = resolve(
-	dirname(fileURLToPath(import.meta.url)),
-	"../../.screens",
-);
-const WORKER_BASE = "http://127.0.0.1:8799";
-
-async function openThemed(page: Page, path: string, theme: ThemeName) {
-	await page.goto(path);
-	await page.evaluate((themeName) => {
-		sessionStorage.setItem("cadmus.screenshot.theme", themeName);
-		localStorage.setItem("cadmus.theme", themeName);
-	}, theme);
-	await page.reload();
-	await expect
-		.poll(async () =>
-			page.evaluate(() => document.documentElement.getAttribute("data-theme")),
-		)
-		.toBe(theme);
-}
+const OUT_DIR = SCREENS_OUT_DIR;
 
 test.beforeAll(() => {
-	mkdirSync(OUT_DIR, { recursive: true });
-});
-
-test.beforeEach(async ({ page }) => {
-	await page.addInitScript(() => {
-		const theme = sessionStorage.getItem("cadmus.screenshot.theme");
-		if (theme) localStorage.setItem("cadmus.theme", theme);
-	});
+	ensureScreensDir();
 });
 
 async function seedSettings(origin: string, accountId: string) {

@@ -48,10 +48,18 @@ export default defineConfig({
 			miniflare: {
 				bindings: {
 					CADMUS_LOG_LEVEL: "silent",
+					CADMUS_PUBLIC_URL: "https://example.com",
 					CADMUS_AUTH_SECRET: "test-cadmus-secret",
 					CADMUS_ENCRYPTION_KEY: "test-cadmus-encryption-key-32bytes!",
 					CADMUS_DEFAULT_TIMEZONE: "UTC",
 					CADMUS_HARVEST_DELAY_MS: "200",
+					GOOGLE_CLIENT_ID: "test-google-client.apps.googleusercontent.com",
+					GOOGLE_CLIENT_SECRET: "test-google-client-secret",
+					CADMUS_BOOTSTRAP_SUPER_ADMIN_EMAIL: "boss@example.com",
+					CADMUS_DEPLOY_ENV: "test",
+					CADMUS_DEV_PASSWORD_LOGIN: "1",
+					CADMUS_DEV_PASSWORD_HASH:
+						"pbkdf2-sha256$1000$BwcHBwcHBwcHBwcHBwcHBw$vyzvBoini4B-WFTdP9_d8p5hL9Gnc8Kc16iVH9u7rRw",
 					CADMUS_HEARTBEAT_MS: "200",
 					CADMUS_TASK_MAX_ROUNDS: "2",
 					CADMUS_DAEMON_BRIDGE_HOST: inject("daemonBridgeHost"),

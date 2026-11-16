@@ -3,7 +3,11 @@ import { useEffect, useState } from "react";
 const DESKTOP_VIEWPORT_QUERY = "(min-width: 768px)";
 
 export function useDesktopViewport(): boolean {
-	const [matches, setMatches] = useState(false);
+	const [matches, setMatches] = useState(() =>
+		typeof window !== "undefined" && typeof window.matchMedia === "function"
+			? window.matchMedia(DESKTOP_VIEWPORT_QUERY).matches
+			: false,
+	);
 
 	useEffect(() => {
 		if (typeof window.matchMedia !== "function") return;

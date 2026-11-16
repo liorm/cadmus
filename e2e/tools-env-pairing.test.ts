@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+	addMemberBearer,
 	ScriptedDaemon,
 	sendRpc,
 	TEST_TOKEN,
@@ -200,25 +201,15 @@ describe("tools-env automated pairing and registration", () => {
 		const peer = upgraded.peer;
 		if (!peer) throw new Error("missing peer");
 
-		const memberToken = crypto.randomUUID();
-		const added = await sendRpc(
-			"account.members.add",
-			{
-				userId: `member-${crypto.randomUUID()}`,
-				name: "Member",
-				role: "member",
-				token: memberToken,
-			},
-			rpcOpts,
-		);
-		expect(added.frame.ok).toBe(true);
+		const added = await addMemberBearer({ accountId: rpcOpts.accountId });
+		expect(added.userId).toBeTruthy();
 
 		const denied = await workerFetch(
 			"http://example.com/api/account/toolsEnvs/deregister",
 			{
 				method: "POST",
 				headers: {
-					Authorization: `Bearer ${memberToken}`,
+					Authorization: `Bearer ${added.token}`,
 					"Content-Type": "application/json",
 				},
 				body: JSON.stringify({ envId }),
@@ -235,7 +226,7 @@ describe("tools-env automated pairing and registration", () => {
 		const rpcDenied = await sendRpc(
 			"account.toolsEnvs.deregister",
 			{ envId },
-			{ token: memberToken },
+			{ token: added.token },
 		);
 		expect(rpcDenied.status).toBe(400);
 		expect(rpcDenied.frame.error).toEqual({

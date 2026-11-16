@@ -1,8 +1,8 @@
 import { useCadmus } from "@/context/CadmusContext";
 
 export function ReconnectBar() {
-	const { connectionStatus } = useCadmus();
-	if (connectionStatus === "connected") return null;
+	const { connectionStatus, skipTenantSync } = useCadmus();
+	if (skipTenantSync || connectionStatus === "connected") return null;
 	return (
 		<div
 			role="status"

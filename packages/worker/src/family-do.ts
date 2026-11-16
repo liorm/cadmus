@@ -1,4 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
+import { grantsForRole } from "@cadmus/contract/grants";
 import {
 	effectiveToolNames,
 	extractModelProvider,
@@ -27,13 +28,31 @@ import {
 	watchEvents,
 } from "@earendil-works/pi-durable";
 import { openDurableObjectSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/cloudflare";
-import { syncDurableObjectAlarm } from "./alarms.js";
+import type {
+	AuthenticationResponseJSON,
+	RegistrationResponseJSON,
+} from "@simplewebauthn/server";
+import { StreamSweepDeadline, syncDurableObjectAlarm } from "./alarms.js";
+import { getGoogleConfig, signLinkTicket } from "./auth/google.js";
+import {
+	relyingPartyFromUrl,
+	verifyPasskeyAuthentication,
+	verifyPasskeyRegistration,
+} from "./auth/webauthn.js";
+import { requireLiveApiTokenUse } from "./auth.js";
+import { withinPrincipalBudget } from "./auth-limiter.js";
 import {
 	authorize,
 	type CallerMeta,
+	callerGrants,
 	callerMetaFromAttachment,
 	callerMetaFromHeader,
+	isElevated,
+	needsElevation,
 	PRINCIPAL_HEADER,
+	requireElevationFor,
+	requireSession,
+	tokenUserRequired,
 } from "./authz.js";
 import { assertBotMetadata, mergeMetadataPatch } from "./bot-metadata.js";
 import {
@@ -54,6 +73,7 @@ import {
 	TurnDeadlineError,
 } from "./deadlines.js";
 import { getEdgeCache } from "./edge-cache.js";
+import { withElevatedAudit } from "./elevated-audit.js";
 import {
 	cadmusDefaultExtensions,
 	cadmusExtensionDescriptors,
@@ -115,6 +135,20 @@ import {
 } from "./schedules.js";
 import { defaultJsonShim, type ProtocolShim } from "./shim.js";
 import { D1AdminStore, toDoName } from "./store/d1-admin.js";
+import {
+	canEnrollPasskey,
+	consumeChallenge,
+	finishElevation,
+	finishRegistration,
+	finishRemoval,
+	getActivePasskey,
+	issueChallenge,
+	listActivePasskeys,
+	newAttemptId,
+	passkeyUserLabel,
+	userHandleFor,
+} from "./store/d1-passkeys.js";
+import { ELEVATION_MS } from "./store/d1-sessions.js";
 import type { FamilyStore, GroupChatRecord } from "./store/family-interface.js";
 import {
 	CasConflictError,
@@ -138,6 +172,7 @@ import {
 	WORKSPACE_ROOT,
 } from "./tools-env/pure.js";
 import { ToolsEnvController } from "./tools-env/session.js";
+import { completionOutcome } from "./turn-completion.js";
 import type { Env } from "./types.js";
 import { computeBotUsage, computeChatUsage } from "./usage.js";
 
@@ -158,6 +193,21 @@ function toToolRegs(
 	return names.map((name) => ({ name }) as unknown as ToolRegistration);
 }
 
+/** How often open streams are re-validated while idle. */
+const STREAM_SWEEP_KEY = "cadmus:streamSweepAt";
+const STREAM_SWEEP_MS = 60_000;
+
+/** A session acting in one account: the key authority is swept and gated by. */
+function principalKey(
+	sessionId: string,
+	accountId: string | undefined,
+): string {
+	return `${sessionId}\u0000${accountId ?? ""}`;
+}
+
+/** Marks credentials.manage holders in the per-batch authority sweep set. */
+const OAUTH_MANAGER_PREFIX = "oauth-manager\u0000";
+
 export class CadmusBotFamilyDO extends DurableObject<Env> {
 	readonly familyStore: FamilyStore;
 	readonly adminStore: D1AdminStore;
@@ -173,6 +223,12 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 	private sseControllers = new Set<
 		ReadableStreamDefaultController<Uint8Array>
 	>();
+	/** Session behind each SSE stream, so a revoked session's stream is closed. */
+	private sseSessions = new Map<
+		ReadableStreamDefaultController<Uint8Array>,
+		{ sessionId: string; accountId: string | undefined }
+	>();
+	private lastAuthSweepAt = 0;
 	private activeWatches = new Map<number, AgentEventStream>();
 	private streamedAssistantContent = new Map<number, Map<number, string>>();
 
@@ -709,6 +765,7 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 				request.headers.get(PRINCIPAL_HEADER),
 			);
 			this.ctx.acceptWebSocket(server);
+			this.ensureIdleSweep();
 			server.serializeAttachment(caller);
 			await this.ensureHarness();
 			this.log().debug("websocket client connected");
@@ -718,7 +775,15 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 		if (url.pathname === "/events" && request.method === "GET") {
 			await this.ensureHarness();
 			this.log().debug("sse client connected");
-			return this.handleSseStream(request.signal);
+			const sseCaller = callerMetaFromHeader(
+				request.headers.get(PRINCIPAL_HEADER),
+			);
+			return this.handleSseStream(
+				request.signal,
+				sseCaller.sessionId,
+				sseCaller.accountId,
+				sseCaller,
+			);
 		}
 
 		if (url.pathname === "/rpc" && request.method === "POST") {
@@ -745,7 +810,26 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 					? message
 					: new TextDecoder().decode(message);
 			const command = this.shim.decodeCommand(raw);
-			const caller = callerMetaFromAttachment(ws.deserializeAttachment());
+			const attached = callerMetaFromAttachment(ws.deserializeAttachment());
+			const caller = await this.liveCaller(attached);
+			if (!caller) {
+				const code = await this.endCode(
+					attached.sessionId,
+					attached.accountId,
+					attached,
+				);
+				ws.send(
+					this.shim.encodeFrame({
+						type: "protocol.error",
+						payload:
+							code === 4403
+								? { code: "forbidden", message: "Account or user disabled" }
+								: { code: "unauthorized", message: "Session ended" },
+					} as ServerEvent),
+				);
+				ws.close(code, code === 4403 ? "forbidden" : "session ended");
+				return;
+			}
 			const response = await this.executeCommand(command, caller);
 			ws.send(this.shim.encodeFrame(response));
 		} catch (error) {
@@ -809,6 +893,10 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 			this.familyStore.schedules.deleteSchedule(s.id);
 		}
 
+		if (this.streamsOpen()) {
+			await this.sweepAuthority(true).catch(() => this.closeAllStreams());
+			this.streamSweep.swept();
+		}
 		await this.syncAlarmInternal();
 	}
 
@@ -875,7 +963,12 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 		});
 	}
 
-	private handleSseStream(signal: AbortSignal): Response {
+	private handleSseStream(
+		signal: AbortSignal,
+		sessionId?: string,
+		accountId?: string,
+		legacy?: CallerMeta,
+	): Response {
 		const encoder = new TextEncoder();
 		let activeController:
 			| ReadableStreamDefaultController<Uint8Array>
@@ -885,10 +978,22 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 			start: (controller) => {
 				activeController = controller;
 				this.sseControllers.add(controller);
+				if (sessionId)
+					this.sseSessions.set(controller, { sessionId, accountId });
+				// Sessionless principals (master secret, legacy member tokens, and
+				// cad_pat_ / cad_svc_ bearer tickets) are recorded on sseLegacyWho so
+				// the sweep can re-check them. An unmapped controller has no entry
+				// and is denied by sessionlessHolds(undefined).
+				else if (legacy?.credential && legacy.userId && legacy.accountId) {
+					this.sseLegacyWho.set(controller, legacy);
+				}
+				this.ensureIdleSweep();
 				signal.addEventListener(
 					"abort",
 					() => {
 						this.sseControllers.delete(controller);
+						this.sseSessions.delete(controller);
+						this.sseLegacyWho.delete(controller);
 						try {
 							controller.close();
 						} catch {
@@ -901,6 +1006,8 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 			cancel: () => {
 				if (activeController) {
 					this.sseControllers.delete(activeController);
+					this.sseSessions.delete(activeController);
+					this.sseLegacyWho.delete(activeController);
 				}
 			},
 		});
@@ -918,10 +1025,312 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 		});
 	}
 
+	/**
+	 * The caller's authority right now. Session-backed callers are re-read from
+	 * D1 (the handshake copy can be stale); other callers pass through.
+	 */
+	/** Close code for a session that no longer resolves: 4403 when its account is suspended or its user disabled, else 4401. */
+	private async endCode(
+		sessionId: string | undefined,
+		accountId?: string,
+		sessionless?: { userId?: string },
+	): Promise<4401 | 4403> {
+		if (!sessionId) {
+			if (!sessionless?.userId || !accountId) return 4401;
+			try {
+				return await this.adminStore.legacyEndCode(
+					sessionless.userId,
+					accountId,
+				);
+			} catch {
+				return 4401;
+			}
+		}
+		try {
+			return (await this.adminStore.sessionRefusalReason(sessionId, accountId))
+				? 4403
+				: 4401;
+		} catch {
+			// A failed classification read must still end the denied socket.
+			return 4401;
+		}
+	}
+
+	/** Member commands act on tenants only; the system account is not one. */
+	private async requireTenantTarget(accountId: string): Promise<void> {
+		const found = await this.adminStore.listAccountMembers(accountId);
+		if (!found.ok) {
+			throw new ProtocolValidationError(found.message, found.code);
+		}
+	}
+
+	private async liveCaller(
+		attached: CallerMeta,
+	): Promise<CallerMeta | undefined> {
+		if (!attached.sessionId) {
+			// Master secret and legacy member token sockets have no session: re-check
+			// the credential (token row, membership, user, account) on every message.
+			// Fail closed: every sessionless principal the edge builds names its
+			// credential, so one that does not (e.g. a socket attached before this
+			// check existed) is ended rather than trusted.
+			if (!attached.credential || !attached.userId || !attached.accountId) {
+				return undefined;
+			}
+			const live = await this.adminStore.resolveLegacyCredential(
+				attached.credential,
+				attached.userId,
+				attached.accountId,
+			);
+			if (!live) return undefined;
+			return {
+				...attached,
+				role: live.role,
+				...(live.grants ? { grants: live.grants } : {}),
+			};
+		}
+		const identity = await this.adminStore.resolveSession(
+			attached.sessionId,
+			attached.accountId,
+		);
+		if (!identity) return undefined;
+		return {
+			...attached,
+			userId: identity.userId,
+			accountId: identity.accountId,
+			role: identity.role,
+			grants: identity.grants,
+			elevatedUntil: identity.elevatedUntil,
+		};
+	}
+
+	/**
+	 * Closes sockets and streams whose session is no longer valid or no longer
+	 * holds chat.use (streams carry live chat content). Returns the sessions
+	 * that were live and also hold toolsEnv.read, from this sweep's own
+	 * lookups only (callers that deliver use their own sweep's result; a
+	 * non-forced skipped sweep returns an empty set, i.e. nobody).
+	 * Validation errors propagate: callers must not deliver on an unverified
+	 * state.
+	 */
+	private async sweepAuthority(
+		force = false,
+		/**
+		 * Sessionless sockets (master, legacy token) are re-read from D1 here.
+		 * The per-event delivery sweep skips that so event delivery is not held
+		 * behind extra D1 reads for them; the alarm sweep, command-triggered
+		 * sweeps and each message still cover them.
+		 */
+		checkSessionless = true,
+	): Promise<Set<string>> {
+		const now = Date.now();
+		if (!force && now - this.lastAuthSweepAt < 1_000) return new Set();
+		this.lastAuthSweepAt = now;
+		// 0 = live, otherwise the close code: 4401 session ended, 4403 no chat.use.
+		const live = new Map<string, number>();
+		// Sessions that also hold toolsEnv.read: account.toolsEnv.event carries
+		// environment identity, workspace path and error text that the list API
+		// only gives to that grant, so only these sessions receive it.
+		const toolsReaders = new Set<string>();
+		const verdict = async (
+			sessionId: string,
+			accountId: string | undefined,
+		): Promise<number> => {
+			const key = principalKey(sessionId, accountId);
+			const known = live.get(key);
+			if (known !== undefined) return known;
+			const identity = await this.adminStore.resolveSession(
+				sessionId,
+				accountId,
+			);
+			const grants = identity
+				? (identity.grants ?? grantsForRole(identity.role))
+				: [];
+			const code = !identity
+				? await this.endCode(sessionId, accountId)
+				: grants.includes("chat.use")
+					? 0
+					: 4403;
+			live.set(key, code);
+			if (code === 0 && grants.includes("toolsEnv.read")) toolsReaders.add(key);
+			// account.oauth.event carries the device user code and authorization
+			// URL of an in-progress provider login: credentials.manage only.
+			if (code === 0 && grants.includes("credentials.manage")) {
+				toolsReaders.add(`${OAUTH_MANAGER_PREFIX}${key}`);
+			}
+			return code;
+		};
+		// Sessionless sockets (master secret, legacy member token) carry the
+		// credential the edge named at mint; re-check it like a session.
+		const legacyVerdict = async (meta: CallerMeta): Promise<number> => {
+			if (!meta.credential || !meta.userId || !meta.accountId) return 4401;
+			const key = `legacy\u0000${meta.credential}\u0000${meta.userId}\u0000${meta.accountId}`;
+			const known = live.get(key);
+			if (known !== undefined) return known;
+			const identity = await this.adminStore.resolveLegacyCredential(
+				meta.credential,
+				meta.userId,
+				meta.accountId,
+			);
+			const grants = identity
+				? (identity.grants ?? grantsForRole(identity.role))
+				: [];
+			const code = !identity
+				? await this.endCode(undefined, meta.accountId, meta)
+				: grants.includes("chat.use")
+					? 0
+					: 4403;
+			live.set(key, code);
+			return code;
+		};
+		for (const ws of this.ctx.getWebSockets()) {
+			const attached = callerMetaFromAttachment(ws.deserializeAttachment());
+			const code = attached.sessionId
+				? await verdict(attached.sessionId, attached.accountId)
+				: checkSessionless
+					? await legacyVerdict(attached)
+					: 0;
+			if (code !== 0) {
+				try {
+					ws.close(code, "session ended");
+				} catch {
+					// already closed
+				}
+			}
+		}
+		for (const [controller, who] of this.sseSessions) {
+			if ((await verdict(who.sessionId, who.accountId)) !== 0) {
+				this.sseControllers.delete(controller);
+				this.sseSessions.delete(controller);
+				this.sseLegacyWho.delete(controller);
+				try {
+					controller.close();
+				} catch {
+					// already closed
+				}
+			}
+		}
+		for (const [controller, who] of this.sseLegacyWho) {
+			if (checkSessionless && (await legacyVerdict(who)) !== 0) {
+				this.sseControllers.delete(controller);
+				this.sseLegacyWho.delete(controller);
+				try {
+					controller.close();
+				} catch {
+					// already closed
+				}
+			}
+		}
+		return toolsReaders;
+	}
+
+	/**
+	 * Idle streams are re-checked from the Durable Object alarm (the repo's one
+	 * timer primitive), so an idle socket revoked elsewhere is closed within
+	 * STREAM_SWEEP_MS without a live timer that would keep the object awake.
+	 */
+	private ensureIdleSweep(): void {
+		void this.ensureHarness()
+			.then(() => this.syncAlarmInternal())
+			// No bounded idle check could be set up: end the streams (clients reconnect).
+			.catch(() => this.closeAllStreams());
+	}
+
+	/** Fail closed: when authority cannot be verified, end every stream; clients reconnect. */
+	private closeAllStreams(): void {
+		for (const ws of this.ctx.getWebSockets()) {
+			try {
+				ws.close(1011, "authority check failed");
+			} catch {
+				// already closed
+			}
+		}
+		for (const controller of this.sseControllers) {
+			try {
+				controller.close();
+			} catch {
+				// already closed
+			}
+		}
+		this.sseControllers.clear();
+		this.sseSessions.clear();
+		this.sseLegacyWho.clear();
+	}
+
+	/** Credential behind each sessionless SSE stream (re-checked by the sweep). */
+	private sseLegacyWho = new Map<
+		ReadableStreamDefaultController<Uint8Array>,
+		CallerMeta
+	>();
+	private pendingEvents: ServerFrame[] = [];
+	private flushing = false;
+
+	/**
+	 * Every delivered event follows a live authority check that started after
+	 * the event was queued (one check covers a batch). A failed check delivers
+	 * nothing and ends the streams. Order is preserved.
+	 */
 	broadcastEvent(event: ServerFrame): void {
+		this.pendingEvents.push(event);
+		if (this.flushing) return;
+		this.flushing = true;
+		void (async () => {
+			try {
+				while (this.pendingEvents.length > 0) {
+					const batch = this.pendingEvents;
+					this.pendingEvents = [];
+					let toolsReaders: Set<string>;
+					try {
+						toolsReaders = await this.sweepAuthority(true, false);
+					} catch {
+						this.closeAllStreams();
+						continue;
+					}
+					for (const queued of batch) this.deliverEvent(queued, toolsReaders);
+				}
+			} finally {
+				this.flushing = false;
+			}
+		})();
+	}
+
+	private deliverEvent(event: ServerFrame, toolsReaders: Set<string>): void {
 		const text = this.shim.encodeFrame(event);
+		// account.toolsEnv.event needs toolsEnv.read and account.oauth.event
+		// needs credentials.manage. Session principals come from the sweep that
+		// ran for this batch. A socket with no session id is the master secret,
+		// a legacy member token, or a cad_pat_ / cad_svc_ bearer ticket: it
+		// receives the event only when the role and grants resolved at connect
+		// include the one the event needs. An SSE stream must be mapped to a
+		// session or recorded as legacy; an unmapped stream is denied.
+		const oauthEvent = event.type === "account.oauth.event";
+		const gated = event.type === "account.toolsEnv.event" || oauthEvent;
+		const prefix = oauthEvent ? OAUTH_MANAGER_PREFIX : "";
+		const neededGrant = oauthEvent ? "credentials.manage" : "toolsEnv.read";
+		const sessionlessHolds = (meta: CallerMeta | undefined): boolean =>
+			!!meta && callerGrants(meta).includes(neededGrant);
+		const wsMayReceive = (attached: CallerMeta): boolean =>
+			!gated ||
+			(!attached.sessionId
+				? sessionlessHolds(attached)
+				: toolsReaders.has(
+						`${prefix}${principalKey(attached.sessionId, attached.accountId)}`,
+					));
+		const sseMayReceive = (
+			controller: ReadableStreamDefaultController<Uint8Array>,
+		): boolean => {
+			if (!gated) return true;
+			const who = this.sseSessions.get(controller);
+			if (who) {
+				return toolsReaders.has(
+					`${prefix}${principalKey(who.sessionId, who.accountId)}`,
+				);
+			}
+			return sessionlessHolds(this.sseLegacyWho.get(controller));
+		};
 
 		for (const ws of this.ctx.getWebSockets()) {
+			const attached = callerMetaFromAttachment(ws.deserializeAttachment());
+			if (!wsMayReceive(attached)) continue;
 			try {
 				ws.send(text);
 			} catch {
@@ -934,6 +1343,7 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 				`event: ${event.type}\ndata: ${text}\n\n`,
 			);
 			for (const controller of this.sseControllers) {
+				if (!sseMayReceive(controller)) continue;
 				try {
 					controller.enqueue(ssePayload);
 				} catch {
@@ -957,6 +1367,11 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 			await this.ensureHarness();
 			cmdLog.debug("dispatching protocol command");
 			const result = await this.dispatchCommand(command, caller);
+			if (/^(auth|account\.members|account\.invites)\./.test(command.type)) {
+				// Authority just changed: end streams that lost it before any
+				// further event is delivered.
+				await this.sweepAuthority(true).catch(() => this.closeAllStreams());
+			}
 			return {
 				id: command.id,
 				type: "command.result",
@@ -990,8 +1405,31 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 		command: ClientCommand,
 		caller: CallerMeta,
 	): Promise<RpcResult<CommandType>> {
-		authorize(caller, command.type);
-		return callCommandHandler(this.commandHandlers(caller), command);
+		await requireLiveApiTokenUse(this.adminStore, caller, command.type);
+		const grant = authorize(caller, command.type);
+		return withElevatedAudit({
+			adminStore: this.adminStore,
+			caller,
+			grant,
+			commandType: command.type,
+			familyId: this.getFamilyMeta().familyId,
+			warn: (message, fields) => this.log().warn(message, fields),
+			run: () => callCommandHandler(this.commandHandlers(caller), command),
+		});
+	}
+
+	/** Issue #3 phase 8: per-principal budget on auth.ticket and the passkey commands. */
+	private async requireAuthBudget(
+		command: string,
+		caller: CallerMeta,
+	): Promise<void> {
+		const principal = caller.sessionId ?? caller.userId ?? caller.accountId;
+		if (!principal) return;
+		if (await withinPrincipalBudget(this.env, command, principal)) return;
+		throw new ProtocolValidationError(
+			"Too many requests. Try again shortly.",
+			"rate_limited",
+		);
 	}
 
 	private commandHandlers(caller: CallerMeta): CommandHandlerMap {
@@ -1242,15 +1680,90 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 				return { members };
 			},
 			"account.members.add": async (command) => {
+				// Issue #3: a caller-chosen token is gone from this command. The
+				// schema allows extra properties, so refuse it explicitly rather than
+				// ignore it silently.
+				if ("token" in (command.payload as Record<string, unknown>)) {
+					throw new ProtocolValidationError(
+						"account.members.add no longer accepts a token; create one with auth.tokens.create",
+						"token_not_accepted",
+					);
+				}
 				const member = await this.adminStore.addMember({
 					accountId: meta.accountId,
 					userId: command.payload.userId,
 					name: command.payload.name,
 					email: command.payload.email,
 					role: command.payload.role,
-					rawToken: command.payload.token,
 				});
 				return { member };
+			},
+			"account.members.invite": async (command) => {
+				const result = await this.adminStore.inviteMember({
+					accountId: meta.accountId,
+					invitedBy: caller.userId ?? "unknown",
+					email: command.payload.email,
+					role: command.payload.role ?? "user",
+					ttlMs:
+						command.payload.ttlDays === undefined
+							? undefined
+							: command.payload.ttlDays * 86_400_000,
+				});
+				if (!result.ok) {
+					throw new ProtocolValidationError(result.message, result.code);
+				}
+				return { invite: result.invite };
+			},
+			"account.members.update": async (command) => {
+				const result = await this.adminStore.updateMemberRole({
+					accountId: meta.accountId,
+					userId: command.payload.userId,
+					role: command.payload.role,
+					actor: caller.userId ?? "unknown",
+				});
+				if (!result.ok) {
+					throw new ProtocolValidationError(result.message, result.code);
+				}
+				return {
+					updated: result.changed,
+					tokensRevoked: result.tokensRevoked,
+				};
+			},
+			"account.members.remove": async (command) => {
+				const result = await this.adminStore.removeMember({
+					accountId: meta.accountId,
+					userId: command.payload.userId,
+					actor: caller.userId ?? "unknown",
+				});
+				if (!result.ok) {
+					throw new ProtocolValidationError(result.message, result.code);
+				}
+				return {
+					removed: result.changed,
+					tokensRevoked: result.tokensRevoked,
+					sessionsRevoked: result.sessionsRevoked,
+				};
+			},
+			"account.invites.list": async (_command) => {
+				return { invites: await this.adminStore.listInvites(meta.accountId) };
+			},
+			"account.audit.list": async (command) => {
+				return {
+					events: await this.adminStore.listAccountAudit({
+						accountId: meta.accountId,
+						limit: command.payload?.limit ?? 50,
+						before: command.payload?.before,
+						beforeId: command.payload?.beforeId,
+					}),
+				};
+			},
+			"account.invites.revoke": async (command) => {
+				const revoked = await this.adminStore.revokeInvite({
+					accountId: meta.accountId,
+					inviteId: command.payload.inviteId,
+					actor: caller.userId ?? "unknown",
+				});
+				return { revoked };
 			},
 			"account.credentials.list": async (_command) => {
 				const credentials = await this.adminStore.listCredentials(
@@ -1373,6 +1886,579 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 				const flow = this.oauthManager.cancelFlow(command.payload.flowId);
 				return { flow, cancelled: true };
 			},
+			"auth.ticket": async (command) => {
+				await this.requireAuthBudget("auth.ticket", caller);
+				// A scoped token session may open its own event socket; only global
+				// human session management is barred for it.
+				const sessionId = caller.sessionId;
+				if (!sessionId) {
+					// The master secret and legacy member tokens have no session.
+					// They mint a ticket over this header-authenticated call.
+					if (!caller.userId || !caller.accountId) {
+						throw new ProtocolValidationError(
+							"This command needs a signed-in session",
+							"forbidden",
+						);
+					}
+					return this.adminStore.createLegacyTicket(
+						caller.userId,
+						caller.accountId,
+						command.payload.target,
+						caller.credential,
+					);
+				}
+				return this.adminStore.createTicket(
+					sessionId,
+					command.payload.target,
+					caller.accountId,
+				);
+			},
+			"auth.sessions.list": async (_command) => {
+				const sessionId = requireSession(caller);
+				const sessions = await this.adminStore.listSessions(
+					caller.userId ?? "",
+				);
+				return {
+					sessions: sessions.map((session) => ({
+						...session,
+						current: session.id === sessionId,
+					})),
+				};
+			},
+			"auth.sessions.revoke": async (command) => {
+				requireSession(caller);
+				const revoked = await this.adminStore.revokeOwnSession(
+					caller.userId ?? "",
+					command.payload.sessionId,
+				);
+				return { revoked };
+			},
+			"system.accounts.list": async (_command) => {
+				return { accounts: await this.adminStore.listSystemAccounts() };
+			},
+			"system.accounts.create": async (command) => {
+				const result = await this.adminStore.createSystemAccount({
+					name: command.payload.name,
+					timezone: command.payload.timezone,
+					actor: caller.userId ?? "unknown",
+				});
+				if (!result.ok) {
+					throw new ProtocolValidationError(result.message, result.code);
+				}
+				return { account: result.account };
+			},
+			"system.accounts.suspend": async (command) => {
+				const result = await this.adminStore.setSystemAccountStatus({
+					accountId: command.payload.accountId,
+					status: "suspended",
+					actor: caller.userId ?? "unknown",
+				});
+				if (!result.ok) {
+					throw new ProtocolValidationError(result.message, result.code);
+				}
+				return { account: result.account, changed: result.changed };
+			},
+			"system.accounts.resume": async (command) => {
+				const result = await this.adminStore.setSystemAccountStatus({
+					accountId: command.payload.accountId,
+					status: "active",
+					actor: caller.userId ?? "unknown",
+				});
+				if (!result.ok) {
+					throw new ProtocolValidationError(result.message, result.code);
+				}
+				return { account: result.account, changed: result.changed };
+			},
+			"system.accounts.rename": async (command) => {
+				const result = await this.adminStore.renameSystemAccount({
+					accountId: command.payload.accountId,
+					name: command.payload.name,
+					actor: caller.userId ?? "unknown",
+				});
+				if (!result.ok) {
+					throw new ProtocolValidationError(result.message, result.code);
+				}
+				return { account: result.account, changed: result.changed };
+			},
+			"system.members.list": async (command) => {
+				const result = await this.adminStore.listAccountMembers(
+					command.payload.accountId,
+				);
+				if (!result.ok) {
+					throw new ProtocolValidationError(result.message, result.code);
+				}
+				return { members: result.members };
+			},
+			"system.members.invite": async (command) => {
+				await this.requireTenantTarget(command.payload.accountId);
+				const result = await this.adminStore.inviteMember({
+					accountId: command.payload.accountId,
+					invitedBy: caller.userId ?? "unknown",
+					email: command.payload.email,
+					role: command.payload.role ?? "user",
+					ttlMs:
+						command.payload.ttlDays === undefined
+							? undefined
+							: command.payload.ttlDays * 86_400_000,
+					actorKind: "super-admin",
+				});
+				if (!result.ok) {
+					throw new ProtocolValidationError(result.message, result.code);
+				}
+				return { invite: result.invite };
+			},
+			"system.members.update": async (command) => {
+				await this.requireTenantTarget(command.payload.accountId);
+				const result = await this.adminStore.updateMemberRole({
+					accountId: command.payload.accountId,
+					userId: command.payload.userId,
+					role: command.payload.role,
+					actor: caller.userId ?? "unknown",
+					actorKind: "super-admin",
+				});
+				if (!result.ok) {
+					throw new ProtocolValidationError(result.message, result.code);
+				}
+				return {
+					updated: result.changed,
+					tokensRevoked: result.tokensRevoked,
+				};
+			},
+			"system.members.remove": async (command) => {
+				await this.requireTenantTarget(command.payload.accountId);
+				const result = await this.adminStore.removeMember({
+					accountId: command.payload.accountId,
+					userId: command.payload.userId,
+					actor: caller.userId ?? "unknown",
+					actorKind: "super-admin",
+				});
+				if (!result.ok) {
+					throw new ProtocolValidationError(result.message, result.code);
+				}
+				return {
+					removed: result.changed,
+					tokensRevoked: result.tokensRevoked,
+					sessionsRevoked: result.sessionsRevoked,
+				};
+			},
+			"system.users.disable": async (command) => {
+				const result = await this.adminStore.setUserDisabled({
+					userId: command.payload.userId,
+					disabled: true,
+					actor: caller.userId ?? "unknown",
+				});
+				if (!result.ok) {
+					throw new ProtocolValidationError(result.message, result.code);
+				}
+				return { changed: result.changed };
+			},
+			"system.users.enable": async (command) => {
+				const result = await this.adminStore.setUserDisabled({
+					userId: command.payload.userId,
+					disabled: false,
+					actor: caller.userId ?? "unknown",
+				});
+				if (!result.ok) {
+					throw new ProtocolValidationError(result.message, result.code);
+				}
+				return { changed: result.changed };
+			},
+			"system.users.revokeSessions": async (command) => {
+				const result = await this.adminStore.revokeUserSessions({
+					userId: command.payload.userId,
+					actor: caller.userId ?? "unknown",
+				});
+				if (!result.ok) {
+					throw new ProtocolValidationError(result.message, result.code);
+				}
+				return { revoked: result.revoked };
+			},
+			"system.users.resetPasskeys": async (command) => {
+				const result = await this.adminStore.resetUserPasskeys({
+					userId: command.payload.userId,
+					actor: caller.userId ?? "unknown",
+					actorSessionId: requireSession(caller),
+				});
+				if (!result.ok) {
+					throw new ProtocolValidationError(result.message, result.code);
+				}
+				return { passkeys: result.passkeys, sessions: result.sessions };
+			},
+			"system.audit.list": async (command) => {
+				return {
+					events: await this.adminStore.listSystemAudit({
+						limit: command.payload?.limit ?? 50,
+						accountId: command.payload?.accountId,
+						before: command.payload?.before,
+						beforeId: command.payload?.beforeId,
+					}),
+				};
+			},
+			"auth.elevate": async (_command) => {
+				const sessionId = requireSession(caller);
+				const elevatedUntil = await this.adminStore.startElevation(
+					sessionId,
+					caller.accountId,
+				);
+				if (elevatedUntil === undefined) {
+					throw new ProtocolValidationError(
+						"Admin mode here needs passkey proof: use your passkey. Without a passkey, enter admin mode in the account you signed in to, or enroll one first.",
+						"forbidden",
+					);
+				}
+				return { elevatedUntil };
+			},
+			"auth.passkeys.begin": async (command) => {
+				await this.requireAuthBudget("auth.passkeys.begin", caller);
+				const sessionId = requireSession(caller);
+				const userId = caller.userId ?? "";
+				const purpose = command.payload.purpose;
+				const refuse = () =>
+					new ProtocolValidationError("Passkey request refused", "forbidden");
+				const rp = relyingPartyFromUrl(this.env.CADMUS_PUBLIC_URL);
+				if (!rp) throw refuse();
+				const db = await this.adminStore.passkeyDb();
+				const existing = await listActivePasskeys(db, userId);
+				if (purpose === "remove") {
+					if (!existing.length || !command.payload.methodId) throw refuse();
+				} else if (command.payload.methodId !== undefined) {
+					throw refuse();
+				} else if (purpose === "elevate") {
+					if (
+						!callerGrants(caller).includes("admin.elevate") ||
+						!existing.length
+					) {
+						throw refuse();
+					}
+				} else if (!(await canEnrollPasskey(db, { sessionId, userId }))) {
+					// First enrollment needs a verified fresh Google auth_time. Adding another
+					// passkey needs admin mode, which a passkey proved.
+					throw refuse();
+				}
+				const issued = await issueChallenge(db, {
+					purpose,
+					userId,
+					sessionId,
+					rp,
+					...(purpose === "remove"
+						? { targetMethodId: command.payload.methodId }
+						: {}),
+				});
+				if (!issued) throw refuse();
+				const creds = existing.map((c) => ({
+					id: c.id,
+					type: "public-key",
+					transports: c.transports,
+				}));
+				if (purpose === "elevate" || purpose === "remove") {
+					return {
+						challengeId: issued.id,
+						options: {
+							challenge: issued.challenge,
+							rpId: rp.id,
+							timeout: 120_000,
+							userVerification: "required",
+							allowCredentials: creds,
+						},
+					};
+				}
+				const handle = await userHandleFor(db, userId);
+				if (!handle) throw refuse();
+				const label = await passkeyUserLabel(db, userId);
+				return {
+					challengeId: issued.id,
+					options: {
+						challenge: issued.challenge,
+						rp: { id: rp.id, name: "Cadmus" },
+						user: { id: handle, name: label, displayName: label },
+						pubKeyCredParams: [{ type: "public-key", alg: -7 }],
+						timeout: 120_000,
+						attestation: "none",
+						authenticatorSelection: {
+							residentKey: "required",
+							userVerification: "required",
+						},
+						excludeCredentials: creds,
+					},
+				};
+			},
+			"auth.passkeys.finish": async (command) => {
+				await this.requireAuthBudget("auth.passkeys.finish", caller);
+				const sessionId = requireSession(caller);
+				const userId = caller.userId ?? "";
+				const { purpose, challengeId } = command.payload;
+				const refuse = () =>
+					new ProtocolValidationError(
+						"Passkey verification failed",
+						"forbidden",
+					);
+				const rp = relyingPartyFromUrl(this.env.CADMUS_PUBLIC_URL);
+				const response = command.payload.response as { id?: unknown };
+				if (!rp || typeof response.id !== "string") throw refuse();
+				const db = await this.adminStore.passkeyDb();
+				const existing = await listActivePasskeys(db, userId);
+				if (purpose === "remove") {
+					if (!existing.length) throw refuse();
+				} else if (purpose === "elevate") {
+					if (!callerGrants(caller).includes("admin.elevate")) throw refuse();
+				} else if (!(await canEnrollPasskey(db, { sessionId, userId }))) {
+					throw refuse();
+				}
+				const attemptId = newAttemptId();
+				const challenge = await consumeChallenge(db, {
+					id: challengeId,
+					purpose,
+					userId,
+					sessionId,
+					rp,
+					attemptId,
+				});
+				if (!challenge) throw refuse();
+				if (purpose === "register") {
+					const verified = await verifyPasskeyRegistration({
+						response: command.payload
+							.response as unknown as RegistrationResponseJSON,
+						expectedChallenge: challenge,
+						rp,
+					});
+					if (!verified.ok) throw refuse();
+					const done = await finishRegistration(db, {
+						attemptId,
+						challengeId,
+						userId,
+						sessionId,
+						accountId: meta.accountId,
+						credential: {
+							id: verified.credentialId,
+							publicKey: verified.publicKey,
+							counter: verified.counter,
+							transports: verified.transports,
+							deviceType: verified.deviceType,
+							backedUp: verified.backedUp,
+						},
+						display: "Passkey",
+					});
+					if (!done.ok) throw refuse();
+					return { methodId: done.loginMethodId };
+				}
+				const stored = await getActivePasskey(db, response.id);
+				if (!stored || stored.userId !== userId) throw refuse();
+				const verified = await verifyPasskeyAuthentication({
+					response: command.payload
+						.response as unknown as AuthenticationResponseJSON,
+					expectedChallenge: challenge,
+					rp,
+					credential: {
+						id: stored.credentialId,
+						publicKey: stored.publicKey,
+						counter: stored.counter,
+					},
+					expectedUserHandle: stored.userHandle,
+				});
+				if (!verified.ok) throw refuse();
+				if (purpose === "remove") {
+					const removed = await finishRemoval(db, {
+						attemptId,
+						challengeId,
+						credentialId: stored.credentialId,
+						verifiedAgainstCounter: stored.counter,
+						newCounter: verified.newCounter,
+						sessionId,
+					});
+					if (!removed.ok) throw refuse();
+					return { removedMethodId: removed.methodId };
+				}
+				const done = await finishElevation(db, {
+					attemptId,
+					challengeId,
+					credentialId: stored.credentialId,
+					verifiedAgainstCounter: stored.counter,
+					newCounter: verified.newCounter,
+					sessionId,
+					elevationMs: ELEVATION_MS,
+					accountId: caller.accountId,
+				});
+				if (!done.ok) throw refuse();
+				return { elevatedUntil: done.elevatedUntil };
+			},
+			"auth.elevation.end": async (_command) => {
+				const sessionId = requireSession(caller);
+				return { ended: await this.adminStore.endElevation(sessionId) };
+			},
+			"auth.sessions.revokeOthers": async (_command) => {
+				const sessionId = requireSession(caller);
+				const revoked = await this.adminStore.revokeOtherSessions(
+					caller.userId ?? "",
+					sessionId,
+				);
+				return { revoked };
+			},
+			"auth.tokens.list": async (command) => {
+				const userId = caller.userId;
+				if (!userId) throw tokenUserRequired();
+				const held = callerGrants(caller);
+				const all = command.payload?.all === true;
+				if (all && !held.includes("tokens.manage")) {
+					throw new ProtocolValidationError(
+						"Listing all tokens needs tokens.manage",
+						"forbidden",
+					);
+				}
+				if (all) requireElevationFor("tokens.manage", caller, command.type);
+				const run = async () => ({
+					tokens: await this.adminStore.listTokens(meta.accountId, userId, all),
+				});
+				// Listing the whole account is tokens.manage. The command grant is
+				// tokens.self, so the dispatch audit does not see this use.
+				if (!all) return run();
+				return withElevatedAudit({
+					adminStore: this.adminStore,
+					caller,
+					grant: "tokens.manage",
+					commandType: command.type,
+					familyId: meta.familyId,
+					warn: (message, fields) => this.log().warn(message, fields),
+					run,
+				});
+			},
+			"auth.tokens.create": async (command) => {
+				const userId = caller.userId;
+				if (!userId) throw tokenUserRequired();
+				// A token must not mint tokens: that would let a short-lived token
+				// create a non-expiring one and escape its lifetime and revocation.
+				if (caller.grants) {
+					throw new ProtocolValidationError(
+						"API tokens cannot create tokens",
+						"forbidden",
+					);
+				}
+				const held = callerGrants(caller);
+				const service = command.payload.kind === "service";
+				if (service && !held.includes("tokens.manage")) {
+					throw new ProtocolValidationError(
+						"Service tokens need tokens.manage",
+						"forbidden",
+					);
+				}
+				if (service) {
+					requireElevationFor("tokens.manage", caller, command.type);
+				}
+				const run = async () => {
+					const result = await this.adminStore.createToken({
+						accountId: meta.accountId,
+						creatorUserId: userId,
+						creatorRole: caller.role ?? "user",
+						creatorGrants: held,
+						...(isElevated(caller) && caller.sessionId
+							? { elevatedBySessionId: caller.sessionId }
+							: {}),
+						kind: command.payload.kind,
+						label: command.payload.label,
+						grants: command.payload.grants,
+						ttlMs:
+							command.payload.ttlDays === undefined
+								? undefined
+								: command.payload.ttlDays * 86_400_000,
+					});
+					if (!result.ok) {
+						throw new ProtocolValidationError(result.message, result.code);
+					}
+					return { token: result.token, summary: result.summary };
+				};
+				// A service token is a tokens.manage use. The command grant is
+				// tokens.self, so the dispatch audit does not see it.
+				if (!service) return run();
+				return withElevatedAudit({
+					adminStore: this.adminStore,
+					caller,
+					grant: "tokens.manage",
+					commandType: command.type,
+					familyId: meta.familyId,
+					warn: (message, fields) => this.log().warn(message, fields),
+					run,
+				});
+			},
+			"auth.tokens.revoke": async (command) => {
+				const userId = caller.userId;
+				if (!userId) throw tokenUserRequired();
+				// Revoking another member's token is a tokens.manage use, so it needs
+				// admin mode. Without it the caller can still revoke their own tokens.
+				const manageOthers =
+					callerGrants(caller).includes("tokens.manage") &&
+					(!needsElevation("tokens.manage", caller) || isElevated(caller));
+				// Own-token revoke is tokens.self and stays unaudited. Managing other
+				// members' tokens leaves the override unset, so isElevatedUse records
+				// both an admin-mode user session and an elevated token session.
+				return withElevatedAudit({
+					adminStore: this.adminStore,
+					caller,
+					grant: "tokens.manage",
+					elevated: manageOthers ? undefined : false,
+					commandType: command.type,
+					familyId: this.getFamilyMeta().familyId,
+					warn: (message, fields) => this.log().warn(message, fields),
+					run: async () => ({
+						revoked: await this.adminStore.revokeTokenById({
+							accountId: meta.accountId,
+							userId,
+							tokenId: command.payload.tokenId,
+							all: manageOthers,
+						}),
+					}),
+				});
+			},
+			"auth.memberships.list": async (_command) => {
+				requireSession(caller);
+				return {
+					memberships: await this.adminStore.listMemberships(
+						caller.userId ?? "",
+					),
+				};
+			},
+			"auth.methods.list": async (_command) => {
+				requireSession(caller);
+				return {
+					methods: await this.adminStore.listLoginMethods(caller.userId ?? ""),
+				};
+			},
+			"auth.methods.link.start": async (_command) => {
+				const sessionId = requireSession(caller);
+				if (!getGoogleConfig(this.env)) {
+					throw new ProtocolValidationError(
+						"Google sign-in is not configured",
+						"conflict",
+					);
+				}
+				const { ticket, bind, expiresAt } = await signLinkTicket(
+					this.env,
+					caller.userId ?? "",
+					sessionId,
+				);
+				return { ticket, bind, expiresAt };
+			},
+			"auth.methods.revoke": async (command) => {
+				requireSession(caller);
+				const result = await this.adminStore.revokeLoginMethod(
+					caller.userId ?? "",
+					command.payload.methodId,
+				);
+				if (!result.ok) {
+					if (result.code === "passkey_requires_proof") {
+						throw new ProtocolValidationError(
+							"A passkey is removed with a passkey ceremony, not here",
+							"forbidden",
+						);
+					}
+					throw new ProtocolValidationError(
+						"last_login_method: the last active login method cannot be revoked",
+						"conflict",
+					);
+				}
+				return {
+					revoked: result.revoked,
+					sessionsRevoked: result.sessionsRevoked,
+				};
+			},
 			"auth.whoami": async (_command) => {
 				return {
 					principal: {
@@ -1380,6 +2466,10 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 						...(caller.userId ? { userId: caller.userId } : {}),
 						accountId: caller.accountId ?? meta.accountId,
 						role: caller.role ?? "user",
+						...(caller.grants ? { viaToken: true } : {}),
+						...(isElevated(caller) && caller.elevatedUntil
+							? { elevatedUntil: caller.elevatedUntil }
+							: {}),
 					},
 				};
 			},
@@ -3605,7 +4695,7 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 			payload: {
 				chatKey: chat.key,
 				...(latestEntryId !== undefined ? { entryId: latestEntryId } : {}),
-				status: "done",
+				...completionOutcome(settled),
 				text: reply,
 				blocks,
 			},
@@ -4056,11 +5146,43 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 
 	private async syncAlarmInternal(): Promise<number | undefined> {
 		if (!this.harnessInstance) return undefined;
+		// The sweep deadline must survive hibernation and recreation, so it is
+		// restored from storage before it can be re-anchored.
+		if (!this.streamSweepLoaded) {
+			const stored = await this.ctx.storage.get<number>(STREAM_SWEEP_KEY);
+			this.streamSweep.restore(stored);
+			this.streamSweepPersisted = stored;
+			this.streamSweepLoaded = true;
+		}
+		const wake = this.streamSweepWake();
+		if (wake !== undefined) {
+			if (wake !== this.streamSweepPersisted) {
+				await this.ctx.storage.put(STREAM_SWEEP_KEY, wake);
+				this.streamSweepPersisted = wake;
+			}
+		} else if (this.streamSweepPersisted !== undefined) {
+			await this.ctx.storage.delete(STREAM_SWEEP_KEY);
+			this.streamSweepPersisted = undefined;
+		}
 		return syncDurableObjectAlarm(
 			this.ctx.storage,
 			this.harnessInstance,
 			this.familyStore,
+			wake,
 		);
+	}
+
+	private streamSweepLoaded = false;
+	private streamSweepPersisted: number | undefined;
+
+	private readonly streamSweep = new StreamSweepDeadline(STREAM_SWEEP_MS);
+
+	private streamSweepWake(): number | undefined {
+		return this.streamSweep.wake(this.streamsOpen(), Date.now());
+	}
+
+	private streamsOpen(): boolean {
+		return this.ctx.getWebSockets().length + this.sseControllers.size > 0;
 	}
 
 	private async readTranscriptData(

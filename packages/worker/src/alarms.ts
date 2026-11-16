@@ -53,9 +53,11 @@ export async function syncDurableObjectAlarm(
 	storage: DurableObjectStorage,
 	harness: Harness,
 	familyStore: FamilyStore,
+	/** An extra wake time (for example the next stream authority sweep). */
+	extraWake?: number,
 ): Promise<number | undefined> {
 	const inspection = await harness.inspect(BACKGROUND_CONTEXT);
-	let earliest: number | undefined;
+	let earliest: number | undefined = extraWake;
 
 	for (const task of inspection.tasks) {
 		const wake = scheduledWakeTime(task, familyStore);
@@ -103,4 +105,40 @@ export async function syncDurableObjectAlarm(
 	}
 
 	return earliest;
+}
+
+/**
+ * Deadline for the next stream authority sweep. It is fixed when the first
+ * stream opens and never moves later because some other operation re-synced
+ * the shared alarm; it advances only when a sweep has run, and clears when no
+ * stream is open.
+ */
+export class StreamSweepDeadline {
+	private at: number | undefined;
+
+	constructor(private readonly intervalMs: number) {}
+
+	/** Seeds the deadline from durable storage after the object was recreated. */
+	restore(at: number | undefined): void {
+		this.at ??= at;
+	}
+
+	current(): number | undefined {
+		return this.at;
+	}
+
+	/** The deadline to program, or undefined when no stream is open. */
+	wake(streamsOpen: boolean, now: number): number | undefined {
+		if (!streamsOpen) {
+			this.at = undefined;
+			return undefined;
+		}
+		this.at ??= now + this.intervalMs;
+		return this.at;
+	}
+
+	/** A sweep ran: the next deadline is anchored to its completion. */
+	swept(): void {
+		this.at = undefined;
+	}
 }

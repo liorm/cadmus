@@ -1,5 +1,6 @@
 import { Link, Outlet, useRouter } from "@tanstack/react-router";
 import type { ReactNode } from "react";
+import { AdminModeBanner } from "@/components/AdminModeBanner";
 import { useDesktopViewport } from "@/components/desktop/use-desktop-viewport";
 import { ReconnectBar } from "@/components/ReconnectBar";
 import { cn } from "@/lib/utils";
@@ -32,7 +33,7 @@ export function AppShell({
 			className={cn(
 				"flex flex-col overflow-hidden bg-bg",
 				desktop
-					? "h-full w-full"
+					? "h-full min-h-0 w-full flex-1"
 					: "mx-auto h-[100dvh] max-h-[100dvh] w-full max-w-[390px] pb-[env(safe-area-inset-bottom)] pt-[env(safe-area-inset-top)] md:max-w-none",
 			)}
 		>
@@ -70,6 +71,7 @@ export function AppShell({
 				</header>
 			)}
 			{!desktop && <ReconnectBar />}
+			{!desktop && <AdminModeBanner />}
 			<main className="flex min-h-0 flex-1 flex-col">
 				{children ?? <Outlet />}
 			</main>

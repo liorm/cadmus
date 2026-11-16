@@ -102,7 +102,12 @@ describe("Principal plumbing (issue #3 phase 1)", () => {
 	it("spoofed headers on a WebSocket upgrade never change the principal", async () => {
 		const accountId = uniqueAccountId("spoof-ws");
 		const url = new URL(`${WORKER_BASE_URL}/ws`);
-		url.searchParams.set("token", `${accountId}:alice:${TEST_TOKEN}`);
+		const issued = await sendRpc<{ ticket: string }>(
+			"auth.ticket",
+			{ target: "ws" },
+			{ token: `${accountId}:alice:${TEST_TOKEN}` },
+		);
+		url.searchParams.set("ticket", issued.frame.result?.ticket ?? "");
 		const res = await workerFetch(url.toString(), {
 			headers: { Upgrade: "websocket", ...SPOOF_HEADERS },
 		});

@@ -8,10 +8,12 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { AdminModeBanner } from "@/components/AdminModeBanner";
 import { ReconnectBar } from "@/components/ReconnectBar";
 import { useCadmus } from "@/context/CadmusContext";
 import { needsYou } from "@/lib/needs-you";
 import { cn } from "@/lib/utils";
+import { openCommandPalette } from "./CommandPalette";
 import {
 	clampPaneWidth,
 	MAX_PANE_WIDTH,
@@ -88,9 +90,11 @@ export function CockpitFrame({
 			event.preventDefault();
 			onSelectBot(bot.id);
 		}
-		window.addEventListener("keydown", onKeyDown);
+		// Attach to `document` rather than `window` so Obscura never drops the
+		// shortcut listener across SPA navigations.
+		document.addEventListener("keydown", onKeyDown);
 		return () => {
-			window.removeEventListener("keydown", onKeyDown);
+			document.removeEventListener("keydown", onKeyDown);
 		};
 	}, [bots, onSelectBot]);
 
@@ -188,9 +192,7 @@ export function CockpitFrame({
 					aria-label="Search"
 					className="inline-flex h-8 shrink-0 items-center rounded-md border border-border px-2 text-[length:var(--fs-xs)] text-text-muted"
 					onClick={() => {
-						window.dispatchEvent(
-							new CustomEvent("cadmus:open-command-palette"),
-						);
+						openCommandPalette();
 					}}
 				>
 					⌘K
@@ -214,6 +216,7 @@ export function CockpitFrame({
 				</Link>
 			</header>
 			<ReconnectBar />
+			<AdminModeBanner />
 			<div className="flex min-h-0 flex-1">
 				<div
 					className="min-h-0 shrink-0 overflow-hidden"
@@ -246,7 +249,9 @@ export function CockpitFrame({
 						onSeparatorDoubleClick("fleet");
 					}}
 				/>
-				<div className="min-h-0 min-w-0 flex-1 overflow-hidden">{stage}</div>
+				<div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+					{stage}
+				</div>
 				{/* biome-ignore lint/a11y/useSemanticElements: vertical pane splitter, not a thematic break */}
 				<div
 					role="separator"

@@ -15,7 +15,8 @@
 			"/tools-env/*",
 			"/events",
 			"/rpc",
-			"/api/*"
+			"/api/*",
+			"/auth/*"
 		]
 	},
 	"durable_objects": {
@@ -27,6 +28,10 @@
 			{
 				"name": "CADMUS_ENV",
 				"class_name": "CadmusEnvDO"
+			},
+			{
+				"name": "CADMUS_AUTH_LIMITER",
+				"class_name": "CadmusAuthLimiterDO"
 			}
 		]
 	},
@@ -45,6 +50,23 @@
 			"id": "d5fde8e98af64220a78c70cddd4eed16"
 		}
 	],
+	"ratelimits": [
+		{
+			"name": "CADMUS_AUTH_RATELIMIT",
+			"namespace_id": "3001",
+			"simple": { "limit": 20, "period": 60 }
+		},
+		{
+			"name": "CADMUS_AUTH_REFRESH_RATELIMIT",
+			"namespace_id": "3005",
+			"simple": { "limit": 120, "period": 60 }
+		},
+		{
+			"name": "CADMUS_AUTH_RPC_RATELIMIT",
+			"namespace_id": "3003",
+			"simple": { "limit": 60, "period": 60 }
+		}
+	],
 	"migrations": [
 		{
 			"tag": "v1",
@@ -61,6 +83,10 @@
 		{
 			"tag": "v4",
 			"new_sqlite_classes": ["CadmusBotFamilyDO", "CadmusEnvDO"]
+		},
+		{
+			"tag": "v5",
+			"new_sqlite_classes": ["CadmusAuthLimiterDO"]
 		}
 	],
 	"vars": {
@@ -69,7 +95,8 @@
 		"CADMUS_ENCRYPTION_KEY": "dev-cadmus-encryption-key-32bytes!",
 		"CADMUS_DEFAULT_TIMEZONE": "UTC",
 		"CADMUS_HARVEST_DELAY_MS": "60000",
-		"CADMUS_LOG_LEVEL": "debug"
+		"CADMUS_LOG_LEVEL": "debug",
+		"CADMUS_DEPLOY_ENV": "production"
 	},
 	"previews": {
 		"d1_databases": [
@@ -94,9 +121,30 @@
 				{
 					"name": "CADMUS_ENV",
 					"class_name": "CadmusEnvDO"
+				},
+				{
+					"name": "CADMUS_AUTH_LIMITER",
+					"class_name": "CadmusAuthLimiterDO"
 				}
 			]
 		},
+		"ratelimits": [
+			{
+				"name": "CADMUS_AUTH_RATELIMIT",
+				"namespace_id": "3002",
+				"simple": { "limit": 20, "period": 60 }
+			},
+			{
+				"name": "CADMUS_AUTH_REFRESH_RATELIMIT",
+				"namespace_id": "3006",
+				"simple": { "limit": 120, "period": 60 }
+			},
+			{
+				"name": "CADMUS_AUTH_RPC_RATELIMIT",
+				"namespace_id": "3004",
+				"simple": { "limit": 60, "period": 60 }
+			}
+		],
 		"vars": {
 			"CADMUS_AUTH_SECRET": "dev-cadmus-secret",
 			"CADMUS_PUBLIC_URL": "",

@@ -4,10 +4,13 @@ import {
 	createRouter,
 	Outlet,
 } from "@tanstack/react-router";
+import { AccountResetNotice } from "@/components/AccountResetNotice";
 import { DesktopCockpitShell } from "@/components/desktop/CommandCockpit";
 import { CommandPaletteHost } from "@/components/desktop/CommandPalette";
 import { useDesktopViewport } from "@/components/desktop/use-desktop-viewport";
 import { CadmusProvider } from "@/context/CadmusContext";
+import { ElevationProvider } from "@/context/ElevationContext";
+import { SessionBoot } from "@/context/SessionContext";
 import { isBotTab } from "@/lib/profile-tabs";
 import { ArchivePage } from "@/routes/archive";
 import { NewBotPage } from "@/routes/bot-new";
@@ -25,22 +28,55 @@ import { AccountSettingsPage } from "@/routes/settings-account";
 import { FamilySettingsPage } from "@/routes/settings-family";
 import { ProvidersSettingsPage } from "@/routes/settings-providers";
 import { AllSchedulesPage } from "@/routes/settings-schedules";
+import { SecuritySettingsPage } from "@/routes/settings-security";
+import { TokensSettingsPage } from "@/routes/settings-tokens";
 import { ToolsSettingsPage } from "@/routes/settings-tools";
+import { SystemConsolePage } from "@/routes/system";
 import { ToolsPage } from "@/routes/tools";
 
 function RootComponent() {
 	const desktop = useDesktopViewport();
 	return (
-		<CadmusProvider>
-			<CommandPaletteHost />
-			{desktop ? (
-				<DesktopCockpitShell>
-					<Outlet />
-				</DesktopCockpitShell>
-			) : (
-				<Outlet />
+		<SessionBoot>
+			{(session) => (
+				<CadmusProvider
+					key={session.signedIn ? "signed-in" : "signed-out"}
+					sessionMode={session.signedIn}
+					skipTenantSync={
+						session.signedIn &&
+						(session.principal?.role === "super-admin" ||
+							(!session.principal && session.tokens?.accountId === "system"))
+					}
+					initialConfig={
+						session.signedIn && session.tokens
+							? {
+									token: session.tokens.accessToken,
+									accountId:
+										session.principal?.accountId ??
+										session.tokens.accountId ??
+										"",
+									userId:
+										session.principal?.userId ?? session.tokens.userId ?? "",
+								}
+							: undefined
+					}
+				>
+					<ElevationProvider>
+						{session.notice ? (
+							<AccountResetNotice message={session.notice} />
+						) : null}
+						<CommandPaletteHost />
+						{desktop ? (
+							<DesktopCockpitShell>
+								<Outlet />
+							</DesktopCockpitShell>
+						) : (
+							<Outlet />
+						)}
+					</ElevationProvider>
+				</CadmusProvider>
 			)}
-		</CadmusProvider>
+		</SessionBoot>
 	);
 }
 
@@ -156,6 +192,12 @@ const docRoute = createRoute({
 	},
 });
 
+const systemRoute = createRoute({
+	getParentRoute: () => rootRoute,
+	path: "/system",
+	component: SystemConsolePage,
+});
+
 const settingsRoute = createRoute({
 	getParentRoute: () => rootRoute,
 	path: "/settings",
@@ -166,6 +208,18 @@ const accountSettingsRoute = createRoute({
 	getParentRoute: () => rootRoute,
 	path: "/settings/account",
 	component: AccountSettingsPage,
+});
+
+const securitySettingsRoute = createRoute({
+	getParentRoute: () => rootRoute,
+	path: "/settings/security",
+	component: SecuritySettingsPage,
+});
+
+const tokensSettingsRoute = createRoute({
+	getParentRoute: () => rootRoute,
+	path: "/settings/tokens",
+	component: TokensSettingsPage,
 });
 
 const familySettingsRoute = createRoute({
@@ -217,6 +271,9 @@ const routeTree = rootRoute.addChildren([
 	harvestRoute,
 	docRoute,
 	settingsRoute,
+	systemRoute,
+	securitySettingsRoute,
+	tokensSettingsRoute,
 	accountSettingsRoute,
 	familySettingsRoute,
 	providersSettingsRoute,

@@ -13,6 +13,7 @@ import type {
 } from "../src/protocol.js";
 import { D1AdminStore } from "../src/store/d1-admin.js";
 import {
+	addLegacyMember,
 	connectTestWs,
 	sendRpc,
 	TEST_TOKEN,
@@ -32,17 +33,14 @@ describe("Edge Caching for Tokens and Family DO Routing (Issue #19)", () => {
 		const customToken = crypto.randomUUID();
 
 		// 1. Add member with a token
-		const addRes = await sendRpc<{ member: AccountMember }>(
-			"account.members.add",
-			{
-				userId: "cached-user-1",
-				name: "Cached User",
-				role: "member",
-				token: customToken,
-			},
-			{ accountId, userId: "owner-1" },
-		);
-		expect(addRes.status).toBe(200);
+		const addRes = await addLegacyMember({
+			userId: "cached-user-1",
+			name: "Cached User",
+			role: "member",
+			accountId: accountId,
+			token: customToken,
+		});
+		expect(addRes.userId).toBe("cached-user-1");
 
 		// Clear memory cache so we start cold
 		EdgeCache.clearAllMemory();
@@ -105,16 +103,13 @@ describe("Edge Caching for Tokens and Family DO Routing (Issue #19)", () => {
 		const customToken = crypto.randomUUID();
 
 		// 1. Add member with token
-		await sendRpc<{ member: AccountMember }>(
-			"account.members.add",
-			{
-				userId: "revokable-user",
-				name: "Revokable User",
-				role: "member",
-				token: customToken,
-			},
-			{ accountId, userId: "owner-1" },
-		);
+		await addLegacyMember({
+			userId: "revokable-user",
+			name: "Revokable User",
+			role: "member",
+			accountId: accountId,
+			token: customToken,
+		});
 
 		// 2. Authenticate to populate edge cache
 		const res1 = await sendRpc<{ bots: BotRecord[] }>(
@@ -270,16 +265,13 @@ describe("Edge Caching for Tokens and Family DO Routing (Issue #19)", () => {
 		const accountId = uniqueAccountId("ws-auth");
 		const customToken = crypto.randomUUID();
 
-		await sendRpc<{ member: AccountMember }>(
-			"account.members.add",
-			{
-				userId: "ws-user-1",
-				name: "WS User",
-				role: "member",
-				token: customToken,
-			},
-			{ accountId, userId: "owner-1" },
-		);
+		await addLegacyMember({
+			userId: "ws-user-1",
+			name: "WS User",
+			role: "member",
+			accountId: accountId,
+			token: customToken,
+		});
 
 		// Connect WebSocket
 		const client = await connectTestWs({
@@ -306,16 +298,13 @@ describe("Edge Caching for Tokens and Family DO Routing (Issue #19)", () => {
 		const accountId = uniqueAccountId("sse-auth");
 		const customToken = crypto.randomUUID();
 
-		await sendRpc<{ member: AccountMember }>(
-			"account.members.add",
-			{
-				userId: "sse-user-1",
-				name: "SSE User",
-				role: "member",
-				token: customToken,
-			},
-			{ accountId, userId: "owner-1" },
-		);
+		await addLegacyMember({
+			userId: "sse-user-1",
+			name: "SSE User",
+			role: "member",
+			accountId: accountId,
+			token: customToken,
+		});
 
 		// 1. Missing token -> 401
 		const unauthRes = await SELF.fetch("http://example.com/events", {
@@ -341,27 +330,21 @@ describe("Edge Caching for Tokens and Family DO Routing (Issue #19)", () => {
 		const tokenA = crypto.randomUUID();
 		const tokenB = crypto.randomUUID();
 
-		await sendRpc<{ member: AccountMember }>(
-			"account.members.add",
-			{
-				userId: "user-a",
-				name: "User A",
-				role: "member",
-				token: tokenA,
-			},
-			{ accountId: accountA, userId: "owner-a" },
-		);
+		await addLegacyMember({
+			userId: "user-a",
+			name: "User A",
+			role: "member",
+			accountId: accountA,
+			token: tokenA,
+		});
 
-		await sendRpc<{ member: AccountMember }>(
-			"account.members.add",
-			{
-				userId: "user-b",
-				name: "User B",
-				role: "member",
-				token: tokenB,
-			},
-			{ accountId: accountB, userId: "owner-b" },
-		);
+		await addLegacyMember({
+			userId: "user-b",
+			name: "User B",
+			role: "member",
+			accountId: accountB,
+			token: tokenB,
+		});
 
 		// Token A resolves only to Account A
 		const listA = await sendRpc<{ members: AccountMember[] }>(
@@ -593,5 +576,40 @@ describe("Edge Caching for Tokens and Family DO Routing (Issue #19)", () => {
 		// Resolving token via D1 now reflects the newly committed member
 		const resolved = await adminStore.resolveToken(rawToken);
 		expect(resolved?.userId).toBe("new-user");
+	});
+
+	it("account.members.add refuses a caller-chosen token and creates no token row (issue #3)", async () => {
+		const accountId = uniqueAccountId("no-token");
+		const tokenCount = async (): Promise<number> => {
+			const row = await env.CADMUS_ADMIN_DB.prepare(
+				"SELECT COUNT(*) AS n FROM cadmus_auth_tokens WHERE account_id = ?1",
+			)
+				.bind(accountId)
+				.first<{ n: number }>();
+			return row?.n ?? 0;
+		};
+		const refused = await sendRpc(
+			"account.members.add",
+			{
+				userId: "token-pusher",
+				name: "Token Pusher",
+				role: "member",
+				token: crypto.randomUUID(),
+			} as never,
+			{ accountId, userId: "owner-1" },
+		);
+		expect(refused.frame.ok).toBe(false);
+		expect(JSON.stringify(refused.frame)).toContain("token_not_accepted");
+		expect(await tokenCount()).toBe(0);
+
+		// Positive control: the same call without a token succeeds and the
+		// member exists, still with no token row.
+		const accepted = await sendRpc(
+			"account.members.add",
+			{ userId: "token-free", name: "Token Free", role: "member" },
+			{ accountId, userId: "owner-1" },
+		);
+		expect(accepted.frame.ok).toBe(true);
+		expect(await tokenCount()).toBe(0);
 	});
 });

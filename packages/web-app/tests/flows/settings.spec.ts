@@ -12,6 +12,10 @@ import {
 } from "../support/actions.ts";
 import { expect, test } from "../support/fixtures.ts";
 
+// Account and family saves need account-admin grants the default user
+// token does not hold. Phase 9 removes this master opt-in.
+test.use({ signIn: "master" });
+
 test.describe.configure({ mode: "parallel" });
 
 const WORKER_BASE = "http://127.0.0.1:8799";
@@ -19,7 +23,7 @@ const WORKER_BASE = "http://127.0.0.1:8799";
 async function watchPosts(page: Page) {
 	await page.addInitScript(() => {
 		const orig = window.fetch.bind(window);
-		window.fetch = async (input, init) => {
+		window.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
 			const url =
 				typeof input === "string"
 					? input
@@ -32,7 +36,7 @@ async function watchPosts(page: Page) {
 			next.push(`${url} ${body}`);
 			(globalThis as { __cadmusPosts?: string[] }).__cadmusPosts = next;
 			return orig(input, init);
-		};
+		}) as typeof window.fetch;
 	});
 }
 
@@ -275,6 +279,7 @@ test("family timezone combobox saves a chosen zone and ignores free text", async
 	await input.fill("Not/AZone");
 	await input.press("Escape");
 	await clickByRole(page, "button", "Save family");
+	await expect(page.getByRole("button", { name: "Save family" })).toBeEnabled();
 	await expect(input).toHaveValue(before.family.timezone);
 	const unchanged = await sendAccountRpc<{ family: { timezone: string } }>(
 		origin,

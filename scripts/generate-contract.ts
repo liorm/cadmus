@@ -58,7 +58,7 @@ function cloneSchema(schema: unknown): Json {
 const SCHEMA_REF_PREFIX = "#/components/schemas/";
 /** Skip components smaller than a `$ref`; every exported schema is larger. */
 const MIN_COMPONENT_CHARS = 60;
-const OPENAPI_BYTE_BUDGET = 200 * 1024;
+const OPENAPI_BYTE_BUDGET = 256 * 1024;
 
 type SchemaLibrary = Map<string, string>;
 
@@ -451,7 +451,10 @@ function renderOpenApi(): string {
 		"x-cadmus-rest-rule": REST_MAPPING_RULE,
 		"x-cadmus-error-status": ERROR_HTTP_STATUS,
 	};
-	return `${JSON.stringify(document, null, "\t")}\n`;
+	// Compact input: Biome keeps an object expanded when the source breaks after
+	// its `{`, so pretty input would stay fully expanded and fill the byte budget.
+	// Biome still owns the final layout.
+	return `${JSON.stringify(document)}\n`;
 }
 
 function renderAsyncApi(): string {
@@ -576,7 +579,7 @@ function assertOpenApiBudget(contents: string): void {
 	const bytes = Buffer.byteLength(contents);
 	if (bytes >= OPENAPI_BYTE_BUDGET) {
 		process.stderr.write(
-			`openapi.json is ${bytes} bytes; expected under 200 KiB.\n`,
+			`openapi.json is ${bytes} bytes; expected under 256 KiB.\n`,
 		);
 		process.exit(1);
 	}

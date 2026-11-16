@@ -164,6 +164,84 @@ describe("D1 Schema Initialization & Isolate Caching (Issue #18)", () => {
 		}
 	});
 
+	it("(e2) a database already at the previous schema version gains cadmus_tickets.user_id", async () => {
+		try {
+			// A database that ran the earlier phases of this work is at version 11
+			// and has no user_id column on tickets. Without a version bump the
+			// migration is skipped and every legacy ticket mint fails.
+			await env.CADMUS_ADMIN_DB.prepare(
+				"ALTER TABLE cadmus_tickets DROP COLUMN user_id",
+			).run();
+			await env.CADMUS_ADMIN_DB.prepare(
+				"UPDATE cadmus_schema_meta SET value = '11' WHERE key = 'version'",
+			).run();
+			resetD1InitializationCache(env.CADMUS_ADMIN_DB);
+			await ensureD1Schema(env.CADMUS_ADMIN_DB);
+			const cols = await env.CADMUS_ADMIN_DB.prepare(
+				"PRAGMA table_info(cadmus_tickets)",
+			).all<{ name: string }>();
+			expect(cols.results.map((c) => c.name)).toContain("user_id");
+			expect(await readSchemaVersion(env.CADMUS_ADMIN_DB)).toBe(
+				CADMUS_SCHEMA_VERSION,
+			);
+			expect(CADMUS_SCHEMA_VERSION).toBeGreaterThan(11);
+		} finally {
+			await restoreAdminSchema();
+		}
+	});
+
+	it("(e3) upgrading a version 11 database ends with the same schema as a fresh one", async () => {
+		const snapshot = async () => {
+			const objects = await env.CADMUS_ADMIN_DB.prepare(
+				"SELECT type, name, tbl_name FROM sqlite_master WHERE name LIKE 'cadmus_%' OR name LIKE 'idx_cadmus_%' ORDER BY type, name",
+			).all<{ type: string; name: string; tbl_name: string }>();
+			const out: Record<string, unknown> = {};
+			for (const o of objects.results) {
+				if (o.type === "table") {
+					const cols = await env.CADMUS_ADMIN_DB.prepare(
+						`PRAGMA table_info(${o.name})`,
+					).all<{ name: string; type: string; notnull: number; pk: number }>();
+					out[`table ${o.name}`] = cols.results
+						.map((c) => `${c.name}:${c.type}:${c.notnull}:${c.pk}`)
+						.sort();
+				} else if (o.type === "index") {
+					out[`index ${o.name}`] = o.tbl_name;
+				}
+			}
+			return out;
+		};
+		try {
+			await restoreAdminSchema();
+			const fresh = await snapshot();
+			// Columns added by this branch after the version 11 commit (61df5a2),
+			// each through addColumnIfNotExists with no version bump of its own.
+			for (const [table, column] of [
+				["cadmus_sessions", "elevated_account_id"],
+				["cadmus_account_members", "last_used_at"],
+				["cadmus_tickets", "account_id"],
+				["cadmus_tickets", "user_id"],
+				["cadmus_tickets", "credential"],
+			] as const) {
+				await env.CADMUS_ADMIN_DB.prepare(
+					`ALTER TABLE ${table} DROP COLUMN ${column}`,
+				).run();
+			}
+			await env.CADMUS_ADMIN_DB.prepare(
+				"UPDATE cadmus_schema_meta SET value = '11' WHERE key = 'version'",
+			).run();
+			const downgraded = await snapshot();
+			expect(downgraded).not.toEqual(fresh);
+			resetD1InitializationCache(env.CADMUS_ADMIN_DB);
+			await ensureD1Schema(env.CADMUS_ADMIN_DB);
+			expect(await snapshot()).toEqual(fresh);
+			expect(await readSchemaVersion(env.CADMUS_ADMIN_DB)).toBe(
+				CADMUS_SCHEMA_VERSION,
+			);
+		} finally {
+			await restoreAdminSchema();
+		}
+	});
+
 	it("(f) missing table/column fallback transparently recovers and retries operation", async () => {
 		const adminStore = new D1AdminStore({ db: env.CADMUS_ADMIN_DB });
 		const missingAccountId = uniqueAccountId("missing-fallback");

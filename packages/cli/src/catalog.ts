@@ -174,7 +174,7 @@ Flags override environment variables.
 | Flag | Environment | Meaning |
 | :--- | :--- | :--- |
 | \`--url\` | \`CADMUS_URL\` | Worker origin. Default \`http://localhost:8787\`. |
-| \`--token\` | \`CADMUS_TOKEN\` | Bearer token. \`/api\` uses the header. \`/ws\` uses \`?token=\`. |
+| \`--token\` | \`CADMUS_TOKEN\` | Bearer token. \`/api\` uses the header. \`/ws\` opens with a ticket minted over the header. |
 | \`--account\` | \`CADMUS_ACCOUNT_ID\` | \`x-account-id\`. |
 | \`--family\` | \`CADMUS_FAMILY_ID\` | \`X-Cadmus-Family-Id\` and the \`/ws\` \`familyId\` query. |
 

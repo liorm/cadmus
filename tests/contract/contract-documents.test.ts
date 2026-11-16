@@ -11,7 +11,7 @@ import {
 	SseEventSchema,
 } from "@cadmus/contract/schemas";
 
-const OPENAPI_BYTE_BUDGET = 200 * 1024;
+const OPENAPI_BYTE_BUDGET = 256 * 1024;
 
 type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
 
@@ -88,7 +88,7 @@ function deref(
 }
 
 describe("generated API documents", () => {
-	it("keeps OpenAPI under 200 KiB and resolves every $ref", async () => {
+	it("keeps OpenAPI under 256 KiB and resolves every $ref", async () => {
 		const bytes = readFileSync(
 			new URL(
 				"../../packages/contract/generated/openapi.json",

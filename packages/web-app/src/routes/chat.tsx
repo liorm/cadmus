@@ -484,6 +484,9 @@ export function ChatSession({
 			},
 		]);
 		ignoreStaleBusy.current = false;
+		// A chat.get that started on page load can return after this send. Its
+		// captured epoch must not clear Working while the turn is still running.
+		localBusyEpoch.current += 1;
 		setLocalBusy(true);
 		await client.callRpc("turn.submit", { chatKey, text, whenBusy: "queue" });
 		await settleSubmittedTurn();

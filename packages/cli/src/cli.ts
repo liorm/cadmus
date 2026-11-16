@@ -1,7 +1,6 @@
 #!/usr/bin/env bun
 import { readFileSync } from "node:fs";
 import { stdin } from "node:process";
-import { ProtocolClient } from "@cadmus/contract/client";
 import type { CommandResultFrame, ServerEvent } from "@cadmus/contract/types";
 import { mergePayload, type ParsedArgv, parseArgv } from "./argv.js";
 import {
@@ -10,6 +9,7 @@ import {
 	listCommands,
 	renderSkill,
 } from "./catalog.js";
+import { createClient } from "./client.js";
 import {
 	EXIT_OK,
 	EXIT_TRANSPORT,
@@ -86,12 +86,7 @@ async function main(): Promise<number> {
 			parsed.pretty,
 		);
 	}
-	const client = new ProtocolClient({
-		baseUrl: connection.url,
-		token: connection.token,
-		accountId: connection.account,
-		familyId: connection.family,
-	});
+	const client = createClient(connection);
 	try {
 		const frame = await client.callRpc(parsed.command, payload);
 		return finishFrame(frame, connection.pretty);
@@ -191,12 +186,7 @@ async function runSend(
 			connection.pretty,
 		);
 	}
-	const client = new ProtocolClient({
-		baseUrl: connection.url,
-		token: connection.token,
-		accountId: connection.account,
-		familyId: connection.family,
-	});
+	const client = createClient(connection);
 	const events: ServerEvent[] = [];
 	try {
 		await client.connect({
@@ -265,12 +255,7 @@ async function runEvents(
 			.map((item) => item.trim())
 			.filter((item) => item.length > 0),
 	);
-	const client = new ProtocolClient({
-		baseUrl: connection.url,
-		token: connection.token,
-		accountId: connection.account,
-		familyId: connection.family,
-	});
+	const client = createClient(connection);
 	let stop: (() => void) | undefined;
 	const stopped = new Promise<void>((resolve) => {
 		stop = resolve;

@@ -46,6 +46,8 @@ export const ERROR_HTTP_STATUS = {
 	query_token_not_allowed: 401,
 	header_required: 401,
 	forbidden: 403,
+	elevation_required: 403,
+	rate_limited: 429,
 	not_found: 404,
 	family_not_found: 404,
 	cas_conflict: 409,

@@ -10,7 +10,7 @@
  * - `system` grants act on a target account's record, users and memberships,
  *   never on its tenant data.
  * - `elevation: true` marks sensitive grants that need admin mode. Elevation
- *   is not enforced until phase 6; the flag is carried so the matrix is final.
+ *   is enforced by `authorize()` for user sessions (`auth.elevate`).
  */
 
 export type GrantScope = "account" | "system";
@@ -31,6 +31,7 @@ export const GRANTS = {
 	"credentials.read": { elevation: false, scope: "account" },
 	"toolsEnv.read": { elevation: false, scope: "account" },
 	"tokens.self": { elevation: false, scope: "account" },
+	"admin.elevate": { elevation: false, scope: "account" },
 	"bot.delete": { elevation: true, scope: "account" },
 	"family.manage": { elevation: true, scope: "account" },
 	"members.manage": { elevation: true, scope: "account" },
@@ -83,6 +84,7 @@ const ACCOUNT_ADMIN_GRANTS: readonly Grant[] = [
 	"tokens.manage",
 	"account.manage",
 	"audit.read",
+	"admin.elevate",
 ];
 
 const SUPER_ADMIN_GRANTS: readonly Grant[] = [
@@ -92,6 +94,7 @@ const SUPER_ADMIN_GRANTS: readonly Grant[] = [
 	"system.members.manage",
 	"system.users.manage",
 	"system.audit.read",
+	"admin.elevate",
 ];
 
 export const ROLE_GRANTS: Record<Role, readonly Grant[]> = {

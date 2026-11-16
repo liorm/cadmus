@@ -110,9 +110,9 @@ export function DesktopCockpitShell({
 				search: { view: "chat" },
 			});
 		}
-		window.addEventListener("cadmus:open-chat", onOpenChat);
+		document.addEventListener("cadmus:open-chat", onOpenChat);
 		return () => {
-			window.removeEventListener("cadmus:open-chat", onOpenChat);
+			document.removeEventListener("cadmus:open-chat", onOpenChat);
 		};
 	}, [navigate, setLastBotId]);
 

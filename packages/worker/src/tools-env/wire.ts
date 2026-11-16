@@ -2,6 +2,7 @@
  * Daemon wire frames. Mirrors ExecutionEnv plus heartbeat. No probe method.
  * Kept off src/protocol.ts so UI schemas stay client-facing.
  */
+import { parseClampedInt } from "../env-overrides.js";
 
 export const MAX_FRAME_BYTES = 6 * 1024 * 1024;
 /** Idle-call heartbeat interval when `CADMUS_HEARTBEAT_MS` is unset. */
@@ -19,15 +20,9 @@ export const FILE_CALL_TIMEOUT_MS = 2_000;
  * leaves it unset.
  */
 export function resolveHeartbeatMs(raw: string | undefined): number {
-	if (raw === undefined) return HEARTBEAT_MS;
-	const trimmed = raw.trim();
-	if (trimmed === "") return HEARTBEAT_MS;
-	const value = Number(trimmed);
-	if (!Number.isFinite(value)) return HEARTBEAT_MS;
-	const rounded = Math.round(value);
-	if (rounded < MIN_HEARTBEAT_MS) return MIN_HEARTBEAT_MS;
-	if (rounded > MAX_HEARTBEAT_MS) return MAX_HEARTBEAT_MS;
-	return rounded;
+	return (
+		parseClampedInt(raw, MIN_HEARTBEAT_MS, MAX_HEARTBEAT_MS) ?? HEARTBEAT_MS
+	);
 }
 export const TRANSPORT_PREFIX = "tools-env transport:";
 export const TRANSPORT_DISCONNECTED = `${TRANSPORT_PREFIX} env disconnected`;

@@ -3,6 +3,23 @@ const COLLAPSED_KEY = "cadmus.group.collapsed";
 const LAST_BOT_KEY = "cadmus.lastBotId";
 const FAILED_KEY = "cadmus.failedTurns";
 
+/**
+ * Per-account scope for everything kept here. Chat and bot ids are only unique
+ * within an account, and failed turns hold the user's own text, so a signed-in
+ * session stores each account's data under its own keys. Without a scope (the
+ * no-session fallback) the original keys are used. Keys written before scoping
+ * existed are neither read nor deleted by a scoped session.
+ */
+let scope: string | undefined;
+
+export function setStorageScope(accountId: string | undefined): void {
+	scope = accountId || undefined;
+}
+
+function scoped(key: string): string {
+	return scope ? `${key}@${scope}` : key;
+}
+
 export type LastSeenMap = Record<string, number>;
 export type CollapsedMap = Record<string, boolean>;
 export type FailedTurn = {
@@ -15,7 +32,7 @@ export type FailedMap = Record<string, FailedTurn>;
 function readJson<T>(key: string, fallback: T): T {
 	if (typeof localStorage === "undefined") return fallback;
 	try {
-		const raw = localStorage.getItem(key);
+		const raw = localStorage.getItem(scoped(key));
 		if (!raw) return fallback;
 		return JSON.parse(raw) as T;
 	} catch {
@@ -26,7 +43,7 @@ function readJson<T>(key: string, fallback: T): T {
 function writeJson(key: string, value: unknown): void {
 	if (typeof localStorage === "undefined") return;
 	try {
-		localStorage.setItem(key, JSON.stringify(value));
+		localStorage.setItem(scoped(key), JSON.stringify(value));
 	} catch {
 		/* private mode */
 	}
@@ -50,13 +67,13 @@ export function saveCollapsed(map: CollapsedMap): void {
 
 export function loadLastBotId(): string | undefined {
 	if (typeof localStorage === "undefined") return undefined;
-	return localStorage.getItem(LAST_BOT_KEY) ?? undefined;
+	return localStorage.getItem(scoped(LAST_BOT_KEY)) ?? undefined;
 }
 
 export function saveLastBotId(id: string): void {
 	if (typeof localStorage === "undefined") return;
 	try {
-		localStorage.setItem(LAST_BOT_KEY, id);
+		localStorage.setItem(scoped(LAST_BOT_KEY), id);
 	} catch {
 		/* private mode */
 	}

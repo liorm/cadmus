@@ -85,15 +85,21 @@ function waitForPort(url: string, timeoutMs: number): Promise<void> {
 	});
 }
 
-export async function startEngine(name: EngineName): Promise<EngineHandle> {
-	const existing = cdpUrlFromEnv();
-	if (existing) {
-		return { name, cdpUrl: existing, stop: async () => undefined };
-	}
+export function isPerWorkerEngine(name: EngineName): boolean {
+	if (name !== "obscura") return false;
+	const override = process.env.CADMUS_PER_WORKER_ENGINE?.trim();
+	if (override === "0") return false;
+	return true;
+}
+
+export async function startEngineOnPort(
+	name: EngineName,
+	port: number,
+	options: { writePidFile?: boolean } = {},
+): Promise<EngineHandle> {
 	if (name === "chrome") {
 		return { name, stop: async () => undefined };
 	}
-	const port = Number(process.env.CADMUS_TEST_CDP_PORT ?? "9222");
 	const cdpUrl = `http://127.0.0.1:${port}`;
 	if (name === "obscura") {
 		const bin = obscuraBinary();
@@ -107,15 +113,42 @@ export async function startEngine(name: EngineName): Promise<EngineHandle> {
 			["serve", "-p", String(port), "--allow-private-network"],
 			{ stdio: "ignore" },
 		);
-		await waitForPort(`${cdpUrl}/json/version`, 15_000);
-		mkdirSync(engineDir, { recursive: true });
-		if (child.pid) writeFileSync(ENGINE_PID_FILE, String(child.pid), "utf8");
+		try {
+			await waitForPort(`${cdpUrl}/json/version`, 15_000);
+		} catch (error) {
+			child.kill("SIGTERM");
+			throw error;
+		}
+		if (options.writePidFile && child.pid) {
+			mkdirSync(engineDir, { recursive: true });
+			writeFileSync(ENGINE_PID_FILE, String(child.pid), "utf8");
+		}
 		return {
 			name,
 			cdpUrl,
 			process: child,
 			stop: async () => {
-				child.kill("SIGTERM");
+				if (child.exitCode !== null || child.signalCode !== null) return;
+				await new Promise<void>((resolveStop) => {
+					const timer = setTimeout(() => {
+						try {
+							child.kill("SIGKILL");
+						} catch {
+							/* already gone */
+						}
+						resolveStop();
+					}, 2_000);
+					child.once("exit", () => {
+						clearTimeout(timer);
+						resolveStop();
+					});
+					try {
+						child.kill("SIGTERM");
+					} catch {
+						clearTimeout(timer);
+						resolveStop();
+					}
+				});
 			},
 		};
 	}
@@ -131,7 +164,10 @@ export async function startEngine(name: EngineName): Promise<EngineHandle> {
 	await waitForPort(`${cdpUrl}/json/version`, 15_000).catch(async () => {
 		await waitForPort(cdpUrl, 5_000);
 	});
-	if (child.pid) writeFileSync(ENGINE_PID_FILE, String(child.pid), "utf8");
+	if (options.writePidFile && child.pid) {
+		mkdirSync(engineDir, { recursive: true });
+		writeFileSync(ENGINE_PID_FILE, String(child.pid), "utf8");
+	}
 	return {
 		name,
 		cdpUrl,
@@ -140,4 +176,13 @@ export async function startEngine(name: EngineName): Promise<EngineHandle> {
 			child.kill("SIGTERM");
 		},
 	};
+}
+
+export async function startEngine(name: EngineName): Promise<EngineHandle> {
+	const existing = cdpUrlFromEnv();
+	if (existing) {
+		return { name, cdpUrl: existing, stop: async () => undefined };
+	}
+	const port = Number(process.env.CADMUS_TEST_CDP_PORT ?? "9222");
+	return startEngineOnPort(name, port, { writePidFile: true });
 }

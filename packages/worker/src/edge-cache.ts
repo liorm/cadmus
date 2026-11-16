@@ -4,6 +4,8 @@ import type { Env } from "./types.js";
 
 export interface CachedTokenScope extends AuthenticatedIdentity {
 	defaultFamilyId?: string;
+	/** Epoch ms of the cache write; stored in KV only, so an L2 hit cannot outlive the write's own TTL in L1. */
+	cachedAt?: number;
 }
 
 export interface CachedFamilyRouting {
@@ -170,6 +172,26 @@ export class EdgeCache {
 		activeCaches.add(new WeakRef(this));
 	}
 
+	private tokenFloor = 0;
+	private tokenGen = 0;
+
+	/** Changes on every invalidation or floor; read it before a D1 resolve. */
+	get tokenGeneration(): number {
+		return this.tokenGen;
+	}
+
+	/**
+	 * Local invalidation floor, used when the exact token hashes could not be
+	 * dropped after a committed authority change: clears this isolate's token L1,
+	 * rejects every KV entry written at or before now (equal timestamps count as
+	 * stale), and makes setToken skip writes whose D1 resolve began earlier.
+	 */
+	floorTokens(): void {
+		this.tokenFloor = Date.now();
+		this.tokenGen++;
+		this.tokenL1.clear();
+	}
+
 	clearMemory(): void {
 		this.tokenL1.clear();
 		this.familyL1.clear();
@@ -216,9 +238,28 @@ export class EdgeCache {
 					"json",
 				);
 				if (l2Val) {
+					const { cachedAt, ...scope } = l2Val;
+					// Absolute age check on every KV read: KV delete and expiry can
+					// lag across locations, so an entry is only trusted for the L2 TTL
+					// from its own write time. An entry with no write time (written
+					// before this check existed) is a miss and is re-resolved from D1.
+					if (
+						cachedAt === undefined ||
+						cachedAt <= this.tokenFloor ||
+						Date.now() - cachedAt >= this.l2TtlSeconds * 1000
+					) {
+						this.metrics.tokenMisses++;
+						return undefined;
+					}
 					this.metrics.tokenL2Hits++;
-					this.tokenL1.set(key, l2Val, this.l1TtlMs);
-					return l2Val;
+					// L1 gets only what is left of the L2 entry's life, so the total
+					// from the cache write is the L2 TTL, not L2 plus a fresh L1 TTL.
+					const left = Math.min(
+						this.l1TtlMs,
+						this.l2TtlSeconds * 1000 - (Date.now() - cachedAt),
+					);
+					if (left > 0) this.tokenL1.set(key, scope, left);
+					return scope;
 				}
 			} catch (err) {
 				getLogger().warn("error reading token from KV cache", {
@@ -236,14 +277,24 @@ export class EdgeCache {
 		tokenHash: string,
 		scope: CachedTokenScope,
 		ttlSeconds: number = this.l2TtlSeconds,
+		resolvedAtGeneration?: number,
 	): Promise<void> {
+		// A resolve that began before a floor may carry pre-change authority.
+		if (
+			resolvedAtGeneration !== undefined &&
+			resolvedAtGeneration !== this.tokenGen
+		) {
+			return;
+		}
 		const key = makeTokenCacheKey(tokenHash, this.env);
 		this.tokenL1.set(key, scope, ttlSeconds * 1000);
 		if (this.env.CADMUS_CACHE_KV) {
 			try {
-				await this.env.CADMUS_CACHE_KV.put(key, JSON.stringify(scope), {
-					expirationTtl: Math.max(60, ttlSeconds),
-				});
+				await this.env.CADMUS_CACHE_KV.put(
+					key,
+					JSON.stringify({ ...scope, cachedAt: Date.now() }),
+					{ expirationTtl: Math.max(60, ttlSeconds) },
+				);
 			} catch (err) {
 				getLogger().warn("error writing token to KV cache", {
 					key,
@@ -259,6 +310,9 @@ export class EdgeCache {
 	): Promise<void> {
 		const hash = isHash ? rawTokenOrHash : await sha256Hex(rawTokenOrHash);
 		const key = makeTokenCacheKey(hash, this.env);
+		// A D1 resolve that began before this invalidation may carry the old
+		// authority; bump the generation so its setToken is skipped.
+		this.tokenGen++;
 		this.tokenL1.delete(key);
 		if (this.env.CADMUS_CACHE_KV) {
 			try {

@@ -7,6 +7,10 @@ import {
 import { clickByRole, fillByLabel } from "../support/actions.ts";
 import { expect, test } from "../support/fixtures.ts";
 
+// Account and family saves need account-admin grants the default user
+// token does not hold. Phase 9 removes this master opt-in.
+test.use({ signIn: "master" });
+
 test.describe.configure({ mode: "parallel" });
 
 const WORKER_BASE = "http://127.0.0.1:8799";
@@ -22,6 +26,8 @@ test("deep-linking across settings views keeps CockpitFrame mounted", async ({
 	const paths = [
 		"/settings",
 		"/settings/account",
+		"/settings/security",
+		"/settings/tokens",
 		"/settings/family",
 		"/settings/providers",
 		"/settings/tools",

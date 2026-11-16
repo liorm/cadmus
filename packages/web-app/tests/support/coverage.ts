@@ -51,10 +51,18 @@ export function resetCoverageRaw(): void {
 
 export async function captureCoverage(page: Page, id: string): Promise<void> {
 	if (!coverageEnabled()) return;
-	const data = await page.evaluate(() => {
-		const bag = globalThis as { __coverage__?: CoverageMapData };
-		return bag.__coverage__ ?? null;
-	});
+	// A test may close its page on purpose (native beforeunload specs). There is
+	// no page left to read coverage from, so skip it rather than fail teardown.
+	if (page.isClosed()) return;
+	const data = await Promise.race([
+		page
+			.evaluate(() => {
+				const bag = globalThis as { __coverage__?: CoverageMapData };
+				return bag.__coverage__ ?? null;
+			})
+			.catch(() => null),
+		new Promise<null>((resolve) => setTimeout(() => resolve(null), 5_000)),
+	]);
 	if (!data) return;
 	mkdirSync(COVERAGE_RAW, { recursive: true });
 	const safe = id.replace(/[^a-zA-Z0-9._-]/g, "_");

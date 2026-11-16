@@ -6,6 +6,10 @@ import {
 } from "../support/actions.ts";
 import { expect, test } from "../support/fixtures.ts";
 
+// Bot config and delete need grants the default user token does not hold.
+// Phase 9 removes this master opt-in.
+test.use({ signIn: "master" });
+
 test.describe.configure({ mode: "parallel" });
 
 const WORKER_BASE = "http://127.0.0.1:8799";
@@ -91,7 +95,11 @@ test("schedules tab creates, edits, toggles, and deletes a schedule inside Stage
 		page.getByRole("banner", { name: "Cadmus Cockpit" }),
 	).toBeVisible();
 
-	// Create new schedule
+	// Create new schedule. The button renders after the schedule list has
+	// loaded, which is after the app shell (the banner above).
+	await expect(
+		page.getByRole("button", { name: "New schedule" }),
+	).toBeEnabled();
 	await clickByRole(page, "button", "New schedule");
 	await expect(
 		page.getByRole("banner", { name: "Cadmus Cockpit" }),

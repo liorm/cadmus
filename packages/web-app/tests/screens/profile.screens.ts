@@ -1,41 +1,19 @@
-import { mkdirSync } from "node:fs";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-import type { Page } from "@playwright/test";
-import { THEMES, type ThemeName } from "../../src/theme/theme.ts";
+import { resolve } from "node:path";
+import { THEMES } from "../../src/theme/theme.ts";
 import { seedBot, sendAccountRpc } from "../support/account.ts";
 import { clickByRole } from "../support/actions.ts";
 import { expect, test } from "../support/fixtures.ts";
+import {
+	ensureScreensDir,
+	openThemed,
+	SCREENS_OUT_DIR,
+	WORKER_BASE,
+} from "../support/screens.ts";
 
-const OUT_DIR = resolve(
-	dirname(fileURLToPath(import.meta.url)),
-	"../../.screens",
-);
-const WORKER_BASE = "http://127.0.0.1:8799";
-
-async function openThemed(page: Page, path: string, theme: ThemeName) {
-	await page.goto(path);
-	await page.evaluate((themeName) => {
-		sessionStorage.setItem("cadmus.screenshot.theme", themeName);
-		localStorage.setItem("cadmus.theme", themeName);
-	}, theme);
-	await page.reload();
-	await expect
-		.poll(async () =>
-			page.evaluate(() => document.documentElement.getAttribute("data-theme")),
-		)
-		.toBe(theme);
-}
+const OUT_DIR = SCREENS_OUT_DIR;
 
 test.beforeAll(() => {
-	mkdirSync(OUT_DIR, { recursive: true });
-});
-
-test.beforeEach(async ({ page }) => {
-	await page.addInitScript(() => {
-		const theme = sessionStorage.getItem("cadmus.screenshot.theme");
-		if (theme) localStorage.setItem("cadmus.theme", theme);
-	});
+	ensureScreensDir();
 });
 
 async function seedProfile(origin: string, accountId: string) {
@@ -104,36 +82,37 @@ async function seedProfile(origin: string, accountId: string) {
 	});
 }
 
-test("group menu and profile screens", async ({ page, accountId, baseURL }) => {
+const PROFILE_SHOTS: Array<{ name: string; path: string; ready: string }> = [
+	{
+		name: "profile-schedules",
+		path: "/bot/echo-bot/schedules",
+		ready: "Morning climate check",
+	},
+	{
+		name: "profile-memory",
+		path: "/bot/echo-bot/memory",
+		ready: "Prefers",
+	},
+	{
+		name: "profile-knowledge",
+		path: "/bot/echo-bot/knowledge",
+		ready: "heating",
+	},
+	{
+		name: "profile-soul",
+		path: "/bot/echo-bot/soul",
+		ready: "Calm",
+	},
+	{
+		name: "profile-config",
+		path: "/bot/echo-bot/config",
+		ready: "Delete bot",
+	},
+];
+
+test("group-menu", async ({ page, accountId, baseURL }) => {
 	const origin = baseURL ?? WORKER_BASE;
 	await seedProfile(origin, accountId);
-	const shots: Array<{ name: string; path: string; ready: string }> = [
-		{
-			name: "profile-schedules",
-			path: "/bot/echo-bot/schedules",
-			ready: "Morning climate check",
-		},
-		{
-			name: "profile-memory",
-			path: "/bot/echo-bot/memory",
-			ready: "Prefers",
-		},
-		{
-			name: "profile-knowledge",
-			path: "/bot/echo-bot/knowledge",
-			ready: "heating",
-		},
-		{
-			name: "profile-soul",
-			path: "/bot/echo-bot/soul",
-			ready: "Calm",
-		},
-		{
-			name: "profile-config",
-			path: "/bot/echo-bot/config",
-			ready: "Delete bot",
-		},
-	];
 	for (const theme of THEMES) {
 		await openThemed(page, "/", theme);
 		await expect(
@@ -145,7 +124,14 @@ test("group menu and profile screens", async ({ page, accountId, baseURL }) => {
 			path: resolve(OUT_DIR, `group-menu-${theme}.png`),
 			animations: "disabled",
 		});
-		for (const shot of shots) {
+	}
+});
+
+for (const shot of PROFILE_SHOTS) {
+	test(shot.name, async ({ page, accountId, baseURL }) => {
+		const origin = baseURL ?? WORKER_BASE;
+		await seedProfile(origin, accountId);
+		for (const theme of THEMES) {
 			await openThemed(page, shot.path, theme);
 			await expect(page.getByText(shot.ready).first()).toBeVisible();
 			await page.screenshot({
@@ -153,6 +139,13 @@ test("group menu and profile screens", async ({ page, accountId, baseURL }) => {
 				animations: "disabled",
 			});
 		}
+	});
+}
+
+test("schedule-edit", async ({ page, accountId, baseURL }) => {
+	const origin = baseURL ?? WORKER_BASE;
+	await seedProfile(origin, accountId);
+	for (const theme of THEMES) {
 		await openThemed(page, "/bot/echo-bot/schedules", theme);
 		await clickByRole(page, "button", "Morning climate check");
 		await expect(page.getByLabel("Schedule name")).toBeVisible();
@@ -160,6 +153,13 @@ test("group menu and profile screens", async ({ page, accountId, baseURL }) => {
 			path: resolve(OUT_DIR, `schedule-edit-${theme}.png`),
 			animations: "disabled",
 		});
+	}
+});
+
+test("memory-edit", async ({ page, accountId, baseURL }) => {
+	const origin = baseURL ?? WORKER_BASE;
+	await seedProfile(origin, accountId);
+	for (const theme of THEMES) {
 		await openThemed(page, "/bot/echo-bot/memory", theme);
 		await clickByRole(page, "button", "Edit");
 		await expect(page.getByLabel("MEMORY.md source")).toBeVisible();
@@ -167,12 +167,27 @@ test("group menu and profile screens", async ({ page, accountId, baseURL }) => {
 			path: resolve(OUT_DIR, `memory-edit-${theme}.png`),
 			animations: "disabled",
 		});
+	}
+});
+
+test("soul-edit", async ({ page, accountId, baseURL }) => {
+	const origin = baseURL ?? WORKER_BASE;
+	await seedProfile(origin, accountId);
+	for (const theme of THEMES) {
 		await openThemed(page, "/bot/echo-bot/soul", theme);
 		await clickByRole(page, "button", "Edit");
+		await expect(page.getByLabel("SOUL.md source")).toBeVisible();
 		await page.screenshot({
 			path: resolve(OUT_DIR, `soul-edit-${theme}.png`),
 			animations: "disabled",
 		});
+	}
+});
+
+test("knowledge-doc", async ({ page, accountId, baseURL }) => {
+	const origin = baseURL ?? WORKER_BASE;
+	await seedProfile(origin, accountId);
+	for (const theme of THEMES) {
 		await openThemed(
 			page,
 			"/bot/echo-bot/doc?path=knowledge/heating.md",
@@ -183,6 +198,13 @@ test("group menu and profile screens", async ({ page, accountId, baseURL }) => {
 			path: resolve(OUT_DIR, `knowledge-doc-${theme}.png`),
 			animations: "disabled",
 		});
+	}
+});
+
+test("tool-allowlist", async ({ page, accountId, baseURL }) => {
+	const origin = baseURL ?? WORKER_BASE;
+	await seedProfile(origin, accountId);
+	for (const theme of THEMES) {
 		await openThemed(page, "/bot/echo-bot/tools", theme);
 		await expect(
 			page.getByRole("switch", { name: "memory_read" }),
@@ -191,6 +213,13 @@ test("group menu and profile screens", async ({ page, accountId, baseURL }) => {
 			path: resolve(OUT_DIR, `tool-allowlist-${theme}.png`),
 			animations: "disabled",
 		});
+	}
+});
+
+test("harvest", async ({ page, accountId, baseURL }) => {
+	const origin = baseURL ?? WORKER_BASE;
+	await seedProfile(origin, accountId);
+	for (const theme of THEMES) {
 		await openThemed(page, "/bot/echo-bot/harvest", theme);
 		await expect(page.getByRole("heading", { name: "Harvest" })).toBeVisible();
 		await page.screenshot({

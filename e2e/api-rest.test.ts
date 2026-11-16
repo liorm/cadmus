@@ -64,7 +64,8 @@ describe("REST /api command translation", () => {
 		expect(api.status).toBe(401);
 		expect(rpc.status).toBe(401);
 		expectPrivateApiCache(api);
-		expect(rpc.headers.get("Cache-Control")).toBeNull();
+		// An authentication refusal is an auth response: no-store (issue #3 phase 8).
+		expect(rpc.headers.get("Cache-Control")).toBe("no-store");
 		expect(await api.json()).toEqual(await rpc.json());
 	});
 
@@ -458,11 +459,16 @@ describe("REST /api command translation", () => {
 				body: JSON.stringify({ id: "rpc-q", type: "bot.list", payload: {} }),
 			},
 		);
-		expect(rpcQuery.status).toBe(200);
-		expect(await rpcQuery.json()).toMatchObject({
-			type: "command.result",
-			ok: true,
-		});
+		// ?token= is retired on /rpc for every credential, the master secret
+		// included. The same credential in the header is the control.
+		expect(rpcQuery.status).toBe(401);
+		const rpcHeaderControl = await sendRpc(
+			"bot.list",
+			{},
+			{ accountId: rpcQueryAccountId, userId: "rpc-query-user" },
+		);
+		expect(rpcHeaderControl.status).toBe(200);
+		expect(rpcHeaderControl.frame.ok).toBe(true);
 
 		const rpcCookie = await sendRpc(
 			"bot.list",
@@ -472,17 +478,36 @@ describe("REST /api command translation", () => {
 				cookie: `cadmus_session=${encodeURIComponent(`${rpcCookieAccountId}:owner:${TEST_TOKEN}`)}`,
 			},
 		);
-		expect(rpcCookie.status).toBe(200);
-		expect(rpcCookie.frame.ok).toBe(true);
+		// The cadmus_session cookie is retired as a credential on /rpc.
+		expect(rpcCookie.status).toBe(401);
+		const rpcCookieControl = await sendRpc(
+			"bot.list",
+			{},
+			{ token: `${rpcCookieAccountId}:owner:${TEST_TOKEN}` },
+		);
+		expect(rpcCookieControl.status).toBe(200);
+		expect(rpcCookieControl.frame.ok).toBe(true);
 
+		// ?token= is retired on /events for the master secret too. The ticket
+		// minted over the header is the control.
 		const eventsQuery = await workerFetch(
 			`http://example.com/events?token=${encodeURIComponent(TEST_TOKEN)}&accountId=${encodeURIComponent(eventsAccountId)}`,
 		);
-		expect(eventsQuery.status).toBe(200);
-		expect(eventsQuery.headers.get("content-type")).toContain(
+		expect(eventsQuery.status).toBe(401);
+		const minted = await sendRpc<{ ticket: string }>(
+			"auth.ticket",
+			{ target: "events" },
+			{ accountId: eventsAccountId },
+		);
+		expect(minted.frame.ok).toBe(true);
+		const eventsTicket = await workerFetch(
+			`http://example.com/events?ticket=${encodeURIComponent(minted.frame.result?.ticket ?? "")}`,
+		);
+		expect(eventsTicket.status).toBe(200);
+		expect(eventsTicket.headers.get("content-type")).toContain(
 			"text/event-stream",
 		);
-		await eventsQuery.body?.cancel();
+		await eventsTicket.body?.cancel();
 	});
 });
 

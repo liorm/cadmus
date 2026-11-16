@@ -6,6 +6,78 @@ export function uniqueAccountId(prefix = "ui"): string {
 	return `${prefix}-${crypto.randomUUID()}`;
 }
 
+export interface ProxyPostResponse {
+	ok: boolean;
+	status: number;
+	text: string;
+}
+
+class TransientProxyDropError extends Error {}
+
+/**
+ * wrangler dev's local ProxyWorker occasionally drops a POST keep-alive
+ * socket under parallel load and responds with plain-text 500
+ * "Error: Network connection lost.". Throw only for that transient drop.
+ */
+export function throwOnProxyDrop(status: number, text: string): void {
+	if (status >= 500 && text.includes("Network connection lost")) {
+		throw new TransientProxyDropError(text);
+	}
+}
+
+/**
+ * Retries transient `wrangler dev` ProxyWorker socket drops (`TransientProxyDropError`
+ * or `fetch` `TypeError`) up to 3 attempts with linear backoff.
+ */
+export async function retryProxyDrop<T>(fn: () => Promise<T>): Promise<T> {
+	let lastError: unknown;
+	for (let attempt = 0; attempt < 3; attempt++) {
+		try {
+			return await fn();
+		} catch (error) {
+			lastError = error;
+			const retryable =
+				error instanceof TransientProxyDropError || error instanceof TypeError;
+			if (!retryable || attempt >= 2) throw error;
+			await new Promise((resolve) => setTimeout(resolve, 100 * (attempt + 1)));
+		}
+	}
+	throw lastError;
+}
+
+/**
+ * Executes an RPC POST via a caller-provided transport (`fetch` or Playwright
+ * `APIRequestContext`), retrying transient proxy drops and throwing on errors.
+ */
+export async function executeRpcPost<T>(
+	type: string,
+	post: () => Promise<ProxyPostResponse>,
+): Promise<T> {
+	return retryProxyDrop(async () => {
+		const res = await post();
+		let body: {
+			ok?: boolean;
+			result?: T;
+			error?: { code?: string; message?: string };
+		};
+		try {
+			body = JSON.parse(res.text) as typeof body;
+		} catch {
+			throwOnProxyDrop(res.status, res.text);
+			throw new Error(
+				`${type} returned non-JSON (${res.status}): ${res.text.slice(0, 200)}`,
+			);
+		}
+		if (!res.ok || body.ok === false) {
+			const code = body.error?.code ? `${body.error.code} ` : "";
+			throw new Error(
+				`${type} failed: ${res.status} ${code}${body.error?.message ?? JSON.stringify(body)}`,
+			);
+		}
+		return body.result as T;
+	});
+}
+
 export async function sendAccountRpc<T = unknown>(
 	baseUrl: string,
 	accountId: string,
@@ -13,7 +85,7 @@ export async function sendAccountRpc<T = unknown>(
 	payload: Record<string, unknown> = {},
 	userId = "owner",
 ): Promise<T> {
-	const res = await fetch(`${baseUrl}/rpc`, {
+	const init: RequestInit = {
 		method: "POST",
 		headers: {
 			"Content-Type": "application/json",
@@ -22,18 +94,11 @@ export async function sendAccountRpc<T = unknown>(
 			"x-user-id": userId,
 		},
 		body: JSON.stringify({ id: `ui-${crypto.randomUUID()}`, type, payload }),
-	});
-	const body = (await res.json()) as {
-		ok?: boolean;
-		result?: T;
-		error?: { message?: string };
 	};
-	if (!res.ok || body.ok === false) {
-		throw new Error(
-			`${type} failed: ${res.status} ${body.error?.message ?? JSON.stringify(body)}`,
-		);
-	}
-	return body.result as T;
+	return executeRpcPost<T>(type, async () => {
+		const res = await fetch(`${baseUrl}/rpc`, init);
+		return { ok: res.ok, status: res.status, text: await res.text() };
+	});
 }
 
 export async function provisionAccount(

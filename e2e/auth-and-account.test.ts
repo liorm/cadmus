@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
 	type AccountMember,
 	type AccountRecord,
+	addMemberBearer,
 	type BotRecord,
 	type CredentialSummary,
 	type FamilyRecord,
@@ -35,7 +36,7 @@ describe("Authentication, Accounts, Encrypted BYOK Credentials & Multi-Family Ca
 		expect(schema.serverFrame).toBeDefined();
 	});
 
-	it("rejects anonymous requests with 401 and accepts Bearer token, session cookie, and member token", async () => {
+	it("rejects anonymous requests with 401 and accepts Bearer token and member token, and refuses the session cookie", async () => {
 		// 1. Anonymous request rejected
 		const anon = await sendRpc("bot.list", {}, { token: "" });
 		expect(anon.status).toBe(401);
@@ -59,7 +60,8 @@ describe("Authentication, Accounts, Encrypted BYOK Credentials & Multi-Family Ca
 		expect(valid.status).toBe(200);
 		expect(valid.frame.ok).toBe(true);
 
-		// 4. Session cookie accepted
+		// 4. The cadmus_session cookie is retired as a credential; the same scoped
+		// credential in the header is the control.
 		const viaCookie = await sendRpc<{ bots: BotRecord[] }>(
 			"bot.list",
 			{},
@@ -68,33 +70,30 @@ describe("Authentication, Accounts, Encrypted BYOK Credentials & Multi-Family Ca
 				cookie: `cadmus_session=${encodeURIComponent(`${accountId}:${userId}:${TEST_TOKEN}`)}`,
 			},
 		);
-		expect(viaCookie.status).toBe(200);
-		expect(viaCookie.frame.ok).toBe(true);
-
-		// 5. Add a member with a D1 stored token and authenticate using that token
-		const customToken = crypto.randomUUID();
-		const addMember = await sendRpc<{ member: AccountMember }>(
-			"account.members.add",
-			{
-				userId: "alice",
-				name: "Alice",
-				email: "alice@example.com",
-				role: "member",
-				token: customToken,
-			},
-			{ accountId, userId },
+		expect(viaCookie.status).toBe(401);
+		const viaScopedHeader = await sendRpc<{ bots: BotRecord[] }>(
+			"bot.list",
+			{},
+			{ token: `${accountId}:${userId}:${TEST_TOKEN}` },
 		);
-		expect(addMember.status).toBe(200);
-		expect(addMember.frame.result?.member.userId).toBe("alice");
+		expect(viaScopedHeader.status).toBe(200);
+		expect(viaScopedHeader.frame.ok).toBe(true);
+
+		// 5. Invite a member and authenticate with the cad_pat_ they mint.
+		const member = await addMemberBearer({ accountId });
+		expect(member.userId).toBeTruthy();
+		expect(member.token.startsWith("cad_pat_")).toBe(true);
 
 		const viaMemberToken = await sendRpc<{ members: AccountMember[] }>(
 			"account.members.list",
 			{},
-			{ token: customToken },
+			{ token: member.token },
 		);
 		expect(viaMemberToken.status).toBe(200);
 		expect(
-			viaMemberToken.frame.result?.members.some((m) => m.userId === "alice"),
+			viaMemberToken.frame.result?.members.some(
+				(m) => m.userId === member.userId,
+			),
 		).toBe(true);
 
 		// 6. Master token with x-user-id: "dev" authenticates as user "dev"

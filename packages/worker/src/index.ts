@@ -4,8 +4,13 @@ import {
 	prepareApiCommand,
 	withPrivateApiCache,
 } from "./api-adapter.js";
-import { authenticateRequest, type ResolvedRequestScope } from "./auth.js";
-import { handleRefresh, isAuthRoute } from "./auth-routes.js";
+import {
+	authenticateRequest,
+	type ResolvedRequestScope,
+	requireLiveApiTokenUse,
+} from "./auth.js";
+import { CadmusAuthLimiterDO, limitByIp } from "./auth-limiter.js";
+import { handleAuthRoute, isAuthRoute } from "./auth-routes.js";
 import {
 	authorize,
 	encodePrincipal,
@@ -14,8 +19,10 @@ import {
 	type Principal,
 } from "./authz.js";
 import { type EdgeCache, getEdgeCache } from "./edge-cache.js";
+import { withElevatedAudit } from "./elevated-audit.js";
 import { CadmusBotFamilyDO } from "./family-do.js";
 import { ensureLogger, getLogger, type Logger } from "./log.js";
+import { httpStatusForProtocolCode } from "./protocol/rest.js";
 import {
 	type ClientCommand,
 	type CommandResultFrame,
@@ -30,13 +37,48 @@ import { handleToolsEnvWebsocket } from "./tools-env/edge-ws.js";
 import { CadmusEnvDO } from "./tools-env/env-do.js";
 import type { Env } from "./types.js";
 
-export { CadmusBotFamilyDO, CadmusEnvDO };
+export { CadmusAuthLimiterDO, CadmusBotFamilyDO, CadmusEnvDO };
 
 export function resetEdgeD1InitCache(): void {
 	resetD1InitializationCache();
 }
 
-export default {
+/** Top-level browser navigations: a refused budget redirects back to the app. */
+const NAVIGATION_AUTH_PATHS = new Set([
+	"/auth/login/google",
+	"/auth/callback/google",
+]);
+
+/** Credential routes with a per-IP budget. providers and logout carry no secret to guess. */
+export const IP_LIMITED_AUTH_PATHS = new Set([
+	"/auth/refresh",
+	"/auth/token-login",
+	"/auth/login/dev-password",
+	"/auth/login/google",
+	"/auth/callback/google",
+]);
+
+/**
+ * Strict same-origin: a browser sends `Origin` on every cross-origin write and
+ * on every WebSocket handshake. No route here allows another origin, and no
+ * CORS allow headers exist, so a request that names a different origin is
+ * refused before it reaches auth or a handler. Safe methods (the OAuth
+ * callback is a top-level GET navigation) and non-browser clients (no Origin
+ * header) are untouched.
+ */
+export function refuseCrossOrigin(request: Request, url: URL): Response | null {
+	const origin = request.headers.get("origin");
+	if (origin === null || origin === url.origin) return null;
+	const upgrade = request.headers.get("upgrade")?.toLowerCase() === "websocket";
+	const safe = request.method === "GET" || request.method === "HEAD";
+	if (safe && !upgrade) return null;
+	return Response.json(
+		{ error: { code: "forbidden", message: "Cross-origin request refused" } },
+		{ status: 403, headers: { "cache-control": "no-store" } },
+	);
+}
+
+const routes = {
 	async fetch(
 		request: Request,
 		env: Env,
@@ -58,6 +100,9 @@ export default {
 			return Response.json(PROTOCOL_JSON_SCHEMA);
 		}
 
+		const crossOrigin = refuseCrossOrigin(request, url);
+		if (crossOrigin) return crossOrigin;
+
 		const defaultTimezone = env.CADMUS_DEFAULT_TIMEZONE ?? "UTC";
 		const defaultHarvestDelayMs = Number(env.CADMUS_HARVEST_DELAY_MS ?? 60_000);
 		const edgeCache = getEdgeCache(env);
@@ -72,7 +117,16 @@ export default {
 		await adminStore.initialize();
 
 		if (isAuthRoute(url.pathname)) {
-			return handleRefresh(request, adminStore);
+			if (IP_LIMITED_AUTH_PATHS.has(url.pathname)) {
+				const limited = await limitByIp(
+					env,
+					request,
+					url.pathname,
+					NAVIGATION_AUTH_PATHS.has(url.pathname) ? "navigation" : "api",
+				);
+				if (limited) return limited;
+			}
+			return handleAuthRoute(request, env, adminStore);
 		}
 
 		if (url.pathname === "/tools-env/ws") {
@@ -84,8 +138,9 @@ export default {
 		}
 
 		const apiRequest = isApiPath(url.pathname);
-		// /api takes Authorization: Bearer only. /rpc, /ws, and /events still
-		// accept the session cookie and ?token=.
+		// Every credential is Authorization: Bearer. /api, /rpc, /ws and /events
+		// refuse the cookie and ?token=, including the master secret. Streams
+		// open with a ticket from auth.ticket. /api rejects those forms up front.
 		const auth = await authenticateRequest(
 			request,
 			env,
@@ -123,9 +178,12 @@ export default {
 						message: "Missing or invalid authentication token",
 					},
 				} satisfies ServerEvent,
-				{ status: 401 },
+				{ status: 401, headers: { "cache-control": "no-store" } },
 			);
-			// /api/* is marked uncacheable here; /rpc, /ws, and /events stay as they were.
+			// An authentication refusal is an auth response (issue #3: no-store on
+			// auth responses), so /rpc, /ws and /events refusals carry it too; their
+			// success responses are not auth responses and are left as they were.
+			// /api/* gets the stricter private,no-store from withPrivateApiCache.
 			if (apiRequest) return withPrivateApiCache(unauthorized);
 			return unauthorized;
 		}
@@ -275,6 +333,40 @@ export default {
 	},
 } satisfies ExportedHandler<Env>;
 
+const SECURITY_HEADERS: ReadonlyArray<readonly [string, string]> = [
+	["X-Content-Type-Options", "nosniff"],
+	["Referrer-Policy", "no-referrer"],
+	["X-Frame-Options", "DENY"],
+];
+
+/**
+ * Headers the static-assets `_headers` file cannot reach: it applies to asset
+ * responses only, not to Worker-generated ones. Sets each header only when the
+ * handler did not set it. An upgrade response keeps its socket because the
+ * response is passed as init, which carries webSocket (the real handshake test
+ * covers this).
+ */
+export function withSecurityHeaders(response: Response): Response {
+	// Passing the response as init keeps status, statusText, every header
+	// (repeated Set-Cookie included) and the non-standard fields (cf, encodeBody)
+	// while the body stream passes through unread.
+	const out = new Response(response.body, response);
+	for (const [name, value] of SECURITY_HEADERS) {
+		if (!out.headers.has(name)) out.headers.set(name, value);
+	}
+	return out;
+}
+
+export default {
+	async fetch(
+		request: Request,
+		env: Env,
+		ctx: ExecutionContext,
+	): Promise<Response> {
+		return withSecurityHeaders(await routes.fetch(request, env, ctx));
+	},
+} satisfies ExportedHandler<Env>;
+
 async function dispatchDecodedCommand(
 	request: Request,
 	env: Env,
@@ -299,30 +391,61 @@ async function dispatchDecodedCommand(
 			: requestedFamilyId;
 
 	if (command.type === "family.create") {
-		authorize(principal, command.type);
-		const created = await adminStore.createFamily(accountId, {
+		let grant: ReturnType<typeof authorize>;
+		try {
+			// `family.create` runs here, not in the Family DO, so the same
+			// bearer liveness check has to happen before this command runs.
+			await requireLiveApiTokenUse(adminStore, principal, command.type);
+			grant = authorize(principal, command.type);
+		} catch (error) {
+			if (!(error instanceof ProtocolValidationError)) throw error;
+			const denied: CommandResultFrame = {
+				id: command.id,
+				type: "command.result",
+				command: command.type,
+				ok: false,
+				error: { code: error.code, message: error.message },
+			};
+			return new Response(defaultJsonShim.encodeFrame(denied), {
+				status: httpStatusForProtocolCode(error.code),
+				headers: { "Content-Type": defaultJsonShim.contentType },
+			});
+		}
+		const created = await withElevatedAudit({
+			adminStore,
+			caller: principal,
+			grant,
+			commandType: command.type,
 			familyId: command.payload.familyId,
-			name: command.payload.name,
-			timezone: command.payload.timezone ?? defaultTimezone,
-			harvestDelayMs: command.payload.harvestDelayMs ?? defaultHarvestDelayMs,
-		});
-		reqLog.info("created bot family", {
-			family: created.familyId,
-			doName: created.doName,
-			timezone: created.timezone,
-		});
-		const doId = env.CADMUS_BOT_FAMILY.idFromName(created.doName);
-		const stub = env.CADMUS_BOT_FAMILY.get(doId);
-		await stub.fetch("https://cadmus.internal/__internal/configure", {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({
-				accountId: created.accountId,
-				familyId: created.familyId,
-				name: created.name,
-				timezone: created.timezone,
-				harvestDelayMs: created.harvestDelayMs,
-			}),
+			warn: (message, fields) => reqLog.warn(message, fields),
+			run: async () => {
+				const family = await adminStore.createFamily(accountId, {
+					familyId: command.payload.familyId,
+					name: command.payload.name,
+					timezone: command.payload.timezone ?? defaultTimezone,
+					harvestDelayMs:
+						command.payload.harvestDelayMs ?? defaultHarvestDelayMs,
+				});
+				reqLog.info("created bot family", {
+					family: family.familyId,
+					doName: family.doName,
+					timezone: family.timezone,
+				});
+				const doId = env.CADMUS_BOT_FAMILY.idFromName(family.doName);
+				const stub = env.CADMUS_BOT_FAMILY.get(doId);
+				await stub.fetch("https://cadmus.internal/__internal/configure", {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({
+						accountId: family.accountId,
+						familyId: family.familyId,
+						name: family.name,
+						timezone: family.timezone,
+						harvestDelayMs: family.harvestDelayMs,
+					}),
+				});
+				return family;
+			},
 		});
 		const frame: CommandResultFrame = {
 			id: command.id,
@@ -468,9 +591,15 @@ async function forwardToFamilyDO(
 
 function principalFromScope(scope: ResolvedRequestScope): Principal {
 	return {
-		kind: "token",
+		kind: scope.sessionId ? "user" : "token",
 		userId: scope.userId,
 		accountId: scope.accountId,
 		role: scope.role,
+		...(scope.sessionId ? { sessionId: scope.sessionId } : {}),
+		...(scope.grants ? { grants: scope.grants } : {}),
+		...(scope.elevatedUntil ? { elevatedUntil: scope.elevatedUntil } : {}),
+		...(!scope.sessionId && scope.credential
+			? { credential: scope.credential }
+			: {}),
 	};
 }

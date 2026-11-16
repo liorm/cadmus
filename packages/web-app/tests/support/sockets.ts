@@ -36,7 +36,7 @@ export async function installSocketGate(
 			}
 		).__cadmusHttp = http;
 		const nativeFetch = window.fetch.bind(window);
-		window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+		window.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
 			const url =
 				typeof input === "string"
 					? input
@@ -54,7 +54,7 @@ export async function installSocketGate(
 				at: Date.now(),
 			});
 			return nativeFetch(input, init);
-		};
+		}) as typeof window.fetch;
 		const shut = (socket: WebSocket) => {
 			// Chrome can leave a worker socket in CLOSING without a close event.
 			socket.dispatchEvent(new Event("close"));

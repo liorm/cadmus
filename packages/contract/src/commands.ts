@@ -119,6 +119,193 @@ export type AccountMembersListCommand = Static<
 	typeof AccountMembersListCommandSchema
 >;
 
+export const AccountMembersInviteCommandSchema = Type.Object(
+	{
+		id: Type.String({
+			minLength: 1,
+			description:
+				"Non-empty unique correlation identifier for this command request.",
+		}),
+		type: Type.Literal("account.members.invite", {
+			description: "Command type identifier.",
+		}),
+		payload: Type.Object(
+			{
+				email: Type.String({ minLength: 3, maxLength: 254 }),
+				role: Type.Optional(
+					Type.Union([Type.Literal("user"), Type.Literal("account-admin")], {
+						description: "Role to give: user or account-admin.",
+					}),
+				),
+				ttlDays: Type.Optional(Type.Number({ minimum: 0.01, maximum: 60 })),
+			},
+			{ description: "Invite to create." },
+		),
+	},
+	{
+		grant: "members.manage",
+		description:
+			"Invite an email address. The invite is accepted on the first verified Google sign-in with that email.",
+	},
+);
+export type AccountMembersInviteCommand = Static<
+	typeof AccountMembersInviteCommandSchema
+>;
+
+export const AccountMembersUpdateCommandSchema = Type.Object(
+	{
+		id: Type.String({
+			minLength: 1,
+			description:
+				"Non-empty unique correlation identifier for this command request.",
+		}),
+		type: Type.Literal("account.members.update", {
+			description: "Command type identifier.",
+		}),
+		payload: Type.Object(
+			{
+				userId: Type.String({ minLength: 1 }),
+				role: Type.Union(
+					[Type.Literal("user"), Type.Literal("account-admin")],
+					{
+						description: "Role to give: user or account-admin.",
+					},
+				),
+			},
+			{ description: "Member and new role." },
+		),
+	},
+	{
+		grant: "members.manage",
+		description:
+			"Change a member's role. Demoting an account-admin revokes their personal tokens; the last account-admin cannot be demoted.",
+	},
+);
+export type AccountMembersUpdateCommand = Static<
+	typeof AccountMembersUpdateCommandSchema
+>;
+
+export const AccountMembersRemoveCommandSchema = Type.Object(
+	{
+		id: Type.String({
+			minLength: 1,
+			description:
+				"Non-empty unique correlation identifier for this command request.",
+		}),
+		type: Type.Literal("account.members.remove", {
+			description: "Command type identifier.",
+		}),
+		payload: Type.Object(
+			{ userId: Type.String({ minLength: 1 }) },
+			{ description: "Member to remove." },
+		),
+	},
+	{
+		grant: "members.manage",
+		description:
+			"Remove a member from the account. Revokes their sessions and personal tokens; the last account-admin cannot be removed.",
+	},
+);
+export type AccountMembersRemoveCommand = Static<
+	typeof AccountMembersRemoveCommandSchema
+>;
+
+export const AccountInvitesListCommandSchema = Type.Object(
+	{
+		id: Type.String({
+			minLength: 1,
+			description:
+				"Non-empty unique correlation identifier for this command request.",
+		}),
+		type: Type.Literal("account.invites.list", {
+			description: "Command type identifier.",
+		}),
+		payload: Type.Optional(
+			Type.Object({}, { description: "Empty parameter payload." }),
+		),
+	},
+	{
+		readOnly: true,
+		grant: "members.manage",
+		description: "List the account's invites.",
+	},
+);
+export type AccountInvitesListCommand = Static<
+	typeof AccountInvitesListCommandSchema
+>;
+
+export const AccountAuditListCommandSchema = Type.Object(
+	{
+		id: Type.String({
+			minLength: 1,
+			description:
+				"Non-empty unique correlation identifier for this command request.",
+		}),
+		type: Type.Literal("account.audit.list", {
+			description: "Command type identifier.",
+		}),
+		payload: Type.Optional(
+			Type.Object(
+				{
+					limit: Type.Optional(
+						Type.Number({
+							minimum: 1,
+							maximum: 200,
+							description: "Page size.",
+						}),
+					),
+					before: Type.Optional(
+						Type.Number({
+							description:
+								"Page cursor: epoch ms of the last event of the previous page.",
+						}),
+					),
+					beforeId: Type.Optional(
+						Type.String({
+							description:
+								"Page cursor: id of the last event of the previous page. Needed with before so events at the same millisecond are not skipped.",
+						}),
+					),
+				},
+				{ description: "Command parameters." },
+			),
+		),
+	},
+	{
+		readOnly: true,
+		grant: "audit.read",
+		description:
+			"List this account's audit events, newest first. Only rows kept in the caller's own account are returned, including membership changes a super-admin made inside it. Rows kept in the system scope are not included, even when they are about this account.",
+	},
+);
+export type AccountAuditListCommand = Static<
+	typeof AccountAuditListCommandSchema
+>;
+
+export const AccountInvitesRevokeCommandSchema = Type.Object(
+	{
+		id: Type.String({
+			minLength: 1,
+			description:
+				"Non-empty unique correlation identifier for this command request.",
+		}),
+		type: Type.Literal("account.invites.revoke", {
+			description: "Command type identifier.",
+		}),
+		payload: Type.Object(
+			{ inviteId: Type.String({ minLength: 1 }) },
+			{ description: "Invite to revoke." },
+		),
+	},
+	{
+		grant: "members.manage",
+		description: "Revoke a pending invite.",
+	},
+);
+export type AccountInvitesRevokeCommand = Static<
+	typeof AccountInvitesRevokeCommandSchema
+>;
+
 /**
  * Command to add or invite a user to the account with a specified access role.
  */
@@ -163,12 +350,6 @@ export const AccountMembersAddCommandSchema = Type.Object(
 						},
 					),
 				),
-				token: Type.Optional(
-					Type.String({
-						description:
-							"Optional authentication token associated with this user.",
-					}),
-				),
 			},
 			{ description: "Parameters for adding or inviting an account member." },
 		),
@@ -176,7 +357,7 @@ export const AccountMembersAddCommandSchema = Type.Object(
 	{
 		grant: "members.manage",
 		description:
-			"Add or invite a user to the account with a specified access role and optional credentials.",
+			"Add or invite a user to the account with a specified access role. A caller-chosen token is not accepted; API tokens are server-generated (auth.tokens.create).",
 	},
 );
 export type AccountMembersAddCommand = Static<
@@ -354,6 +535,451 @@ export const AuthWhoamiCommandSchema = Type.Object(
 	},
 );
 export type AuthWhoamiCommand = Static<typeof AuthWhoamiCommandSchema>;
+
+export const AuthTicketCommandSchema = Type.Object(
+	{
+		id: Type.String({
+			minLength: 1,
+			description:
+				"Non-empty unique correlation identifier for this command request.",
+		}),
+		type: Type.Literal("auth.ticket", {
+			description: "Command type identifier.",
+		}),
+		payload: Type.Object(
+			{
+				target: Type.Union([Type.Literal("ws"), Type.Literal("events")], {
+					description: "Stream the ticket is for.",
+				}),
+			},
+			{ description: "Ticket request." },
+		),
+	},
+	{
+		// The streams carry live chat text and state, which chat.use guards. A
+		// scoped token needs chat.use, not tokens.self, to open its own stream.
+		grant: "chat.use",
+		description:
+			"Issue a single-use ticket (60 seconds) for opening the WebSocket or SSE events stream for this session.",
+	},
+);
+export type AuthTicketCommand = Static<typeof AuthTicketCommandSchema>;
+
+export const AuthSessionsListCommandSchema = Type.Object(
+	{
+		id: Type.String({
+			minLength: 1,
+			description:
+				"Non-empty unique correlation identifier for this command request.",
+		}),
+		type: Type.Literal("auth.sessions.list", {
+			description: "Command type identifier.",
+		}),
+		payload: Type.Optional(
+			Type.Object({}, { description: "Empty parameter payload." }),
+		),
+	},
+	{
+		readOnly: true,
+		grant: "tokens.self",
+		description:
+			"List the caller's active sessions with login method or token, user agent, IP country, created and last used.",
+	},
+);
+export type AuthSessionsListCommand = Static<
+	typeof AuthSessionsListCommandSchema
+>;
+
+export const AuthSessionsRevokeCommandSchema = Type.Object(
+	{
+		id: Type.String({
+			minLength: 1,
+			description:
+				"Non-empty unique correlation identifier for this command request.",
+		}),
+		type: Type.Literal("auth.sessions.revoke", {
+			description: "Command type identifier.",
+		}),
+		payload: Type.Object(
+			{
+				sessionId: Type.String({
+					minLength: 1,
+					description: "Session to revoke.",
+				}),
+			},
+			{ description: "Session to revoke." },
+		),
+	},
+	{
+		grant: "tokens.self",
+		description: "Revoke one of the caller's own sessions.",
+	},
+);
+export type AuthSessionsRevokeCommand = Static<
+	typeof AuthSessionsRevokeCommandSchema
+>;
+
+export const AuthSessionsRevokeOthersCommandSchema = Type.Object(
+	{
+		id: Type.String({
+			minLength: 1,
+			description:
+				"Non-empty unique correlation identifier for this command request.",
+		}),
+		type: Type.Literal("auth.sessions.revokeOthers", {
+			description: "Command type identifier.",
+		}),
+		payload: Type.Optional(
+			Type.Object({}, { description: "Empty parameter payload." }),
+		),
+	},
+	{
+		grant: "tokens.self",
+		description: "Revoke every session of the caller except the current one.",
+	},
+);
+export type AuthSessionsRevokeOthersCommand = Static<
+	typeof AuthSessionsRevokeOthersCommandSchema
+>;
+
+export const AuthElevateCommandSchema = Type.Object(
+	{
+		id: Type.String({
+			minLength: 1,
+			description:
+				"Non-empty unique correlation identifier for this command request.",
+		}),
+		type: Type.Literal("auth.elevate", {
+			description: "Command type identifier.",
+		}),
+		payload: Type.Optional(
+			Type.Object({}, { description: "Empty parameter payload." }),
+		),
+	},
+	{
+		grant: "admin.elevate",
+		description:
+			"Turn on admin mode for the caller's session for 15 minutes. Needs a signed-in session of an account-admin or super-admin.",
+	},
+);
+export type AuthElevateCommand = Static<typeof AuthElevateCommandSchema>;
+
+export const AuthPasskeysBeginCommandSchema = Type.Object(
+	{
+		id: Type.String({
+			minLength: 1,
+			description:
+				"Non-empty unique correlation identifier for this command request.",
+		}),
+		type: Type.Literal("auth.passkeys.begin", {
+			description: "Command type identifier.",
+		}),
+		payload: Type.Object(
+			{
+				purpose: Type.Union(
+					[
+						Type.Literal("register"),
+						Type.Literal("elevate"),
+						Type.Literal("remove"),
+					],
+					{
+						description:
+							"register enrolls a passkey; elevate proves one; remove proves one to remove methodId.",
+					},
+				),
+				methodId: Type.Optional(
+					Type.String({
+						minLength: 1,
+						description: "For remove: the passkey login method to remove.",
+					}),
+				),
+			},
+			{ description: "What the passkey ceremony is for." },
+		),
+	},
+	{
+		grant: "tokens.self",
+		description:
+			"Start a passkey ceremony for the signed-in session and return WebAuthn options. Register needs a session from a fresh Google sign-in (/auth/login/google?fresh=1, verified authentication time within 5 minutes) while the user has no passkey, and an elevated session once they have one; elevate needs admin.elevate. Remove needs a passkey and a passkey method id.",
+	},
+);
+export type AuthPasskeysBeginCommand = Static<
+	typeof AuthPasskeysBeginCommandSchema
+>;
+
+export const AuthPasskeysFinishCommandSchema = Type.Object(
+	{
+		id: Type.String({
+			minLength: 1,
+			description:
+				"Non-empty unique correlation identifier for this command request.",
+		}),
+		type: Type.Literal("auth.passkeys.finish", {
+			description: "Command type identifier.",
+		}),
+		payload: Type.Object(
+			{
+				purpose: Type.Union(
+					[
+						Type.Literal("register"),
+						Type.Literal("elevate"),
+						Type.Literal("remove"),
+					],
+					{
+						description: "Must match the begin call.",
+					},
+				),
+				challengeId: Type.String({
+					minLength: 1,
+					description: "Challenge id returned by begin.",
+				}),
+				response: Type.Object(
+					{},
+					{
+						additionalProperties: true,
+						description: "The WebAuthn credential JSON from the browser.",
+					},
+				),
+			},
+			{ description: "The finished ceremony." },
+		),
+	},
+	{
+		grant: "tokens.self",
+		description:
+			"Verify a passkey ceremony. Register stores the passkey. Elevate turns on admin mode for 15 minutes. Remove deletes the passkey chosen at begin, never the last login method. Every failure returns the same forbidden error.",
+	},
+);
+export type AuthPasskeysFinishCommand = Static<
+	typeof AuthPasskeysFinishCommandSchema
+>;
+
+export const AuthElevationEndCommandSchema = Type.Object(
+	{
+		id: Type.String({
+			minLength: 1,
+			description:
+				"Non-empty unique correlation identifier for this command request.",
+		}),
+		type: Type.Literal("auth.elevation.end", {
+			description: "Command type identifier.",
+		}),
+		payload: Type.Optional(
+			Type.Object({}, { description: "Empty parameter payload." }),
+		),
+	},
+	{
+		grant: "admin.elevate",
+		description: "Leave admin mode on the caller's session.",
+	},
+);
+export type AuthElevationEndCommand = Static<
+	typeof AuthElevationEndCommandSchema
+>;
+
+export const AuthTokensListCommandSchema = Type.Object(
+	{
+		id: Type.String({
+			minLength: 1,
+			description:
+				"Non-empty unique correlation identifier for this command request.",
+		}),
+		type: Type.Literal("auth.tokens.list", {
+			description: "Command type identifier.",
+		}),
+		payload: Type.Optional(
+			Type.Object(
+				{
+					all: Type.Optional(
+						Type.Boolean({
+							description:
+								"List every token in the account (needs tokens.manage). Default lists the caller's own.",
+						}),
+					),
+				},
+				{ description: "List filter." },
+			),
+		),
+	},
+	{
+		readOnly: true,
+		grant: "tokens.self",
+		description:
+			"List API tokens: the caller's own, or all in the account for admins.",
+	},
+);
+export type AuthTokensListCommand = Static<typeof AuthTokensListCommandSchema>;
+
+export const AuthTokensCreateCommandSchema = Type.Object(
+	{
+		id: Type.String({
+			minLength: 1,
+			description:
+				"Non-empty unique correlation identifier for this command request.",
+		}),
+		type: Type.Literal("auth.tokens.create", {
+			description: "Command type identifier.",
+		}),
+		payload: Type.Object(
+			{
+				kind: Type.Union([Type.Literal("pat"), Type.Literal("service")], {
+					description: "pat is personal; service needs tokens.manage.",
+				}),
+				label: Type.String({ minLength: 1, maxLength: 80 }),
+				grants: Type.Array(Type.String({ minLength: 1 }), {
+					minItems: 1,
+					description: "Explicit subset of the caller's grants.",
+				}),
+				ttlDays: Type.Optional(
+					Type.Number({
+						minimum: 0.01,
+						maximum: 365,
+						description:
+							"Expiry in days. Required for a personal token that carries no elevated grant (max 365). An elevated personal token that omits it expires in 30 days (max 30). A service token defaults to 7 days and maxes out at 30.",
+					}),
+				),
+			},
+			{ description: "Token to create." },
+		),
+	},
+	{
+		grant: "tokens.self",
+		description:
+			"Create a server-generated cad_pat_ or cad_svc_ token. The secret is returned once.",
+	},
+);
+export type AuthTokensCreateCommand = Static<
+	typeof AuthTokensCreateCommandSchema
+>;
+
+export const AuthTokensRevokeCommandSchema = Type.Object(
+	{
+		id: Type.String({
+			minLength: 1,
+			description:
+				"Non-empty unique correlation identifier for this command request.",
+		}),
+		type: Type.Literal("auth.tokens.revoke", {
+			description: "Command type identifier.",
+		}),
+		payload: Type.Object(
+			{
+				tokenId: Type.String({ minLength: 1, description: "Token to revoke." }),
+			},
+			{ description: "Token to revoke." },
+		),
+	},
+	{
+		grant: "tokens.self",
+		description: "Revoke a token and every session started from it.",
+	},
+);
+export type AuthTokensRevokeCommand = Static<
+	typeof AuthTokensRevokeCommandSchema
+>;
+
+export const AuthMethodsListCommandSchema = Type.Object(
+	{
+		id: Type.String({
+			minLength: 1,
+			description:
+				"Non-empty unique correlation identifier for this command request.",
+		}),
+		type: Type.Literal("auth.methods.list", {
+			description: "Command type identifier.",
+		}),
+		payload: Type.Optional(
+			Type.Object({}, { description: "Empty parameter payload." }),
+		),
+	},
+	{
+		readOnly: true,
+		grant: "tokens.self",
+		description: "List the caller's login methods.",
+	},
+);
+export type AuthMethodsListCommand = Static<
+	typeof AuthMethodsListCommandSchema
+>;
+
+export const AuthMembershipsListCommandSchema = Type.Object(
+	{
+		id: Type.String({
+			minLength: 1,
+			description:
+				"Non-empty unique correlation identifier for this command request.",
+		}),
+		type: Type.Literal("auth.memberships.list", {
+			description: "Command type identifier.",
+		}),
+		payload: Type.Optional(
+			Type.Object({}, { description: "Empty parameter payload." }),
+		),
+	},
+	{
+		readOnly: true,
+		grant: "tokens.self",
+		description: "List the active accounts the caller is a member of.",
+	},
+);
+export type AuthMembershipsListCommand = Static<
+	typeof AuthMembershipsListCommandSchema
+>;
+
+export const AuthMethodsLinkStartCommandSchema = Type.Object(
+	{
+		id: Type.String({
+			minLength: 1,
+			description:
+				"Non-empty unique correlation identifier for this command request.",
+		}),
+		type: Type.Literal("auth.methods.link.start", {
+			description: "Command type identifier.",
+		}),
+		payload: Type.Object(
+			{ provider: Type.Literal("google", { description: "Provider." }) },
+			{ description: "Provider to link." },
+		),
+	},
+	{
+		grant: "tokens.self",
+		description:
+			"Start linking a Google login to the signed-in user. Open `/auth/login/google?link=<ticket>` with the `bind` cookie set; the ticket lasts two minutes. An email match alone never merges users.",
+	},
+);
+export type AuthMethodsLinkStartCommand = Static<
+	typeof AuthMethodsLinkStartCommandSchema
+>;
+
+export const AuthMethodsRevokeCommandSchema = Type.Object(
+	{
+		id: Type.String({
+			minLength: 1,
+			description:
+				"Non-empty unique correlation identifier for this command request.",
+		}),
+		type: Type.Literal("auth.methods.revoke", {
+			description: "Command type identifier.",
+		}),
+		payload: Type.Object(
+			{
+				methodId: Type.String({
+					minLength: 1,
+					description: "Login method to revoke.",
+				}),
+			},
+			{ description: "Login method to revoke." },
+		),
+	},
+	{
+		grant: "tokens.self",
+		description:
+			"Revoke one of the caller's login methods and the sessions created through it. The last active method cannot be revoked (last_login_method).",
+	},
+);
+export type AuthMethodsRevokeCommand = Static<
+	typeof AuthMethodsRevokeCommandSchema
+>;
 
 /**
  * Command to list all bot families belonging to the account.
@@ -2108,12 +2734,450 @@ export type ScheduleDeleteCommand = Static<typeof ScheduleDeleteCommandSchema>;
 /**
  * Discriminated union of all valid client-to-server protocol commands.
  */
+export const SystemAccountsListCommandSchema = Type.Object(
+	{
+		id: Type.String({
+			minLength: 1,
+			description:
+				"Non-empty unique correlation identifier for this command request.",
+		}),
+		type: Type.Literal("system.accounts.list", {
+			description: "Command type identifier.",
+		}),
+		payload: Type.Optional(
+			Type.Object({}, { description: "Empty parameter payload." }),
+		),
+	},
+	{
+		readOnly: true,
+		grant: "system.accounts.read",
+		description:
+			"List every tenant account with its status and member count. Super-admin only. Account records only, never tenant data.",
+	},
+);
+export type SystemAccountsListCommand = Static<
+	typeof SystemAccountsListCommandSchema
+>;
+
+export const SystemAccountsCreateCommandSchema = Type.Object(
+	{
+		id: Type.String({
+			minLength: 1,
+			description:
+				"Non-empty unique correlation identifier for this command request.",
+		}),
+		type: Type.Literal("system.accounts.create", {
+			description: "Command type identifier.",
+		}),
+		payload: Type.Object(
+			{
+				name: Type.String({
+					minLength: 1,
+					maxLength: 80,
+					description: "Display name of the new account.",
+				}),
+				timezone: Type.Optional(
+					Type.String({ description: "IANA timezone for the account." }),
+				),
+			},
+			{ description: "Command parameters." },
+		),
+	},
+	{
+		grant: "system.accounts.manage",
+		description: "Create a tenant account. Needs admin mode.",
+	},
+);
+export type SystemAccountsCreateCommand = Static<
+	typeof SystemAccountsCreateCommandSchema
+>;
+
+export const SystemAccountsSuspendCommandSchema = Type.Object(
+	{
+		id: Type.String({
+			minLength: 1,
+			description:
+				"Non-empty unique correlation identifier for this command request.",
+		}),
+		type: Type.Literal("system.accounts.suspend", {
+			description: "Command type identifier.",
+		}),
+		payload: Type.Object(
+			{
+				accountId: Type.String({
+					minLength: 1,
+					description: "Tenant account to suspend.",
+				}),
+			},
+			{ description: "Command parameters." },
+		),
+	},
+	{
+		grant: "system.accounts.manage",
+		description:
+			"Suspend a tenant account. Its principals are refused and live sockets are closed. Needs admin mode.",
+	},
+);
+export type SystemAccountsSuspendCommand = Static<
+	typeof SystemAccountsSuspendCommandSchema
+>;
+
+export const SystemAccountsResumeCommandSchema = Type.Object(
+	{
+		id: Type.String({
+			minLength: 1,
+			description:
+				"Non-empty unique correlation identifier for this command request.",
+		}),
+		type: Type.Literal("system.accounts.resume", {
+			description: "Command type identifier.",
+		}),
+		payload: Type.Object(
+			{
+				accountId: Type.String({
+					minLength: 1,
+					description: "Tenant account to resume.",
+				}),
+			},
+			{ description: "Command parameters." },
+		),
+	},
+	{
+		grant: "system.accounts.manage",
+		description: "Resume a suspended tenant account. Needs admin mode.",
+	},
+);
+export type SystemAccountsResumeCommand = Static<
+	typeof SystemAccountsResumeCommandSchema
+>;
+
+export const SystemAccountsRenameCommandSchema = Type.Object(
+	{
+		id: Type.String({
+			minLength: 1,
+			description:
+				"Non-empty unique correlation identifier for this command request.",
+		}),
+		type: Type.Literal("system.accounts.rename", {
+			description: "Command type identifier.",
+		}),
+		payload: Type.Object(
+			{
+				accountId: Type.String({
+					minLength: 1,
+					description: "Tenant account to rename.",
+				}),
+				name: Type.String({
+					minLength: 1,
+					maxLength: 80,
+					description: "New display name.",
+				}),
+			},
+			{ description: "Command parameters." },
+		),
+	},
+	{
+		grant: "system.accounts.manage",
+		description: "Rename a tenant account. Needs admin mode.",
+	},
+);
+export type SystemAccountsRenameCommand = Static<
+	typeof SystemAccountsRenameCommandSchema
+>;
+
+export const SystemAuditListCommandSchema = Type.Object(
+	{
+		id: Type.String({
+			minLength: 1,
+			description:
+				"Non-empty unique correlation identifier for this command request.",
+		}),
+		type: Type.Literal("system.audit.list", {
+			description: "Command type identifier.",
+		}),
+		payload: Type.Object(
+			{
+				limit: Type.Optional(
+					Type.Number({ minimum: 1, maximum: 200, description: "Page size." }),
+				),
+				accountId: Type.Optional(
+					Type.String({
+						description: "Only events about this tenant account.",
+					}),
+				),
+				before: Type.Optional(
+					Type.Number({
+						description:
+							"Page cursor: epoch ms of the last event of the previous page.",
+					}),
+				),
+				beforeId: Type.Optional(
+					Type.String({
+						description:
+							"Page cursor: id of the last event of the previous page. Needed with before so events at the same millisecond are not skipped.",
+					}),
+				),
+			},
+			{ description: "Command parameters." },
+		),
+	},
+	{
+		readOnly: true,
+		grant: "system.audit.read",
+		description:
+			"List system-scope audit events (account changes made by super-admins), newest first. Also includes membership changes a super-admin made inside a tenant (actor kind super-admin); ordinary tenant audit rows are not included.",
+	},
+);
+export type SystemAuditListCommand = Static<
+	typeof SystemAuditListCommandSchema
+>;
+
+export const SystemMembersListCommandSchema = Type.Object(
+	{
+		id: Type.String({
+			minLength: 1,
+			description:
+				"Non-empty unique correlation identifier for this command request.",
+		}),
+		type: Type.Literal("system.members.list", {
+			description: "Command type identifier.",
+		}),
+		payload: Type.Object(
+			{
+				accountId: Type.String({
+					minLength: 1,
+					description: "Tenant account the change is about.",
+				}),
+			},
+			{ description: "Command parameters." },
+		),
+	},
+	{
+		readOnly: true,
+		grant: "system.members.manage",
+		description:
+			"List the members of one tenant account with their identity and disabled state. Needs admin mode. Membership data only, never tenant data.",
+	},
+);
+export type SystemMembersListCommand = Static<
+	typeof SystemMembersListCommandSchema
+>;
+
+export const SystemMembersInviteCommandSchema = Type.Object(
+	{
+		id: Type.String({
+			minLength: 1,
+			description:
+				"Non-empty unique correlation identifier for this command request.",
+		}),
+		type: Type.Literal("system.members.invite", {
+			description: "Command type identifier.",
+		}),
+		payload: Type.Object(
+			{
+				accountId: Type.String({
+					minLength: 1,
+					description: "Tenant account the change is about.",
+				}),
+				email: Type.String({ minLength: 3, maxLength: 254 }),
+				role: Type.Optional(
+					Type.Union([Type.Literal("user"), Type.Literal("account-admin")], {
+						description: "Role to give: user or account-admin.",
+					}),
+				),
+				ttlDays: Type.Optional(Type.Number({ minimum: 0.01, maximum: 60 })),
+			},
+			{ description: "Command parameters." },
+		),
+	},
+	{
+		grant: "system.members.manage",
+		description:
+			"Invite an email address to a tenant account, for example to assign its first account-admin. Needs admin mode.",
+	},
+);
+export type SystemMembersInviteCommand = Static<
+	typeof SystemMembersInviteCommandSchema
+>;
+
+export const SystemMembersUpdateCommandSchema = Type.Object(
+	{
+		id: Type.String({
+			minLength: 1,
+			description:
+				"Non-empty unique correlation identifier for this command request.",
+		}),
+		type: Type.Literal("system.members.update", {
+			description: "Command type identifier.",
+		}),
+		payload: Type.Object(
+			{
+				accountId: Type.String({
+					minLength: 1,
+					description: "Tenant account the change is about.",
+				}),
+				userId: Type.String({ minLength: 1, description: "Target user." }),
+				role: Type.Union(
+					[Type.Literal("user"), Type.Literal("account-admin")],
+					{
+						description: "Role to give: user or account-admin.",
+					},
+				),
+			},
+			{ description: "Command parameters." },
+		),
+	},
+	{
+		grant: "system.members.manage",
+		description:
+			"Change a member's role in a tenant account. The last account-admin cannot be demoted. Needs admin mode.",
+	},
+);
+export type SystemMembersUpdateCommand = Static<
+	typeof SystemMembersUpdateCommandSchema
+>;
+
+export const SystemMembersRemoveCommandSchema = Type.Object(
+	{
+		id: Type.String({
+			minLength: 1,
+			description:
+				"Non-empty unique correlation identifier for this command request.",
+		}),
+		type: Type.Literal("system.members.remove", {
+			description: "Command type identifier.",
+		}),
+		payload: Type.Object(
+			{
+				accountId: Type.String({
+					minLength: 1,
+					description: "Tenant account the change is about.",
+				}),
+				userId: Type.String({ minLength: 1, description: "Target user." }),
+			},
+			{ description: "Command parameters." },
+		),
+	},
+	{
+		grant: "system.members.manage",
+		description:
+			"Remove a member from a tenant account. The last account-admin cannot be removed. Needs admin mode.",
+	},
+);
+export type SystemMembersRemoveCommand = Static<
+	typeof SystemMembersRemoveCommandSchema
+>;
+
+export const SystemUsersDisableCommandSchema = Type.Object(
+	{
+		id: Type.String({
+			minLength: 1,
+			description:
+				"Non-empty unique correlation identifier for this command request.",
+		}),
+		type: Type.Literal("system.users.disable", {
+			description: "Command type identifier.",
+		}),
+		payload: Type.Object(
+			{ userId: Type.String({ minLength: 1, description: "Target user." }) },
+			{ description: "Command parameters." },
+		),
+	},
+	{
+		grant: "system.users.manage",
+		description:
+			"Disable a user in every account. Their sessions are refused and live sockets close. Super-admins cannot be disabled here, and you cannot disable yourself. Needs admin mode.",
+	},
+);
+export type SystemUsersDisableCommand = Static<
+	typeof SystemUsersDisableCommandSchema
+>;
+
+export const SystemUsersEnableCommandSchema = Type.Object(
+	{
+		id: Type.String({
+			minLength: 1,
+			description:
+				"Non-empty unique correlation identifier for this command request.",
+		}),
+		type: Type.Literal("system.users.enable", {
+			description: "Command type identifier.",
+		}),
+		payload: Type.Object(
+			{ userId: Type.String({ minLength: 1, description: "Target user." }) },
+			{ description: "Command parameters." },
+		),
+	},
+	{
+		grant: "system.users.manage",
+		description: "Enable a disabled user again. Needs admin mode.",
+	},
+);
+export type SystemUsersEnableCommand = Static<
+	typeof SystemUsersEnableCommandSchema
+>;
+
+export const SystemUsersRevokeSessionsCommandSchema = Type.Object(
+	{
+		id: Type.String({
+			minLength: 1,
+			description:
+				"Non-empty unique correlation identifier for this command request.",
+		}),
+		type: Type.Literal("system.users.revokeSessions", {
+			description: "Command type identifier.",
+		}),
+		payload: Type.Object(
+			{ userId: Type.String({ minLength: 1, description: "Target user." }) },
+			{ description: "Command parameters." },
+		),
+	},
+	{
+		grant: "system.users.manage",
+		description: "Revoke every live session of a user. Needs admin mode.",
+	},
+);
+export type SystemUsersRevokeSessionsCommand = Static<
+	typeof SystemUsersRevokeSessionsCommandSchema
+>;
+
+export const SystemUsersResetPasskeysCommandSchema = Type.Object(
+	{
+		id: Type.String({
+			minLength: 1,
+			description:
+				"Non-empty unique correlation identifier for this command request.",
+		}),
+		type: Type.Literal("system.users.resetPasskeys", {
+			description: "Command type identifier.",
+		}),
+		payload: Type.Object(
+			{ userId: Type.String({ minLength: 1, description: "Target user." }) },
+			{ description: "Command parameters." },
+		),
+	},
+	{
+		grant: "system.users.manage",
+		description:
+			"Remove a user's passkeys in every account and sign them out. Needs admin mode.",
+	},
+);
+export type SystemUsersResetPasskeysCommand = Static<
+	typeof SystemUsersResetPasskeysCommandSchema
+>;
+
 export const ClientCommandSchema = Type.Union(
 	[
 		AccountGetCommandSchema,
 		AccountUpdateCommandSchema,
 		AccountMembersListCommandSchema,
 		AccountMembersAddCommandSchema,
+		AccountMembersInviteCommandSchema,
+		AccountMembersUpdateCommandSchema,
+		AccountMembersRemoveCommandSchema,
+		AccountInvitesListCommandSchema,
+		AccountAuditListCommandSchema,
+		AccountInvitesRevokeCommandSchema,
 		AccountCredentialsListCommandSchema,
 		AccountCredentialsSetCommandSchema,
 		AccountCredentialsDeleteCommandSchema,
@@ -2124,6 +3188,35 @@ export const ClientCommandSchema = Type.Union(
 		AccountOAuthSubmitCommandSchema,
 		AccountOAuthCancelCommandSchema,
 		AuthWhoamiCommandSchema,
+		AuthTicketCommandSchema,
+		AuthSessionsListCommandSchema,
+		AuthSessionsRevokeCommandSchema,
+		AuthSessionsRevokeOthersCommandSchema,
+		AuthElevateCommandSchema,
+		AuthElevationEndCommandSchema,
+		SystemAccountsListCommandSchema,
+		SystemAccountsCreateCommandSchema,
+		SystemAccountsSuspendCommandSchema,
+		SystemAccountsResumeCommandSchema,
+		SystemAccountsRenameCommandSchema,
+		SystemAuditListCommandSchema,
+		SystemMembersListCommandSchema,
+		SystemMembersInviteCommandSchema,
+		SystemMembersUpdateCommandSchema,
+		SystemMembersRemoveCommandSchema,
+		SystemUsersDisableCommandSchema,
+		SystemUsersEnableCommandSchema,
+		SystemUsersRevokeSessionsCommandSchema,
+		SystemUsersResetPasskeysCommandSchema,
+		AuthTokensListCommandSchema,
+		AuthTokensCreateCommandSchema,
+		AuthTokensRevokeCommandSchema,
+		AuthMethodsListCommandSchema,
+		AuthMembershipsListCommandSchema,
+		AuthMethodsRevokeCommandSchema,
+		AuthMethodsLinkStartCommandSchema,
+		AuthPasskeysBeginCommandSchema,
+		AuthPasskeysFinishCommandSchema,
 		FamilyListCommandSchema,
 		FamilyCreateCommandSchema,
 		FamilyGetCommandSchema,
