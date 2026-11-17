@@ -1027,3 +1027,280 @@ function concat(left: Uint8Array, right: Uint8Array): Uint8Array {
 	out.set(right, left.byteLength);
 	return out;
 }
+
+/**
+ * Client stand-in for a platform authenticator. Builds WebAuthn JSON that
+ * `@simplewebauthn/server` verifies. It does not stub the verifier.
+ * The vitest relying party is `https://example.com` (`CADMUS_PUBLIC_URL`).
+ */
+const PASSKEY_RP_ID = "example.com";
+const PASSKEY_ORIGIN = "https://example.com";
+
+function concatAll(parts: Uint8Array[]): Uint8Array {
+	let out = new Uint8Array();
+	for (const part of parts) out = concat(out, part);
+	return out;
+}
+
+function cborHead(major: number, value: number): Uint8Array {
+	if (value < 24) return Uint8Array.of((major << 5) | value);
+	if (value < 256) return Uint8Array.of((major << 5) | 24, value);
+	return Uint8Array.of((major << 5) | 25, value >> 8, value & 0xff);
+}
+
+function cborText(value: string): Uint8Array {
+	const bytes = new TextEncoder().encode(value);
+	return concat(cborHead(3, bytes.length), bytes);
+}
+
+function cborBytes(bytes: Uint8Array): Uint8Array {
+	return concat(cborHead(2, bytes.length), bytes);
+}
+
+function cborMap(pairs: Array<[Uint8Array, Uint8Array]>): Uint8Array {
+	const parts: Uint8Array[] = [cborHead(5, pairs.length)];
+	for (const [key, value] of pairs) parts.push(key, value);
+	return concatAll(parts);
+}
+
+function coseEs256(x: Uint8Array, y: Uint8Array): Uint8Array {
+	const u = (n: number) => cborHead(0, n);
+	const neg = (n: number) => cborHead(1, n);
+	return cborMap([
+		[u(1), u(2)],
+		[u(3), neg(6)],
+		[neg(0), u(1)],
+		[neg(1), cborBytes(x)],
+		[neg(2), cborBytes(y)],
+	]);
+}
+
+function b64urlToBytes(text: string): Uint8Array {
+	const padded = text.replace(/-/g, "+").replace(/_/g, "/");
+	const bin = atob(padded + "=".repeat((4 - (padded.length % 4)) % 4));
+	return Uint8Array.from(bin, (c) => c.charCodeAt(0));
+}
+
+function derInteger(part: Uint8Array): Uint8Array {
+	let start = 0;
+	while (
+		start < part.length - 1 &&
+		part[start] === 0 &&
+		(part[start + 1] & 0x80) === 0
+	) {
+		start += 1;
+	}
+	const value = part.subarray(start);
+	const pad = (value[0] & 0x80) !== 0;
+	const body = pad ? concat(Uint8Array.of(0), value) : value;
+	return concat(Uint8Array.of(0x02, body.length), body);
+}
+
+/** WebAuthn ECDSA signatures are DER, not WebCrypto's raw r||s. */
+function derEcdsa(raw: Uint8Array): Uint8Array {
+	const body = concat(
+		derInteger(raw.subarray(0, 32)),
+		derInteger(raw.subarray(32)),
+	);
+	return concat(Uint8Array.of(0x30, body.length), body);
+}
+
+async function sha256(bytes: Uint8Array): Promise<Uint8Array> {
+	const digest = await crypto.subtle.digest("SHA-256", bytes);
+	return new Uint8Array(digest);
+}
+
+function authData(input: {
+	rpIdHash: Uint8Array;
+	flags: number;
+	counter: number;
+	credentialId?: Uint8Array;
+	coseKey?: Uint8Array;
+}): Uint8Array {
+	const counter = new Uint8Array(4);
+	new DataView(counter.buffer).setUint32(0, input.counter);
+	const parts = [input.rpIdHash, Uint8Array.of(input.flags), counter];
+	if (input.credentialId && input.coseKey) {
+		const len = new Uint8Array(2);
+		new DataView(len.buffer).setUint16(0, input.credentialId.length);
+		parts.push(new Uint8Array(16), len, input.credentialId, input.coseKey);
+	}
+	return concatAll(parts);
+}
+
+export interface PasskeyRegistrationJson {
+	id: string;
+	rawId: string;
+	type: "public-key";
+	response: {
+		clientDataJSON: string;
+		attestationObject: string;
+		transports: string[];
+	};
+	clientExtensionResults: Record<string, never>;
+	authenticatorAttachment: "platform";
+}
+
+export interface PasskeyAssertionJson {
+	id: string;
+	rawId: string;
+	type: "public-key";
+	response: {
+		clientDataJSON: string;
+		authenticatorData: string;
+		signature: string;
+		userHandle?: string;
+	};
+	clientExtensionResults: Record<string, never>;
+	authenticatorAttachment: "platform";
+}
+
+/** One ES256 credential. `signCount` starts at 0 and advances on each assertion. */
+export class TestPasskey {
+	readonly id: string;
+	readonly #idBytes: Uint8Array;
+	readonly #keys: CryptoKeyPair;
+	readonly #cose: Uint8Array;
+	#counter = 0;
+
+	private constructor(
+		idBytes: Uint8Array,
+		keys: CryptoKeyPair,
+		cose: Uint8Array,
+	) {
+		this.#idBytes = idBytes;
+		this.id = bytesToB64url(idBytes);
+		this.#keys = keys;
+		this.#cose = cose;
+	}
+
+	static async create(): Promise<TestPasskey> {
+		const keys = (await crypto.subtle.generateKey(
+			{ name: "ECDSA", namedCurve: "P-256" },
+			true,
+			["sign", "verify"],
+		)) as CryptoKeyPair;
+		const jwk = (await crypto.subtle.exportKey("jwk", keys.publicKey)) as {
+			x: string;
+			y: string;
+		};
+		return new TestPasskey(
+			crypto.getRandomValues(new Uint8Array(16)),
+			keys,
+			coseEs256(b64urlToBytes(jwk.x), b64urlToBytes(jwk.y)),
+		);
+	}
+
+	/** `fmt: "none"`, user presence and verification set. */
+	async registration(input: {
+		challenge: string;
+		/** Replaces the challenge inside clientData. The credential id stays valid. */
+		challengeOverride?: string;
+		/** Defaults to the configured origin `https://example.com`. */
+		origin?: string;
+		/** Clear UV so the server's user-verification requirement fails. */
+		userVerified?: boolean;
+		/**
+		 * JSON `id` / `rawId`. Defaults to the id inside authenticator data.
+		 * A different value still verifies as `fmt: "none"` and then fails the
+		 * app's credential-id check.
+		 */
+		reportedId?: string;
+	}): Promise<PasskeyRegistrationJson> {
+		const client = clientData(
+			"webauthn.create",
+			input.challengeOverride ?? input.challenge,
+			input.origin ?? PASSKEY_ORIGIN,
+		);
+		const verified = input.userVerified !== false;
+		const flags = 0x01 | (verified ? 0x04 : 0) | 0x40;
+		const data = authData({
+			rpIdHash: await sha256(new TextEncoder().encode(PASSKEY_RP_ID)),
+			flags,
+			counter: 0,
+			credentialId: this.#idBytes,
+			coseKey: this.#cose,
+		});
+		const attestation = cborMap([
+			[cborText("fmt"), cborText("none")],
+			[cborText("attStmt"), cborMap([])],
+			[cborText("authData"), cborBytes(data)],
+		]);
+		const reported = input.reportedId ?? this.id;
+		return {
+			id: reported,
+			rawId: reported,
+			type: "public-key",
+			response: {
+				clientDataJSON: bytesToB64url(client),
+				attestationObject: bytesToB64url(attestation),
+				transports: ["internal"],
+			},
+			clientExtensionResults: {},
+			authenticatorAttachment: "platform",
+		};
+	}
+
+	/**
+	 * Signs `authenticatorData || SHA-256(clientDataJSON)` and advances the counter.
+	 * Pass `key` to produce a structurally valid signature from a different key.
+	 */
+	async assertion(input: {
+		challenge: string;
+		userHandle: string | undefined;
+		challengeOverride?: string;
+		origin?: string;
+		rawId?: string;
+		key?: CryptoKeyPair;
+		userVerified?: boolean;
+	}): Promise<PasskeyAssertionJson> {
+		this.#counter += 1;
+		const client = clientData(
+			"webauthn.get",
+			input.challengeOverride ?? input.challenge,
+			input.origin ?? PASSKEY_ORIGIN,
+		);
+		const verified = input.userVerified !== false;
+		const data = authData({
+			rpIdHash: await sha256(new TextEncoder().encode(PASSKEY_RP_ID)),
+			flags: 0x01 | (verified ? 0x04 : 0),
+			counter: this.#counter,
+		});
+		const clientHash = await sha256(client);
+		const signingKey = input.key?.privateKey ?? this.#keys.privateKey;
+		const raw = new Uint8Array(
+			await crypto.subtle.sign(
+				{ name: "ECDSA", hash: "SHA-256" },
+				signingKey,
+				concat(data, clientHash),
+			),
+		);
+		return {
+			id: this.id,
+			rawId: input.rawId ?? this.id,
+			type: "public-key",
+			response: {
+				clientDataJSON: bytesToB64url(client),
+				authenticatorData: bytesToB64url(data),
+				signature: bytesToB64url(derEcdsa(raw)),
+				...(input.userHandle === undefined
+					? {}
+					: { userHandle: input.userHandle }),
+			},
+			clientExtensionResults: {},
+			authenticatorAttachment: "platform",
+		};
+	}
+}
+
+function clientData(type: string, challenge: string, origin: string): Uint8Array {
+	return new TextEncoder().encode(
+		JSON.stringify({ type, challenge, origin, crossOrigin: false }),
+	);
+}
+
+function bytesToB64url(bytes: Uint8Array): string {
+	let bin = "";
+	for (const b of bytes) bin += String.fromCharCode(b);
+	return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
