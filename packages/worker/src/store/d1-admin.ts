@@ -89,6 +89,7 @@ import {
 import {
 	insertPrimaryUserStatements,
 	normalizeLoginEmail,
+	userProfile,
 } from "./user-emails.js";
 
 /** Creates the bootstrap super-admin once, with a primary email and no login method. */
@@ -1180,6 +1181,11 @@ export class D1AdminStore implements AdminStore {
 	async listLoginMethods(userId: string) {
 		await this.initialize();
 		return listLoginMethods(this.#db, userId);
+	}
+
+	async userProfile(userId: string) {
+		await this.initialize();
+		return userProfile(this.#db, userId);
 	}
 
 	async revokeLoginMethod(userId: string, methodId: string) {

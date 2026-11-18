@@ -2269,10 +2269,15 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 				};
 			},
 			"auth.whoami": async (_command) => {
+				const profile = caller.userId
+					? await this.adminStore.userProfile(caller.userId)
+					: undefined;
 				return {
 					principal: {
 						kind: caller.kind ?? "token",
 						...(caller.userId ? { userId: caller.userId } : {}),
+						...(profile?.name ? { name: profile.name } : {}),
+						...(profile?.email ? { email: profile.email } : {}),
 						accountId: caller.accountId ?? meta.accountId,
 						role: caller.role ?? "user",
 						...(caller.grants ? { viaToken: true } : {}),

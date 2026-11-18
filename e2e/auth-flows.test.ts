@@ -218,6 +218,8 @@ async function whoami(token: string): Promise<{
 	const who = await sendRpc<{
 		principal: {
 			userId?: string;
+			name?: string;
+			email?: string;
 			role?: string;
 			accountId?: string;
 			viaToken?: boolean;
@@ -237,6 +239,7 @@ describe("auth flows (google, invites, sessions, phase 6)", () => {
 		const b = await whoami(second.accessToken);
 		expect(a.role).toBe("super-admin");
 		expect(a.userId).toBe(b.userId);
+		expect(a.email).toBe(BOOTSTRAP_EMAIL);
 		await withGoogleEgress(async (signIn) => {
 			const outcome = await signIn({
 				email: BOOTSTRAP_EMAIL,

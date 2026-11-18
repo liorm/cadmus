@@ -45,6 +45,25 @@ export function insertPrimaryUserStatements(
 	};
 }
 
+/** Name and primary email for the signed-in label. Missing when the id has no user row. */
+export async function userProfile(
+	db: D1Database,
+	userId: string,
+): Promise<{ name?: string; email?: string } | undefined> {
+	const row = await db
+		.prepare(
+			`SELECT name, COALESCE(primary_email, email) AS email
+       FROM cadmus_users WHERE id = ?1`,
+		)
+		.bind(userId)
+		.first<{ name: string | null; email: string | null }>();
+	if (!row) return undefined;
+	const name = row.name?.trim() || undefined;
+	const email = row.email?.trim() || undefined;
+	if (!name && !email) return undefined;
+	return { ...(name ? { name } : {}), ...(email ? { email } : {}) };
+}
+
 export async function userIdForEmail(
 	db: D1Database,
 	email: string,

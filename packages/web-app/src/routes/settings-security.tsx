@@ -28,6 +28,35 @@ interface MethodRow {
 
 const buttonClass = "min-h-tap rounded-md border border-border px-3";
 
+/** Email first, then a name that is not just the email, then the user id. */
+function signedInLabel(principal: {
+	userId?: string;
+	name?: string;
+	email?: string;
+}): string {
+	const email = principal.email?.trim();
+	const name = principal.name?.trim();
+	if (email) return email;
+	if (name) return name;
+	return principal.userId ?? "Signed in";
+}
+
+function signedInDetail(principal: {
+	userId?: string;
+	name?: string;
+	email?: string;
+	role: string;
+	accountId: string;
+}): string {
+	const role = `${principal.role} in ${principal.accountId}`;
+	const email = principal.email?.trim();
+	const name = principal.name?.trim();
+	if (email && name && name.toLowerCase() !== email.toLowerCase()) {
+		return `${name} · ${role}`;
+	}
+	return role;
+}
+
 function SignedOut({ providers }: { providers: string[] }) {
 	const hasGoogle = providers.includes("google");
 	return (
@@ -175,9 +204,9 @@ function SignedIn() {
 						</>
 					) : (
 						<>
-							<p className="font-semibold">{principal.userId}</p>
+							<p className="font-semibold">{signedInLabel(principal)}</p>
 							<p className="text-[length:var(--fs-sm)] text-text-muted">
-								{principal.role} in {principal.accountId}
+								{signedInDetail(principal)}
 							</p>
 						</>
 					)}

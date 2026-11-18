@@ -18,6 +18,10 @@ export interface SessionPrincipal {
 	/** True when an API token opened this session; it cannot enter admin mode. */
 	viaToken?: boolean;
 	userId?: string;
+	/** Display name from the user record. */
+	name?: string;
+	/** Primary email from the user record. */
+	email?: string;
 	accountId: string;
 	role: string;
 	/** Epoch ms when admin mode ends. Absent when it is off. */

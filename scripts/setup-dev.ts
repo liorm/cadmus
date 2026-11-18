@@ -6,13 +6,16 @@
 
 import { readFileSync, writeFileSync } from "node:fs";
 import { stdin as input, stdout as output } from "node:process";
-import { createInterface } from "node:readline/promises";
 import { hashDevPassword } from "../packages/worker/src/auth/dev-password.ts";
 import {
 	DEV_VARS_FILE,
 	devLoginProblems,
 	upsertDevLogin,
 } from "./dev-login.ts";
+import { applyPlaceholderKey, dimPlaceholder } from "./placeholder-line.ts";
+
+const DEFAULT_EMAIL = "boss@example.com";
+const DEFAULT_PASSWORD = "12345678";
 
 function arg(name: string): string | undefined {
 	const index = process.argv.indexOf(name);
@@ -46,17 +49,9 @@ if (!email || !password) {
 	}
 }
 if (interactive) {
-	const rl = createInterface({ input, output });
-	try {
-		if (!email) {
-			email = (await rl.question("Bootstrap email: ")).trim();
-		}
-		if (!password) {
-			password = await rl.question("Dev password: ");
-		}
-	} finally {
-		rl.close();
-	}
+	if (!email) email = await promptLine("Bootstrap email: ", DEFAULT_EMAIL);
+	if (!password)
+		password = await promptLine("Dev password: ", DEFAULT_PASSWORD);
 }
 if (!email.includes("@") || password.length === 0) {
 	process.stderr.write("Need an email and a non-empty password.\n");
@@ -74,3 +69,38 @@ writeFileSync(DEV_VARS_FILE, next);
 process.stdout.write(
 	`Wrote ${DEV_VARS_FILE} for ${email}. Start the worker with bun run dev.\n`,
 );
+
+/** Gray suggestion. The first typed character erases it. Enter keeps it. */
+function promptLine(label: string, placeholder: string): Promise<string> {
+	output.write(`${label}${dimPlaceholder(placeholder)}`);
+	return new Promise((resolve, reject) => {
+		let state = { typed: "", placeholder };
+		const finish = (value: string) => {
+			input.setRawMode?.(false);
+			input.pause();
+			input.off("data", onData);
+			resolve(value.trim());
+		};
+		const onData = (chunk: Buffer) => {
+			const text = chunk.toString("utf8");
+			if (text.includes("\u0003")) {
+				output.write("\n");
+				input.setRawMode?.(false);
+				process.exit(130);
+			}
+			for (const key of text) {
+				const next = applyPlaceholderKey(state, key);
+				state = next.state;
+				if (next.paint) output.write(next.paint);
+				if (next.done) {
+					finish(next.value ?? placeholder);
+					return;
+				}
+			}
+		};
+		input.setRawMode?.(true);
+		input.resume();
+		input.on("data", onData);
+		input.on("error", reject);
+	});
+}

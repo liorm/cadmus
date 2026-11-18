@@ -254,6 +254,18 @@ export const AuthWhoamiResultSchema = Type.Object(
 				userId: Type.Optional(
 					Type.String({ description: "Authenticated user id, when known." }),
 				),
+				name: Type.Optional(
+					Type.String({
+						description:
+							"Display name from the user record. Absent for credentials with no user row.",
+					}),
+				),
+				email: Type.Optional(
+					Type.String({
+						description:
+							"Primary email from the user record. Absent when the user has none.",
+					}),
+				),
 				accountId: Type.String({ description: "Account the request acts in." }),
 				viaToken: Type.Optional(
 					Type.Boolean({

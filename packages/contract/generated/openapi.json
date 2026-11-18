@@ -5828,6 +5828,14 @@
 								"type": "string",
 								"description": "Authenticated user id, when known."
 							},
+							"name": {
+								"type": "string",
+								"description": "Display name from the user record. Absent for credentials with no user row."
+							},
+							"email": {
+								"type": "string",
+								"description": "Primary email from the user record. Absent when the user has none."
+							},
 							"accountId": {
 								"type": "string",
 								"description": "Account the request acts in."

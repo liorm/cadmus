@@ -198,6 +198,10 @@ export interface AdminStore {
 		currentSessionId: string,
 	): Promise<number>;
 	listLoginMethods(userId: string): Promise<LoginMethodSummary[]>;
+	/** Name and primary email, when this id is a real user row. */
+	userProfile(
+		userId: string,
+	): Promise<{ name?: string; email?: string } | undefined>;
 	listMemberships(userId: string): Promise<MembershipSummary[]>;
 	revokeLoginMethod(
 		userId: string,
