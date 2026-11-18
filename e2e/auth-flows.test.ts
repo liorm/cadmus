@@ -211,6 +211,8 @@ async function refresh(cookie: string): Promise<{
 
 async function whoami(token: string): Promise<{
 	userId?: string;
+	name?: string;
+	email?: string;
 	role?: string;
 	accountId?: string;
 	viaToken?: boolean;

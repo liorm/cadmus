@@ -122,7 +122,10 @@ export function LoginDialog({ providers }: { providers: string[] }) {
 						</form>
 					) : null}
 					{!google && !devPassword ? (
-						<p role="status" className="text-[length:var(--fs-sm)] text-text-muted">
+						<p
+							role="status"
+							className="text-[length:var(--fs-sm)] text-text-muted"
+						>
 							Sign-in is not enabled on this server.
 						</p>
 					) : null}

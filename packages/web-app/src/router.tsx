@@ -6,9 +6,9 @@ import {
 } from "@tanstack/react-router";
 import { AccountResetNotice } from "@/components/AccountResetNotice";
 import { DesktopCockpitShell } from "@/components/desktop/CommandCockpit";
-import { LoginDialog } from "@/components/LoginDialog";
 import { CommandPaletteHost } from "@/components/desktop/CommandPalette";
 import { useDesktopViewport } from "@/components/desktop/use-desktop-viewport";
+import { LoginDialog } from "@/components/LoginDialog";
 import { CadmusProvider } from "@/context/CadmusContext";
 import { ElevationProvider } from "@/context/ElevationContext";
 import { SessionBoot } from "@/context/SessionContext";
@@ -52,8 +52,7 @@ function RootComponent() {
 							token: session.tokens.accessToken,
 							accountId:
 								session.principal?.accountId ?? session.tokens.accountId ?? "",
-							userId:
-								session.principal?.userId ?? session.tokens.userId ?? "",
+							userId: session.principal?.userId ?? session.tokens.userId ?? "",
 						}}
 					>
 						<ElevationProvider>
