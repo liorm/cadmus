@@ -439,19 +439,16 @@ export class CadmusClient {
 	constructor(options: CadmusClientOptions = {}) {
 		this.protocol = new ProtocolClient({
 			baseUrl: options.baseUrl ?? "",
-			token: options.token ?? "dev-cadmus-secret",
-			userId: options.userId ?? "dev",
-			// A ticket (signed-in) client never invents an account: the server reads
-			// an account id as a membership selection and refuses one the user is not
-			// in, so with no choice the session acts in its own account.
-			accountId: options.useTickets
-				? options.accountId
-				: (options.accountId ?? "default-account"),
+			token: options.token ?? "",
+			userId: options.userId,
+			// Never invent an account or a bearer. The server reads an account id
+			// as a membership selection. A missing token is unauthenticated.
+			accountId: options.accountId,
 			familyId: options.familyId ?? "default",
 			fetchImpl: options.fetchImpl,
 			webSocketImpl: options.webSocketImpl,
 			// The socket always opens with a header-minted ticket; the worker
-			// refuses ?token=. `options.useTickets` only decides the account default.
+			// refuses ?token=.
 			useTickets: true,
 		});
 	}

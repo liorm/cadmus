@@ -1,7 +1,7 @@
 /**
  * Prints a CADMUS_DEV_PASSWORD_HASH for local development.
  * Usage: bun scripts/hash-dev-password.ts <password>
- * Put the result in packages/worker/.dev.vars with CADMUS_DEV_PASSWORD_LOGIN=1.
+ * Put the result in the repo-root .dev.vars (next to wrangler.jsonc) with CADMUS_DEV_PASSWORD_LOGIN=1.
  * Then start the worker with `bun run dev`, which passes CADMUS_DEPLOY_ENV=development.
  * Plain `wrangler dev` refuses dev-password login. Never put the hash in wrangler.jsonc.
  */

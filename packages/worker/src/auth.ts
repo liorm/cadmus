@@ -339,8 +339,10 @@ export async function authenticateRequest(
 	};
 
 	// 1. Master Secret Fast-Path: check before D1 queries using constant-time comparison
-	const masterSecret = env.CADMUS_AUTH_SECRET || "dev-cadmus-secret";
-	const masterMatch = await matchMasterSecret(rawToken, masterSecret);
+	const masterSecret = env.CADMUS_AUTH_SECRET?.trim() ?? "";
+	const masterMatch = masterSecret
+		? await matchMasterSecret(rawToken, masterSecret)
+		: { matched: false };
 
 	if (masterMatch.matched) {
 		if (transport !== "header") return rejectTransport();

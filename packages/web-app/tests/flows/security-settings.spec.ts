@@ -9,7 +9,7 @@ test.use({ signIn: "none" });
 test("security settings offers Google sign-in when the server enables it", async ({
 	page,
 }) => {
-	await securitySettingsGoogleSignInScenario(page, { viaSettingsLink: true });
+	await securitySettingsGoogleSignInScenario(page);
 });
 
 test("a dev-password session stays signed in after a reload", async ({

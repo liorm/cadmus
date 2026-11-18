@@ -1,25 +1,20 @@
 import type { Page } from "@playwright/test";
-import { clickByRole } from "./actions.ts";
 import { loginDevPassword } from "./dev-session.ts";
 import { expect } from "./fixtures.ts";
 
 export async function securitySettingsGoogleSignInScenario(
 	page: Page,
-	options?: { viaSettingsLink?: boolean; onReady?: () => Promise<void> },
+	options?: { onReady?: () => Promise<void> },
 ): Promise<void> {
-	if (options?.viaSettingsLink) {
-		await page.goto("/settings");
-		await clickByRole(page, "link", "Sign-in and sessions");
-	} else {
-		await page.goto("/settings/security");
-	}
+	await page.goto("/");
 	if (options?.onReady) await options.onReady();
+	const dialog = page.getByRole("dialog", { name: "Sign in to Cadmus" });
+	await expect(dialog).toBeVisible();
+	await expect(dialog.getByText("Sign-in is not enabled")).toHaveCount(0);
 	await expect(
-		page.getByText("You are using the shared access key"),
-	).toBeVisible();
-	await expect(
-		page.getByRole("link", { name: "Sign in with Google" }),
-	).toHaveAttribute("href", "/auth/login/google");
+		dialog.getByRole("link", { name: "Sign in with Google" }),
+	).toHaveAttribute("href", "/api/auth/login/google/start");
+	await expect(dialog.getByLabel("Password")).toBeVisible();
 }
 
 export async function securitySettingsDevPasswordReloadScenario(

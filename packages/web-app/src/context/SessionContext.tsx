@@ -44,8 +44,8 @@ export function useSession(): SessionState {
 
 /**
  * Resolves the session once at boot: tries the refresh cookie, then reads the
- * principal. With no session the app boots on the no-session fallback exactly
- * as before, so prod keeps working until the cutover.
+ * principal. With no session the router shows the login dialog. It does not
+ * fall back to the master secret.
  */
 export function SessionBoot({
 	children,

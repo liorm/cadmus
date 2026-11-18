@@ -43,9 +43,10 @@ bun run typecheck
 
 ### 4. Local Development
 
-Start the Cloudflare Worker locally:
+Start the Cloudflare Worker locally. The first run fails until `.dev.vars` has a dev password login (that file stays out of git):
 
 ```bash
+bun run dev:setup
 bun run dev
 ```
 

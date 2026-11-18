@@ -141,9 +141,7 @@ export async function sessionSignoutScenario(
 	await expect.poll(staleCookie).toBe(false);
 	// The signed-out page is the positive marker: the Sign in section renders
 	// only once the session check has finished and found no session.
-	const signedOut = page.getByText(
-		/Sign-in is not enabled|You are using the shared access key/,
-	);
+	const signedOut = page.getByRole("dialog", { name: "Sign in to Cadmus" });
 	await page.goto("/settings/security");
 	await expect(signedOut).toBeVisible();
 	await expect(page.getByText("Signed in as")).toHaveCount(0);

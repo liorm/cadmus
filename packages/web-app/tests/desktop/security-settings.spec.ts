@@ -9,13 +9,7 @@ test.use({ signIn: "none" });
 test("security settings shows Google sign-in inside the cockpit when enabled", async ({
 	page,
 }) => {
-	await securitySettingsGoogleSignInScenario(page, {
-		onReady: async () => {
-			await expect(
-				page.getByRole("banner", { name: "Cadmus Cockpit" }),
-			).toBeVisible();
-		},
-	});
+	await securitySettingsGoogleSignInScenario(page);
 });
 
 test("a dev-password session stays signed in inside the cockpit after a reload", async ({

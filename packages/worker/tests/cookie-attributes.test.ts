@@ -99,7 +99,7 @@ describe("refresh cookie name and attributes (issue #3 phase 8)", () => {
 
 	it("cookies are never a credential on the live routes", async () => {
 		const t = await seed();
-		const master = env.CADMUS_AUTH_SECRET || "dev-cadmus-secret";
+		const master = env.CADMUS_AUTH_SECRET ?? "";
 		const whoami = JSON.stringify({
 			id: "c1",
 			type: "auth.whoami",

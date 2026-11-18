@@ -8,6 +8,7 @@ packages/*/dist/
 auth.json
 auth.json.lock
 /.wrangler
+**/.dev.vars
 packages/*/node_modules/
 packages/web-app/.engine/
 packages/web-app/.wrangler/

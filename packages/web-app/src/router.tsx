@@ -6,6 +6,7 @@ import {
 } from "@tanstack/react-router";
 import { AccountResetNotice } from "@/components/AccountResetNotice";
 import { DesktopCockpitShell } from "@/components/desktop/CommandCockpit";
+import { LoginDialog } from "@/components/LoginDialog";
 import { CommandPaletteHost } from "@/components/desktop/CommandPalette";
 import { useDesktopViewport } from "@/components/desktop/use-desktop-viewport";
 import { CadmusProvider } from "@/context/CadmusContext";
@@ -38,44 +39,41 @@ function RootComponent() {
 	const desktop = useDesktopViewport();
 	return (
 		<SessionBoot>
-			{(session) => (
-				<CadmusProvider
-					key={session.signedIn ? "signed-in" : "signed-out"}
-					sessionMode={session.signedIn}
-					skipTenantSync={
-						session.signedIn &&
-						(session.principal?.role === "super-admin" ||
-							(!session.principal && session.tokens?.accountId === "system"))
-					}
-					initialConfig={
-						session.signedIn && session.tokens
-							? {
-									token: session.tokens.accessToken,
-									accountId:
-										session.principal?.accountId ??
-										session.tokens.accountId ??
-										"",
-									userId:
-										session.principal?.userId ?? session.tokens.userId ?? "",
-								}
-							: undefined
-					}
-				>
-					<ElevationProvider>
-						{session.notice ? (
-							<AccountResetNotice message={session.notice} />
-						) : null}
-						<CommandPaletteHost />
-						{desktop ? (
-							<DesktopCockpitShell>
+			{(session) =>
+				session.signedIn && session.tokens ? (
+					<CadmusProvider
+						key="signed-in"
+						sessionMode
+						skipTenantSync={
+							session.principal?.role === "super-admin" ||
+							(!session.principal && session.tokens.accountId === "system")
+						}
+						initialConfig={{
+							token: session.tokens.accessToken,
+							accountId:
+								session.principal?.accountId ?? session.tokens.accountId ?? "",
+							userId:
+								session.principal?.userId ?? session.tokens.userId ?? "",
+						}}
+					>
+						<ElevationProvider>
+							{session.notice ? (
+								<AccountResetNotice message={session.notice} />
+							) : null}
+							<CommandPaletteHost />
+							{desktop ? (
+								<DesktopCockpitShell>
+									<Outlet />
+								</DesktopCockpitShell>
+							) : (
 								<Outlet />
-							</DesktopCockpitShell>
-						) : (
-							<Outlet />
-						)}
-					</ElevationProvider>
-				</CadmusProvider>
-			)}
+							)}
+						</ElevationProvider>
+					</CadmusProvider>
+				) : (
+					<LoginDialog providers={session.providers} />
+				)
+			}
 		</SessionBoot>
 	);
 }

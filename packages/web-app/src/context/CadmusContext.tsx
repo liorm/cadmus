@@ -50,28 +50,23 @@ export interface DevAuthConfig {
 
 const STORAGE_KEY = "cadmus.dev.config";
 const REFRESH_RETRY_MS = 30_000;
+const DEFAULT_FAMILY_ID = "default";
 
-const DEFAULT_AUTH_CONFIG: DevAuthConfig = {
-	userId: "dev",
-	accountId: "default-account",
-	familyId: "default",
-	token: "dev-cadmus-secret",
-};
-
-function loadStoredConfig(): DevAuthConfig {
-	if (typeof window === "undefined") return DEFAULT_AUTH_CONFIG;
+/** Family choice only. Credentials are never stored or invented here. */
+function loadStoredFamilyId(): string {
+	if (typeof window === "undefined") return DEFAULT_FAMILY_ID;
 	try {
 		const raw = window.localStorage.getItem(STORAGE_KEY);
-		if (!raw) return DEFAULT_AUTH_CONFIG;
+		if (!raw) return DEFAULT_FAMILY_ID;
 		const parsed = JSON.parse(raw) as Partial<DevAuthConfig>;
-		return {
-			userId: parsed.userId?.trim() || DEFAULT_AUTH_CONFIG.userId,
-			accountId: parsed.accountId?.trim() || DEFAULT_AUTH_CONFIG.accountId,
-			familyId: parsed.familyId?.trim() || DEFAULT_AUTH_CONFIG.familyId,
-			token: parsed.token?.trim() || DEFAULT_AUTH_CONFIG.token,
-		};
+		if (parsed.token || parsed.userId || parsed.accountId) {
+			const familyId = parsed.familyId?.trim() || DEFAULT_FAMILY_ID;
+			window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ familyId }));
+			return familyId;
+		}
+		return parsed.familyId?.trim() || DEFAULT_FAMILY_ID;
 	} catch {
-		return DEFAULT_AUTH_CONFIG;
+		return DEFAULT_FAMILY_ID;
 	}
 }
 
@@ -168,8 +163,10 @@ export function CadmusProvider({
 	// Set before any stored state is read below; idempotent per render.
 	setStorageScope(sessionMode ? initialConfig?.accountId : undefined);
 	const [authConfig] = useState<DevAuthConfig>(() => ({
-		...loadStoredConfig(),
-		...initialConfig,
+		userId: initialConfig?.userId ?? "",
+		accountId: initialConfig?.accountId ?? "",
+		familyId: initialConfig?.familyId?.trim() || loadStoredFamilyId(),
+		token: initialConfig?.token ?? "",
 	}));
 	const client = useMemo(() => {
 		if (clientOverride) return clientOverride;
@@ -762,21 +759,10 @@ export function CadmusProvider({
 			const trimmed = nextFamilyId.trim();
 			if (!trimmed) return;
 			try {
-				const raw = localStorage.getItem(STORAGE_KEY);
-				// Never persist the live session access token: with no stored dev
-				// config, keep only the non-secret selection fields.
-				const parsed: Partial<DevAuthConfig> = raw
-					? (JSON.parse(raw) as Partial<DevAuthConfig>)
-					: {
-							userId: authConfig.userId,
-							accountId: authConfig.accountId,
-							familyId: authConfig.familyId,
-						};
-				const next: Partial<DevAuthConfig> = { ...parsed, familyId: trimmed };
-				// A session access token must never reach storage, even if an old
-				// record carries one.
-				if (next.token?.startsWith("cad_at_")) delete next.token;
-				localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+				localStorage.setItem(
+					STORAGE_KEY,
+					JSON.stringify({ familyId: trimmed }),
+				);
 			} catch {
 				/* private mode */
 			}
@@ -785,7 +771,7 @@ export function CadmusProvider({
 			clearDirectory(`${client.getAccountId()}:${trimmed}`);
 			await refreshDirectory();
 		},
-		[authConfig, clearDirectory, client, refreshDirectory],
+		[clearDirectory, client, refreshDirectory],
 	);
 
 	const archiveChat = useCallback(

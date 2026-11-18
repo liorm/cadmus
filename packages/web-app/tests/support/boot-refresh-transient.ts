@@ -36,7 +36,7 @@ export async function bootRefreshRateLimitedScenario(
 	).toBeVisible({ timeout: 45_000 });
 	await expect(page.getByText("Signed in as")).toHaveCount(0);
 	await expect(
-		page.getByText("You are using the shared access key"),
+		page.getByRole("dialog", { name: "Sign in to Cadmus" }),
 	).toHaveCount(0);
 }
 
