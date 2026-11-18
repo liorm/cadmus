@@ -1,5 +1,9 @@
 import { SELF } from "cloudflare:test";
 import {
+	CadmusClient,
+	type CadmusClientOptions,
+	isAuthError,
+	newCommandId,
 	ProtocolClient,
 	type ProtocolClientOptions,
 } from "@cadmus/contract/client";
@@ -66,6 +70,7 @@ export type {
 	BotCreateResult,
 	BotRecord,
 	BotUpdateResult,
+	CadmusClientOptions,
 	ChatCreateResult,
 	ChatGetResult,
 	ChatRecord,
@@ -95,6 +100,7 @@ export {
 	ApiErrorEnvelopeSchema,
 	BOT_METADATA_MAX_KEYS,
 	BOT_METADATA_MAX_VALUE_LENGTH,
+	CadmusClient,
 	CODE_EXECUTE_TOOL_NAME,
 	CODING_TOOL_NAMES,
 	commandCatalog,
@@ -103,7 +109,9 @@ export {
 	effectiveToolNames,
 	encodeClientQuery,
 	encodePayloadQuery,
+	isAuthError,
 	isReadOnlyGroupTool,
+	newCommandId,
 	ProtocolClient,
 	READONLY_GROUP_TOOL_NAMES,
 	readOnlyGroupToolNames,
@@ -1021,10 +1029,10 @@ function scanBytes(
 	};
 }
 
-function concat(left: Uint8Array, right: Uint8Array): Uint8Array {
-	const out = new Uint8Array(left.byteLength + right.byteLength);
+function concat(left: Uint8Array, right: Uint8Array): Uint8Array<ArrayBuffer> {
+	const out = new Uint8Array(left.length + right.length);
 	out.set(left, 0);
-	out.set(right, left.byteLength);
+	out.set(right, left.length);
 	return out;
 }
 
@@ -1036,9 +1044,15 @@ function concat(left: Uint8Array, right: Uint8Array): Uint8Array {
 const PASSKEY_RP_ID = "example.com";
 const PASSKEY_ORIGIN = "https://example.com";
 
-function concatAll(parts: Uint8Array[]): Uint8Array {
-	let out = new Uint8Array();
-	for (const part of parts) out = concat(out, part);
+function concatAll(parts: readonly Uint8Array[]): Uint8Array<ArrayBuffer> {
+	let length = 0;
+	for (const part of parts) length += part.length;
+	const out = new Uint8Array(length);
+	let offset = 0;
+	for (const part of parts) {
+		out.set(part, offset);
+		offset += part.length;
+	}
 	return out;
 }
 
@@ -1293,7 +1307,11 @@ export class TestPasskey {
 	}
 }
 
-function clientData(type: string, challenge: string, origin: string): Uint8Array {
+function clientData(
+	type: string,
+	challenge: string,
+	origin: string,
+): Uint8Array {
 	return new TextEncoder().encode(
 		JSON.stringify({ type, challenge, origin, crossOrigin: false }),
 	);

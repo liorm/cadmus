@@ -4,6 +4,9 @@ import { cadmusPlaywright } from "./tests/support/playwright-shared.ts";
 const shared = cadmusPlaywright("./tests/flows");
 
 /**
+ * Parked. Not part of CI or `check:all`. Do not maintain these suites.
+ * `bun run test:ui` still runs them locally.
+ *
  * Mobile journeys stay in `tests/flows` on the Pixel 7 device from main.
  * Desktop journeys live in `tests/desktop` at 1440×900. One worker serves both.
  */

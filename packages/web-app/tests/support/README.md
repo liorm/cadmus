@@ -1,14 +1,16 @@
-# UI-flow test support
+# Playwright test support
 
-Helpers every journey ticket reuses. Tests select by **role and accessible name**, never by CSS class or test-id-only selectors.
+Helpers used by `bun run web-app:screens` (`tests/screens`) and by the parked UI-flow suites (`tests/flows`, `tests/desktop`, `bun run test:ui`). Those suites are excluded from CI and `check:all`. Do not maintain them. They may be revived later.
+
+Tests select by **role and accessible name**, never by CSS class or test-id-only selectors.
 
 ## Engines
 
 | Engine | How | Notes |
 |---|---|---|
-| **Obscura** (default) | `packages/web-app/.engine/obscura` or `CADMUS_TEST_OBSCURA`, CDP on 9222 | Apache-2.0. Fast CDP. CI and `bun run test:ui` fetch pinned `v0.2.6`. |
+| Obscura | `packages/web-app/.engine/obscura` or `CADMUS_TEST_OBSCURA`, CDP on 9222 | Apache-2.0. Fast CDP. Was the flow-test default. |
 | Lightpanda | `packages/web-app/.engine/lightpanda` or `CADMUS_TEST_LIGHTPANDA` | AGPL-3.0, test-only. Needs `--load-resources`. One context per connection. |
-| Chrome | `bun run test:ui --engine=chrome` | Playwright Chromium headless shell. Manual fallback, not CI default. `bun run web-app:screens` always uses this engine and writes gitignored PNGs to `.screens/`. |
+| Chrome | `CADMUS_TEST_ENGINE=chrome` | Playwright Chromium headless shell. `bun run web-app:screens` always uses this engine and writes gitignored PNGs to `.screens/`. |
 
 `CADMUS_TEST_CDP_URL` skips launching and connects with `chromium.connectOverCDP`.
 

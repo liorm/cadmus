@@ -54,6 +54,64 @@ describe("REST /api command translation", () => {
 		expect(byType.get("turn.submit")?.readOnly).toBeUndefined();
 	});
 
+	it("coerces and rejects GET query payloads", async () => {
+		const accountId = uniqueAccountId("api-query");
+		const headers = authHeaders(accountId, "default");
+		const get = (path: string) =>
+			workerFetch(`http://example.com${path}`, { headers });
+
+		const listed = await get(
+			"/api/chat/list?includeDeleted=FALSE&kinds=direct&botId=%7B",
+		);
+		expect(listed.status).toBe(200);
+		const listedBody = (await listed.json()) as { chats?: unknown[] };
+		expect(Array.isArray(listedBody.chats)).toBe(true);
+
+		const jsonKinds = await get(
+			`/api/chat/list?kinds=${encodeURIComponent('["direct","group"]')}`,
+		);
+		expect(jsonKinds.status).toBe(200);
+
+		const audit = await get("/api/account/audit/list?limit=1.5&before=1.5e2");
+		expect(audit.status).toBe(200);
+
+		const unknown = await get("/api/chat/list?extra=1");
+		expect(unknown.status).toBe(400);
+		expect(await unknown.json()).toMatchObject({
+			error: { code: "invalid_command" },
+		});
+
+		const repeated = await get(
+			"/api/chat/list?includeDeleted=true&includeDeleted=false",
+		);
+		expect(repeated.status).toBe(400);
+		const repeatedBody = (await repeated.json()) as {
+			error?: { message?: string };
+		};
+		expect(repeatedBody.error?.message).toContain("must not be repeated");
+
+		const badArray = await get("/api/chat/list?kinds=%5B");
+		expect(badArray.status).toBe(400);
+		const badArrayBody = (await badArray.json()) as {
+			error?: { message?: string };
+		};
+		expect(badArrayBody.error?.message).toContain("JSON array");
+
+		const wrongItem = await get(
+			`/api/chat/list?kinds=${encodeURIComponent('["nope"]')}`,
+		);
+		expect(wrongItem.status).toBe(400);
+
+		const objectValue = await get(
+			`/api/chat/list?kinds=${encodeURIComponent('{"a":1}')}`,
+		);
+		expect(objectValue.status).toBe(400);
+		const objectBody = (await objectValue.json()) as {
+			error?: { message?: string };
+		};
+		expect(objectBody.error?.message).toContain("JSON-encoded");
+	});
+
 	it("rejects anonymous /api requests with the same 401 body as /rpc", async () => {
 		const rpc = await workerFetch("http://example.com/rpc", {
 			method: "POST",

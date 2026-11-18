@@ -1,6 +1,5 @@
 /**
  * Capture themed PNGs with Playwright Chromium.
- * UI-flow tests stay on Obscura via scripts/test-ui.ts.
  */
 import { spawn } from "node:child_process";
 

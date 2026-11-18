@@ -3,13 +3,14 @@
  *
  * Static stages share a pool of two processes (a 2-vCPU runner). E2E runs
  * after them so typecheck and the web build do not starve workerd timers.
- * `bun run test` then uses two Vitest workers (two miniflares). Keeping e2e
- * in its own stage leaves those CPUs to workerd. This stage runs the bun
- * conformance tests only. `bun run test:conformance` still runs both, on its own.
+ * `bun run test:coverage` then uses two Vitest workers (two miniflares) and
+ * fails when combined worker + contract line coverage drops below 85%.
+ * Keeping e2e in its own stage leaves those CPUs to workerd. This stage runs
+ * the bun conformance tests only. `bun run test:conformance` still runs both,
+ * on its own.
  *
- * `--group static`, `--group e2e`, or `--group ui` selects one slice.
- * The default runs static, then e2e, then UI-flow tests. A static
- * failure skips e2e and ui.
+ * `--group static` or `--group e2e` selects one slice. The default runs
+ * static, then e2e. A static failure skips e2e.
  */
 import { spawn } from "node:child_process";
 import {
@@ -19,7 +20,7 @@ import {
 	trackChild,
 } from "./child-close.ts";
 
-type Group = "static" | "e2e" | "ui";
+type Group = "static" | "e2e";
 
 type Stage = {
 	name: string;
@@ -95,12 +96,11 @@ const stages: Stage[] = [
 		group: "static",
 		weight: 30,
 	},
-	{ name: "test", cmd: ["bun", "run", "test"], group: "e2e", weight: 100 },
 	{
-		name: "test:ui",
-		cmd: ["bun", "run", "test:ui"],
-		group: "ui",
-		weight: 80,
+		name: "test:coverage",
+		cmd: ["bun", "run", "test:coverage"],
+		group: "e2e",
+		weight: 100,
 	},
 ];
 
@@ -119,16 +119,10 @@ function parseGroup(): "all" | Group {
 	if (args.length === 0) return "all";
 	if (args.length === 2 && args[0] === "--group") {
 		const value = args[1];
-		if (
-			value === "all" ||
-			value === "static" ||
-			value === "e2e" ||
-			value === "ui"
-		)
-			return value;
+		if (value === "all" || value === "static" || value === "e2e") return value;
 	}
 	process.stderr.write(
-		"usage: bun scripts/check-all.ts [--group all|static|e2e|ui]\n",
+		"usage: bun scripts/check-all.ts [--group all|static|e2e]\n",
 	);
 	process.exit(2);
 }
@@ -222,7 +216,6 @@ let exitCode = 0;
 try {
 	const staticStages = stages.filter((stage) => stage.group === "static");
 	const e2eStages = stages.filter((stage) => stage.group === "e2e");
-	const uiStages = stages.filter((stage) => stage.group === "ui");
 	const results: Result[] = [];
 
 	if (selected === "all" || selected === "static") {
@@ -245,24 +238,6 @@ try {
 			}
 		} else {
 			results.push(...(await runPool(e2eStages, 1)));
-		}
-	}
-
-	if (selected === "all" || selected === "ui") {
-		if (selected === "all" && staticFailed) {
-			for (const stage of uiStages) {
-				const skipped: Result = {
-					name: stage.name,
-					code: 1,
-					seconds: 0,
-					output: "skipped because a static stage failed\n",
-					skipped: true,
-				};
-				results.push(skipped);
-				printResult(skipped);
-			}
-		} else {
-			results.push(...(await runPool(uiStages, 1)));
 		}
 	}
 

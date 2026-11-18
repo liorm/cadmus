@@ -12,14 +12,10 @@ test("a boot refresh that stays rate limited says it could not check sign-in (de
 	baseURL,
 }) => {
 	allowSlowTest(120_000);
+	// SessionBoot renders this alert in place of the app, so there is no cockpit banner.
 	await bootRefreshRateLimitedScenario(
 		page,
 		baseURL ?? "http://127.0.0.1:8799",
-		async () => {
-			await expect(
-				page.getByRole("banner", { name: "Cadmus Cockpit" }),
-			).toBeVisible();
-		},
 	);
 });
 

@@ -3,10 +3,10 @@ import {
 	cookiePair,
 	elevateAccessToken,
 	loginDevPassword,
-	sendRpc,
-	setCookieLines,
 	type PasskeyAssertionJson,
 	type PasskeyRegistrationJson,
+	sendRpc,
+	setCookieLines,
 	TestPasskey,
 	useWorkerFixture,
 	WORKER_BASE_URL,
@@ -90,7 +90,8 @@ async function freshGoogleSession(input: {
 				: request instanceof URL
 					? request.toString()
 					: request.url;
-		if (url === GOOGLE_TOKEN_URL) return Response.json({ id_token: nextIdToken });
+		if (url === GOOGLE_TOKEN_URL)
+			return Response.json({ id_token: nextIdToken });
 		if (url === GOOGLE_JWKS_URL) {
 			return Response.json({
 				keys: [{ ...publicJwk, kid: KID, alg: "RS256", use: "sig" }],
@@ -213,11 +214,7 @@ async function finish(
 		methodId?: string;
 		elevatedUntil?: number;
 		removedMethodId?: string;
-	}>(
-		"auth.passkeys.finish",
-		{ purpose, challengeId, response },
-		{ token },
-	);
+	}>("auth.passkeys.finish", { purpose, challengeId, response }, { token });
 	if (!res.frame.ok) return { ok: false, code: res.frame.error?.code };
 	return { ok: true, ...res.frame.result };
 }
@@ -239,7 +236,9 @@ describe("passkey registration, elevation, and removal", () => {
 			token,
 			"register",
 			started.result.challengeId,
-			await passkey.registration({ challenge: started.result.options.challenge }),
+			await passkey.registration({
+				challenge: started.result.options.challenge,
+			}),
 		);
 		expect(registered.ok, JSON.stringify(registered)).toBe(true);
 		expect(registered.methodId?.startsWith("lm_")).toBe(true);
@@ -288,9 +287,14 @@ describe("passkey registration, elevation, and removal", () => {
 		expect(started.ok, JSON.stringify(started)).toBe(true);
 		if (!started.ok) return;
 
-		const malformed = await finish(token, "register", started.result.challengeId, {
-			id: "not-a-credential",
-		});
+		const malformed = await finish(
+			token,
+			"register",
+			started.result.challengeId,
+			{
+				id: "not-a-credential",
+			},
+		);
 		expect(malformed.ok).toBe(false);
 		expect(malformed.code).toBe("forbidden");
 

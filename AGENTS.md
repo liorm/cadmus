@@ -93,8 +93,8 @@ This document contains everything an autonomous coding agent needs to understand
 
 Unit testing is secondary. **Black-box End-to-End (E2E) tests are paramount** to guarantee that the system as a whole behaves correctly without leaking internal implementation details:
 1. **Backend & Protocol API (`e2e/*.test.ts`)**: Black-box tests running against the real Worker runtime (`workerd` via Vitest / `cloudflare:test`), interacting strictly through HTTP/WS contract calls (`callApi`, `sendRpc`, `connectTestWs`, `workerFetch`). These guarantee that the API is solid, tenant-isolated, durable, and replay-safe across DO restarts.
-2. **Web App Frontend (`bun run test:ui`)**: Black-box Playwright tests. `packages/web-app/tests/flows/*.spec.ts` is the mobile suite (Pixel 7) and stays the phone journeys. `packages/web-app/tests/desktop/*.spec.ts` is the 1440×900 Command Cockpit suite. `bun run test:ui` runs both projects.
-3. **Always Add / Update E2E Tests**: When introducing new features or modifying behavior, prioritize adding or updating black-box E2E tests (`e2e/*.test.ts` for backend/protocol changes and Playwright tests in both `packages/web-app/tests/flows/` and `packages/web-app/tests/desktop/` for web UI changes). Unit tests should only be used for small isolated algorithmic utilities (e.g. text parsing, time formatting).
+2. **Web App Frontend**: The Playwright UI-flow suites (`packages/web-app/tests/flows`, `packages/web-app/tests/desktop`, `bun run test:ui`) are parked and excluded from CI and `check:all`. Do not maintain them. They may be revived later. Until they return, web UI changes are checked with `bun run --cwd packages/web-app test` (unit tests), `bun run typecheck`, and, when asked, `bun run web-app:screens`.
+3. **Always Add / Update E2E Tests**: When introducing new features or modifying behavior, prioritize adding or updating black-box E2E tests (`e2e/*.test.ts` for backend/protocol changes). Unit tests should only be used for small isolated algorithmic utilities (e.g. text parsing, time formatting).
 
 ### Commands
 
@@ -148,7 +148,7 @@ Do not sleep for a fixed multi-second gap in e2e. Wait until the event or condit
 
 Do **NOT** automatically run `bun run web-app:screens`. Screenshot generation is strictly on-demand when explicitly requested by the user. Never commit screenshots. If the user asks for screenshots, attach the relevant PNGs to the PR with `gh pr comment <N> --body-file <md> --attach <png>...` (or `gh pr create/edit --attach`).
 
-The command is local only. It is not part of CI or `check:all`. It reuses the UI-flow Playwright worker, per-run account, and Pixel 7 viewport, and launches Playwright Chromium. Flow tests stay on Obscura. PNGs land in gitignored `packages/web-app/.screens/` as `<screen>-<theme>.png`.
+The command is local only. It is not part of CI or `check:all`. It starts the local worker through `playwright.screens.config.ts`, uses a per-run account and the Pixel 7 viewport, and launches Playwright Chromium. PNGs land in gitignored `packages/web-app/.screens/` as `<screen>-<theme>.png`.
 
 ---
 
@@ -168,7 +168,7 @@ Bump `CADMUS_SCHEMA_VERSION` only when D1 tables or columns change in [`packages
 
 ## 5. Multi-Surface Feature Workflow (Contract -> Backend -> Web Surfaces)
 
-Because `@cadmus/web-app` and its Playwright E2E suites (`bun run test:ui`) execute against the real local Cloudflare Worker and generated `@cadmus/contract` routes, full-stack features have a strict **sequential dependency**:
+Because `@cadmus/web-app` executes against the real local Cloudflare Worker and generated `@cadmus/contract` routes, full-stack features have a strict **sequential dependency**:
 
 1. **Phase 1 — Contract & Backend ([`.agents/skills/contract-backend/SKILL.md`](.agents/skills/contract-backend/SKILL.md))**:
    - Lock schemas in `packages/contract/src/*`, run `bun run contract:gen`, and verify `bun run contract:check` + `bun run boundaries`.
@@ -179,8 +179,8 @@ Because `@cadmus/web-app` and its Playwright E2E suites (`bun run test:ui`) exec
 2. **Phase 2 — Dual Web Surfaces ([`.agents/skills/web-surfaces/SKILL.md`](.agents/skills/web-surfaces/SKILL.md) & [`packages/web-app/AGENTS.md`](packages/web-app/AGENTS.md))**:
    - Wire shared state/RPC calls once in `packages/web-app/src/context/CadmusContext.tsx`, `packages/web-app/src/hooks/*`, and `packages/web-app/src/lib/*`.
    - Deliver first-class UI on both **Mobile (`390×844`)** and the **Persistent Desktop Command Cockpit (`1440×900`)** (`CockpitFrame` Stage / `FleetDeck` / `TelemetryDeck` / `CommandPalette`, with zero mobile `AppShell` ejection on Desktop).
-   - Add/update black-box Playwright E2E tests in **both** `packages/web-app/tests/flows/*.spec.ts` (Mobile) and `packages/web-app/tests/desktop/*.spec.ts` (Desktop).
-   - **Gate 2**: `bun run typecheck && bun run test:ui` must pass.
+   - The Playwright UI-flow suites (`packages/web-app/tests/flows`, `packages/web-app/tests/desktop`, `bun run test:ui`) are parked and excluded from CI and `check:all`. Do not maintain them. They may be revived later.
+   - **Gate 2**: `bun run typecheck && bun run --cwd packages/web-app test` must pass.
 
 3. **Subagent Execution Strategy**:
    - **Small / Single-Layer Changes**: A single Coder agent executes Phase 1 then Phase 2 sequentially.

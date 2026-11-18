@@ -10,7 +10,7 @@ description: >-
 
 Use this workflow whenever adding or modifying protocol commands, payload/result schemas, REST `/api/*` routes, agent tools, SSE/WS events, Durable Object / D1 storage, or Worker command handlers.
 
-Because the Web UI (`@cadmus/web-app`), CLI (`@cadmus/cli`), and Playwright E2E suite (`bun run test:ui`) run against the real contract and Worker runtime, **Contract + Backend + Black-Box Worker E2E must be locked and green before any Web UI surface work begins.**
+Because the Web UI (`@cadmus/web-app`) and CLI (`@cadmus/cli`) run against the real contract and Worker runtime, **Contract + Backend + Black-Box Worker E2E must be locked and green before any Web UI surface work begins.**
 
 ---
 
@@ -73,7 +73,7 @@ Because the Web UI (`@cadmus/web-app`), CLI (`@cadmus/cli`), and Playwright E2E 
    - Provision a fresh account per test with `uniqueAccountId()`. Use the offline deterministic model `faux/echo` (and `[tool:<name> <jsonArgs>]` prompts when testing tool execution).
    - Never import `@cadmus/worker` internals inside `e2e/*.test.ts` (white-box DO tests belong in `packages/worker/tests/*.test.ts`).
 3. **Mandatory Verification Gate**:
-   Run and pass all backend checks before starting frontend Playwright work:
+   Run and pass all backend checks before starting frontend work:
    ```bash
    bun run contract:check
    bun run boundaries

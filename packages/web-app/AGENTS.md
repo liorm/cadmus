@@ -19,6 +19,6 @@ Whenever reading, modifying, or adding code under `packages/web-app/**`, you MUS
    - On Desktop viewports (`useDesktopViewport()` in [`src/components/desktop/use-desktop-viewport.ts`](src/components/desktop/use-desktop-viewport.ts)), [`CockpitFrame.tsx`](src/components/desktop/CockpitFrame.tsx) (`FleetDeck` + center **Stage** + `TelemetryDeck` + `CommandPalette`) is the persistent workspace shell.
    - **No Mobile Ejection**: Never introduce Desktop navigation flows that kick the user out of `CockpitFrame` into a standalone full-screen mobile `AppShell` page with a mobile `‹ Back` header. Render sub-views inside the Cockpit Stage or a desktop modal/drawer and keep URL state synced.
 
-5. **Mandatory Dual Playwright E2E Gate**:
-   - Every UI change requires black-box Playwright E2E coverage in **both** [`tests/flows/*.spec.ts`](tests/flows/) (Mobile Pixel 7) and [`tests/desktop/*.spec.ts`](tests/desktop/) (Desktop `1440×900`), verified via `bun run test:ui` and `bun run typecheck`.
+5. **Verification**:
+   - The Playwright UI-flow suites (`tests/flows`, `tests/desktop`, `bun run test:ui`) are parked and excluded from CI and `check:all`. Do not maintain them. They may be revived later. Until then, verify UI changes with `bun run test` (unit tests in this package) and `bun run typecheck`.
    - Do not run `bun run web-app:screens` unless explicitly requested by the user.

@@ -415,6 +415,11 @@ export interface CadmusClientOptions {
 	accountId?: string;
 	familyId?: string;
 	fetchImpl?: typeof globalThis.fetch | FetchFunction;
+	/**
+	 * Socket constructor. Browsers use the global `WebSocket`. Hosts that
+	 * cannot open a raw socket (the workerd test runner) inject one.
+	 */
+	webSocketImpl?: WebSocketConstructor;
 	/** A signed-in client: it never invents an account id (see the constructor). */
 	useTickets?: boolean;
 }
@@ -444,6 +449,7 @@ export class CadmusClient {
 				: (options.accountId ?? "default-account"),
 			familyId: options.familyId ?? "default",
 			fetchImpl: options.fetchImpl,
+			webSocketImpl: options.webSocketImpl,
 			// The socket always opens with a header-minted ticket; the worker
 			// refuses ?token=. `options.useTickets` only decides the account default.
 			useTickets: true,

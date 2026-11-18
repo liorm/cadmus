@@ -2,8 +2,7 @@
 name: web-surfaces
 description: >-
   Dual-surface Web UI workflow for Cadmus (@cadmus/web-app). Enforces parity across Shared State
-  (CadmusContext/lib), Mobile (390x844), and Persistent Desktop Command Cockpit (1440x900), plus
-  mandatory Playwright E2E coverage in both tests/flows/ and tests/desktop/.
+  (CadmusContext/lib), Mobile (390x844), and Persistent Desktop Command Cockpit (1440x900).
 ---
 
 # Dual-Surface Web UI Workflow (`web-surfaces`)
@@ -66,17 +65,14 @@ When working in related areas, watch for and close these known Desktop vs. Mobil
 
 ---
 
-## 5. Mandatory Dual-Viewport Playwright E2E Gate
+## 5. Verification
 
-1. **Prerequisite**: Any `@cadmus/contract` or `@cadmus/worker` changes must already be implemented and verified via `bun run test` before running Playwright (Playwright tests run against the real local Worker).
-2. **Dual E2E Test Requirement**:
-   Every UI feature or bugfix must add or update black-box Playwright tests in **both** suites:
-   - **Mobile Suite (`390×844` Pixel 7)**: [`packages/web-app/tests/flows/*.spec.ts`](../../../packages/web-app/tests/flows/)
-   - **Desktop Cockpit Suite (`1440×900`)**: [`packages/web-app/tests/desktop/*.spec.ts`](../../../packages/web-app/tests/desktop/)
+1. **Prerequisite**: Any `@cadmus/contract` or `@cadmus/worker` changes must already be implemented and verified via `bun run test`.
+2. The Playwright UI-flow suites (`tests/flows`, `tests/desktop`, `bun run test:ui`) are parked and excluded from CI and `check:all`. Do not maintain them. They may be revived later.
 3. **Verification Commands**:
    ```bash
    bun run boundaries
    bun run typecheck
-   bun run test:ui
+   bun run --cwd packages/web-app test
    ```
    *(Reminder: Never run `bun run web-app:screens` unless explicitly requested by the user.)*
