@@ -28,17 +28,7 @@ import {
 	watchEvents,
 } from "@earendil-works/pi-durable";
 import { openDurableObjectSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/cloudflare";
-import type {
-	AuthenticationResponseJSON,
-	RegistrationResponseJSON,
-} from "@simplewebauthn/server";
 import { StreamSweepDeadline, syncDurableObjectAlarm } from "./alarms.js";
-import { getGoogleConfig, signLinkTicket } from "./auth/google.js";
-import {
-	relyingPartyFromUrl,
-	verifyPasskeyAuthentication,
-	verifyPasskeyRegistration,
-} from "./auth/webauthn.js";
 import { requireLiveApiTokenUse } from "./auth.js";
 import { withinPrincipalBudget } from "./auth-limiter.js";
 import {
@@ -135,20 +125,6 @@ import {
 } from "./schedules.js";
 import { defaultJsonShim, type ProtocolShim } from "./shim.js";
 import { D1AdminStore, toDoName } from "./store/d1-admin.js";
-import {
-	canEnrollPasskey,
-	consumeChallenge,
-	finishElevation,
-	finishRegistration,
-	finishRemoval,
-	getActivePasskey,
-	issueChallenge,
-	listActivePasskeys,
-	newAttemptId,
-	passkeyUserLabel,
-	userHandleFor,
-} from "./store/d1-passkeys.js";
-import { ELEVATION_MS } from "./store/d1-sessions.js";
 import type { FamilyStore, GroupChatRecord } from "./store/family-interface.js";
 import {
 	CasConflictError,
@@ -247,6 +223,7 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 				? Number(env.CADMUS_HARVEST_DELAY_MS)
 				: 60_000,
 			edgeCache,
+			bootstrapEmail: env.CADMUS_BOOTSTRAP_SUPER_ADMIN_EMAIL,
 		});
 		this.credentialStore = new AccountCredentialStore(
 			this.adminStore,
@@ -1152,7 +1129,7 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 					: 4403;
 			live.set(key, code);
 			if (code === 0 && grants.includes("toolsEnv.read")) toolsReaders.add(key);
-			// account.oauth.event carries the device user code and authorization
+			// account.credentials.oauth.event carries the device user code and authorization
 			// URL of an in-progress provider login: credentials.manage only.
 			if (code === 0 && grants.includes("credentials.manage")) {
 				toolsReaders.add(`${OAUTH_MANAGER_PREFIX}${key}`);
@@ -1295,14 +1272,14 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 
 	private deliverEvent(event: ServerFrame, toolsReaders: Set<string>): void {
 		const text = this.shim.encodeFrame(event);
-		// account.toolsEnv.event needs toolsEnv.read and account.oauth.event
+		// account.toolsEnv.event needs toolsEnv.read and account.credentials.oauth.event
 		// needs credentials.manage. Session principals come from the sweep that
 		// ran for this batch. A socket with no session id is the master secret,
 		// a legacy member token, or a cad_pat_ / cad_svc_ bearer ticket: it
 		// receives the event only when the role and grants resolved at connect
 		// include the one the event needs. An SSE stream must be mapped to a
 		// session or recorded as legacy; an unmapped stream is denied.
-		const oauthEvent = event.type === "account.oauth.event";
+		const oauthEvent = event.type === "account.credentials.oauth.event";
 		const gated = event.type === "account.toolsEnv.event" || oauthEvent;
 		const prefix = oauthEvent ? OAUTH_MANAGER_PREFIX : "";
 		const neededGrant = oauthEvent ? "credentials.manage" : "toolsEnv.read";
@@ -1856,11 +1833,11 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 				}
 				return { models: result };
 			},
-			"account.oauth.providers": async (_command) => {
+			"account.credentials.oauth.providers": async (_command) => {
 				const providers = this.oauthManager.listProviders();
 				return { providers };
 			},
-			"account.oauth.start": async (command) => {
+			"account.credentials.oauth.start": async (command) => {
 				const { record, backgroundPromise } = await this.oauthManager.startFlow(
 					{
 						accountId: meta.accountId,
@@ -1871,18 +1848,18 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 				this.ctx.waitUntil(backgroundPromise);
 				return { flow: record };
 			},
-			"account.oauth.status": async (command) => {
+			"account.credentials.oauth.status": async (command) => {
 				const flow = this.oauthManager.getStatus(command.payload.flowId);
 				return { flow };
 			},
-			"account.oauth.submit": async (command) => {
+			"account.credentials.oauth.submit": async (command) => {
 				const flow = this.oauthManager.submitInput(
 					command.payload.flowId,
 					command.payload.input,
 				);
 				return { flow };
 			},
-			"account.oauth.cancel": async (command) => {
+			"account.credentials.oauth.cancel": async (command) => {
 				const flow = this.oauthManager.cancelFlow(command.payload.flowId);
 				return { flow, cancelled: true };
 			},
@@ -1941,6 +1918,7 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 					name: command.payload.name,
 					timezone: command.payload.timezone,
 					actor: caller.userId ?? "unknown",
+					ownerEmail: command.payload.ownerEmail,
 				});
 				if (!result.ok) {
 					throw new ProtocolValidationError(result.message, result.code);
@@ -2073,17 +2051,6 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 				}
 				return { revoked: result.revoked };
 			},
-			"system.users.resetPasskeys": async (command) => {
-				const result = await this.adminStore.resetUserPasskeys({
-					userId: command.payload.userId,
-					actor: caller.userId ?? "unknown",
-					actorSessionId: requireSession(caller),
-				});
-				if (!result.ok) {
-					throw new ProtocolValidationError(result.message, result.code);
-				}
-				return { passkeys: result.passkeys, sessions: result.sessions };
-			},
 			"system.audit.list": async (command) => {
 				return {
 					events: await this.adminStore.listSystemAudit({
@@ -2102,184 +2069,64 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 				);
 				if (elevatedUntil === undefined) {
 					throw new ProtocolValidationError(
-						"Admin mode here needs passkey proof: use your passkey. Without a passkey, enter admin mode in the account you signed in to, or enroll one first.",
+						"Admin mode needs a signed-in user session in this account.",
 						"forbidden",
 					);
 				}
 				return { elevatedUntil };
 			},
-			"auth.passkeys.begin": async (command) => {
-				await this.requireAuthBudget("auth.passkeys.begin", caller);
-				const sessionId = requireSession(caller);
-				const userId = caller.userId ?? "";
-				const purpose = command.payload.purpose;
-				const refuse = () =>
-					new ProtocolValidationError("Passkey request refused", "forbidden");
-				const rp = relyingPartyFromUrl(this.env.CADMUS_PUBLIC_URL);
-				if (!rp) throw refuse();
-				const db = await this.adminStore.passkeyDb();
-				const existing = await listActivePasskeys(db, userId);
-				if (purpose === "remove") {
-					if (!existing.length || !command.payload.methodId) throw refuse();
-				} else if (command.payload.methodId !== undefined) {
-					throw refuse();
-				} else if (purpose === "elevate") {
-					if (
-						!callerGrants(caller).includes("admin.elevate") ||
-						!existing.length
-					) {
-						throw refuse();
-					}
-				} else if (!(await canEnrollPasskey(db, { sessionId, userId }))) {
-					// First enrollment needs a verified fresh Google auth_time. Adding another
-					// passkey needs admin mode, which a passkey proved.
-					throw refuse();
-				}
-				const issued = await issueChallenge(db, {
-					purpose,
-					userId,
-					sessionId,
-					rp,
-					...(purpose === "remove"
-						? { targetMethodId: command.payload.methodId }
-						: {}),
-				});
-				if (!issued) throw refuse();
-				const creds = existing.map((c) => ({
-					id: c.id,
-					type: "public-key",
-					transports: c.transports,
-				}));
-				if (purpose === "elevate" || purpose === "remove") {
-					return {
-						challengeId: issued.id,
-						options: {
-							challenge: issued.challenge,
-							rpId: rp.id,
-							timeout: 120_000,
-							userVerification: "required",
-							allowCredentials: creds,
-						},
-					};
-				}
-				const handle = await userHandleFor(db, userId);
-				if (!handle) throw refuse();
-				const label = await passkeyUserLabel(db, userId);
-				return {
-					challengeId: issued.id,
-					options: {
-						challenge: issued.challenge,
-						rp: { id: rp.id, name: "Cadmus" },
-						user: { id: handle, name: label, displayName: label },
-						pubKeyCredParams: [{ type: "public-key", alg: -7 }],
-						timeout: 120_000,
-						attestation: "none",
-						authenticatorSelection: {
-							residentKey: "required",
-							userVerification: "required",
-						},
-						excludeCredentials: creds,
-					},
-				};
+			"auth.login.providers": async () => {
+				throw new ProtocolValidationError(
+					"Public login commands run on /api",
+					"unsupported_command",
+				);
 			},
-			"auth.passkeys.finish": async (command) => {
-				await this.requireAuthBudget("auth.passkeys.finish", caller);
-				const sessionId = requireSession(caller);
-				const userId = caller.userId ?? "";
-				const { purpose, challengeId } = command.payload;
-				const refuse = () =>
-					new ProtocolValidationError(
-						"Passkey verification failed",
-						"forbidden",
+			"auth.login.devPassword": async () => {
+				throw new ProtocolValidationError(
+					"Public login commands run on /api",
+					"unsupported_command",
+				);
+			},
+			"auth.login.token": async () => {
+				throw new ProtocolValidationError(
+					"Public login commands run on /api",
+					"unsupported_command",
+				);
+			},
+			"auth.login.google.start": async () => {
+				throw new ProtocolValidationError(
+					"Public login commands run on /api",
+					"unsupported_command",
+				);
+			},
+			"auth.session.refresh": async () => {
+				throw new ProtocolValidationError(
+					"Public login commands run on /api",
+					"unsupported_command",
+				);
+			},
+			"auth.session.logout": async () => {
+				throw new ProtocolValidationError(
+					"Public login commands run on /api",
+					"unsupported_command",
+				);
+			},
+			"auth.methods.delete": async (command) => {
+				requireSession(caller);
+				const result = await this.adminStore.revokeLoginMethod(
+					caller.userId ?? "",
+					command.payload.methodId,
+				);
+				if (!result.ok) {
+					throw new ProtocolValidationError(
+						"last_login_method: the last active login method cannot be deleted",
+						"conflict",
 					);
-				const rp = relyingPartyFromUrl(this.env.CADMUS_PUBLIC_URL);
-				const response = command.payload.response as { id?: unknown };
-				if (!rp || typeof response.id !== "string") throw refuse();
-				const db = await this.adminStore.passkeyDb();
-				const existing = await listActivePasskeys(db, userId);
-				if (purpose === "remove") {
-					if (!existing.length) throw refuse();
-				} else if (purpose === "elevate") {
-					if (!callerGrants(caller).includes("admin.elevate")) throw refuse();
-				} else if (!(await canEnrollPasskey(db, { sessionId, userId }))) {
-					throw refuse();
 				}
-				const attemptId = newAttemptId();
-				const challenge = await consumeChallenge(db, {
-					id: challengeId,
-					purpose,
-					userId,
-					sessionId,
-					rp,
-					attemptId,
-				});
-				if (!challenge) throw refuse();
-				if (purpose === "register") {
-					const verified = await verifyPasskeyRegistration({
-						response: command.payload
-							.response as unknown as RegistrationResponseJSON,
-						expectedChallenge: challenge,
-						rp,
-					});
-					if (!verified.ok) throw refuse();
-					const done = await finishRegistration(db, {
-						attemptId,
-						challengeId,
-						userId,
-						sessionId,
-						accountId: meta.accountId,
-						credential: {
-							id: verified.credentialId,
-							publicKey: verified.publicKey,
-							counter: verified.counter,
-							transports: verified.transports,
-							deviceType: verified.deviceType,
-							backedUp: verified.backedUp,
-						},
-						display: "Passkey",
-					});
-					if (!done.ok) throw refuse();
-					return { methodId: done.loginMethodId };
-				}
-				const stored = await getActivePasskey(db, response.id);
-				if (!stored || stored.userId !== userId) throw refuse();
-				const verified = await verifyPasskeyAuthentication({
-					response: command.payload
-						.response as unknown as AuthenticationResponseJSON,
-					expectedChallenge: challenge,
-					rp,
-					credential: {
-						id: stored.credentialId,
-						publicKey: stored.publicKey,
-						counter: stored.counter,
-					},
-					expectedUserHandle: stored.userHandle,
-				});
-				if (!verified.ok) throw refuse();
-				if (purpose === "remove") {
-					const removed = await finishRemoval(db, {
-						attemptId,
-						challengeId,
-						credentialId: stored.credentialId,
-						verifiedAgainstCounter: stored.counter,
-						newCounter: verified.newCounter,
-						sessionId,
-					});
-					if (!removed.ok) throw refuse();
-					return { removedMethodId: removed.methodId };
-				}
-				const done = await finishElevation(db, {
-					attemptId,
-					challengeId,
-					credentialId: stored.credentialId,
-					verifiedAgainstCounter: stored.counter,
-					newCounter: verified.newCounter,
-					sessionId,
-					elevationMs: ELEVATION_MS,
-					accountId: caller.accountId,
-				});
-				if (!done.ok) throw refuse();
-				return { elevatedUntil: done.elevatedUntil };
+				return {
+					deleted: result.revoked,
+					sessionsRevoked: result.sessionsRevoked,
+				};
 			},
 			"auth.elevation.end": async (_command) => {
 				const sessionId = requireSession(caller);
@@ -2419,44 +2266,6 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 				requireSession(caller);
 				return {
 					methods: await this.adminStore.listLoginMethods(caller.userId ?? ""),
-				};
-			},
-			"auth.methods.link.start": async (_command) => {
-				const sessionId = requireSession(caller);
-				if (!getGoogleConfig(this.env)) {
-					throw new ProtocolValidationError(
-						"Google sign-in is not configured",
-						"conflict",
-					);
-				}
-				const { ticket, bind, expiresAt } = await signLinkTicket(
-					this.env,
-					caller.userId ?? "",
-					sessionId,
-				);
-				return { ticket, bind, expiresAt };
-			},
-			"auth.methods.revoke": async (command) => {
-				requireSession(caller);
-				const result = await this.adminStore.revokeLoginMethod(
-					caller.userId ?? "",
-					command.payload.methodId,
-				);
-				if (!result.ok) {
-					if (result.code === "passkey_requires_proof") {
-						throw new ProtocolValidationError(
-							"A passkey is removed with a passkey ceremony, not here",
-							"forbidden",
-						);
-					}
-					throw new ProtocolValidationError(
-						"last_login_method: the last active login method cannot be revoked",
-						"conflict",
-					);
-				}
-				return {
-					revoked: result.revoked,
-					sessionsRevoked: result.sessionsRevoked,
 				};
 			},
 			"auth.whoami": async (_command) => {

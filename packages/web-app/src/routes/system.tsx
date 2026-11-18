@@ -56,6 +56,7 @@ function Console() {
 	const [busy, setBusy] = useState(false);
 	const [selected, setSelected] = useState<string | null>(null);
 	const [name, setName] = useState("");
+	const [ownerEmail, setOwnerEmail] = useState("");
 	// The list is every tenant. Mounting them all freezes the page once the
 	// catalog is large, so the console shows the newest page and reveals more
 	// on request. Newest first: a row just created is on the first page.
@@ -146,11 +147,17 @@ function Console() {
 					onSubmit={(event) => {
 						event.preventDefault();
 						const trimmed = name.trim();
-						if (!trimmed) return;
+						const email = ownerEmail.trim();
+						if (!trimmed || !email) return;
 						void run(
-							() => client.callRpc("system.accounts.create", { name: trimmed }),
+							() =>
+								client.callRpc("system.accounts.create", {
+									name: trimmed,
+									ownerEmail: email,
+								}),
 							() => {
 								setName("");
+								setOwnerEmail("");
 								accounts.retry();
 							},
 						);
@@ -163,6 +170,14 @@ function Console() {
 						value={name}
 						disabled={busy}
 						onChange={(event) => setName(event.target.value)}
+					/>
+					<input
+						aria-label="Owner email"
+						placeholder="Owner email"
+						className={`${fieldClass} min-w-0 flex-1`}
+						value={ownerEmail}
+						disabled={busy}
+						onChange={(event) => setOwnerEmail(event.target.value)}
 					/>
 					<button type="submit" className={buttonClass} disabled={busy}>
 						Create account
@@ -404,11 +419,9 @@ function Members({
 	reload: () => void;
 }) {
 	const { client } = useCadmus();
-	const ownUserId = useSession().principal?.userId;
 	const [email, setEmail] = useState("");
 	const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
 	const [confirmDisable, setConfirmDisable] = useState<string | null>(null);
-	const [confirmReset, setConfirmReset] = useState<string | null>(null);
 	const [role, setRole] = useState<"user" | "account-admin">("account-admin");
 	const [refusal, setRefusal] = useState<string | undefined>();
 	const members = useScopedResource(`system-members:${accountId}`, async () => {
@@ -530,46 +543,6 @@ function Members({
 										</div>
 									</fieldset>
 								) : null}
-								{confirmReset === member.userId ? (
-									<fieldset
-										aria-label={`Reset passkeys for ${label}`}
-										className="m-0 flex min-w-0 flex-col gap-2 rounded-md border border-destructive p-2"
-									>
-										<span className="break-words">
-											Reset passkeys for {label} in every account? This deletes
-											all of their passkeys and signs them out everywhere. It is
-											not limited to this account. If a passkey is their only
-											way to sign in, they cannot sign in until they have
-											another way.
-										</span>
-										<div className="flex flex-wrap gap-2">
-											<button
-												type="button"
-												className={dangerClass}
-												disabled={busy}
-												onClick={() => {
-													setConfirmReset(null);
-													void run(
-														() =>
-															client.callRpc("system.users.resetPasskeys", {
-																userId: member.userId,
-															}),
-														again,
-													);
-												}}
-											>
-												Confirm passkey reset in all accounts
-											</button>
-											<button
-												type="button"
-												className={buttonClass}
-												onClick={() => setConfirmReset(null)}
-											>
-												Cancel
-											</button>
-										</div>
-									</fieldset>
-								) : null}
 								<div className="flex flex-wrap gap-2">
 									<button
 										type="button"
@@ -637,17 +610,6 @@ function Members({
 									>
 										Sign out everywhere
 									</button>
-									{/* The worker refuses a reset of your own passkeys, so do not offer it. */}
-									{member.userId === ownUserId ? null : (
-										<button
-											type="button"
-											className={dangerClass}
-											disabled={busy}
-											onClick={() => setConfirmReset(member.userId)}
-										>
-											Reset passkeys in all accounts
-										</button>
-									)}
 									{confirmRemove === member.userId ? (
 										<>
 											<button

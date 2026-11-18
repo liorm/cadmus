@@ -632,11 +632,11 @@
 				}
 			}
 		},
-		"/api/account/oauth/providers": {
+		"/api/account/credentials/oauth/providers": {
 			"get": {
-				"operationId": "account.oauth.providers",
+				"operationId": "account.credentials.oauth.providers",
 				"x-cadmus-grant": "credentials.read",
-				"summary": "Command to list all supported OAuth providers and their authorization requirements.",
+				"summary": "List model-provider OAuth providers. This stores a credential on the account. It does not sign a user into Cadmus.",
 				"parameters": [],
 				"responses": {
 					"200": {
@@ -658,9 +658,9 @@
 				}
 			},
 			"head": {
-				"operationId": "account.oauth.providers.head",
+				"operationId": "account.credentials.oauth.providers.head",
 				"x-cadmus-grant": "credentials.read",
-				"summary": "Command to list all supported OAuth providers and their authorization requirements.",
+				"summary": "List model-provider OAuth providers. This stores a credential on the account. It does not sign a user into Cadmus.",
 				"parameters": [],
 				"responses": {
 					"200": { "description": "Same as GET with an empty body" },
@@ -671,11 +671,11 @@
 				}
 			}
 		},
-		"/api/account/oauth/start": {
+		"/api/account/credentials/oauth/start": {
 			"post": {
-				"operationId": "account.oauth.start",
+				"operationId": "account.credentials.oauth.start",
 				"x-cadmus-grant": "credentials.manage",
-				"summary": "Command to begin an OAuth authentication process for a provider, returning verification URLs and flowId.",
+				"summary": "Start OAuth that signs the account into a model provider and stores that credential. It does not open a Cadmus session.",
 				"requestBody": {
 					"required": true,
 					"content": {
@@ -719,9 +719,9 @@
 				}
 			}
 		},
-		"/api/account/oauth/status": {
+		"/api/account/credentials/oauth/status": {
 			"get": {
-				"operationId": "account.oauth.status",
+				"operationId": "account.credentials.oauth.status",
 				"x-cadmus-grant": "credentials.manage",
 				"summary": "Command to query the current progress, prompt, or completion status of an active OAuth flow.",
 				"parameters": [
@@ -732,9 +732,9 @@
 						"schema": {
 							"type": "string",
 							"minLength": 1,
-							"description": "Unique flow identifier returned by account.oauth.start."
+							"description": "Unique flow identifier returned by account.credentials.oauth.start."
 						},
-						"description": "Unique flow identifier returned by account.oauth.start."
+						"description": "Unique flow identifier returned by account.credentials.oauth.start."
 					}
 				],
 				"responses": {
@@ -757,7 +757,7 @@
 				}
 			},
 			"head": {
-				"operationId": "account.oauth.status.head",
+				"operationId": "account.credentials.oauth.status.head",
 				"x-cadmus-grant": "credentials.manage",
 				"summary": "Command to query the current progress, prompt, or completion status of an active OAuth flow.",
 				"parameters": [
@@ -768,9 +768,9 @@
 						"schema": {
 							"type": "string",
 							"minLength": 1,
-							"description": "Unique flow identifier returned by account.oauth.start."
+							"description": "Unique flow identifier returned by account.credentials.oauth.start."
 						},
-						"description": "Unique flow identifier returned by account.oauth.start."
+						"description": "Unique flow identifier returned by account.credentials.oauth.start."
 					}
 				],
 				"responses": {
@@ -782,9 +782,9 @@
 				}
 			}
 		},
-		"/api/account/oauth/submit": {
+		"/api/account/credentials/oauth/submit": {
 			"post": {
-				"operationId": "account.oauth.submit",
+				"operationId": "account.credentials.oauth.submit",
 				"x-cadmus-grant": "credentials.manage",
 				"summary": "Command to advance an interactive or code-submission OAuth step with user-supplied input.",
 				"requestBody": {
@@ -798,7 +798,7 @@
 									"flowId": {
 										"type": "string",
 										"minLength": 1,
-										"description": "Unique flow identifier returned by account.oauth.start."
+										"description": "Unique flow identifier returned by account.credentials.oauth.start."
 									},
 									"input": {
 										"type": "string",
@@ -831,9 +831,9 @@
 				}
 			}
 		},
-		"/api/account/oauth/cancel": {
+		"/api/account/credentials/oauth/cancel": {
 			"post": {
-				"operationId": "account.oauth.cancel",
+				"operationId": "account.credentials.oauth.cancel",
 				"x-cadmus-grant": "credentials.manage",
 				"summary": "Command to immediately abort an active OAuth flow and release pending resources.",
 				"requestBody": {
@@ -1119,14 +1119,14 @@
 			"post": {
 				"operationId": "system.accounts.create",
 				"x-cadmus-grant": "system.accounts.manage",
-				"summary": "Create a tenant account. Needs admin mode.",
+				"summary": "Create a tenant account and an account-admin membership for ownerEmail. Needs admin mode. Does not create a login method or a session.",
 				"requestBody": {
 					"required": true,
 					"content": {
 						"application/json": {
 							"schema": {
 								"type": "object",
-								"required": ["name"],
+								"required": ["name", "ownerEmail"],
 								"properties": {
 									"name": {
 										"type": "string",
@@ -1137,6 +1137,11 @@
 									"timezone": {
 										"type": "string",
 										"description": "IANA timezone for the account."
+									},
+									"ownerEmail": {
+										"type": "string",
+										"minLength": 3,
+										"description": "Email of the account owner. A new address creates a user with a primary email and no login method. An address that already belongs to a user reuses that user."
 									}
 								},
 								"description": "Command parameters."
@@ -1893,50 +1898,6 @@
 				}
 			}
 		},
-		"/api/system/users/resetPasskeys": {
-			"post": {
-				"operationId": "system.users.resetPasskeys",
-				"x-cadmus-grant": "system.users.manage",
-				"summary": "Remove a user's passkeys in every account and sign them out. Needs admin mode.",
-				"requestBody": {
-					"required": true,
-					"content": {
-						"application/json": {
-							"schema": {
-								"type": "object",
-								"required": ["userId"],
-								"properties": {
-									"userId": {
-										"type": "string",
-										"minLength": 1,
-										"description": "Target user."
-									}
-								},
-								"description": "Command parameters."
-							}
-						}
-					}
-				},
-				"responses": {
-					"200": {
-						"description": "Command result",
-						"content": {
-							"application/json": {
-								"schema": {
-									"$ref": "#/components/schemas/SystemUsersResetPasskeysResult"
-								}
-							}
-						}
-					},
-					"400": { "$ref": "#/components/responses/ApiError" },
-					"401": { "$ref": "#/components/responses/ApiError" },
-					"404": { "$ref": "#/components/responses/ApiError" },
-					"405": { "$ref": "#/components/responses/ApiError" },
-					"409": { "$ref": "#/components/responses/ApiError" },
-					"500": { "$ref": "#/components/responses/ApiError" }
-				}
-			}
-		},
 		"/api/auth/elevate": {
 			"post": {
 				"operationId": "auth.elevate",
@@ -1960,116 +1921,6 @@
 						"content": {
 							"application/json": {
 								"schema": { "$ref": "#/components/schemas/AuthElevateResult" }
-							}
-						}
-					},
-					"400": { "$ref": "#/components/responses/ApiError" },
-					"401": { "$ref": "#/components/responses/ApiError" },
-					"404": { "$ref": "#/components/responses/ApiError" },
-					"405": { "$ref": "#/components/responses/ApiError" },
-					"409": { "$ref": "#/components/responses/ApiError" },
-					"500": { "$ref": "#/components/responses/ApiError" }
-				}
-			}
-		},
-		"/api/auth/passkeys/begin": {
-			"post": {
-				"operationId": "auth.passkeys.begin",
-				"x-cadmus-grant": "tokens.self",
-				"summary": "Start a passkey ceremony for the signed-in session and return WebAuthn options. Register needs a session from a fresh Google sign-in (/auth/login/google?fresh=1, verified authentication time within 5 minutes) while the user has no passkey, and an elevated session once they have one; elevate needs admin.elevate. Remove needs a passkey and a passkey method id.",
-				"requestBody": {
-					"required": true,
-					"content": {
-						"application/json": {
-							"schema": {
-								"type": "object",
-								"required": ["purpose"],
-								"properties": {
-									"purpose": {
-										"anyOf": [
-											{ "type": "string", "const": "register" },
-											{ "type": "string", "const": "elevate" },
-											{ "type": "string", "const": "remove" }
-										],
-										"description": "register enrolls a passkey; elevate proves one; remove proves one to remove methodId."
-									},
-									"methodId": {
-										"type": "string",
-										"minLength": 1,
-										"description": "For remove: the passkey login method to remove."
-									}
-								},
-								"description": "What the passkey ceremony is for."
-							}
-						}
-					}
-				},
-				"responses": {
-					"200": {
-						"description": "Command result",
-						"content": {
-							"application/json": {
-								"schema": {
-									"$ref": "#/components/schemas/AuthPasskeysBeginResult"
-								}
-							}
-						}
-					},
-					"400": { "$ref": "#/components/responses/ApiError" },
-					"401": { "$ref": "#/components/responses/ApiError" },
-					"404": { "$ref": "#/components/responses/ApiError" },
-					"405": { "$ref": "#/components/responses/ApiError" },
-					"409": { "$ref": "#/components/responses/ApiError" },
-					"500": { "$ref": "#/components/responses/ApiError" }
-				}
-			}
-		},
-		"/api/auth/passkeys/finish": {
-			"post": {
-				"operationId": "auth.passkeys.finish",
-				"x-cadmus-grant": "tokens.self",
-				"summary": "Verify a passkey ceremony. Register stores the passkey. Elevate turns on admin mode for 15 minutes. Remove deletes the passkey chosen at begin, never the last login method. Every failure returns the same forbidden error.",
-				"requestBody": {
-					"required": true,
-					"content": {
-						"application/json": {
-							"schema": {
-								"type": "object",
-								"required": ["purpose", "challengeId", "response"],
-								"properties": {
-									"purpose": {
-										"anyOf": [
-											{ "type": "string", "const": "register" },
-											{ "type": "string", "const": "elevate" },
-											{ "type": "string", "const": "remove" }
-										],
-										"description": "Must match the begin call."
-									},
-									"challengeId": {
-										"type": "string",
-										"minLength": 1,
-										"description": "Challenge id returned by begin."
-									},
-									"response": {
-										"type": "object",
-										"properties": {},
-										"additionalProperties": true,
-										"description": "The WebAuthn credential JSON from the browser."
-									}
-								},
-								"description": "The finished ceremony."
-							}
-						}
-					}
-				},
-				"responses": {
-					"200": {
-						"description": "Command result",
-						"content": {
-							"application/json": {
-								"schema": {
-									"$ref": "#/components/schemas/AuthPasskeysFinishResult"
-								}
 							}
 						}
 					},
@@ -2365,26 +2216,26 @@
 				}
 			}
 		},
-		"/api/auth/methods/link/start": {
+		"/api/auth/methods/delete": {
 			"post": {
-				"operationId": "auth.methods.link.start",
+				"operationId": "auth.methods.delete",
 				"x-cadmus-grant": "tokens.self",
-				"summary": "Start linking a Google login to the signed-in user. Open `/auth/login/google?link=<ticket>` with the `bind` cookie set; the ticket lasts two minutes. An email match alone never merges users.",
+				"summary": "Delete one of the caller's login methods and the sessions opened through it. Refuses the last active method (last_login_method). Does not remove the user or any email row.",
 				"requestBody": {
 					"required": true,
 					"content": {
 						"application/json": {
 							"schema": {
 								"type": "object",
-								"required": ["provider"],
+								"required": ["methodId"],
 								"properties": {
-									"provider": {
+									"methodId": {
 										"type": "string",
-										"const": "google",
-										"description": "Provider."
+										"minLength": 1,
+										"description": "Login method to delete."
 									}
 								},
-								"description": "Provider to link."
+								"description": "Login method to delete."
 							}
 						}
 					}
@@ -2395,7 +2246,7 @@
 						"content": {
 							"application/json": {
 								"schema": {
-									"$ref": "#/components/schemas/AuthMethodsLinkStartResult"
+									"$ref": "#/components/schemas/AuthMethodsDeleteResult"
 								}
 							}
 						}
@@ -2409,26 +2260,66 @@
 				}
 			}
 		},
-		"/api/auth/methods/revoke": {
+		"/api/auth/login/providers": {
+			"get": {
+				"operationId": "auth.login.providers",
+				"summary": "Configured Cadmus sign-in providers. No grant.",
+				"parameters": [],
+				"responses": {
+					"200": {
+						"description": "Command result",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/AuthLoginProvidersResult"
+								}
+							}
+						}
+					},
+					"400": { "$ref": "#/components/responses/ApiError" },
+					"401": { "$ref": "#/components/responses/ApiError" },
+					"404": { "$ref": "#/components/responses/ApiError" },
+					"405": { "$ref": "#/components/responses/ApiError" },
+					"409": { "$ref": "#/components/responses/ApiError" },
+					"500": { "$ref": "#/components/responses/ApiError" }
+				}
+			},
+			"head": {
+				"operationId": "auth.login.providers.head",
+				"summary": "Configured Cadmus sign-in providers. No grant.",
+				"parameters": [],
+				"responses": {
+					"200": { "description": "Same as GET with an empty body" },
+					"400": { "$ref": "#/components/responses/ApiError" },
+					"401": { "$ref": "#/components/responses/ApiError" },
+					"404": { "$ref": "#/components/responses/ApiError" },
+					"405": { "$ref": "#/components/responses/ApiError" }
+				}
+			}
+		},
+		"/api/auth/login/devPassword": {
 			"post": {
-				"operationId": "auth.methods.revoke",
-				"x-cadmus-grant": "tokens.self",
-				"summary": "Revoke one of the caller's login methods and the sessions created through it. The last active method cannot be revoked (last_login_method).",
+				"operationId": "auth.login.devPassword",
+				"summary": "Local password sign-in. Refused in production. Refresh token is a cookie.",
 				"requestBody": {
 					"required": true,
 					"content": {
 						"application/json": {
 							"schema": {
 								"type": "object",
-								"required": ["methodId"],
+								"required": ["password"],
 								"properties": {
-									"methodId": {
+									"password": {
 										"type": "string",
 										"minLength": 1,
-										"description": "Login method to revoke."
+										"description": "Local password."
+									},
+									"email": {
+										"type": "string",
+										"description": "Email to sign in. When omitted, the configured bootstrap email is used."
 									}
 								},
-								"description": "Login method to revoke."
+								"description": "Local password sign-in."
 							}
 						}
 					}
@@ -2439,7 +2330,151 @@
 						"content": {
 							"application/json": {
 								"schema": {
-									"$ref": "#/components/schemas/AuthMethodsRevokeResult"
+									"$ref": "#/components/schemas/AuthLoginSessionResult"
+								}
+							}
+						}
+					},
+					"400": { "$ref": "#/components/responses/ApiError" },
+					"401": { "$ref": "#/components/responses/ApiError" },
+					"404": { "$ref": "#/components/responses/ApiError" },
+					"405": { "$ref": "#/components/responses/ApiError" },
+					"409": { "$ref": "#/components/responses/ApiError" },
+					"500": { "$ref": "#/components/responses/ApiError" }
+				}
+			}
+		},
+		"/api/auth/login/token": {
+			"post": {
+				"operationId": "auth.login.token",
+				"summary": "Exchange cad_pat_ or cad_svc_ for a session. Refresh token is a cookie.",
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"properties": {},
+								"description": "Empty parameter payload. The secret is the Authorization bearer."
+							}
+						}
+					}
+				},
+				"responses": {
+					"200": {
+						"description": "Command result",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/AuthLoginSessionResult"
+								}
+							}
+						}
+					},
+					"400": { "$ref": "#/components/responses/ApiError" },
+					"401": { "$ref": "#/components/responses/ApiError" },
+					"404": { "$ref": "#/components/responses/ApiError" },
+					"405": { "$ref": "#/components/responses/ApiError" },
+					"409": { "$ref": "#/components/responses/ApiError" },
+					"500": { "$ref": "#/components/responses/ApiError" }
+				}
+			}
+		},
+		"/api/auth/login/google/start": {
+			"post": {
+				"operationId": "auth.login.google.start",
+				"summary": "Start Google sign-in. GET redirects to Google. Callback is GET /api/auth/login/google/callback.",
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"properties": {},
+								"description": "Empty parameter payload."
+							}
+						}
+					}
+				},
+				"responses": {
+					"200": {
+						"description": "Command result",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/AuthLoginGoogleStartResult"
+								}
+							}
+						}
+					},
+					"400": { "$ref": "#/components/responses/ApiError" },
+					"401": { "$ref": "#/components/responses/ApiError" },
+					"404": { "$ref": "#/components/responses/ApiError" },
+					"405": { "$ref": "#/components/responses/ApiError" },
+					"409": { "$ref": "#/components/responses/ApiError" },
+					"500": { "$ref": "#/components/responses/ApiError" }
+				}
+			}
+		},
+		"/api/auth/session/refresh": {
+			"post": {
+				"operationId": "auth.session.refresh",
+				"summary": "Rotate the session from the refresh cookie.",
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"properties": {},
+								"description": "Empty parameter payload. The credential is the refresh cookie."
+							}
+						}
+					}
+				},
+				"responses": {
+					"200": {
+						"description": "Command result",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/AuthLoginSessionResult"
+								}
+							}
+						}
+					},
+					"400": { "$ref": "#/components/responses/ApiError" },
+					"401": { "$ref": "#/components/responses/ApiError" },
+					"404": { "$ref": "#/components/responses/ApiError" },
+					"405": { "$ref": "#/components/responses/ApiError" },
+					"409": { "$ref": "#/components/responses/ApiError" },
+					"500": { "$ref": "#/components/responses/ApiError" }
+				}
+			}
+		},
+		"/api/auth/session/logout": {
+			"post": {
+				"operationId": "auth.session.logout",
+				"summary": "Revoke the session and clear the refresh cookie.",
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"properties": {},
+								"description": "Empty parameter payload."
+							}
+						}
+					}
+				},
+				"responses": {
+					"200": {
+						"description": "Command result",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/AuthSessionLogoutResult"
 								}
 							}
 						}
@@ -5289,7 +5324,7 @@
 						"description": "True if the flow was cancelled."
 					}
 				},
-				"description": "Result payload returned by account.oauth.cancel confirming cancellation of the flow."
+				"description": "Result payload returned by account.credentials.oauth.cancel confirming cancellation of the flow."
 			},
 			"AccountOAuthProvidersResult": {
 				"type": "object",
@@ -5301,7 +5336,7 @@
 						"description": "List of supported OAuth providers and their flow mechanisms."
 					}
 				},
-				"description": "Result payload returned by account.oauth.providers containing available OAuth providers."
+				"description": "Result payload returned by account.credentials.oauth.providers containing available OAuth providers."
 			},
 			"AccountOAuthStartResult": {
 				"type": "object",
@@ -5309,7 +5344,7 @@
 				"properties": {
 					"flow": { "$ref": "#/components/schemas/OAuthFlowRecord" }
 				},
-				"description": "Result payload returned by account.oauth.start containing initial flow state and verification URLs."
+				"description": "Result payload returned by account.credentials.oauth.start containing initial flow state and verification URLs."
 			},
 			"AccountOAuthStatusResult": {
 				"type": "object",
@@ -5317,7 +5352,7 @@
 				"properties": {
 					"flow": { "$ref": "#/components/schemas/OAuthFlowRecord" }
 				},
-				"description": "Result payload returned by account.oauth.status with current flow status."
+				"description": "Result payload returned by account.credentials.oauth.status with current flow status."
 			},
 			"AccountOAuthSubmitResult": {
 				"type": "object",
@@ -5325,7 +5360,7 @@
 				"properties": {
 					"flow": { "$ref": "#/components/schemas/OAuthFlowRecord" }
 				},
-				"description": "Result payload returned by account.oauth.submit after processing user input."
+				"description": "Result payload returned by account.credentials.oauth.submit after processing user input."
 			},
 			"AccountRecord": {
 				"type": "object",
@@ -5464,6 +5499,66 @@
 				},
 				"description": "Result payload returned by auth.elevation.end."
 			},
+			"AuthLoginGoogleStartResult": {
+				"type": "object",
+				"required": ["authorizationUrl", "transactionId"],
+				"properties": {
+					"authorizationUrl": {
+						"type": "string",
+						"description": "Google authorization URL for this transaction."
+					},
+					"transactionId": {
+						"type": "string",
+						"description": "Transaction id (the OAuth state)."
+					}
+				},
+				"description": "Result payload returned by auth.login.google.start."
+			},
+			"AuthLoginProvidersResult": {
+				"type": "object",
+				"required": ["providers"],
+				"properties": {
+					"providers": {
+						"type": "array",
+						"items": {
+							"type": "object",
+							"required": ["id"],
+							"properties": {
+								"id": { "type": "string", "description": "Provider id." }
+							},
+							"description": "One configured sign-in provider."
+						}
+					},
+					"bootRetry": {
+						"type": "object",
+						"properties": {
+							"waitMs": { "type": "number" },
+							"retries": { "type": "number" }
+						},
+						"description": "How the client retries a session while the worker boots."
+					}
+				},
+				"description": "Result payload returned by auth.login.providers."
+			},
+			"AuthLoginSessionResult": {
+				"type": "object",
+				"required": ["accessToken", "expiresAt"],
+				"properties": {
+					"accessToken": {
+						"type": "string",
+						"description": "Session access token. The refresh token is only in the cookie."
+					},
+					"expiresAt": {
+						"type": "number",
+						"description": "Access token expiry, epoch ms."
+					},
+					"sessionId": { "type": "string" },
+					"accountId": { "type": "string" },
+					"userId": { "type": "string" },
+					"viaToken": { "type": "boolean" }
+				},
+				"description": "A Cadmus session. The refresh token is not in this payload."
+			},
 			"AuthMembershipsListResult": {
 				"type": "object",
 				"required": ["memberships"],
@@ -5484,24 +5579,20 @@
 				},
 				"description": "Result payload returned by auth.memberships.list."
 			},
-			"AuthMethodsLinkStartResult": {
+			"AuthMethodsDeleteResult": {
 				"type": "object",
-				"required": ["ticket", "bind", "expiresAt"],
+				"required": ["deleted", "sessionsRevoked"],
 				"properties": {
-					"ticket": {
-						"type": "string",
-						"description": "Short-lived signed link ticket."
+					"deleted": {
+						"type": "boolean",
+						"description": "True when the method was active and is now deleted."
 					},
-					"bind": {
-						"type": "string",
-						"description": "Value of the link bind cookie."
-					},
-					"expiresAt": {
+					"sessionsRevoked": {
 						"type": "number",
-						"description": "Epoch ms the ticket expires."
+						"description": "Sessions opened through the method that were revoked."
 					}
 				},
-				"description": "Result payload returned by auth.methods.link.start."
+				"description": "Result payload returned by auth.methods.delete."
 			},
 			"AuthMethodsListResult": {
 				"type": "object",
@@ -5525,55 +5616,16 @@
 				},
 				"description": "Result payload returned by auth.methods.list."
 			},
-			"AuthMethodsRevokeResult": {
+			"AuthSessionLogoutResult": {
 				"type": "object",
-				"required": ["revoked", "sessionsRevoked"],
+				"required": ["revoked"],
 				"properties": {
 					"revoked": {
 						"type": "boolean",
-						"description": "True when the method was active and is now revoked."
-					},
-					"sessionsRevoked": {
-						"type": "number",
-						"description": "Sessions revoked with the method."
+						"description": "True when a live session was revoked."
 					}
 				},
-				"description": "Result payload returned by auth.methods.revoke."
-			},
-			"AuthPasskeysBeginResult": {
-				"type": "object",
-				"required": ["challengeId", "options"],
-				"properties": {
-					"challengeId": {
-						"type": "string",
-						"description": "Pass back to finish."
-					},
-					"options": {
-						"type": "object",
-						"properties": {},
-						"additionalProperties": true,
-						"description": "WebAuthn creation or request options."
-					}
-				},
-				"description": "Result payload returned by auth.passkeys.begin."
-			},
-			"AuthPasskeysFinishResult": {
-				"type": "object",
-				"properties": {
-					"elevatedUntil": {
-						"type": "number",
-						"description": "Set for elevate: when admin mode ends."
-					},
-					"methodId": {
-						"type": "string",
-						"description": "Set for register: the new login method."
-					},
-					"removedMethodId": {
-						"type": "string",
-						"description": "Set for remove: the removed login method."
-					}
-				},
-				"description": "Result payload returned by auth.passkeys.finish."
+				"description": "Result payload returned by auth.session.logout."
 			},
 			"AuthSessionsListResult": {
 				"type": "object",
@@ -7578,15 +7630,6 @@
 					}
 				},
 				"description": "Result payload returned by system.users.enable."
-			},
-			"SystemUsersResetPasskeysResult": {
-				"type": "object",
-				"required": ["passkeys", "sessions"],
-				"properties": {
-					"passkeys": { "type": "number", "description": "Passkeys removed." },
-					"sessions": { "type": "number", "description": "Sessions ended." }
-				},
-				"description": "Result payload returned by system.users.resetPasskeys."
 			},
 			"SystemUsersRevokeSessionsResult": {
 				"type": "object",

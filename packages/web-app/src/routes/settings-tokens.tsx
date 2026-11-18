@@ -104,7 +104,7 @@ export function TokensSettingsPage() {
 			<div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-3 py-4">
 				<p className="text-[length:var(--fs-sm)] text-text-muted">
 					Tokens let agents and scripts sign in with only the access you pick.
-					Exchange one at POST /auth/token-login. The secret is shown once.
+					Exchange one at POST /api/auth/login/token. The secret is shown once.
 				</p>
 				{error ? (
 					<p role="alert" className="text-destructive">

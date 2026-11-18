@@ -15,7 +15,7 @@ import {
  * Issue #3 L77/L148: provider OAuth is credentials.manage. The progress event of
  * a provider login carries the device user code and verification URL, so only
  * connections that hold credentials.manage receive it (WebSocket and SSE), and
- * account.oauth.status needs the same grant.
+ * account.credentials.oauth.status needs the same grant.
  */
 const ORIGIN = "https://example.com";
 type Frame = {
@@ -34,7 +34,7 @@ function store(): D1AdminStore {
 	});
 }
 
-describe("account.oauth.event delivery is limited to credentials.manage", () => {
+describe("account.credentials.oauth.event delivery is limited to credentials.manage", () => {
 	const originalFetch = globalThis.fetch;
 	beforeEach(() => {
 		globalThis.fetch = async (input, init) => {
@@ -129,20 +129,24 @@ describe("account.oauth.event delivery is limited to credentials.manage", () => 
 		const userSse = await openSse(user.accessToken);
 
 		expect((await rpc(admin.accessToken, "auth.elevate")).ok).toBe(true);
-		const started = await rpc(admin.accessToken, "account.oauth.start", {
-			providerId: "xai",
-			redirectUri: "http://localhost/cb",
-		});
+		const started = await rpc(
+			admin.accessToken,
+			"account.credentials.oauth.start",
+			{
+				providerId: "xai",
+				redirectUri: "http://localhost/cb",
+			},
+		);
 		expect(started.ok).toBe(true);
 		const flowId = (started.result as { flow: { flowId: string } }).flow.flowId;
 
-		const isEvent = (f: Frame) => f.type === "account.oauth.event";
+		const isEvent = (f: Frame) => f.type === "account.credentials.oauth.event";
 		const deadline = Date.now() + 3000;
 		while (
 			Date.now() < deadline &&
 			!(
 				adminWs.seen.some(isEvent) &&
-				adminSse.chunks.join("").includes("account.oauth.event")
+				adminSse.chunks.join("").includes("account.credentials.oauth.event")
 			)
 		) {
 			await new Promise((r) => setTimeout(r, 50));
@@ -154,19 +158,30 @@ describe("account.oauth.event delivery is limited to credentials.manage", () => 
 		expect(got?.payload?.userCode).toBe("GATE-4242");
 		expect(adminSse.chunks.join("")).toContain("GATE-4242");
 		expect(userWs.seen.filter(isEvent)).toEqual([]);
-		expect(userSse.chunks.join("")).not.toContain("account.oauth.event");
+		expect(userSse.chunks.join("")).not.toContain(
+			"account.credentials.oauth.event",
+		);
 		expect(userSse.chunks.join("")).not.toContain("GATE-4242");
 
 		// The status read needs the same grant: the user is refused, the admin is not.
 		expect(
-			(await rpc(user.accessToken, "account.oauth.status", { flowId })).error
-				?.code,
+			(
+				await rpc(user.accessToken, "account.credentials.oauth.status", {
+					flowId,
+				})
+			).error?.code,
 		).toBe("forbidden");
 		expect(
-			(await rpc(admin.accessToken, "account.oauth.status", { flowId })).ok,
+			(
+				await rpc(admin.accessToken, "account.credentials.oauth.status", {
+					flowId,
+				})
+			).ok,
 		).toBe(true);
 
-		await rpc(admin.accessToken, "account.oauth.cancel", { flowId });
+		await rpc(admin.accessToken, "account.credentials.oauth.cancel", {
+			flowId,
+		});
 		adminWs.ws.close();
 		userWs.ws.close();
 		await adminSse.reader.cancel().catch(() => undefined);
@@ -208,7 +223,7 @@ describe("account.oauth.event delivery is limited to credentials.manage", () => 
 			ttlDays: 1,
 		});
 		expect(made.ok).toBe(true);
-		const login = await SELF.fetch(`${ORIGIN}/auth/token-login`, {
+		const login = await SELF.fetch(`${ORIGIN}/api/auth/login/token`, {
 			method: "POST",
 			headers: { authorization: `Bearer ${made.result?.token}` },
 		});
@@ -263,13 +278,13 @@ describe("account.oauth.event delivery is limited to credentials.manage", () => 
 		})();
 
 		const started = await sendRpc<{ flow: { flowId: string } }>(
-			"account.oauth.start",
+			"account.credentials.oauth.start",
 			{ providerId: "xai", redirectUri: "http://localhost/cb" },
 			{ token: TEST_TOKEN, accountId },
 		);
 		expect(started.frame.ok).toBe(true);
 		const has = (events: { type?: string }[]) =>
-			events.some((e) => e.type === "account.oauth.event");
+			events.some((e) => e.type === "account.credentials.oauth.event");
 		const deadline = Date.now() + 3000;
 		while (
 			Date.now() < deadline &&
@@ -284,15 +299,19 @@ describe("account.oauth.event delivery is limited to credentials.manage", () => 
 		// Legacy member tokens carry only non-elevated grants, whatever the role.
 		expect(has(admin.events)).toBe(false);
 		expect(has(user.events)).toBe(false);
-		expect(adminTokenSse.chunks.join("")).not.toContain("account.oauth.event");
-		expect(userSse.chunks.join("")).not.toContain("account.oauth.event");
-		expect(userSse.chunks.join("")).not.toContain("GATE-4242");
-		expect(tokenWs.seen.some((f) => f.type === "account.oauth.event")).toBe(
-			false,
+		expect(adminTokenSse.chunks.join("")).not.toContain(
+			"account.credentials.oauth.event",
 		);
+		expect(userSse.chunks.join("")).not.toContain(
+			"account.credentials.oauth.event",
+		);
+		expect(userSse.chunks.join("")).not.toContain("GATE-4242");
+		expect(
+			tokenWs.seen.some((f) => f.type === "account.credentials.oauth.event"),
+		).toBe(false);
 
 		await sendRpc(
-			"account.oauth.cancel",
+			"account.credentials.oauth.cancel",
 			{ flowId: started.frame.result?.flow.flowId ?? "" },
 			{ token: TEST_TOKEN, accountId },
 		);
@@ -319,7 +338,7 @@ describe("account.oauth.event delivery is limited to credentials.manage", () => 
 				ttlDays: 1,
 			});
 			expect(made.ok).toBe(true);
-			const res = await SELF.fetch(`${ORIGIN}/auth/token-login`, {
+			const res = await SELF.fetch(`${ORIGIN}/api/auth/login/token`, {
 				method: "POST",
 				headers: { authorization: `Bearer ${made.result?.token}` },
 			});
@@ -366,25 +385,33 @@ describe("account.oauth.event delivery is limited to credentials.manage", () => 
 		};
 		const manage = await open(manageTok);
 		const chat = await open(chatTok);
-		const started = await rpc(owner.accessToken, "account.oauth.start", {
-			providerId: "xai",
-			redirectUri: "http://localhost/cb",
-		});
+		const started = await rpc(
+			owner.accessToken,
+			"account.credentials.oauth.start",
+			{
+				providerId: "xai",
+				redirectUri: "http://localhost/cb",
+			},
+		);
 		expect(started.ok).toBe(true);
 		const got = () =>
-			manage.seen.some((f) => f.type === "account.oauth.event") &&
-			manage.chunks.join("").includes("account.oauth.event");
+			manage.seen.some((f) => f.type === "account.credentials.oauth.event") &&
+			manage.chunks.join("").includes("account.credentials.oauth.event");
 		const deadline = Date.now() + 3000;
 		while (Date.now() < deadline && !got()) {
 			await new Promise((r) => setTimeout(r, 50));
 		}
 		await new Promise((r) => setTimeout(r, 300));
-		expect(manage.seen.some((f) => f.type === "account.oauth.event")).toBe(
-			true,
-		);
+		expect(
+			manage.seen.some((f) => f.type === "account.credentials.oauth.event"),
+		).toBe(true);
 		expect(manage.chunks.join("")).toContain("GATE-4242");
-		expect(chat.seen.some((f) => f.type === "account.oauth.event")).toBe(false);
-		expect(chat.chunks.join("")).not.toContain("account.oauth.event");
+		expect(
+			chat.seen.some((f) => f.type === "account.credentials.oauth.event"),
+		).toBe(false);
+		expect(chat.chunks.join("")).not.toContain(
+			"account.credentials.oauth.event",
+		);
 		manage.ws.close();
 		chat.ws.close();
 	});

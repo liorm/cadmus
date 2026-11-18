@@ -17,18 +17,16 @@ import {
 } from "./helpers.js";
 
 const MAY_FAIL_OFFLINE = new Set<CommandType>([
-	"account.oauth.start",
-	"account.oauth.status",
-	"account.oauth.submit",
-	"account.oauth.cancel",
+	"account.credentials.oauth.start",
+	"account.credentials.oauth.status",
+	"account.credentials.oauth.submit",
+	"account.credentials.oauth.cancel",
 	// Need a signed-in session; the master secret has none, so they answer forbidden.
 	"auth.ticket",
 	"auth.sessions.list",
 	"auth.sessions.revoke",
 	"auth.sessions.revokeOthers",
 	"auth.elevate",
-	"auth.passkeys.begin",
-	"auth.passkeys.finish",
 	"auth.elevation.end",
 	// System console: the master secret maps to account-admin, so these answer forbidden.
 	"system.accounts.list",
@@ -44,14 +42,18 @@ const MAY_FAIL_OFFLINE = new Set<CommandType>([
 	"system.users.disable",
 	"system.users.enable",
 	"system.users.revokeSessions",
-	"system.users.resetPasskeys",
 	"auth.tokens.list",
 	"auth.tokens.create",
 	"auth.tokens.revoke",
 	"auth.memberships.list",
 	"auth.methods.list",
-	"auth.methods.revoke",
-	"auth.methods.link.start",
+	"auth.methods.delete",
+	"auth.login.providers",
+	"auth.login.devPassword",
+	"auth.login.token",
+	"auth.login.google.start",
+	"auth.session.refresh",
+	"auth.session.logout",
 ]);
 
 type Payload = Record<string, unknown>;
@@ -100,6 +102,19 @@ async function callContractApi(
 	const response = await workerFetch(url, init);
 	const body: unknown = await response.json();
 	const entry = commandCatalog[command];
+	if (
+		response.status !== 200 &&
+		(command.startsWith("auth.login.") || command.startsWith("auth.session."))
+	) {
+		if (
+			!isRecord(body) ||
+			!isRecord(body.error) ||
+			typeof body.error.code !== "string"
+		) {
+			throw new Error(`${command} error envelope was not readable`);
+		}
+		return body;
+	}
 	if (response.status === 200) {
 		assertMatchesSchema(entry.result, body, `${command} result`);
 		return body;
@@ -177,7 +192,7 @@ describe("contract conformance", () => {
 			provider: "faux",
 			onlyAuthenticated: true,
 		});
-		await call("account.oauth.providers");
+		await call("account.credentials.oauth.providers");
 		await call("account.toolsEnvs.list");
 		const createdEnv = await call("account.toolsEnvs.create", {
 			kind: "just-bash",
@@ -215,15 +230,12 @@ describe("contract conformance", () => {
 		await call("auth.sessions.revoke", { sessionId: "ses_missing" });
 		await call("auth.sessions.revokeOthers");
 		await call("auth.elevate");
-		await call("auth.passkeys.begin", { purpose: "register" });
-		await call("auth.passkeys.finish", {
-			purpose: "register",
-			challengeId: "pkc_missing",
-			response: {},
-		});
 		await call("auth.elevation.end");
 		await call("system.accounts.list");
-		await call("system.accounts.create", { name: "Conformance" });
+		await call("system.accounts.create", {
+			name: "Conformance",
+			ownerEmail: `owner-${suffix}@example.com`,
+		});
 		await call("system.accounts.suspend", { accountId: "acc_missing" });
 		await call("system.accounts.resume", { accountId: "acc_missing" });
 		await call("system.accounts.rename", {
@@ -248,7 +260,6 @@ describe("contract conformance", () => {
 		await call("system.users.disable", { userId: "usr_missing" });
 		await call("system.users.enable", { userId: "usr_missing" });
 		await call("system.users.revokeSessions", { userId: "usr_missing" });
-		await call("system.users.resetPasskeys", { userId: "usr_missing" });
 		await call("auth.tokens.list");
 		await call("auth.tokens.create", {
 			kind: "pat",
@@ -259,8 +270,13 @@ describe("contract conformance", () => {
 		await call("auth.tokens.revoke", { tokenId: "tok_missing" });
 		await call("auth.memberships.list");
 		await call("auth.methods.list");
-		await call("auth.methods.revoke", { methodId: "lm_missing" });
-		await call("auth.methods.link.start", { provider: "google" });
+		await call("auth.methods.delete", { methodId: "lm_missing" });
+		await call("auth.login.providers");
+		await call("auth.login.devPassword", { password: "nope" });
+		await call("auth.login.token", {});
+		await call("auth.login.google.start");
+		await call("auth.session.refresh");
+		await call("auth.session.logout");
 		await call("family.list");
 		await call("family.get", { familyId });
 		await call("family.update", {
@@ -343,13 +359,15 @@ describe("contract conformance", () => {
 		await call("bot.delete", { botId: "scribe" });
 		await call("account.toolsEnvs.delete", { envId });
 
-		await call("account.oauth.start", { providerId: "not-a-provider" });
-		await call("account.oauth.status", { flowId: "missing-flow" });
-		await call("account.oauth.submit", {
+		await call("account.credentials.oauth.start", {
+			providerId: "not-a-provider",
+		});
+		await call("account.credentials.oauth.status", { flowId: "missing-flow" });
+		await call("account.credentials.oauth.submit", {
 			flowId: "missing-flow",
 			input: "code",
 		});
-		await call("account.oauth.cancel", { flowId: "missing-flow" });
+		await call("account.credentials.oauth.cancel", { flowId: "missing-flow" });
 
 		expect([...covered].sort()).toEqual(Object.keys(commandCatalog).sort());
 		for (const command of Object.keys(API_ROUTES) as CommandType[]) {

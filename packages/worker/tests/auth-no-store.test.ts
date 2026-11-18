@@ -11,20 +11,20 @@ const ORIGIN = "https://example.com";
 // Dev-password login exists only on loopback hosts, so that route is probed there.
 const LOCAL = "http://localhost";
 const PATHS = [
-	"/auth/refresh",
-	"/auth/logout",
-	"/auth/token-login",
-	"/auth/login/dev-password",
-	"/auth/providers",
-	"/auth/login/google",
-	"/auth/callback/google",
+	"/api/auth/session/refresh",
+	"/api/auth/session/logout",
+	"/api/auth/login/token",
+	"/api/auth/login/devPassword",
+	"/api/auth/login/providers",
+	"/api/auth/login/google/start",
+	"/api/auth/login/google/callback",
 ];
 const METHODS = ["GET", "HEAD", "POST", "PUT", "DELETE"];
 
 describe("auth responses are no-store (issue #3 phase 8)", () => {
 	for (const path of PATHS) {
 		it(`${path}: every method and header shape`, async () => {
-			const host = path === "/auth/login/dev-password" ? LOCAL : ORIGIN;
+			const host = path === "/api/auth/login/devPassword" ? LOCAL : ORIGIN;
 			const seen = new Set<number>();
 			for (const method of METHODS) {
 				for (const headers of [

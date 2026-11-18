@@ -24,11 +24,7 @@ import type {
 	FamilySettingsPatch,
 	StoredToolsEnv,
 } from "./admin-interface.js";
-import {
-	completeLogin,
-	type LoginResult,
-	linkLoginMethod,
-} from "./d1-login.js";
+import { completeLogin, type LoginResult } from "./d1-login.js";
 import {
 	inviteMember,
 	listInvites,
@@ -58,6 +54,7 @@ import {
 	revokeOtherSessions,
 	revokeOwnSession,
 	revokeSession,
+	revokeSessionByRefresh,
 	rotateRefreshToken,
 	type SessionIdentity,
 	type SessionTokens,
@@ -73,7 +70,6 @@ import {
 	listSystemAccounts,
 	listSystemAudit,
 	renameAccount,
-	resetUserPasskeys,
 	revokeUserSessions,
 	type SystemAccount,
 	type SystemAuditEvent,
@@ -90,6 +86,48 @@ import {
 	revokeTokenById,
 	tokenLogin,
 } from "./d1-tokens.js";
+import {
+	insertPrimaryUserStatements,
+	normalizeLoginEmail,
+} from "./user-emails.js";
+
+/** Creates the bootstrap super-admin once, with a primary email and no login method. */
+export async function seedBootstrapSuperAdmin(
+	db: D1Database,
+	rawEmail: string | undefined,
+): Promise<void> {
+	const email = rawEmail ? normalizeLoginEmail(rawEmail) : "";
+	if (!email) return;
+	const claimed = await db
+		.prepare(`SELECT 1 AS x FROM cadmus_bootstrap WHERE id = 1`)
+		.first<{ x: number }>();
+	if (claimed) return;
+	const now = Date.now();
+	const user = insertPrimaryUserStatements(db, email, email, now);
+	await db.batch([
+		...user.statements,
+		db
+			.prepare(
+				`INSERT INTO cadmus_account_members (account_id, user_id, role, created_at)
+         SELECT '${SYSTEM_ACCOUNT_ID}', e.user_id, 'super-admin', ?2
+         FROM cadmus_user_emails e
+         WHERE e.email = ?1
+           AND NOT EXISTS (
+             SELECT 1 FROM cadmus_account_members m
+             WHERE m.account_id = '${SYSTEM_ACCOUNT_ID}' AND m.user_id = e.user_id
+           )`,
+			)
+			.bind(email, now),
+		db
+			.prepare(
+				`INSERT INTO cadmus_bootstrap (id, claimed_at, user_id)
+         SELECT 1, ?2, e.user_id FROM cadmus_user_emails e
+         WHERE e.email = ?1
+           AND NOT EXISTS (SELECT 1 FROM cadmus_bootstrap WHERE id = 1)`,
+			)
+			.bind(email, now),
+	]);
+}
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -228,7 +266,7 @@ function slugifyId(text: string): string {
 	);
 }
 
-export const CADMUS_SCHEMA_VERSION = 12;
+export const CADMUS_SCHEMA_VERSION = 13;
 
 export function isMissingSchemaError(error: unknown): boolean {
 	if (!error) return false;
@@ -461,21 +499,6 @@ export async function runD1SchemaMigrations(db: D1Database): Promise<void> {
 		"fresh_google_at",
 		"INTEGER",
 	);
-	// Removal challenges name the passkey login method they authorize removing.
-	await addColumnIfNotExists(
-		db,
-		"cadmus_passkey_challenges",
-		"target_method_id",
-		"TEXT",
-	);
-	// Set by the removal batch itself when its own revoke changed a row.
-	await addColumnIfNotExists(
-		db,
-		"cadmus_passkey_challenges",
-		"removed_exec",
-		"TEXT",
-	);
-
 	await db
 		.prepare(
 			`INSERT INTO cadmus_schema_meta (key, value)
@@ -550,8 +573,6 @@ async function migrateRolesAndAccounts(db: D1Database): Promise<void> {
 async function migrateSessionsSchema(db: D1Database): Promise<void> {
 	await addColumnIfNotExists(db, "cadmus_users", "primary_email", "TEXT");
 	await addColumnIfNotExists(db, "cadmus_users", "disabled_at", "INTEGER");
-	// Phase 7: one stable opaque WebAuthn user handle per user, set atomically.
-	await addColumnIfNotExists(db, "cadmus_users", "passkey_handle", "TEXT");
 	await addColumnIfNotExists(db, "cadmus_auth_tokens", "id", "TEXT");
 	await addColumnIfNotExists(
 		db,
@@ -617,47 +638,21 @@ async function migrateSessionsSchema(db: D1Database): Promise<void> {
           UNIQUE (provider, subject)
         )
       `),
-		// Issue #3 phase 7. Typed passkey data for a `passkey` login method. The
-		// login method row owns revocation; this row owns the key and counter.
+		db.prepare(`DROP TABLE IF EXISTS cadmus_passkey_challenges`),
+		db.prepare(`DROP TABLE IF EXISTS cadmus_passkeys`),
 		db.prepare(`
-        CREATE TABLE IF NOT EXISTS cadmus_passkeys (
-          login_method_id TEXT PRIMARY KEY,
+        CREATE TABLE IF NOT EXISTS cadmus_user_emails (
+          email TEXT PRIMARY KEY,
           user_id TEXT NOT NULL,
-          credential_id TEXT NOT NULL UNIQUE,
-          public_key TEXT NOT NULL,
-          counter INTEGER NOT NULL,
-          user_handle TEXT NOT NULL,
-          transports TEXT NOT NULL DEFAULT '[]',
-          device_type TEXT NOT NULL,
-          backed_up INTEGER NOT NULL,
-          created_at INTEGER NOT NULL,
-          last_used_at INTEGER,
-          last_attempt_id TEXT
+          kind TEXT NOT NULL
         )
       `),
 		db.prepare(
-			`CREATE INDEX IF NOT EXISTS idx_cadmus_passkeys_user ON cadmus_passkeys(user_id)`,
+			`CREATE INDEX IF NOT EXISTS idx_cadmus_user_emails_user ON cadmus_user_emails(user_id)`,
 		),
-		db.prepare(`
-        CREATE TABLE IF NOT EXISTS cadmus_passkey_challenges (
-          id TEXT PRIMARY KEY,
-          purpose TEXT NOT NULL,
-          user_id TEXT NOT NULL,
-          session_id TEXT NOT NULL,
-          challenge TEXT NOT NULL UNIQUE,
-          rp_id TEXT NOT NULL,
-          origin TEXT NOT NULL,
-          created_at INTEGER NOT NULL,
-          expires_at INTEGER NOT NULL,
-          consumed_at INTEGER,
-          consumed_attempt_id TEXT,
-          effect_exec TEXT,
-          target_method_id TEXT,
-          removed_exec TEXT
-        )
-      `),
 		db.prepare(
-			`CREATE INDEX IF NOT EXISTS idx_cadmus_passkey_challenges_user ON cadmus_passkey_challenges(user_id, purpose)`,
+			`CREATE UNIQUE INDEX IF NOT EXISTS idx_cadmus_user_emails_one_primary
+         ON cadmus_user_emails(user_id) WHERE kind = 'primary'`,
 		),
 		db.prepare(`
         CREATE TABLE IF NOT EXISTS cadmus_sessions (
@@ -727,6 +722,14 @@ async function migrateSessionsSchema(db: D1Database): Promise<void> {
 	await addColumnIfNotExists(db, "cadmus_tickets", "account_id", "TEXT");
 	await addColumnIfNotExists(db, "cadmus_tickets", "user_id", "TEXT");
 	await addColumnIfNotExists(db, "cadmus_tickets", "credential", "TEXT");
+	const userCols = await db
+		.prepare(`PRAGMA table_info(cadmus_users)`)
+		.all<{ name: string }>();
+	if (userCols.results.some((c) => c.name === "passkey_handle")) {
+		await db
+			.prepare(`ALTER TABLE cadmus_users DROP COLUMN passkey_handle`)
+			.run();
+	}
 }
 
 /**
@@ -956,6 +959,7 @@ export interface D1AdminStoreOptions {
 	defaultTimezone?: string;
 	defaultHarvestDelayMs?: number;
 	edgeCache?: EdgeCache;
+	bootstrapEmail?: string;
 }
 
 export class D1AdminStore implements AdminStore {
@@ -965,6 +969,7 @@ export class D1AdminStore implements AdminStore {
 	readonly #defaultTimezone: string;
 	readonly #defaultHarvestDelayMs: number;
 	readonly #edgeCache?: EdgeCache;
+	readonly #bootstrapEmail?: string;
 	#initialized = false;
 
 	constructor(options: D1AdminStoreOptions) {
@@ -982,6 +987,7 @@ export class D1AdminStore implements AdminStore {
 		this.#defaultTimezone = options.defaultTimezone || "UTC";
 		this.#defaultHarvestDelayMs = options.defaultHarvestDelayMs ?? 60_000;
 		this.#edgeCache = options.edgeCache;
+		this.#bootstrapEmail = options.bootstrapEmail;
 	}
 
 	async initialize(options: { force?: boolean } = {}): Promise<void> {
@@ -990,9 +996,11 @@ export class D1AdminStore implements AdminStore {
 			resetD1InitializationCache(this.#rawDb);
 		} else if (this.#initialized || isD1DatabaseInitialized(this.#rawDb)) {
 			this.#initialized = true;
+			await seedBootstrapSuperAdmin(this.#rawDb, this.#bootstrapEmail);
 			return;
 		}
 		await ensureD1Schema(this.#rawDb, options);
+		await seedBootstrapSuperAdmin(this.#rawDb, this.#bootstrapEmail);
 		this.#initialized = true;
 	}
 
@@ -1174,15 +1182,6 @@ export class D1AdminStore implements AdminStore {
 		return listLoginMethods(this.#db, userId);
 	}
 
-	async linkLoginMethod(
-		userId: string,
-		sessionId: string,
-		identity: LoginIdentity,
-	) {
-		await this.initialize();
-		return linkLoginMethod(this.#db, userId, sessionId, identity);
-	}
-
 	async revokeLoginMethod(userId: string, methodId: string) {
 		await this.initialize();
 		return revokeLoginMethod(this.#db, userId, methodId);
@@ -1214,6 +1213,11 @@ export class D1AdminStore implements AdminStore {
 		return rotateRefreshToken(this.#db, rawRefresh);
 	}
 
+	async revokeSessionByRefresh(rawRefresh: string): Promise<boolean> {
+		await this.initialize();
+		return revokeSessionByRefresh(this.#db, rawRefresh);
+	}
+
 	async revokeSession(sessionId: string): Promise<boolean> {
 		await this.initialize();
 		return revokeSession(this.#db, sessionId);
@@ -1235,15 +1239,6 @@ export class D1AdminStore implements AdminStore {
 		return result;
 	}
 
-	async resetUserPasskeys(input: {
-		userId: string;
-		actor: string;
-		actorSessionId: string;
-	}) {
-		await this.initialize();
-		return resetUserPasskeys(this.#db, input);
-	}
-
 	async revokeUserSessions(input: { userId: string; actor: string }) {
 		await this.initialize();
 		return revokeUserSessions(this.#db, input);
@@ -1258,6 +1253,7 @@ export class D1AdminStore implements AdminStore {
 		name: string;
 		timezone?: string;
 		actor: string;
+		ownerEmail: string;
 	}): Promise<SystemResult<{ account: SystemAccount }>> {
 		await this.initialize();
 		const name = cleanName(input.name);
@@ -1274,10 +1270,21 @@ export class D1AdminStore implements AdminStore {
 		} catch {
 			return { ok: false, code: "invalid", message: "Unknown timezone" };
 		}
+		const ownerEmail = normalizeLoginEmail(input.ownerEmail);
+		if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(ownerEmail)) {
+			return { ok: false, code: "invalid", message: "ownerEmail is not valid" };
+		}
 		const now = Date.now();
 		const bytes = crypto.getRandomValues(new Uint8Array(8));
 		const accountId = `acc_${Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("")}`;
+		const owner = insertPrimaryUserStatements(
+			this.#db,
+			ownerEmail,
+			ownerEmail,
+			now,
+		);
 		await this.#db.batch([
+			...owner.statements,
 			this.#db
 				.prepare(
 					`INSERT INTO cadmus_accounts (id, name, timezone, created_at, parent_account_id, status, default_tools_env_json) VALUES (?1, ?2, ?3, ?4, '${SYSTEM_ACCOUNT_ID}', 'active', ?5)`,
@@ -1289,6 +1296,13 @@ export class D1AdminStore implements AdminStore {
 					now,
 					JSON.stringify({ envId: "jb_default" }),
 				),
+			this.#db
+				.prepare(
+					`INSERT INTO cadmus_account_members (account_id, user_id, role, created_at)
+           SELECT ?1, e.user_id, 'account-admin', ?3
+           FROM cadmus_user_emails e WHERE e.email = ?2`,
+				)
+				.bind(accountId, ownerEmail, now),
 			accountCreateAudit(
 				this.#db,
 				{ accountId, actor: input.actor, name },
@@ -1349,12 +1363,6 @@ export class D1AdminStore implements AdminStore {
 	async sessionRefusalReason(sessionId: string, accountId?: string) {
 		await this.initialize();
 		return sessionRefusalReason(this.#db, sessionId, accountId);
-	}
-
-	/** The initialized admin database, for the passkey storage functions. */
-	async passkeyDb(): Promise<D1Database> {
-		await this.initialize();
-		return this.#db;
 	}
 
 	async startElevation(

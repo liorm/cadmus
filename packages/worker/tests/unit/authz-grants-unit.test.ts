@@ -12,6 +12,10 @@ import { getCommandGrant, listCommandTypes } from "../../src/protocol.js";
 describe("grant conformance", () => {
 	it("every command declares a known grant", () => {
 		for (const type of listCommandTypes()) {
+			if (type.startsWith("auth.login.") || type.startsWith("auth.session.")) {
+				expect(getCommandGrant(type), type).toBeUndefined();
+				continue;
+			}
 			const grant = getCommandGrant(type);
 			expect(isGrant(grant), `${type} grant`).toBe(true);
 		}

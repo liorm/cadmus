@@ -135,37 +135,9 @@ describe("real-session harness operations", () => {
 		expect(await read("elevatedUntil", { sessionId: s.sessionId })).toEqual({
 			e: null,
 		});
-		expect(await read("activePasskeys", { userId: s.userId })).toEqual({
-			n: 0,
-		});
-		expect(await read("passkeyRows", { userId: s.userId })).toEqual({ n: 0 });
-		expect(await read("activePasskeyMethods", { userId: s.userId })).toEqual({
-			n: 0,
-		});
-		expect(await read("activePasskeyMethodId", { userId: s.userId })).toEqual({
-			id: null,
-		});
-		expect(await read("registerChallenge", { userId: s.userId })).toEqual({
-			row: null,
-		});
 		expect(
 			await read("auditCount", { userId: s.userId, action: "auth.elevate" }),
 		).toEqual({ n: 0 });
-
-		const seeded = (await read("seedPasskey", { userId: s.userId })) as {
-			methodId: string;
-		};
-		expect(seeded.methodId).toMatch(/^lm_/);
-		expect(await read("activePasskeys", { userId: s.userId })).toEqual({
-			n: 1,
-		});
-		expect(await read("passkeyRows", { userId: s.userId })).toEqual({ n: 1 });
-		expect(await read("activePasskeyMethods", { userId: s.userId })).toEqual({
-			n: 1,
-		});
-		expect(await read("activePasskeyMethodId", { userId: s.userId })).toEqual({
-			id: seeded.methodId,
-		});
 	});
 });
 

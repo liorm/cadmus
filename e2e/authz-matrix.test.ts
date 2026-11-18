@@ -94,12 +94,6 @@ function commandTypes(): string[] {
 	return Object.keys(catalog);
 }
 
-function grantOf(type: string): string {
-	const grant = catalog[type]?.command.grant;
-	if (!grant) throw new Error(`command ${type} declares no grant`);
-	return grant;
-}
-
 function minimal(schema: SchemaNode | undefined): unknown {
 	if (!schema) return {};
 	if (schema.const !== undefined) return schema.const;
@@ -246,9 +240,11 @@ interface Caller {
 function denials(caller: Caller): Array<[string, string]> {
 	const out: Array<[string, string]> = [];
 	for (const type of commandTypes()) {
+		const grant = catalog[type]?.command.grant;
+		if (!grant) continue;
 		const code = expectedCode(
 			caller.held,
-			grantOf(type),
+			grant,
 			caller.elevated,
 			caller.tokenCaller,
 		);
@@ -267,7 +263,7 @@ async function sweep(
 		([, code]) => code === "elevation_required",
 	).length;
 	const forbidden = denied.filter(([, code]) => code === "forbidden").length;
-	expect(commandTypes().length).toBe(92);
+	expect(commandTypes().length).toBe(94);
 	expect(denied.length, caller.name).toBe(caller.denied);
 	expect(elevationRequired, caller.name).toBe(caller.elevationRequired);
 	expect(forbidden, caller.name).toBe(caller.forbidden);
@@ -400,7 +396,7 @@ describe("authorization matrix over /api, /rpc, and /ws", () => {
 			{ token: elevated.accessToken },
 		);
 		expect(minted.frame.ok, JSON.stringify(minted.frame)).toBe(true);
-		const login = await workerFetch(`${WORKER_BASE_URL}/auth/token-login`, {
+		const login = await workerFetch(`${WORKER_BASE_URL}/api/auth/login/token`, {
 			method: "POST",
 			headers: { Authorization: `Bearer ${minted.frame.result?.token ?? ""}` },
 		});
@@ -427,9 +423,9 @@ describe("authorization matrix over /api, /rpc, and /ws", () => {
 				held: new Set(USER),
 				elevated: false,
 				tokenCaller: false,
-				denied: 39,
+				denied: 38,
 				elevationRequired: 0,
-				forbidden: 39,
+				forbidden: 38,
 				ws: true,
 			},
 			() => tenantSnapshot(tenant.elevatedToken),
@@ -448,9 +444,9 @@ describe("authorization matrix over /api, /rpc, and /ws", () => {
 				held: new Set(ACCOUNT_ADMIN),
 				elevated: false,
 				tokenCaller: false,
-				denied: 36,
+				denied: 35,
 				elevationRequired: 22,
-				forbidden: 14,
+				forbidden: 13,
 				ws: true,
 			},
 			() => tenantSnapshot(tenant.elevatedToken),
@@ -478,9 +474,9 @@ describe("authorization matrix over /api, /rpc, and /ws", () => {
 				held: new Set(ACCOUNT_ADMIN),
 				elevated: true,
 				tokenCaller: false,
-				denied: 14,
+				denied: 13,
 				elevationRequired: 0,
-				forbidden: 14,
+				forbidden: 13,
 				ws: true,
 			},
 			() => tenantSnapshot(tenant.elevatedToken),
@@ -501,9 +497,9 @@ describe("authorization matrix over /api, /rpc, and /ws", () => {
 				held: new Set(["chat.use", "tokens.self"]),
 				elevated: false,
 				tokenCaller: true,
-				denied: 60,
+				denied: 59,
 				elevationRequired: 0,
-				forbidden: 60,
+				forbidden: 59,
 				ws: true,
 			},
 			() => tenantSnapshot(tenant.elevatedToken),
@@ -531,8 +527,8 @@ describe("authorization matrix over /api, /rpc, and /ws", () => {
 				held: new Set(SUPER_ADMIN),
 				elevated: false,
 				tokenCaller: false,
-				denied: 75,
-				elevationRequired: 12,
+				denied: 74,
+				elevationRequired: 11,
 				forbidden: 63,
 				ws: false,
 			},
@@ -545,6 +541,7 @@ describe("authorization matrix over /api, /rpc, and /ws", () => {
 					codeOf(
 						await rpc(boss.accessToken, "system.accounts.create", {
 							name: "Not yet",
+							ownerEmail: "not-yet@example.com",
 						}),
 					),
 				).toBe("elevation_required");

@@ -87,11 +87,11 @@ describe("audit rows for invites, method revoke and admin mode end (issue #3 L15
 		]);
 
 		// Revoking the other method (not the one this session used).
-		const method = await rpc(accessToken, "auth.methods.revoke", {
+		const method = await rpc(accessToken, "auth.methods.delete", {
 			methodId: `lm_b_${tag}`,
 		});
 		expect(method.ok).toBe(true);
-		expect(await rows(admin, "method.revoke")).toMatchObject([
+		expect(await rows(admin, "method.delete")).toMatchObject([
 			{ account_id: accountId, actor_kind: "user", target: `lm_b_${tag}` },
 		]);
 

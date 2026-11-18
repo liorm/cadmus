@@ -179,7 +179,7 @@ describe("account.audit.list (issue #3 phase 6)", () => {
 				grants,
 			});
 			if (!made.ok) throw new Error(`create failed ${JSON.stringify(made)}`);
-			const login = await SELF.fetch(`${ORIGIN}/auth/token-login`, {
+			const login = await SELF.fetch(`${ORIGIN}/api/auth/login/token`, {
 				method: "POST",
 				headers: { authorization: `Bearer ${made.token}` },
 			});

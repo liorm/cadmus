@@ -1,5 +1,13 @@
 import { type Static, Type } from "typebox";
 import {
+	AuthLoginDevPasswordCommandSchema,
+	AuthLoginGoogleStartCommandSchema,
+	AuthLoginProvidersCommandSchema,
+	AuthLoginTokenCommandSchema,
+	AuthSessionLogoutCommandSchema,
+	AuthSessionRefreshCommandSchema,
+} from "./login.js";
+import {
 	AccountOAuthCancelCommandSchema,
 	AccountOAuthProvidersCommandSchema,
 	AccountOAuthStartCommandSchema,
@@ -664,96 +672,6 @@ export const AuthElevateCommandSchema = Type.Object(
 );
 export type AuthElevateCommand = Static<typeof AuthElevateCommandSchema>;
 
-export const AuthPasskeysBeginCommandSchema = Type.Object(
-	{
-		id: Type.String({
-			minLength: 1,
-			description:
-				"Non-empty unique correlation identifier for this command request.",
-		}),
-		type: Type.Literal("auth.passkeys.begin", {
-			description: "Command type identifier.",
-		}),
-		payload: Type.Object(
-			{
-				purpose: Type.Union(
-					[
-						Type.Literal("register"),
-						Type.Literal("elevate"),
-						Type.Literal("remove"),
-					],
-					{
-						description:
-							"register enrolls a passkey; elevate proves one; remove proves one to remove methodId.",
-					},
-				),
-				methodId: Type.Optional(
-					Type.String({
-						minLength: 1,
-						description: "For remove: the passkey login method to remove.",
-					}),
-				),
-			},
-			{ description: "What the passkey ceremony is for." },
-		),
-	},
-	{
-		grant: "tokens.self",
-		description:
-			"Start a passkey ceremony for the signed-in session and return WebAuthn options. Register needs a session from a fresh Google sign-in (/auth/login/google?fresh=1, verified authentication time within 5 minutes) while the user has no passkey, and an elevated session once they have one; elevate needs admin.elevate. Remove needs a passkey and a passkey method id.",
-	},
-);
-export type AuthPasskeysBeginCommand = Static<
-	typeof AuthPasskeysBeginCommandSchema
->;
-
-export const AuthPasskeysFinishCommandSchema = Type.Object(
-	{
-		id: Type.String({
-			minLength: 1,
-			description:
-				"Non-empty unique correlation identifier for this command request.",
-		}),
-		type: Type.Literal("auth.passkeys.finish", {
-			description: "Command type identifier.",
-		}),
-		payload: Type.Object(
-			{
-				purpose: Type.Union(
-					[
-						Type.Literal("register"),
-						Type.Literal("elevate"),
-						Type.Literal("remove"),
-					],
-					{
-						description: "Must match the begin call.",
-					},
-				),
-				challengeId: Type.String({
-					minLength: 1,
-					description: "Challenge id returned by begin.",
-				}),
-				response: Type.Object(
-					{},
-					{
-						additionalProperties: true,
-						description: "The WebAuthn credential JSON from the browser.",
-					},
-				),
-			},
-			{ description: "The finished ceremony." },
-		),
-	},
-	{
-		grant: "tokens.self",
-		description:
-			"Verify a passkey ceremony. Register stores the passkey. Elevate turns on admin mode for 15 minutes. Remove deletes the passkey chosen at begin, never the last login method. Every failure returns the same forbidden error.",
-	},
-);
-export type AuthPasskeysFinishCommand = Static<
-	typeof AuthPasskeysFinishCommandSchema
->;
-
 export const AuthElevationEndCommandSchema = Type.Object(
 	{
 		id: Type.String({
@@ -926,59 +844,34 @@ export type AuthMembershipsListCommand = Static<
 	typeof AuthMembershipsListCommandSchema
 >;
 
-export const AuthMethodsLinkStartCommandSchema = Type.Object(
+export const AuthMethodsDeleteCommandSchema = Type.Object(
 	{
 		id: Type.String({
 			minLength: 1,
 			description:
 				"Non-empty unique correlation identifier for this command request.",
 		}),
-		type: Type.Literal("auth.methods.link.start", {
-			description: "Command type identifier.",
-		}),
-		payload: Type.Object(
-			{ provider: Type.Literal("google", { description: "Provider." }) },
-			{ description: "Provider to link." },
-		),
-	},
-	{
-		grant: "tokens.self",
-		description:
-			"Start linking a Google login to the signed-in user. Open `/auth/login/google?link=<ticket>` with the `bind` cookie set; the ticket lasts two minutes. An email match alone never merges users.",
-	},
-);
-export type AuthMethodsLinkStartCommand = Static<
-	typeof AuthMethodsLinkStartCommandSchema
->;
-
-export const AuthMethodsRevokeCommandSchema = Type.Object(
-	{
-		id: Type.String({
-			minLength: 1,
-			description:
-				"Non-empty unique correlation identifier for this command request.",
-		}),
-		type: Type.Literal("auth.methods.revoke", {
+		type: Type.Literal("auth.methods.delete", {
 			description: "Command type identifier.",
 		}),
 		payload: Type.Object(
 			{
 				methodId: Type.String({
 					minLength: 1,
-					description: "Login method to revoke.",
+					description: "Login method to delete.",
 				}),
 			},
-			{ description: "Login method to revoke." },
+			{ description: "Login method to delete." },
 		),
 	},
 	{
 		grant: "tokens.self",
 		description:
-			"Revoke one of the caller's login methods and the sessions created through it. The last active method cannot be revoked (last_login_method).",
+			"Delete one of the caller's login methods and the sessions opened through it. Refuses the last active method (last_login_method). Does not remove the user or any email row.",
 	},
 );
-export type AuthMethodsRevokeCommand = Static<
-	typeof AuthMethodsRevokeCommandSchema
+export type AuthMethodsDeleteCommand = Static<
+	typeof AuthMethodsDeleteCommandSchema
 >;
 
 /**
@@ -2779,13 +2672,19 @@ export const SystemAccountsCreateCommandSchema = Type.Object(
 				timezone: Type.Optional(
 					Type.String({ description: "IANA timezone for the account." }),
 				),
+				ownerEmail: Type.String({
+					minLength: 3,
+					description:
+						"Email of the account owner. A new address creates a user with a primary email and no login method. An address that already belongs to a user reuses that user.",
+				}),
 			},
 			{ description: "Command parameters." },
 		),
 	},
 	{
 		grant: "system.accounts.manage",
-		description: "Create a tenant account. Needs admin mode.",
+		description:
+			"Create a tenant account and an account-admin membership for ownerEmail. Needs admin mode. Does not create a login method or a session.",
 	},
 );
 export type SystemAccountsCreateCommand = Static<
@@ -3141,31 +3040,6 @@ export type SystemUsersRevokeSessionsCommand = Static<
 	typeof SystemUsersRevokeSessionsCommandSchema
 >;
 
-export const SystemUsersResetPasskeysCommandSchema = Type.Object(
-	{
-		id: Type.String({
-			minLength: 1,
-			description:
-				"Non-empty unique correlation identifier for this command request.",
-		}),
-		type: Type.Literal("system.users.resetPasskeys", {
-			description: "Command type identifier.",
-		}),
-		payload: Type.Object(
-			{ userId: Type.String({ minLength: 1, description: "Target user." }) },
-			{ description: "Command parameters." },
-		),
-	},
-	{
-		grant: "system.users.manage",
-		description:
-			"Remove a user's passkeys in every account and sign them out. Needs admin mode.",
-	},
-);
-export type SystemUsersResetPasskeysCommand = Static<
-	typeof SystemUsersResetPasskeysCommandSchema
->;
-
 export const ClientCommandSchema = Type.Union(
 	[
 		AccountGetCommandSchema,
@@ -3207,16 +3081,18 @@ export const ClientCommandSchema = Type.Union(
 		SystemUsersDisableCommandSchema,
 		SystemUsersEnableCommandSchema,
 		SystemUsersRevokeSessionsCommandSchema,
-		SystemUsersResetPasskeysCommandSchema,
 		AuthTokensListCommandSchema,
 		AuthTokensCreateCommandSchema,
 		AuthTokensRevokeCommandSchema,
 		AuthMethodsListCommandSchema,
 		AuthMembershipsListCommandSchema,
-		AuthMethodsRevokeCommandSchema,
-		AuthMethodsLinkStartCommandSchema,
-		AuthPasskeysBeginCommandSchema,
-		AuthPasskeysFinishCommandSchema,
+		AuthMethodsDeleteCommandSchema,
+		AuthLoginProvidersCommandSchema,
+		AuthLoginDevPasswordCommandSchema,
+		AuthLoginTokenCommandSchema,
+		AuthLoginGoogleStartCommandSchema,
+		AuthSessionRefreshCommandSchema,
+		AuthSessionLogoutCommandSchema,
 		FamilyListCommandSchema,
 		FamilyCreateCommandSchema,
 		FamilyGetCommandSchema,

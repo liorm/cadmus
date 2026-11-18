@@ -31,7 +31,7 @@ async function elevate(sessionId: string): Promise<void> {
 		.run();
 }
 
-function tokenLogin(raw: string, url = `${ORIGIN}/auth/token-login`) {
+function tokenLogin(raw: string, url = `${ORIGIN}/api/auth/login/token`) {
 	return SELF.fetch(url, {
 		method: "POST",
 		headers: { authorization: `Bearer ${raw}` },
@@ -327,7 +327,7 @@ describe("API tokens and token login (issue #3 phase 4)", () => {
 			expect(r.absolute_expires_at).toBeLessThanOrEqual(tokenExpires);
 		}
 		const refresh = (raw: string) =>
-			SELF.fetch(`${ORIGIN}/auth/refresh`, {
+			SELF.fetch(`${ORIGIN}/api/auth/session/refresh`, {
 				method: "POST",
 				headers: {
 					origin: ORIGIN,
@@ -424,10 +424,10 @@ describe("API tokens and token login (issue #3 phase 4)", () => {
 		const secret = created.result?.token as string;
 		const viaQuery = await tokenLogin(
 			secret,
-			`${ORIGIN}/auth/token-login?token=${secret}`,
+			`${ORIGIN}/api/auth/login/token?token=${secret}`,
 		);
 		expect(viaQuery.status).toBe(401);
-		const noHeader = await SELF.fetch(`${ORIGIN}/auth/token-login`, {
+		const noHeader = await SELF.fetch(`${ORIGIN}/api/auth/login/token`, {
 			method: "POST",
 		});
 		expect(noHeader.status).toBe(401);
@@ -732,10 +732,6 @@ describe("API tokens and token login (issue #3 phase 4)", () => {
 			const { accessToken } = (await login.json()) as { accessToken: string };
 			const el = await rpc(accessToken, "auth.elevate");
 			expect(el.ok).toBe(false);
-			const pk = await rpc(accessToken, "auth.passkeys.begin", {
-				purpose: "elevate",
-			});
-			expect(pk.ok).toBe(false);
 		});
 
 		it("an elevated token revoking another member's token is audited as an elevated use", async () => {
@@ -1076,7 +1072,7 @@ describe("rollback safety of API token rows (issue #3 phase 4)", () => {
 		expect((await rpc(r2.tokens.accessToken, "chat.list")).ok).not.toBe(true);
 		const b = await tokenSession("sep-revoke");
 		expect((await rpc(b.login.tokens.accessToken, "chat.list")).ok).toBe(true);
-		const logout = await SELF.fetch(`${ORIGIN}/auth/logout`, {
+		const logout = await SELF.fetch(`${ORIGIN}/api/auth/session/logout`, {
 			method: "POST",
 			headers: {
 				origin: ORIGIN,
@@ -1099,7 +1095,7 @@ describe("rollback safety of API token rows (issue #3 phase 4)", () => {
 
 describe("every API token login is audited (issue #3 phase 4, L138/L150 token logins)", () => {
 	// `cad_pat_` and `cad_svc_` are also accepted as `Authorization: Bearer`.
-	// This block covers `/auth/token-login` only: each successful login writes
+	// This block covers `/api/auth/login/token` only: each successful login writes
 	// one `token.login` row, and a refused login writes none. A token session's
 	// later non-elevated commands are not audited individually (elevated ones
 	// are, as `elevated.command` rows). Direct bearer uses of a service token

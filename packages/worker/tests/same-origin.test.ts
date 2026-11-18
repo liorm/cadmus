@@ -15,10 +15,10 @@ import { uniqueAccountId } from "./helpers.js";
 const ORIGIN = "https://example.com";
 const EVIL = "https://evil.example";
 const WRITE_PATHS = [
-	"/auth/refresh",
-	"/auth/logout",
-	"/auth/token-login",
-	"/auth/login/dev-password",
+	"/api/auth/session/refresh",
+	"/api/auth/session/logout",
+	"/api/auth/login/token",
+	"/api/auth/login/devPassword",
 	"/api/auth/whoami",
 	"/api/bot/list",
 	"/rpc",
@@ -86,7 +86,7 @@ describe("strict same-origin (issue #3 phase 8)", () => {
 	}
 
 	it("a cross-origin preflight is refused and grants nothing", async () => {
-		const res = await SELF.fetch(`${ORIGIN}/auth/token-login`, {
+		const res = await SELF.fetch(`${ORIGIN}/api/auth/login/token`, {
 			method: "OPTIONS",
 			headers: {
 				origin: EVIL,
@@ -104,13 +104,13 @@ describe("strict same-origin (issue #3 phase 8)", () => {
 		const headers = { authorization: `Bearer ${raw}` };
 		// Positive control: the same token logs in same-origin and origin-less.
 		for (const extra of [{ origin: ORIGIN }, {}] as Record<string, string>[]) {
-			const ok = await SELF.fetch(`${ORIGIN}/auth/token-login`, {
+			const ok = await SELF.fetch(`${ORIGIN}/api/auth/login/token`, {
 				method: "POST",
 				headers: { ...headers, ...extra },
 			});
 			expect(ok.status, JSON.stringify(extra)).toBe(200);
 		}
-		const res = await SELF.fetch(`${ORIGIN}/auth/token-login`, {
+		const res = await SELF.fetch(`${ORIGIN}/api/auth/login/token`, {
 			method: "POST",
 			headers: { ...headers, origin: EVIL },
 		});
@@ -119,7 +119,7 @@ describe("strict same-origin (issue #3 phase 8)", () => {
 
 	it("a valid bearer cannot write through /api or /rpc from another origin", async () => {
 		const raw = await serviceToken();
-		const login = await SELF.fetch(`${ORIGIN}/auth/token-login`, {
+		const login = await SELF.fetch(`${ORIGIN}/api/auth/login/token`, {
 			method: "POST",
 			headers: { authorization: `Bearer ${raw}` },
 		});
@@ -156,8 +156,8 @@ describe("strict same-origin (issue #3 phase 8)", () => {
 
 	it("safe GET navigations with a foreign Origin are not refused (OAuth callback, providers)", async () => {
 		for (const path of [
-			"/auth/providers",
-			"/auth/callback/google",
+			"/api/auth/login/providers",
+			"/api/auth/login/google/callback",
 			"/health",
 		]) {
 			const res = await SELF.fetch(`${ORIGIN}${path}`, {
@@ -171,7 +171,7 @@ describe("strict same-origin (issue #3 phase 8)", () => {
 	it("no response carries an access-control-* header", async () => {
 		for (const path of [
 			"/health",
-			"/auth/providers",
+			"/api/auth/login/providers",
 			"/api/bot/list",
 			"/rpc",
 		]) {

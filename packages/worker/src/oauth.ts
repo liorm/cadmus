@@ -321,7 +321,7 @@ export class OAuthFlowManager {
 
 	private emitFlowEvent(record: OAuthFlowRecord): void {
 		this.broadcast({
-			type: "account.oauth.event",
+			type: "account.credentials.oauth.event",
 			payload: { ...record },
 		});
 	}

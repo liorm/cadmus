@@ -22,11 +22,8 @@ import type {
 	AuthElevateCommand,
 	AuthElevationEndCommand,
 	AuthMembershipsListCommand,
-	AuthMethodsLinkStartCommand,
+	AuthMethodsDeleteCommand,
 	AuthMethodsListCommand,
-	AuthMethodsRevokeCommand,
-	AuthPasskeysBeginCommand,
-	AuthPasskeysFinishCommand,
 	AuthSessionsListCommand,
 	AuthSessionsRevokeCommand,
 	AuthSessionsRevokeOthersCommand,
@@ -81,7 +78,6 @@ import type {
 	SystemMembersUpdateCommand,
 	SystemUsersDisableCommand,
 	SystemUsersEnableCommand,
-	SystemUsersResetPasskeysCommand,
 	SystemUsersRevokeSessionsCommand,
 	TurnAbortCommand,
 	TurnInterruptCommand,
@@ -89,6 +85,18 @@ import type {
 	TurnSubmitCommand,
 } from "./commands.js";
 import type { CommandResultFrame } from "./frames.js";
+import type {
+	AuthLoginDevPasswordCommand,
+	AuthLoginGoogleStartCommand,
+	AuthLoginGoogleStartResult,
+	AuthLoginProvidersCommand,
+	AuthLoginProvidersResult,
+	AuthLoginSessionResult,
+	AuthLoginTokenCommand,
+	AuthSessionLogoutCommand,
+	AuthSessionLogoutResult,
+	AuthSessionRefreshCommand,
+} from "./login.js";
 import type {
 	AccountOAuthCancelCommand,
 	AccountOAuthCancelResult,
@@ -125,11 +133,8 @@ import type {
 	AuthElevateResult,
 	AuthElevationEndResult,
 	AuthMembershipsListResult,
-	AuthMethodsLinkStartResult,
+	AuthMethodsDeleteResult,
 	AuthMethodsListResult,
-	AuthMethodsRevokeResult,
-	AuthPasskeysBeginResult,
-	AuthPasskeysFinishResult,
 	AuthSessionsListResult,
 	AuthSessionsRevokeOthersResult,
 	AuthSessionsRevokeResult,
@@ -180,7 +185,6 @@ import type {
 	SystemMembersListResult,
 	SystemUsersDisableResult,
 	SystemUsersEnableResult,
-	SystemUsersResetPasskeysResult,
 	SystemUsersRevokeSessionsResult,
 	TurnAbortResult,
 	TurnInterruptResult,
@@ -275,31 +279,31 @@ export type AccountModelsListRpc = Rpc<
 	AccountModelsListResult
 >;
 
-/** RPC contract for `account.oauth.providers`: lists supported OAuth providers and flow mechanisms. */
+/** RPC contract for `account.credentials.oauth.providers`: lists supported OAuth providers and flow mechanisms. */
 export type AccountOAuthProvidersRpc = Rpc<
 	AccountOAuthProvidersCommand,
 	AccountOAuthProvidersResult
 >;
 
-/** RPC contract for `account.oauth.start`: begins an OAuth authentication flow. */
+/** RPC contract for `account.credentials.oauth.start`: begins an OAuth authentication flow. */
 export type AccountOAuthStartRpc = Rpc<
 	AccountOAuthStartCommand,
 	AccountOAuthStartResult
 >;
 
-/** RPC contract for `account.oauth.status`: queries active OAuth flow state. */
+/** RPC contract for `account.credentials.oauth.status`: queries active OAuth flow state. */
 export type AccountOAuthStatusRpc = Rpc<
 	AccountOAuthStatusCommand,
 	AccountOAuthStatusResult
 >;
 
-/** RPC contract for `account.oauth.submit`: advances an OAuth flow with user-supplied input. */
+/** RPC contract for `account.credentials.oauth.submit`: advances an OAuth flow with user-supplied input. */
 export type AccountOAuthSubmitRpc = Rpc<
 	AccountOAuthSubmitCommand,
 	AccountOAuthSubmitResult
 >;
 
-/** RPC contract for `account.oauth.cancel`: cancels an active OAuth flow. */
+/** RPC contract for `account.credentials.oauth.cancel`: cancels an active OAuth flow. */
 export type AccountOAuthCancelRpc = Rpc<
 	AccountOAuthCancelCommand,
 	AccountOAuthCancelResult
@@ -368,10 +372,6 @@ export type SystemUsersRevokeSessionsRpc = Rpc<
 	SystemUsersRevokeSessionsCommand,
 	SystemUsersRevokeSessionsResult
 >;
-export type SystemUsersResetPasskeysRpc = Rpc<
-	SystemUsersResetPasskeysCommand,
-	SystemUsersResetPasskeysResult
->;
 export type AuthElevateRpc = Rpc<AuthElevateCommand, AuthElevateResult>;
 export type AuthElevationEndRpc = Rpc<
 	AuthElevationEndCommand,
@@ -401,21 +401,33 @@ export type AuthMethodsListRpc = Rpc<
 	AuthMethodsListCommand,
 	AuthMethodsListResult
 >;
-export type AuthMethodsLinkStartRpc = Rpc<
-	AuthMethodsLinkStartCommand,
-	AuthMethodsLinkStartResult
+export type AuthMethodsDeleteRpc = Rpc<
+	AuthMethodsDeleteCommand,
+	AuthMethodsDeleteResult
 >;
-export type AuthMethodsRevokeRpc = Rpc<
-	AuthMethodsRevokeCommand,
-	AuthMethodsRevokeResult
+export type AuthLoginProvidersRpc = Rpc<
+	AuthLoginProvidersCommand,
+	AuthLoginProvidersResult
 >;
-export type AuthPasskeysBeginRpc = Rpc<
-	AuthPasskeysBeginCommand,
-	AuthPasskeysBeginResult
+export type AuthLoginDevPasswordRpc = Rpc<
+	AuthLoginDevPasswordCommand,
+	AuthLoginSessionResult
 >;
-export type AuthPasskeysFinishRpc = Rpc<
-	AuthPasskeysFinishCommand,
-	AuthPasskeysFinishResult
+export type AuthLoginTokenRpc = Rpc<
+	AuthLoginTokenCommand,
+	AuthLoginSessionResult
+>;
+export type AuthLoginGoogleStartRpc = Rpc<
+	AuthLoginGoogleStartCommand,
+	AuthLoginGoogleStartResult
+>;
+export type AuthSessionRefreshRpc = Rpc<
+	AuthSessionRefreshCommand,
+	AuthLoginSessionResult
+>;
+export type AuthSessionLogoutRpc = Rpc<
+	AuthSessionLogoutCommand,
+	AuthSessionLogoutResult
 >;
 export type FamilyListRpc = Rpc<FamilyListCommand, FamilyListResult>;
 
@@ -576,11 +588,11 @@ export interface RpcMap {
 	"account.credentials.set": AccountCredentialsSetRpc;
 	"account.credentials.delete": AccountCredentialsDeleteRpc;
 	"account.models.list": AccountModelsListRpc;
-	"account.oauth.providers": AccountOAuthProvidersRpc;
-	"account.oauth.start": AccountOAuthStartRpc;
-	"account.oauth.status": AccountOAuthStatusRpc;
-	"account.oauth.submit": AccountOAuthSubmitRpc;
-	"account.oauth.cancel": AccountOAuthCancelRpc;
+	"account.credentials.oauth.providers": AccountOAuthProvidersRpc;
+	"account.credentials.oauth.start": AccountOAuthStartRpc;
+	"account.credentials.oauth.status": AccountOAuthStatusRpc;
+	"account.credentials.oauth.submit": AccountOAuthSubmitRpc;
+	"account.credentials.oauth.cancel": AccountOAuthCancelRpc;
 	"auth.whoami": AuthWhoamiRpc;
 	"auth.ticket": AuthTicketRpc;
 	"auth.sessions.list": AuthSessionsListRpc;
@@ -600,17 +612,19 @@ export interface RpcMap {
 	"system.users.disable": SystemUsersDisableRpc;
 	"system.users.enable": SystemUsersEnableRpc;
 	"system.users.revokeSessions": SystemUsersRevokeSessionsRpc;
-	"system.users.resetPasskeys": SystemUsersResetPasskeysRpc;
 	"auth.elevation.end": AuthElevationEndRpc;
 	"auth.tokens.list": AuthTokensListRpc;
 	"auth.tokens.create": AuthTokensCreateRpc;
 	"auth.tokens.revoke": AuthTokensRevokeRpc;
 	"auth.memberships.list": AuthMembershipsListRpc;
 	"auth.methods.list": AuthMethodsListRpc;
-	"auth.methods.link.start": AuthMethodsLinkStartRpc;
-	"auth.methods.revoke": AuthMethodsRevokeRpc;
-	"auth.passkeys.begin": AuthPasskeysBeginRpc;
-	"auth.passkeys.finish": AuthPasskeysFinishRpc;
+	"auth.methods.delete": AuthMethodsDeleteRpc;
+	"auth.login.providers": AuthLoginProvidersRpc;
+	"auth.login.devPassword": AuthLoginDevPasswordRpc;
+	"auth.login.token": AuthLoginTokenRpc;
+	"auth.login.google.start": AuthLoginGoogleStartRpc;
+	"auth.session.refresh": AuthSessionRefreshRpc;
+	"auth.session.logout": AuthSessionLogoutRpc;
 	"family.list": FamilyListRpc;
 	"family.create": FamilyCreateRpc;
 	"family.get": FamilyGetRpc;

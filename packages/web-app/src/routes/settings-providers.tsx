@@ -42,7 +42,7 @@ export function ProvidersSettingsPage() {
 				"account.credentials.list",
 			),
 			client.callRpc<{ providers?: OAuthProviderInfo[] }>(
-				"account.oauth.providers",
+				"account.credentials.oauth.providers",
 			),
 			client.callRpc<{ models?: ModelInfo[] }>("account.models.list"),
 		]);
@@ -67,7 +67,7 @@ export function ProvidersSettingsPage() {
 
 	useEffect(() => {
 		return subscribeEvents((event: ServerEvent) => {
-			if (event.type === "account.oauth.event") {
+			if (event.type === "account.credentials.oauth.event") {
 				setFlow((current) =>
 					current && event.payload.flowId === current.flowId
 						? event.payload
@@ -91,9 +91,12 @@ export function ProvidersSettingsPage() {
 		}
 		const timer = setInterval(() => {
 			void client
-				.callRpc<{ flow?: OAuthFlowRecord }>("account.oauth.status", {
-					flowId: flow.flowId,
-				})
+				.callRpc<{ flow?: OAuthFlowRecord }>(
+					"account.credentials.oauth.status",
+					{
+						flowId: flow.flowId,
+					},
+				)
 				.then((res) => {
 					if (res.result?.flow) {
 						setFlow(res.result.flow);
@@ -174,7 +177,7 @@ export function ProvidersSettingsPage() {
 										setBusy(true);
 										void client
 											.callRpc<{ flow?: OAuthFlowRecord }>(
-												"account.oauth.submit",
+												"account.credentials.oauth.submit",
 												{
 													flowId: flow.flowId,
 													input: prompt.trim(),
@@ -211,7 +214,9 @@ export function ProvidersSettingsPage() {
 								className="min-h-tap rounded-md border border-border"
 								onClick={() => {
 									void client
-										.callRpc("account.oauth.cancel", { flowId: flow.flowId })
+										.callRpc("account.credentials.oauth.cancel", {
+											flowId: flow.flowId,
+										})
 										.then(() => setFlow(null));
 								}}
 							>
@@ -250,7 +255,7 @@ export function ProvidersSettingsPage() {
 											setError(null);
 											void client
 												.callRpc<{ flow?: OAuthFlowRecord }>(
-													"account.oauth.start",
+													"account.credentials.oauth.start",
 													{
 														providerId: id,
 													},

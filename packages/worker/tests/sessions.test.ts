@@ -35,7 +35,7 @@ function refresh(
 	token: string | undefined,
 	headers: Record<string, string> = {},
 ): Promise<Response> {
-	return SELF.fetch(`${ORIGIN}/auth/refresh`, {
+	return SELF.fetch(`${ORIGIN}/api/auth/session/refresh`, {
 		method: "POST",
 		headers: {
 			origin: ORIGIN,
@@ -243,7 +243,7 @@ describe("x-account-id selects among the caller's memberships (issue #3 L113)", 
 			grants: ["chat.use", "tokens.self"],
 		});
 		if (!made.ok) throw new Error("create failed");
-		const login = await SELF.fetch(`${ORIGIN}/auth/token-login`, {
+		const login = await SELF.fetch(`${ORIGIN}/api/auth/login/token`, {
 			method: "POST",
 			headers: { authorization: `Bearer ${made.token}` },
 		});
@@ -265,7 +265,7 @@ describe("x-account-id selects among the caller's memberships (issue #3 L113)", 
 			grants: ["chat.use", "tokens.self"],
 		});
 		if (!made.ok) throw new Error("create failed");
-		const login = await SELF.fetch(`${ORIGIN}/auth/token-login`, {
+		const login = await SELF.fetch(`${ORIGIN}/api/auth/login/token`, {
 			method: "POST",
 			headers: { authorization: `Bearer ${made.token}` },
 		});
@@ -1611,7 +1611,7 @@ describe("session and login method commands (issue #3 phase 3c)", () => {
 			grants: ["chat.use"],
 		});
 		if (!made.ok) throw new Error("create failed");
-		const login = await SELF.fetch(`${ORIGIN}/auth/token-login`, {
+		const login = await SELF.fetch(`${ORIGIN}/api/auth/login/token`, {
 			method: "POST",
 			headers: { authorization: `Bearer ${made.token}` },
 		});
@@ -1642,7 +1642,7 @@ describe("session and login method commands (issue #3 phase 3c)", () => {
 			grants: ["chat.use"],
 		});
 		if (!made.ok) throw new Error("create failed");
-		const login = await SELF.fetch(`${ORIGIN}/auth/token-login`, {
+		const login = await SELF.fetch(`${ORIGIN}/api/auth/login/token`, {
 			method: "POST",
 			headers: { authorization: `Bearer ${made.token}` },
 		});
@@ -1685,7 +1685,7 @@ describe("session and login method commands (issue #3 phase 3c)", () => {
 			grants: ["bot.read"],
 		});
 		if (!made.ok) throw new Error("create failed");
-		const login = await SELF.fetch(`${ORIGIN}/auth/token-login`, {
+		const login = await SELF.fetch(`${ORIGIN}/api/auth/login/token`, {
 			method: "POST",
 			headers: { authorization: `Bearer ${made.token}` },
 		});
@@ -1771,19 +1771,19 @@ describe("session and login method commands (issue #3 phase 3c)", () => {
 
 		const revoke = await rpcWithSession(
 			viaTwo.accessToken,
-			"auth.methods.revoke",
+			"auth.methods.delete",
 			{
 				methodId: one,
 			},
 		);
-		expect(revoke.frame.result).toEqual({ revoked: true, sessionsRevoked: 1 });
+		expect(revoke.frame.result).toEqual({ deleted: true, sessionsRevoked: 1 });
 		expect(
 			(await rpcWithSession(viaOne.accessToken, "auth.methods.list")).status,
 		).toBe(401);
 
 		const last = await rpcWithSession(
 			viaTwo.accessToken,
-			"auth.methods.revoke",
+			"auth.methods.delete",
 			{
 				methodId: two,
 			},
@@ -1807,12 +1807,12 @@ describe("session and login method commands (issue #3 phase 3c)", () => {
 	});
 });
 
-describe("POST /auth/logout (issue #3 phase 3d)", () => {
+describe("POST /api/auth/session/logout (issue #3 phase 3d)", () => {
 	function logout(
 		token: string | undefined,
 		headers: Record<string, string> = {},
 	): Promise<Response> {
-		return SELF.fetch(`${ORIGIN}/auth/logout`, {
+		return SELF.fetch(`${ORIGIN}/api/auth/session/logout`, {
 			method: "POST",
 			headers: {
 				origin: ORIGIN,
@@ -1823,18 +1823,17 @@ describe("POST /auth/logout (issue #3 phase 3d)", () => {
 		});
 	}
 
-	it("does not read the refresh cookie: a cookie alone revokes nothing and is not cleared (issue #3: only /auth/refresh reads cookies)", async () => {
+	it("revokes the session named by the refresh cookie and clears it", async () => {
 		const { s, accountId, userId } = await seedUser();
 		const t = await s.createSession({ userId, accountId });
 		const res = await logout(t.refreshToken);
 		expect(res.status).toBe(200);
-		expect(((await res.json()) as { revoked: boolean }).revoked).toBe(false);
-		expect(res.headers.get("set-cookie")).toBeNull();
-		// The session is untouched: the cookie still refreshes.
-		expect((await refresh(t.refreshToken)).status).toBe(200);
+		expect(((await res.json()) as { revoked: boolean }).revoked).toBe(true);
+		expect(res.headers.get("set-cookie") ?? "").toContain("Max-Age=0");
+		expect((await refresh(t.refreshToken)).status).toBe(401);
 	});
 
-	it("revokes by bearer access token alone, as a browser sends it (the cookie is Path=/auth/refresh)", async () => {
+	it("revokes by bearer access token alone, as a browser sends it (the cookie is Path=/api/auth/session/refresh)", async () => {
 		const { s, accountId, userId } = await seedUser();
 		const t = await s.createSession({ userId, accountId });
 		const res = await logout(undefined, {
@@ -1863,7 +1862,7 @@ describe("POST /auth/logout (issue #3 phase 3d)", () => {
 		});
 		expect(res.status).toBe(200);
 		expect(((await res.json()) as { revoked: boolean }).revoked).toBe(false);
-		expect(res.headers.get("set-cookie")).toBeNull();
+		expect(res.headers.get("set-cookie") ?? "").toContain("Max-Age=0");
 		// The session is untouched and the repair route (refresh, then logout with
 		// the fresh bearer) still works.
 		const again = await refresh(current);
@@ -1946,7 +1945,7 @@ describe("credential kinds on streams, with real created tokens", () => {
 			statuses.push(apiQuery.status);
 			expect(statuses).toEqual([401, 401, 401, 401, 401]);
 			// Positive control: the same real token works through token-login.
-			const login = await SELF.fetch(`${ORIGIN}/auth/token-login`, {
+			const login = await SELF.fetch(`${ORIGIN}/api/auth/login/token`, {
 				method: "POST",
 				headers: { authorization: `Bearer ${raw}` },
 			});
@@ -1962,7 +1961,7 @@ describe("credential kinds on streams, with real created tokens", () => {
 
 	it("opens /ws through the real ProtocolClient with a fresh ticket per connect", async () => {
 		const { raw } = await realToken("service");
-		const login = await SELF.fetch(`${ORIGIN}/auth/token-login`, {
+		const login = await SELF.fetch(`${ORIGIN}/api/auth/login/token`, {
 			method: "POST",
 			headers: { authorization: `Bearer ${raw}` },
 		});

@@ -516,17 +516,6 @@ export type SystemUsersRevokeSessionsResult = Static<
 	typeof SystemUsersRevokeSessionsResultSchema
 >;
 
-export const SystemUsersResetPasskeysResultSchema = Type.Object(
-	{
-		passkeys: Type.Number({ description: "Passkeys removed." }),
-		sessions: Type.Number({ description: "Sessions ended." }),
-	},
-	{ description: "Result payload returned by system.users.resetPasskeys." },
-);
-export type SystemUsersResetPasskeysResult = Static<
-	typeof SystemUsersResetPasskeysResultSchema
->;
-
 export const AuthElevateResultSchema = Type.Object(
 	{
 		elevatedUntil: Type.Number({
@@ -536,41 +525,6 @@ export const AuthElevateResultSchema = Type.Object(
 	{ description: "Result payload returned by auth.elevate." },
 );
 export type AuthElevateResult = Static<typeof AuthElevateResultSchema>;
-
-export const AuthPasskeysBeginResultSchema = Type.Object(
-	{
-		challengeId: Type.String({ description: "Pass back to finish." }),
-		options: Type.Object(
-			{},
-			{
-				additionalProperties: true,
-				description: "WebAuthn creation or request options.",
-			},
-		),
-	},
-	{ description: "Result payload returned by auth.passkeys.begin." },
-);
-export type AuthPasskeysBeginResult = Static<
-	typeof AuthPasskeysBeginResultSchema
->;
-
-export const AuthPasskeysFinishResultSchema = Type.Object(
-	{
-		elevatedUntil: Type.Optional(
-			Type.Number({ description: "Set for elevate: when admin mode ends." }),
-		),
-		methodId: Type.Optional(
-			Type.String({ description: "Set for register: the new login method." }),
-		),
-		removedMethodId: Type.Optional(
-			Type.String({ description: "Set for remove: the removed login method." }),
-		),
-	},
-	{ description: "Result payload returned by auth.passkeys.finish." },
-);
-export type AuthPasskeysFinishResult = Static<
-	typeof AuthPasskeysFinishResultSchema
->;
 
 export const AuthElevationEndResultSchema = Type.Object(
 	{
@@ -689,31 +643,19 @@ export type AuthMembershipsListResult = Static<
 	typeof AuthMembershipsListResultSchema
 >;
 
-export const AuthMethodsLinkStartResultSchema = Type.Object(
+export const AuthMethodsDeleteResultSchema = Type.Object(
 	{
-		ticket: Type.String({ description: "Short-lived signed link ticket." }),
-		bind: Type.String({ description: "Value of the link bind cookie." }),
-		expiresAt: Type.Number({ description: "Epoch ms the ticket expires." }),
-	},
-	{ description: "Result payload returned by auth.methods.link.start." },
-);
-export type AuthMethodsLinkStartResult = Static<
-	typeof AuthMethodsLinkStartResultSchema
->;
-
-export const AuthMethodsRevokeResultSchema = Type.Object(
-	{
-		revoked: Type.Boolean({
-			description: "True when the method was active and is now revoked.",
+		deleted: Type.Boolean({
+			description: "True when the method was active and is now deleted.",
 		}),
 		sessionsRevoked: Type.Number({
-			description: "Sessions revoked with the method.",
+			description: "Sessions opened through the method that were revoked.",
 		}),
 	},
-	{ description: "Result payload returned by auth.methods.revoke." },
+	{ description: "Result payload returned by auth.methods.delete." },
 );
-export type AuthMethodsRevokeResult = Static<
-	typeof AuthMethodsRevokeResultSchema
+export type AuthMethodsDeleteResult = Static<
+	typeof AuthMethodsDeleteResultSchema
 >;
 
 /**

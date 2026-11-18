@@ -394,13 +394,53 @@ export async function revokeSession(
 	return (res?.meta?.changes ?? 0) > 0;
 }
 
+/** Logout path: revoke the session that owns this refresh token. No rotation. */
+export async function revokeSessionByRefresh(
+	db: D1Database,
+	rawRefresh: string,
+	now = Date.now(),
+): Promise<boolean> {
+	if (!rawRefresh.startsWith(REFRESH_PREFIX)) return false;
+	const hash = await sha256Hex(rawRefresh);
+	const tokenHash = await tokenSessionHash(rawRefresh);
+	const row = await db
+		.prepare(
+			`SELECT id, session_family_id, refresh_hash
+       FROM cadmus_sessions
+       WHERE refresh_hash IN (?1, ?2) OR previous_refresh_hash IN (?1, ?2)`,
+		)
+		.bind(hash, tokenHash)
+		.first<{
+			id: string;
+			session_family_id: string;
+			refresh_hash: string;
+		}>();
+	if (!row) return false;
+	if (row.refresh_hash !== hash && row.refresh_hash !== tokenHash) {
+		const [res] = await db.batch([
+			db
+				.prepare(
+					`UPDATE cadmus_sessions SET revoked_at = ?2
+         WHERE session_family_id = ?1 AND revoked_at IS NULL`,
+				)
+				.bind(row.session_family_id, now),
+			auditRevoked(
+				db,
+				"session.refresh_reuse",
+				now,
+				"session_family_id = ?3",
+				row.session_family_id,
+			),
+		]);
+		return (res?.meta?.changes ?? 0) > 0;
+	}
+	return revokeSession(db, row.id, now);
+}
+
 /**
  * Turns admin mode on for a user session (never a token session) and audits
  * it in the same batch. Returns the end time, or undefined when the session is
- * not a live user session, or when the user has an active passkey: those users
- * elevate only through a passkey assertion (finishElevation). The password-free
- * toggle works only in the session's own account: a selected other account
- * needs the passkey proof.
+ * not a live user session. The toggle works only in the session's own account.
  */
 export async function startElevation(
 	db: D1Database,
@@ -414,10 +454,7 @@ export async function startElevation(
 			.prepare(
 				`UPDATE cadmus_sessions SET elevated_until = ?2, elevated_account_id = ?4
        WHERE id = ?1 AND revoked_at IS NULL AND token_id IS NULL
-         AND (?4 IS NULL OR ?4 = account_id)
-         AND NOT EXISTS (SELECT 1 FROM cadmus_passkeys p
-                         JOIN cadmus_login_methods m ON m.id = p.login_method_id
-                         WHERE p.user_id = cadmus_sessions.user_id AND m.revoked_at IS NULL)`,
+         AND (?4 IS NULL OR ?4 = account_id)`,
 			)
 			.bind(sessionId, until, now, accountId ?? null),
 		db
@@ -800,7 +837,7 @@ export async function listMemberships(
 
 export type RevokeMethodResult =
 	| { ok: true; revoked: boolean; sessionsRevoked: number }
-	| { ok: false; code: "last_login_method" | "passkey_requires_proof" };
+	| { ok: false; code: "last_login_method" };
 
 /**
  * Revokes one of the user's login methods and the sessions created through it.
@@ -820,21 +857,11 @@ export async function revokeLoginMethod(
 		.bind(methodId, userId)
 		.first<{ x: number }>();
 	if (!exists) return { ok: true, revoked: false, sessionsRevoked: 0 };
-	// A passkey leaves only through a passkey-proved removal (finishRemoval): a
-	// stolen Google session must not be able to drop it and skip the proof.
-	const isPasskey = await db
-		.prepare(`SELECT 1 AS x FROM cadmus_passkeys WHERE login_method_id = ?1`)
-		.bind(methodId)
-		.first<{ x: number }>();
-	if (isPasskey) return { ok: false, code: "passkey_requires_proof" };
-	// The last-method guard is part of the UPDATE (atomic), and the dependent
-	// statements only apply when this method ended up revoked by this call.
 	const results = await db.batch([
 		db
 			.prepare(
 				`UPDATE cadmus_login_methods SET revoked_at = ?3
          WHERE id = ?1 AND user_id = ?2 AND revoked_at IS NULL
-           AND NOT EXISTS (SELECT 1 FROM cadmus_passkeys WHERE login_method_id = ?1)
            AND (SELECT COUNT(*) FROM cadmus_login_methods
                  WHERE user_id = ?2 AND revoked_at IS NULL) > 1`,
 			)
@@ -851,21 +878,14 @@ export async function revokeLoginMethod(
 		db
 			.prepare(
 				`${AUDIT_COLUMNS}
-         SELECT 'aud_' || lower(hex(randomblob(12))), a.account_id, ?2, 'user', 'method.revoke', a.account_id, ?1, '{}', ?3
+         SELECT 'aud_' || lower(hex(randomblob(12))), a.account_id, ?2, 'user', 'method.delete', a.account_id, ?1, '{}', ?3
          FROM (SELECT account_id FROM cadmus_account_members WHERE user_id = ?2 LIMIT 1) a
          WHERE EXISTS (SELECT 1 FROM cadmus_login_methods WHERE id = ?1 AND revoked_at = ?3)`,
 			)
 			.bind(methodId, userId, now),
 	]);
 	if ((results[0]?.meta?.changes ?? 0) === 0) {
-		const nowPasskey = await db
-			.prepare(`SELECT 1 AS x FROM cadmus_passkeys WHERE login_method_id = ?1`)
-			.bind(methodId)
-			.first<{ x: number }>();
-		return {
-			ok: false,
-			code: nowPasskey ? "passkey_requires_proof" : "last_login_method",
-		};
+		return { ok: false, code: "last_login_method" };
 	}
 	return {
 		ok: true,

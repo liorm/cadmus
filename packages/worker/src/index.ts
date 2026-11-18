@@ -45,17 +45,17 @@ export function resetEdgeD1InitCache(): void {
 
 /** Top-level browser navigations: a refused budget redirects back to the app. */
 const NAVIGATION_AUTH_PATHS = new Set([
-	"/auth/login/google",
-	"/auth/callback/google",
+	"/api/auth/login/google/start",
+	"/api/auth/login/google/callback",
 ]);
 
 /** Credential routes with a per-IP budget. providers and logout carry no secret to guess. */
 export const IP_LIMITED_AUTH_PATHS = new Set([
-	"/auth/refresh",
-	"/auth/token-login",
-	"/auth/login/dev-password",
-	"/auth/login/google",
-	"/auth/callback/google",
+	"/api/auth/session/refresh",
+	"/api/auth/login/token",
+	"/api/auth/login/devPassword",
+	"/api/auth/login/google/start",
+	"/api/auth/login/google/callback",
 ]);
 
 /**
@@ -113,6 +113,7 @@ const routes = {
 			defaultTimezone,
 			defaultHarvestDelayMs,
 			edgeCache,
+			bootstrapEmail: env.CADMUS_BOOTSTRAP_SUPER_ADMIN_EMAIL,
 		});
 		await adminStore.initialize();
 

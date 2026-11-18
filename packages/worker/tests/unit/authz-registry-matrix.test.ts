@@ -35,8 +35,19 @@ describe("authorization matrix generated from the command registry", () => {
 
 	it("registers commands and classifies each by a known grant", () => {
 		expect(commands.length).toBeGreaterThan(20);
-		const unclassified = commands.filter((t) => !isGrant(getCommandGrant(t)));
+		const unclassified = commands.filter(
+			(t) =>
+				!t.startsWith("auth.login.") &&
+				!t.startsWith("auth.session.") &&
+				!isGrant(getCommandGrant(t)),
+		);
 		expect(unclassified).toEqual([]);
+		const publicCommands = commands.filter(
+			(t) => t.startsWith("auth.login.") || t.startsWith("auth.session."),
+		);
+		expect(publicCommands.every((t) => getCommandGrant(t) === undefined)).toBe(
+			true,
+		);
 	});
 
 	for (const role of ROLES) {
@@ -216,11 +227,11 @@ const GOLDEN_COMMAND_GRANTS: Record<string, string> = {
 	"account.members.remove": "members.manage",
 	"account.members.update": "members.manage",
 	"account.models.list": "bot.read",
-	"account.oauth.cancel": "credentials.manage",
-	"account.oauth.providers": "credentials.read",
-	"account.oauth.start": "credentials.manage",
-	"account.oauth.status": "credentials.manage",
-	"account.oauth.submit": "credentials.manage",
+	"account.credentials.oauth.cancel": "credentials.manage",
+	"account.credentials.oauth.providers": "credentials.read",
+	"account.credentials.oauth.start": "credentials.manage",
+	"account.credentials.oauth.status": "credentials.manage",
+	"account.credentials.oauth.submit": "credentials.manage",
 	"account.toolsEnvs.create": "toolsEnv.manage",
 	"account.toolsEnvs.delete": "toolsEnv.manage",
 	"account.toolsEnvs.deregister": "toolsEnv.manage",
@@ -231,11 +242,8 @@ const GOLDEN_COMMAND_GRANTS: Record<string, string> = {
 	"auth.elevate": "admin.elevate",
 	"auth.elevation.end": "admin.elevate",
 	"auth.memberships.list": "tokens.self",
-	"auth.methods.link.start": "tokens.self",
 	"auth.methods.list": "tokens.self",
-	"auth.methods.revoke": "tokens.self",
-	"auth.passkeys.begin": "tokens.self",
-	"auth.passkeys.finish": "tokens.self",
+	"auth.methods.delete": "tokens.self",
 	"auth.sessions.list": "tokens.self",
 	"auth.sessions.revoke": "tokens.self",
 	"auth.sessions.revokeOthers": "tokens.self",
@@ -289,7 +297,6 @@ const GOLDEN_COMMAND_GRANTS: Record<string, string> = {
 	"system.members.update": "system.members.manage",
 	"system.users.disable": "system.users.manage",
 	"system.users.enable": "system.users.manage",
-	"system.users.resetPasskeys": "system.users.manage",
 	"system.users.revokeSessions": "system.users.manage",
 	"turn.abort": "chat.use",
 	"turn.interrupt": "chat.use",

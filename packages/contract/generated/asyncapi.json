@@ -602,7 +602,7 @@
 					},
 					"type": {
 						"type": "string",
-						"const": "account.oauth.cancel",
+						"const": "account.credentials.oauth.cancel",
 						"description": "Command type identifier."
 					},
 					"payload": {
@@ -627,7 +627,7 @@
 				"properties": {
 					"type": {
 						"type": "string",
-						"const": "account.oauth.event",
+						"const": "account.credentials.oauth.event",
 						"description": "Event type identifier for OAuth lifecycle updates."
 					},
 					"payload": {
@@ -647,7 +647,7 @@
 					},
 					"type": {
 						"type": "string",
-						"const": "account.oauth.providers",
+						"const": "account.credentials.oauth.providers",
 						"description": "Command type identifier."
 					},
 					"payload": {
@@ -658,7 +658,7 @@
 				},
 				"readOnly": true,
 				"grant": "credentials.read",
-				"description": "Command to list all supported OAuth providers and their authorization requirements."
+				"description": "List model-provider OAuth providers. This stores a credential on the account. It does not sign a user into Cadmus."
 			},
 			"AccountOAuthStartCommand": {
 				"type": "object",
@@ -671,7 +671,7 @@
 					},
 					"type": {
 						"type": "string",
-						"const": "account.oauth.start",
+						"const": "account.credentials.oauth.start",
 						"description": "Command type identifier."
 					},
 					"payload": {
@@ -692,7 +692,7 @@
 					}
 				},
 				"grant": "credentials.manage",
-				"description": "Command to begin an OAuth authentication process for a provider, returning verification URLs and flowId."
+				"description": "Start OAuth that signs the account into a model provider and stores that credential. It does not open a Cadmus session."
 			},
 			"AccountOAuthStatusCommand": {
 				"type": "object",
@@ -705,7 +705,7 @@
 					},
 					"type": {
 						"type": "string",
-						"const": "account.oauth.status",
+						"const": "account.credentials.oauth.status",
 						"description": "Command type identifier."
 					},
 					"payload": {
@@ -715,7 +715,7 @@
 							"flowId": {
 								"type": "string",
 								"minLength": 1,
-								"description": "Unique flow identifier returned by account.oauth.start."
+								"description": "Unique flow identifier returned by account.credentials.oauth.start."
 							}
 						},
 						"description": "Parameters identifying the active OAuth flow."
@@ -736,7 +736,7 @@
 					},
 					"type": {
 						"type": "string",
-						"const": "account.oauth.submit",
+						"const": "account.credentials.oauth.submit",
 						"description": "Command type identifier."
 					},
 					"payload": {
@@ -746,7 +746,7 @@
 							"flowId": {
 								"type": "string",
 								"minLength": 1,
-								"description": "Unique flow identifier returned by account.oauth.start."
+								"description": "Unique flow identifier returned by account.credentials.oauth.start."
 							},
 							"input": {
 								"type": "string",
@@ -1115,6 +1115,106 @@
 				"grant": "admin.elevate",
 				"description": "Leave admin mode on the caller's session."
 			},
+			"AuthLoginDevPasswordCommand": {
+				"type": "object",
+				"required": ["id", "type", "payload"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Request id."
+					},
+					"type": {
+						"type": "string",
+						"const": "auth.login.devPassword",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"required": ["password"],
+						"properties": {
+							"password": {
+								"type": "string",
+								"minLength": 1,
+								"description": "Local password."
+							},
+							"email": {
+								"type": "string",
+								"description": "Email to sign in. When omitted, the configured bootstrap email is used."
+							}
+						},
+						"description": "Local password sign-in."
+					}
+				},
+				"description": "Local password sign-in. Refused in production. Refresh token is a cookie."
+			},
+			"AuthLoginGoogleStartCommand": {
+				"type": "object",
+				"required": ["id", "type"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Request id."
+					},
+					"type": {
+						"type": "string",
+						"const": "auth.login.google.start",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"properties": {},
+						"description": "Empty parameter payload."
+					}
+				},
+				"description": "Start Google sign-in. GET redirects to Google. Callback is GET /api/auth/login/google/callback."
+			},
+			"AuthLoginProvidersCommand": {
+				"type": "object",
+				"required": ["id", "type"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Request id."
+					},
+					"type": {
+						"type": "string",
+						"const": "auth.login.providers",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"properties": {},
+						"description": "Empty parameter payload."
+					}
+				},
+				"readOnly": true,
+				"description": "Configured Cadmus sign-in providers. No grant."
+			},
+			"AuthLoginTokenCommand": {
+				"type": "object",
+				"required": ["id", "type"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Request id."
+					},
+					"type": {
+						"type": "string",
+						"const": "auth.login.token",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"properties": {},
+						"description": "Empty parameter payload. The secret is the Authorization bearer."
+					}
+				},
+				"description": "Exchange cad_pat_ or cad_svc_ for a session. Refresh token is a cookie."
+			},
 			"AuthMembershipsListCommand": {
 				"type": "object",
 				"required": ["id", "type"],
@@ -1139,7 +1239,7 @@
 				"grant": "tokens.self",
 				"description": "List the active accounts the caller is a member of."
 			},
-			"AuthMethodsLinkStartCommand": {
+			"AuthMethodsDeleteCommand": {
 				"type": "object",
 				"required": ["id", "type", "payload"],
 				"properties": {
@@ -1150,24 +1250,24 @@
 					},
 					"type": {
 						"type": "string",
-						"const": "auth.methods.link.start",
+						"const": "auth.methods.delete",
 						"description": "Command type identifier."
 					},
 					"payload": {
 						"type": "object",
-						"required": ["provider"],
+						"required": ["methodId"],
 						"properties": {
-							"provider": {
+							"methodId": {
 								"type": "string",
-								"const": "google",
-								"description": "Provider."
+								"minLength": 1,
+								"description": "Login method to delete."
 							}
 						},
-						"description": "Provider to link."
+						"description": "Login method to delete."
 					}
 				},
 				"grant": "tokens.self",
-				"description": "Start linking a Google login to the signed-in user. Open `/auth/login/google?link=<ticket>` with the `bind` cookie set; the ticket lasts two minutes. An email match alone never merges users."
+				"description": "Delete one of the caller's login methods and the sessions opened through it. Refuses the last active method (last_login_method). Does not remove the user or any email row."
 			},
 			"AuthMethodsListCommand": {
 				"type": "object",
@@ -1193,135 +1293,49 @@
 				"grant": "tokens.self",
 				"description": "List the caller's login methods."
 			},
-			"AuthMethodsRevokeCommand": {
+			"AuthSessionLogoutCommand": {
 				"type": "object",
-				"required": ["id", "type", "payload"],
+				"required": ["id", "type"],
 				"properties": {
 					"id": {
 						"type": "string",
 						"minLength": 1,
-						"description": "Non-empty unique correlation identifier for this command request."
+						"description": "Request id."
 					},
 					"type": {
 						"type": "string",
-						"const": "auth.methods.revoke",
+						"const": "auth.session.logout",
 						"description": "Command type identifier."
 					},
 					"payload": {
 						"type": "object",
-						"required": ["methodId"],
-						"properties": {
-							"methodId": {
-								"type": "string",
-								"minLength": 1,
-								"description": "Login method to revoke."
-							}
-						},
-						"description": "Login method to revoke."
+						"properties": {},
+						"description": "Empty parameter payload."
 					}
 				},
-				"grant": "tokens.self",
-				"description": "Revoke one of the caller's login methods and the sessions created through it. The last active method cannot be revoked (last_login_method)."
+				"description": "Revoke the session and clear the refresh cookie."
 			},
-			"AuthPasskeysBeginCommand": {
+			"AuthSessionRefreshCommand": {
 				"type": "object",
-				"required": ["id", "type", "payload"],
+				"required": ["id", "type"],
 				"properties": {
 					"id": {
 						"type": "string",
 						"minLength": 1,
-						"description": "Non-empty unique correlation identifier for this command request."
+						"description": "Request id."
 					},
 					"type": {
 						"type": "string",
-						"const": "auth.passkeys.begin",
+						"const": "auth.session.refresh",
 						"description": "Command type identifier."
 					},
 					"payload": {
 						"type": "object",
-						"required": ["purpose"],
-						"properties": {
-							"purpose": {
-								"anyOf": [
-									{
-										"type": "string",
-										"const": "register"
-									},
-									{
-										"type": "string",
-										"const": "elevate"
-									},
-									{
-										"type": "string",
-										"const": "remove"
-									}
-								],
-								"description": "register enrolls a passkey; elevate proves one; remove proves one to remove methodId."
-							},
-							"methodId": {
-								"type": "string",
-								"minLength": 1,
-								"description": "For remove: the passkey login method to remove."
-							}
-						},
-						"description": "What the passkey ceremony is for."
+						"properties": {},
+						"description": "Empty parameter payload. The credential is the refresh cookie."
 					}
 				},
-				"grant": "tokens.self",
-				"description": "Start a passkey ceremony for the signed-in session and return WebAuthn options. Register needs a session from a fresh Google sign-in (/auth/login/google?fresh=1, verified authentication time within 5 minutes) while the user has no passkey, and an elevated session once they have one; elevate needs admin.elevate. Remove needs a passkey and a passkey method id."
-			},
-			"AuthPasskeysFinishCommand": {
-				"type": "object",
-				"required": ["id", "type", "payload"],
-				"properties": {
-					"id": {
-						"type": "string",
-						"minLength": 1,
-						"description": "Non-empty unique correlation identifier for this command request."
-					},
-					"type": {
-						"type": "string",
-						"const": "auth.passkeys.finish",
-						"description": "Command type identifier."
-					},
-					"payload": {
-						"type": "object",
-						"required": ["purpose", "challengeId", "response"],
-						"properties": {
-							"purpose": {
-								"anyOf": [
-									{
-										"type": "string",
-										"const": "register"
-									},
-									{
-										"type": "string",
-										"const": "elevate"
-									},
-									{
-										"type": "string",
-										"const": "remove"
-									}
-								],
-								"description": "Must match the begin call."
-							},
-							"challengeId": {
-								"type": "string",
-								"minLength": 1,
-								"description": "Challenge id returned by begin."
-							},
-							"response": {
-								"type": "object",
-								"properties": {},
-								"additionalProperties": true,
-								"description": "The WebAuthn credential JSON from the browser."
-							}
-						},
-						"description": "The finished ceremony."
-					}
-				},
-				"grant": "tokens.self",
-				"description": "Verify a passkey ceremony. Register stores the passkey. Elevate turns on admin mode for 15 minutes. Remove deletes the passkey chosen at begin, never the last login method. Every failure returns the same forbidden error."
+				"description": "Rotate the session from the refresh cookie."
 			},
 			"AuthSessionsListCommand": {
 				"type": "object",
@@ -2699,9 +2713,6 @@
 						"$ref": "#/components/schemas/SystemUsersRevokeSessionsCommand"
 					},
 					{
-						"$ref": "#/components/schemas/SystemUsersResetPasskeysCommand"
-					},
-					{
 						"$ref": "#/components/schemas/AuthTokensListCommand"
 					},
 					{
@@ -2717,16 +2728,25 @@
 						"$ref": "#/components/schemas/AuthMembershipsListCommand"
 					},
 					{
-						"$ref": "#/components/schemas/AuthMethodsRevokeCommand"
+						"$ref": "#/components/schemas/AuthMethodsDeleteCommand"
 					},
 					{
-						"$ref": "#/components/schemas/AuthMethodsLinkStartCommand"
+						"$ref": "#/components/schemas/AuthLoginProvidersCommand"
 					},
 					{
-						"$ref": "#/components/schemas/AuthPasskeysBeginCommand"
+						"$ref": "#/components/schemas/AuthLoginDevPasswordCommand"
 					},
 					{
-						"$ref": "#/components/schemas/AuthPasskeysFinishCommand"
+						"$ref": "#/components/schemas/AuthLoginTokenCommand"
+					},
+					{
+						"$ref": "#/components/schemas/AuthLoginGoogleStartCommand"
+					},
+					{
+						"$ref": "#/components/schemas/AuthSessionRefreshCommand"
+					},
+					{
+						"$ref": "#/components/schemas/AuthSessionLogoutCommand"
 					},
 					{
 						"$ref": "#/components/schemas/FamilyListCommand"
@@ -4015,7 +4035,7 @@
 					},
 					"payload": {
 						"type": "object",
-						"required": ["name"],
+						"required": ["name", "ownerEmail"],
 						"properties": {
 							"name": {
 								"type": "string",
@@ -4026,13 +4046,18 @@
 							"timezone": {
 								"type": "string",
 								"description": "IANA timezone for the account."
+							},
+							"ownerEmail": {
+								"type": "string",
+								"minLength": 3,
+								"description": "Email of the account owner. A new address creates a user with a primary email and no login method. An address that already belongs to a user reuses that user."
 							}
 						},
 						"description": "Command parameters."
 					}
 				},
 				"grant": "system.accounts.manage",
-				"description": "Create a tenant account. Needs admin mode."
+				"description": "Create a tenant account and an account-admin membership for ownerEmail. Needs admin mode. Does not create a login method or a session."
 			},
 			"SystemAccountsListCommand": {
 				"type": "object",
@@ -4423,36 +4448,6 @@
 				},
 				"grant": "system.users.manage",
 				"description": "Enable a disabled user again. Needs admin mode."
-			},
-			"SystemUsersResetPasskeysCommand": {
-				"type": "object",
-				"required": ["id", "type", "payload"],
-				"properties": {
-					"id": {
-						"type": "string",
-						"minLength": 1,
-						"description": "Non-empty unique correlation identifier for this command request."
-					},
-					"type": {
-						"type": "string",
-						"const": "system.users.resetPasskeys",
-						"description": "Command type identifier."
-					},
-					"payload": {
-						"type": "object",
-						"required": ["userId"],
-						"properties": {
-							"userId": {
-								"type": "string",
-								"minLength": 1,
-								"description": "Target user."
-							}
-						},
-						"description": "Command parameters."
-					}
-				},
-				"grant": "system.users.manage",
-				"description": "Remove a user's passkeys in every account and sign them out. Needs admin mode."
 			},
 			"SystemUsersRevokeSessionsCommand": {
 				"type": "object",

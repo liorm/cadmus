@@ -10,7 +10,6 @@ import {
 } from "react";
 import { useCadmus } from "@/context/CadmusContext";
 import { useSession } from "@/context/SessionContext";
-import { runPasskeyCeremony } from "@/lib/passkeys";
 import { currentAccessToken, fetchPrincipal } from "@/lib/session";
 
 /** "unknown" while checking, "unreadable" when the server could not be read. */
@@ -175,34 +174,9 @@ function LiveElevation({
 			setError(null);
 			ticket.current += 1;
 			try {
-				let res = on
+				const res = on
 					? await client.callRpc<{ elevatedUntil?: number }>("auth.elevate")
 					: await client.callRpc("auth.elevation.end");
-				if (on && !res.ok && res.error?.code === "forbidden") {
-					// A user with a passkey cannot use the plain call: prove the
-					// passkey. Any other refusal keeps its own message.
-					const methods = await client.callRpc<{
-						methods?: Array<{ provider: string }>;
-					}>("auth.methods.list");
-					const hasPasskey =
-						methods.ok &&
-						(methods.result?.methods ?? []).some(
-							(m) => m.provider === "passkey",
-						);
-					if (hasPasskey) {
-						const proved = await runPasskeyCeremony(client, "elevate");
-						if (!proved.ok) {
-							setError(proved.message);
-							if (proved.uncertain) {
-								// The elevation may have been granted; ask the server.
-								setUntil("unknown");
-								void refresh();
-							}
-							return false;
-						}
-						res = { ok: true, result: proved.result } as typeof res;
-					}
-				}
 				if (!res.ok) {
 					setError(res.error?.message ?? "That did not work");
 					return false;

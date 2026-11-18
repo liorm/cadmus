@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import { getEdgeCache } from "../src/edge-cache.js";
 import { D1AdminStore } from "../src/store/d1-admin.js";
 import { updateMemberRole } from "../src/store/d1-members.js";
-import { canEnrollPasskey } from "../src/store/d1-passkeys.js";
 import { rpc, uniqueAccountId } from "./helpers.js";
 
 const ORIGIN = "https://example.com";
@@ -48,7 +47,10 @@ describe("system console accounts (issue #3 phase 6b)", () => {
 		const { session } = await superAdmin();
 		const t = session.accessToken;
 
-		const denied = await rpc(t, "system.accounts.create", { name: "Acme" });
+		const denied = await rpc(t, "system.accounts.create", {
+			name: "Acme",
+			ownerEmail: "acme-owner@example.com",
+		});
 		expect(denied.ok).toBe(false);
 		expect(denied.error?.code).toBe("elevation_required");
 
@@ -56,14 +58,17 @@ describe("system console accounts (issue #3 phase 6b)", () => {
 		expect((await rpc(t, "system.accounts.list")).ok).toBe(true);
 
 		expect((await rpc(t, "auth.elevate")).ok).toBe(true);
-		const created = await rpc(t, "system.accounts.create", { name: " Acme " });
+		const created = await rpc(t, "system.accounts.create", {
+			name: " Acme ",
+			ownerEmail: "acme-owner@example.com",
+		});
 		expect(created.ok).toBe(true);
 		const account = created.result?.account;
 		if (!account) throw new Error("missing created account");
 		expect(account).toMatchObject({
 			name: "Acme",
 			status: "active",
-			memberCount: 0,
+			memberCount: 1,
 		});
 		expect(account.id).toMatch(/^acc_/);
 
@@ -138,13 +143,19 @@ describe("system console accounts (issue #3 phase 6b)", () => {
 				})
 			).error?.code,
 		).toBe("not_found");
-		expect((await rpc(t, "system.accounts.create", { name: "   " })).ok).toBe(
-			false,
-		);
+		expect(
+			(
+				await rpc(t, "system.accounts.create", {
+					name: "   ",
+					ownerEmail: "blank@example.com",
+				})
+			).ok,
+		).toBe(false);
 		expect(
 			(
 				await rpc(t, "system.accounts.create", {
 					name: "Zone",
+					ownerEmail: "zone@example.com",
 					timezone: "Nowhere/Land",
 				})
 			).ok,
@@ -164,7 +175,10 @@ describe("system console accounts (issue #3 phase 6b)", () => {
 			const before = (await s.listSystemAccounts()).length;
 			for (const [type, payload] of [
 				["system.accounts.list", {}],
-				["system.accounts.create", { name: "Sneaky" }],
+				[
+					"system.accounts.create",
+					{ name: "Sneaky", ownerEmail: "sneaky@example.com" },
+				],
 				["system.accounts.suspend", { accountId }],
 				["system.accounts.resume", { accountId }],
 				["system.accounts.rename", { accountId, name: "Mine" }],
@@ -215,7 +229,11 @@ describe("system console accounts (issue #3 phase 6b)", () => {
 describe("system console audit integrity (issue #3 phase 6b)", () => {
 	it("records the real previous name when renames race", async () => {
 		const { s, userId } = await superAdmin();
-		const created = await s.createSystemAccount({ name: "A", actor: userId });
+		const created = await s.createSystemAccount({
+			name: "A",
+			actor: userId,
+			ownerEmail: `a-${crypto.randomUUID().slice(0, 8)}@example.com`,
+		});
 		if (!created.ok) throw new Error("create failed");
 		const id = created.account.id;
 		await Promise.all([
@@ -239,7 +257,11 @@ describe("system console audit integrity (issue #3 phase 6b)", () => {
 
 	it("pages through events with the same millisecond without losing any", async () => {
 		const { s, userId } = await superAdmin();
-		const created = await s.createSystemAccount({ name: "P", actor: userId });
+		const created = await s.createSystemAccount({
+			name: "P",
+			actor: userId,
+			ownerEmail: `p-${crypto.randomUUID().slice(0, 8)}@example.com`,
+		});
 		if (!created.ok) throw new Error("create failed");
 		const id = created.account.id;
 		const at = Date.now();
@@ -301,7 +323,11 @@ describe("system account creation is all or nothing (issue #3 phase 6b)", () => 
 		});
 		await store().initialize();
 		await expect(
-			broken.createSystemAccount({ name, actor: userId }),
+			broken.createSystemAccount({
+				name,
+				actor: userId,
+				ownerEmail: `atomic-${crypto.randomUUID().slice(0, 8)}@example.com`,
+			}),
 		).rejects.toThrow();
 		const count = async () =>
 			(
@@ -322,7 +348,11 @@ describe("system account creation is all or nothing (issue #3 phase 6b)", () => 
 			)?.n,
 		).toBe(0);
 
-		const ok = await store().createSystemAccount({ name, actor: userId });
+		const ok = await store().createSystemAccount({
+			name,
+			actor: userId,
+			ownerEmail: `atomic-ok-${crypto.randomUUID().slice(0, 8)}@example.com`,
+		});
 		expect(ok.ok).toBe(true);
 		expect(await count()).toBe(1);
 		const env1 = await env.CADMUS_ADMIN_DB.prepare(
@@ -431,7 +461,10 @@ describe("system console members and users (issue #3 phase 6b)", () => {
 		const { session, userId } = await superAdmin();
 		const t = session.accessToken;
 		await rpc(t, "auth.elevate");
-		const created = await rpc(t, "system.accounts.create", { name: "Org" });
+		const created = await rpc(t, "system.accounts.create", {
+			name: "Org",
+			ownerEmail: `org-${crypto.randomUUID().slice(0, 8)}@example.com`,
+		});
 		return { t, accountId: created.result?.account.id as string, userId };
 	}
 
@@ -469,7 +502,6 @@ describe("system console members and users (issue #3 phase 6b)", () => {
 			["system.users.disable", { userId: user.userId }],
 			["system.users.enable", { userId: user.userId }],
 			["system.users.revokeSessions", { userId: user.userId }],
-			["system.users.resetPasskeys", { userId: user.userId }],
 		];
 		for (const [type, payload] of calls) {
 			const notElevated = await rpc(sa.accessToken, type, payload);
@@ -486,7 +518,10 @@ describe("system console members and users (issue #3 phase 6b)", () => {
 		const { t, accountId } = await tenant();
 		const user = await addMember(accountId, "user");
 		const listed = await rpc(t, "system.members.list", { accountId });
-		expect((listed.result?.members ?? []).map((m) => m.role)).toEqual(["user"]);
+		expect((listed.result?.members ?? []).map((m) => m.role).sort()).toEqual([
+			"account-admin",
+			"user",
+		]);
 
 		const up = await rpc(t, "system.members.update", {
 			accountId,
@@ -529,6 +564,18 @@ describe("system console members and users (issue #3 phase 6b)", () => {
 	it("keeps the last-admin guard and refuses super-admin roles", async () => {
 		const { t, accountId } = await tenant();
 		const admin = await addMember(accountId, "account-admin");
+		const owners = await env.CADMUS_ADMIN_DB.prepare(
+			`SELECT user_id FROM cadmus_account_members WHERE account_id = ?1 AND role = 'account-admin' AND user_id != ?2`,
+		)
+			.bind(accountId, admin.userId)
+			.all<{ user_id: string }>();
+		for (const row of owners.results) {
+			await rpc(t, "system.members.update", {
+				accountId,
+				userId: row.user_id,
+				role: "user",
+			});
+		}
 		const demote = await rpc(t, "system.members.update", {
 			accountId,
 			userId: admin.userId,
@@ -585,272 +632,6 @@ describe("system console members and users (issue #3 phase 6b)", () => {
 		expect(missing.error?.code).toBe("not_found");
 	});
 
-	async function givePasskey(userId: string) {
-		const db = env.CADMUS_ADMIN_DB;
-		const methodId = `lm_${crypto.randomUUID()}`;
-		await db
-			.prepare(
-				`INSERT INTO cadmus_login_methods (id, user_id, provider, subject, display, created_at, last_used_at)
-         VALUES (?1, ?2, 'passkey', ?3, 'Passkey', ?4, ?4)`,
-			)
-			.bind(methodId, userId, `cred_${methodId}`, Date.now())
-			.run();
-		await db
-			.prepare(
-				`INSERT INTO cadmus_passkeys (login_method_id, user_id, credential_id, public_key, counter, user_handle, device_type, backed_up, created_at)
-         VALUES (?1, ?2, ?3, 'k', 0, 'h', 'multiDevice', 1, ?4)`,
-			)
-			.bind(methodId, userId, `cred_${methodId}`, Date.now())
-			.run();
-		return methodId;
-	}
-	const activePasskeys = async (userId: string) =>
-		(
-			await env.CADMUS_ADMIN_DB.prepare(
-				`SELECT COUNT(*) AS n FROM cadmus_passkeys p JOIN cadmus_login_methods m ON m.id = p.login_method_id
-         WHERE p.user_id = ?1 AND m.revoked_at IS NULL`,
-			)
-				.bind(userId)
-				.first<{ n: number }>()
-		)?.n;
-
-	it("resets a user's passkeys everywhere, ends every session and admin mode, and audits counts at system scope only", async () => {
-		const { t, accountId, userId: actorId } = await tenant();
-		const other = await tenant();
-		const user = await addMember(accountId, "account-admin");
-		await store().ensureAccountAndUser({
-			accountId: other.accountId,
-			userId: user.userId,
-			role: "user",
-		});
-		await givePasskey(user.userId);
-		await givePasskey(user.userId);
-		const second = await store().createSession({
-			userId: user.userId,
-			accountId,
-		});
-		await env.CADMUS_ADMIN_DB.prepare(
-			`UPDATE cadmus_sessions SET elevated_until = ?2 WHERE id = ?1`,
-		)
-			.bind(second.sessionId, Date.now() + 600_000)
-			.run();
-		const r = await rpc(t, "system.users.resetPasskeys", {
-			userId: user.userId,
-		});
-		expect(r.result).toEqual({ passkeys: 2, sessions: 2 });
-		expect(await activePasskeys(user.userId)).toBe(0);
-		expect((await rpc(user.session.accessToken, "auth.whoami")).ok).not.toBe(
-			true,
-		);
-		expect((await rpc(second.accessToken, "auth.whoami")).ok).not.toBe(true);
-		const rows = await env.CADMUS_ADMIN_DB.prepare(
-			`SELECT account_id, actor_user_id, target, data FROM cadmus_audit WHERE action = 'user.passkeys.reset'`,
-		).all<{
-			account_id: string;
-			actor_user_id: string;
-			target: string;
-			data: string;
-		}>();
-		const mine = rows.results.filter((x) => x.target === user.userId);
-		expect(mine.length).toBe(1);
-		expect(mine[0]?.account_id).toBe("system");
-		expect(mine[0]?.actor_user_id).toBe(actorId);
-		expect(JSON.parse(mine[0]?.data ?? "{}")).toEqual({
-			passkeys: 2,
-			sessions: 2,
-		});
-		// Nothing lands in either tenant account's own audit trail.
-		for (const a of [accountId, other.accountId]) {
-			const tenantRows = await env.CADMUS_ADMIN_DB.prepare(
-				`SELECT COUNT(*) AS n FROM cadmus_audit WHERE account_id = ?1 AND action LIKE '%passkeys.reset%'`,
-			)
-				.bind(a)
-				.first<{ n: number }>();
-			expect(tenantRows?.n).toBe(0);
-		}
-		// Repeating it finds nothing: no second audit row, no sessions touched.
-		const again = await rpc(t, "system.users.resetPasskeys", {
-			userId: user.userId,
-		});
-		expect(again.result).toEqual({ passkeys: 0, sessions: 0 });
-		expect((await audit("user.passkeys.reset", user.userId)).length).toBe(1);
-	});
-
-	it("refuses resetting yourself or a missing user, and changes nothing", async () => {
-		const { t, userId } = await tenant();
-		await givePasskey(userId);
-		const self = await rpc(t, "system.users.resetPasskeys", { userId });
-		expect(self.error?.code).toBe("invalid");
-		const missing = await rpc(t, "system.users.resetPasskeys", {
-			userId: "usr_missing",
-		});
-		expect(missing.error?.code).toBe("not_found");
-		expect(await activePasskeys(userId)).toBe(1);
-		expect((await audit("user.passkeys.reset", userId)).length).toBe(0);
-	});
-
-	it("lets an elevated super-admin reset another super-admin, and only counts reach the audit", async () => {
-		const { t, userId: actorId } = await tenant();
-		const peer = await superAdmin();
-		await givePasskey(peer.userId);
-		const r = await rpc(t, "system.users.resetPasskeys", {
-			userId: peer.userId,
-		});
-		expect(r.result).toEqual({ passkeys: 1, sessions: 1 });
-		expect(await activePasskeys(peer.userId)).toBe(0);
-		expect((await audit("user.passkeys.reset", peer.userId)).length).toBe(1);
-		// The actor's own passkeys and session are untouched.
-		expect((await rpc(t, "auth.whoami")).ok).toBe(true);
-		expect(actorId).not.toBe(peer.userId);
-	});
-
-	it("rechecks the actor at execution: a session that is no longer in admin mode, not a super-admin, a token or revoked changes nothing", async () => {
-		const { accountId, userId: actorId, t } = await tenant();
-		const target = await addMember(accountId, "user");
-		await givePasskey(target.userId);
-		const s = store();
-		const actorSession = (
-			await env.CADMUS_ADMIN_DB.prepare(
-				`SELECT id FROM cadmus_sessions WHERE user_id = ?1 AND revoked_at IS NULL ORDER BY created_at DESC LIMIT 1`,
-			)
-				.bind(actorId)
-				.first<{ id: string }>()
-		)?.id as string;
-		const call = (actor: string, sessionId: string) =>
-			s.resetUserPasskeys({
-				userId: target.userId,
-				actor,
-				actorSessionId: sessionId,
-			});
-		// Admin mode ended between dispatch and effect.
-		await env.CADMUS_ADMIN_DB.prepare(
-			`UPDATE cadmus_sessions SET elevated_until = 1 WHERE id = ?1`,
-		)
-			.bind(actorSession)
-			.run();
-		expect((await call(actorId, actorSession)).ok).toBe(false);
-		// Not elevated at all, a session of someone else, and a non-super-admin.
-		expect((await call(actorId, target.session.sessionId)).ok).toBe(false);
-		const admin = await addMember(accountId, "account-admin");
-		await env.CADMUS_ADMIN_DB.prepare(
-			`UPDATE cadmus_sessions SET elevated_until = ?2 WHERE id = ?1`,
-		)
-			.bind(admin.session.sessionId, Date.now() + 600_000)
-			.run();
-		expect((await call(admin.userId, admin.session.sessionId)).ok).toBe(false);
-		// Revoked actor session.
-		await env.CADMUS_ADMIN_DB.prepare(
-			`UPDATE cadmus_sessions SET elevated_until = ?2, revoked_at = ?3 WHERE id = ?1`,
-		)
-			.bind(actorSession, Date.now() + 600_000, Date.now())
-			.run();
-		expect((await call(actorId, actorSession)).ok).toBe(false);
-		expect(await activePasskeys(target.userId)).toBe(1);
-		expect((await audit("user.passkeys.reset", target.userId)).length).toBe(0);
-		expect((await rpc(target.session.accessToken, "auth.whoami")).ok).toBe(
-			true,
-		);
-		expect(t).toBeTruthy();
-	});
-
-	it("a super-admin actor disabled after dispatch cannot reset passkeys, even with an elevated live session", async () => {
-		const { accountId, userId: actorId } = await tenant();
-		const target = await addMember(accountId, "user");
-		await givePasskey(target.userId);
-		const actorSession = (
-			await env.CADMUS_ADMIN_DB.prepare(
-				`SELECT id FROM cadmus_sessions WHERE user_id = ?1 AND revoked_at IS NULL ORDER BY created_at DESC LIMIT 1`,
-			)
-				.bind(actorId)
-				.first<{ id: string }>()
-		)?.id as string;
-		await env.CADMUS_ADMIN_DB.prepare(
-			`UPDATE cadmus_sessions SET elevated_until = ?2 WHERE id = ?1`,
-		)
-			.bind(actorSession, Date.now() + 600_000)
-			.run();
-		await env.CADMUS_ADMIN_DB.prepare(
-			`UPDATE cadmus_users SET disabled_at = ?2 WHERE id = ?1`,
-		)
-			.bind(actorId, Date.now())
-			.run();
-		const r = await store().resetUserPasskeys({
-			userId: target.userId,
-			actor: actorId,
-			actorSessionId: actorSession,
-		});
-		expect(r.ok).toBe(false);
-		expect(await activePasskeys(target.userId)).toBe(1);
-		expect((await audit("user.passkeys.reset", target.userId)).length).toBe(0);
-	});
-
-	async function googleMethod(userId: string) {
-		const id = `lm_${crypto.randomUUID()}`;
-		await env.CADMUS_ADMIN_DB.prepare(
-			`INSERT INTO cadmus_login_methods (id, user_id, provider, subject, display, created_at, last_used_at)
-       VALUES (?1, ?2, 'google', ?3, 'g', ?4, ?4)`,
-		)
-			.bind(id, userId, `g-${id}`, Date.now())
-			.run();
-		return id;
-	}
-
-	it("after a reset the user is back on the first-passkey path: only a fresh Google session may enroll", async () => {
-		const { t, accountId } = await tenant();
-		const user = await addMember(accountId, "user");
-		const gm = await googleMethod(user.userId);
-		await givePasskey(user.userId);
-		const db = env.CADMUS_ADMIN_DB;
-		expect(
-			(await rpc(t, "system.users.resetPasskeys", { userId: user.userId })).ok,
-		).toBe(true);
-		const plain = await store().createSession({
-			userId: user.userId,
-			accountId,
-			loginMethodId: gm,
-		});
-		expect(
-			await canEnrollPasskey(db, {
-				userId: user.userId,
-				sessionId: plain.sessionId,
-			}),
-		).toBe(false);
-		const fresh = await store().createSession({
-			userId: user.userId,
-			accountId,
-			loginMethodId: gm,
-			freshGoogleAt: Date.now(),
-		});
-		expect(
-			await canEnrollPasskey(db, {
-				userId: user.userId,
-				sessionId: fresh.sessionId,
-			}),
-		).toBe(true);
-	});
-
-	it("a passkey-only user is left with no login method after a reset (recovery is outside this command)", async () => {
-		const { t, accountId } = await tenant();
-		const user = await addMember(accountId, "user");
-		const pm = await givePasskey(user.userId);
-		const only = await store().createSession({
-			userId: user.userId,
-			accountId,
-			loginMethodId: pm,
-		});
-		const r = await rpc(t, "system.users.resetPasskeys", {
-			userId: user.userId,
-		});
-		expect(r.result?.passkeys).toBe(1);
-		expect((await rpc(only.accessToken, "auth.whoami")).ok).not.toBe(true);
-		const left = await env.CADMUS_ADMIN_DB.prepare(
-			`SELECT COUNT(*) AS n FROM cadmus_login_methods WHERE user_id = ?1 AND revoked_at IS NULL`,
-		)
-			.bind(user.userId)
-			.first<{ n: number }>();
-		expect(left?.n).toBe(0);
-	});
-
 	it("revokes live sessions and reports the count", async () => {
 		const { t, accountId } = await tenant();
 		const user = await addMember(accountId, "user");
@@ -889,6 +670,22 @@ describe("system console members and users (issue #3 phase 6b)", () => {
 		expect((await audit("member.role", user.userId)).length).toBe(1);
 
 		// Two admins demoted at once: at least one admin must remain.
+		// The account owner is already an admin. Demote that owner first so the
+		// race is only the two members this test added.
+		const owners = await env.CADMUS_ADMIN_DB.prepare(
+			`SELECT user_id FROM cadmus_account_members WHERE account_id = ?1 AND role = 'account-admin' AND user_id != ?2`,
+		)
+			.bind(accountId, user.userId)
+			.all<{ user_id: string }>();
+		for (const row of owners.results) {
+			await s.updateMemberRole({
+				accountId,
+				userId: row.user_id,
+				role: "user",
+				actor: "usr_actor",
+				actorKind: "super-admin",
+			});
+		}
 		const second = await addMember(accountId, "account-admin");
 		const demotes = await Promise.all(
 			[user.userId, second.userId].map((userId) =>

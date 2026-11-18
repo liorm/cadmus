@@ -1,7 +1,7 @@
-import { SYSTEM_ACCOUNT_ID } from "@cadmus/contract/grants";
 import type { LoginIdentity } from "../auth/google.js";
 import { createSession, type SessionTokens } from "./d1-sessions.js";
 import { randomId } from "./random-id.js";
+import { normalizeLoginEmail } from "./user-emails.js";
 
 /** Login rows use 12 random bytes. Other stores use the 8-byte default. */
 const LOGIN_ID_BYTES = 12;
@@ -57,7 +57,9 @@ export type LoginResult =
 			ok: false;
 			code:
 				| "not_invited"
+				| "email_not_verified"
 				| "login_method_revoked"
+				| "method_in_use"
 				| "user_disabled"
 				| "account_suspended";
 	  };
@@ -65,6 +67,28 @@ export type LoginResult =
 interface MembershipRow {
 	account_id: string;
 	status: string;
+}
+
+async function acceptPendingInvites(
+	db: D1Database,
+	email: string,
+	userId: string,
+	now: number,
+	beforeWrite?: () => Promise<void>,
+): Promise<void> {
+	const pending = await db
+		.prepare(
+			`SELECT id, account_id, role FROM cadmus_invites
+       WHERE email = ?1 AND accepted_at IS NULL AND revoked_at IS NULL
+         AND expires_at > ?2`,
+		)
+		.bind(email, now)
+		.all<{ id: string; account_id: string; role: string }>();
+	const accept = pending.results.flatMap((invite) =>
+		acceptInvite(db, invite, userId, now),
+	);
+	await beforeWrite?.();
+	if (accept.length > 0) await db.batch(accept);
 }
 
 async function pickAccount(
@@ -116,7 +140,10 @@ export async function completeLogin(
 	} = {},
 ): Promise<LoginResult> {
 	const now = options.now ?? Date.now();
-	const email = identity.email.trim().toLowerCase();
+	const email = normalizeLoginEmail(identity.email);
+	if (!identity.emailVerified || !email) {
+		return { ok: false, code: "email_not_verified" };
+	}
 	const method = await db
 		.prepare(
 			`SELECT id, user_id, revoked_at FROM cadmus_login_methods
@@ -146,28 +173,32 @@ export async function completeLogin(
 			)
 			.bind(methodId, now)
 			.run();
-		// An existing user can be invited to another account. Accept pending
-		// invites for the verified email so re-invites work for known logins.
-		if (identity.emailVerified) {
-			const pending = await db
-				.prepare(
-					`SELECT id, account_id, role FROM cadmus_invites
-           WHERE email = ?1 AND accepted_at IS NULL AND revoked_at IS NULL
-             AND expires_at > ?2`,
-				)
-				.bind(email, now)
-				.all<{ id: string; account_id: string; role: string }>();
-			const accept = pending.results.flatMap((invite) =>
-				acceptInvite(db, invite, userId, now),
-			);
-			await options.beforeWrite?.();
-			if (accept.length > 0) await db.batch(accept);
+		// A later address on the same subject is not a second login key and does
+		// not accept invites that belong to a different user.
+		const ownsEmail = await db
+			.prepare(
+				`SELECT 1 AS x FROM cadmus_user_emails WHERE email = ?1 AND user_id = ?2`,
+			)
+			.bind(email, userId)
+			.first<{ x: number }>();
+		if (ownsEmail) {
+			await acceptPendingInvites(db, email, userId, now, options.beforeWrite);
 		}
 	} else {
-		const bootstrap = options.bootstrapEmail?.trim().toLowerCase();
-		const claimed = await db
-			.prepare(`SELECT 1 AS x FROM cadmus_bootstrap WHERE id = 1`)
-			.first<{ x: number }>();
+		const owner = await db
+			.prepare(`SELECT user_id FROM cadmus_user_emails WHERE email = ?1`)
+			.bind(email)
+			.first<{ user_id: string }>();
+		if (!owner) return { ok: false, code: "not_invited" };
+		const user = await db
+			.prepare(`SELECT disabled_at FROM cadmus_users WHERE id = ?1`)
+			.bind(owner.user_id)
+			.first<{ disabled_at: number | null }>();
+		if (!user || user.disabled_at !== null) {
+			return { ok: false, code: "user_disabled" };
+		}
+		userId = owner.user_id;
+		methodId = randomId("lm_", LOGIN_ID_BYTES);
 		const invites = await db
 			.prepare(
 				`SELECT id, account_id, role FROM cadmus_invites
@@ -176,41 +207,15 @@ export async function completeLogin(
 			)
 			.bind(email, now)
 			.all<{ id: string; account_id: string; role: string }>();
-		const isBootstrap = !!bootstrap && email === bootstrap && !claimed;
-		if (!isBootstrap && invites.results.length === 0) {
-			return { ok: false, code: "not_invited" };
-		}
-		userId = randomId("usr_", LOGIN_ID_BYTES);
-		methodId = randomId("lm_", LOGIN_ID_BYTES);
-		// Invite-only sign-ups write the user and method only while an invite for
-		// this email is still pending at write time, so a revoke (or a competing
-		// acceptance) that lands first leaves no orphan rows.
-		// The gate looks at the same preselected invite ids that get accepted
-		// below, so a replacement invite cannot satisfy it for a claim that fails.
-		const inviteIds = invites.results.map((invite) => invite.id);
-		const idSlots = inviteIds.map((_, i) => `?${i + 5}`).join(", ");
-		const gate = isBootstrap
-			? "1"
-			: `EXISTS (SELECT 1 FROM cadmus_invites WHERE id IN (${idSlots}) AND accepted_at IS NULL AND revoked_at IS NULL AND expires_at > ?4)`;
-		const statements = [
-			db
-				.prepare(
-					`INSERT INTO cadmus_users (id, name, email, primary_email, created_at)
-           SELECT ?1, ?2, ?3, ?3, ?4 WHERE ${gate}`,
-				)
-				.bind(
-					userId,
-					identity.display ?? email,
-					email,
-					now,
-					...(isBootstrap ? [] : inviteIds),
-				),
+		const statements: D1PreparedStatement[] = [
 			db
 				.prepare(
 					`INSERT INTO cadmus_login_methods
              (id, user_id, provider, subject, display, created_at, last_used_at)
            SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?6
-           WHERE EXISTS (SELECT 1 FROM cadmus_users WHERE id = ?2)`,
+           WHERE NOT EXISTS (
+             SELECT 1 FROM cadmus_login_methods WHERE provider = ?3 AND subject = ?4
+           )`,
 				)
 				.bind(
 					methodId,
@@ -220,37 +225,31 @@ export async function completeLogin(
 					email,
 					now,
 				),
-		];
-		const audit = (action: string, accountId: string, data: object) =>
 			db
 				.prepare(
 					`INSERT INTO cadmus_audit (id, account_id, actor_user_id, actor_kind, action, target_account_id, target, data, at)
-           VALUES (?1, ?2, ?3, 'user', ?4, ?2, ?3, ?5, ?6)`,
+           SELECT ?1, COALESCE(
+             (SELECT account_id FROM cadmus_account_members WHERE user_id = ?2 LIMIT 1),
+             (SELECT account_id FROM cadmus_invites WHERE email = ?3 AND accepted_at IS NULL AND revoked_at IS NULL AND expires_at > ?4 LIMIT 1)
+           ), ?2, 'user', 'method.associate', COALESCE(
+             (SELECT account_id FROM cadmus_account_members WHERE user_id = ?2 LIMIT 1),
+             (SELECT account_id FROM cadmus_invites WHERE email = ?3 AND accepted_at IS NULL AND revoked_at IS NULL AND expires_at > ?4 LIMIT 1)
+           ), ?5, ?6, ?4
+           WHERE EXISTS (SELECT 1 FROM cadmus_login_methods WHERE id = ?5)
+             AND COALESCE(
+               (SELECT account_id FROM cadmus_account_members WHERE user_id = ?2 LIMIT 1),
+               (SELECT account_id FROM cadmus_invites WHERE email = ?3 AND accepted_at IS NULL AND revoked_at IS NULL AND expires_at > ?4 LIMIT 1)
+             ) IS NOT NULL`,
 				)
 				.bind(
 					randomId("aud_", LOGIN_ID_BYTES),
-					accountId,
 					userId,
-					action,
-					JSON.stringify(data),
+					email,
 					now,
-				);
-		if (isBootstrap) {
-			statements.push(
-				db
-					.prepare(
-						`INSERT INTO cadmus_bootstrap (id, claimed_at, user_id) VALUES (1, ?1, ?2)`,
-					)
-					.bind(now, userId),
-				db
-					.prepare(
-						`INSERT INTO cadmus_account_members (account_id, user_id, role, created_at)
-             VALUES (?1, ?2, 'super-admin', ?3)`,
-					)
-					.bind(SYSTEM_ACCOUNT_ID, userId, now),
-				audit("bootstrap.claim", SYSTEM_ACCOUNT_ID, { email }),
-			);
-		}
+					methodId,
+					JSON.stringify({ provider: identity.provider }),
+				),
+		];
 		for (const invite of invites.results) {
 			statements.push(...acceptInvite(db, invite, userId, now));
 		}
@@ -258,27 +257,33 @@ export async function completeLogin(
 		try {
 			await db.batch(statements);
 		} catch (error) {
-			// Two first sign-ins with the bootstrap email can both pass the read of
-			// `claimed` above. The one-row cadmus_bootstrap claim in the batch is
-			// the atomic step: only one batch commits and the batch leaves no rows
-			// behind when it fails. A loser is told apart by state, not by error
-			// text: the claim now belongs to another user. It is refused like any
-			// uninvited sign-in. Any other failure is rethrown.
-			if (isBootstrap) {
-				const claim = await db
-					.prepare(`SELECT user_id FROM cadmus_bootstrap WHERE id = 1`)
-					.first<{ user_id: string }>();
-				if (claim && claim.user_id !== userId) {
-					return { ok: false, code: "not_invited" };
-				}
+			const raced = await db
+				.prepare(
+					`SELECT id, user_id, revoked_at FROM cadmus_login_methods
+           WHERE provider = ?1 AND subject = ?2`,
+				)
+				.bind(identity.provider, identity.subject)
+				.first<{ id: string; user_id: string; revoked_at: number | null }>();
+			if (!raced) throw error;
+			if (raced.revoked_at !== null) {
+				return { ok: false, code: "login_method_revoked" };
 			}
-			throw error;
+			if (raced.user_id !== userId) return { ok: false, code: "method_in_use" };
+			methodId = raced.id;
 		}
-		const created = await db
-			.prepare(`SELECT 1 AS x FROM cadmus_users WHERE id = ?1`)
-			.bind(userId)
-			.first<{ x: number }>();
-		if (!created) return { ok: false, code: "not_invited" };
+		const attached = await db
+			.prepare(
+				`SELECT id, user_id, revoked_at FROM cadmus_login_methods
+         WHERE provider = ?1 AND subject = ?2`,
+			)
+			.bind(identity.provider, identity.subject)
+			.first<{ id: string; user_id: string; revoked_at: number | null }>();
+		if (!attached || attached.revoked_at !== null) {
+			return { ok: false, code: "login_method_revoked" };
+		}
+		if (attached.user_id !== userId)
+			return { ok: false, code: "method_in_use" };
+		methodId = attached.id;
 	}
 
 	const account = await pickAccount(db, userId);
@@ -293,108 +298,4 @@ export async function completeLogin(
 		now,
 	});
 	return { ok: true, tokens, userId, accountId: account.account_id };
-}
-
-export type LinkMethodResult =
-	| { ok: true; methodId: string; alreadyLinked: boolean }
-	| {
-			ok: false;
-			code:
-				| "method_in_use"
-				| "login_method_revoked"
-				| "user_disabled"
-				| "session_ended";
-	  };
-
-/**
- * Attaches a verified provider identity to an existing user. The identity
- * (provider, subject) is the only key: an email match never merges users, and
- * an identity that already belongs to another user is refused. The session that
- * started the link must still be a live user session of that user, at the
- * callback and again at the write. A new link is audited as `method.link` in the account of the initiating session (the session row always carries one, so a user without a current membership is audited too).
- */
-export async function linkLoginMethod(
-	db: D1Database,
-	userId: string,
-	sessionId: string,
-	identity: LoginIdentity,
-	now = Date.now(),
-): Promise<LinkMethodResult> {
-	const liveSession = `SELECT 1 FROM cadmus_sessions
-       WHERE id = ?7 AND user_id = ?2 AND token_id IS NULL AND revoked_at IS NULL
-         AND idle_expires_at > ?6 AND absolute_expires_at > ?6`;
-	const live = await db
-		.prepare(
-			`SELECT 1 AS x FROM cadmus_sessions
-       WHERE id = ?1 AND user_id = ?2 AND token_id IS NULL AND revoked_at IS NULL
-         AND idle_expires_at > ?3 AND absolute_expires_at > ?3`,
-		)
-		.bind(sessionId, userId, now)
-		.first<{ x: number }>();
-	if (!live) return { ok: false, code: "session_ended" };
-	const user = await db
-		.prepare(`SELECT disabled_at FROM cadmus_users WHERE id = ?1`)
-		.bind(userId)
-		.first<{ disabled_at: number | null }>();
-	if (!user || user.disabled_at !== null) {
-		return { ok: false, code: "user_disabled" };
-	}
-	const existing = await db
-		.prepare(
-			`SELECT id, user_id, revoked_at FROM cadmus_login_methods
-       WHERE provider = ?1 AND subject = ?2`,
-		)
-		.bind(identity.provider, identity.subject)
-		.first<{ id: string; user_id: string; revoked_at: number | null }>();
-	if (existing) {
-		if (existing.user_id !== userId)
-			return { ok: false, code: "method_in_use" };
-		if (existing.revoked_at !== null) {
-			return { ok: false, code: "login_method_revoked" };
-		}
-		return { ok: true, methodId: existing.id, alreadyLinked: true };
-	}
-	const methodId = randomId("lm_", LOGIN_ID_BYTES);
-	// The unique (provider, subject) key and the NOT EXISTS settle a race between
-	// two links; the liveness check runs again inside the write.
-	const [res] = await db.batch([
-		db
-			.prepare(
-				`INSERT INTO cadmus_login_methods
-         (id, user_id, provider, subject, display, created_at)
-       SELECT ?1, ?2, ?3, ?4, ?5, ?6
-       WHERE NOT EXISTS (
-         SELECT 1 FROM cadmus_login_methods WHERE provider = ?3 AND subject = ?4)
-         AND EXISTS (${liveSession})`,
-			)
-			.bind(
-				methodId,
-				userId,
-				identity.provider,
-				identity.subject,
-				identity.email.trim().toLowerCase(),
-				now,
-				sessionId,
-			),
-		db
-			.prepare(
-				`INSERT INTO cadmus_audit (id, account_id, actor_user_id, actor_kind, action, target_account_id, target, data, at)
-         SELECT 'aud_' || lower(hex(randomblob(12))), a.account_id, ?2, 'user', 'method.link', a.account_id, ?1, json_object('provider', ?3), ?4
-         FROM (SELECT account_id FROM cadmus_sessions WHERE id = ?5 AND user_id = ?2) a
-         WHERE EXISTS (SELECT 1 FROM cadmus_login_methods WHERE id = ?1 AND user_id = ?2 AND created_at = ?4)`,
-			)
-			.bind(methodId, userId, identity.provider, now, sessionId),
-	]);
-	if (!res?.meta?.changes) {
-		const stillLive = await db
-			.prepare(
-				`SELECT 1 AS x FROM cadmus_sessions
-         WHERE id = ?1 AND user_id = ?2 AND token_id IS NULL AND revoked_at IS NULL
-           AND idle_expires_at > ?3 AND absolute_expires_at > ?3`,
-			)
-			.bind(sessionId, userId, now)
-			.first<{ x: number }>();
-		return { ok: false, code: stillLive ? "method_in_use" : "session_ended" };
-	}
-	return { ok: true, methodId, alreadyLinked: false };
 }

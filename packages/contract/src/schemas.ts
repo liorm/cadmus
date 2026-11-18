@@ -7,6 +7,7 @@ export * from "./commands.js";
 export * from "./common.js";
 export * from "./errors.js";
 export * from "./frames.js";
+export * from "./login.js";
 export * from "./messages.js";
 export * from "./oauth.js";
 export * from "./records.js";

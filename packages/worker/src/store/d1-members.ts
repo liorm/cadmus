@@ -4,6 +4,12 @@ import {
 	type Role,
 } from "@cadmus/contract/grants";
 import { randomId } from "./random-id.js";
+import {
+	deleteUnclaimedPreloginUser,
+	insertPrimaryUserStatements,
+	isLoginEmail,
+	normalizeLoginEmail,
+} from "./user-emails.js";
 
 /** Issue #3 phase 4: invites, role changes and removals with their audit rows. */
 export const INVITE_DEFAULT_TTL_MS = 14 * 24 * 60 * 60 * 1000;
@@ -59,8 +65,8 @@ export async function inviteMember(
 	},
 ): Promise<InviteResult> {
 	const now = input.now ?? Date.now();
-	const email = input.email.trim().toLowerCase();
-	if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+	const email = normalizeLoginEmail(input.email);
+	if (!isLoginEmail(email)) {
 		return { ok: false, code: "invalid", message: "email is not valid" };
 	}
 	if (input.role === "super-admin") {
@@ -94,7 +100,9 @@ export async function inviteMember(
 	}
 	const id = randomId("inv_");
 	const expiresAt = now + (input.ttlMs ?? INVITE_DEFAULT_TTL_MS);
+	const user = insertPrimaryUserStatements(db, email, email, now);
 	await db.batch([
+		...user.statements,
 		db
 			.prepare(
 				`INSERT INTO cadmus_invites (id, account_id, email, role, invited_by, created_at, expires_at)
@@ -184,6 +192,10 @@ export async function revokeInvite(
 		.bind(input.inviteId, input.accountId, now)
 		.run();
 	if ((res.meta?.changes ?? 0) === 0) return false;
+	const invite = await db
+		.prepare(`SELECT email FROM cadmus_invites WHERE id = ?1`)
+		.bind(input.inviteId)
+		.first<{ email: string }>();
 	await audit(
 		db,
 		input.accountId,
@@ -193,6 +205,7 @@ export async function revokeInvite(
 		{},
 		now,
 	).run();
+	if (invite) await deleteUnclaimedPreloginUser(db, invite.email, now);
 	return true;
 }
 

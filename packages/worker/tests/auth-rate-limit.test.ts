@@ -49,7 +49,7 @@ function post(path: string, ip?: string, host = ORIGIN) {
 			"content-type": "application/json",
 			...(ip ? { "cf-connecting-ip": ip } : {}),
 		},
-		body: JSON.stringify({ password: "wrong" }),
+		body: JSON.stringify({ payload: { password: "wrong" } }),
 	});
 }
 
@@ -63,11 +63,11 @@ describe("per-IP budget (issue #3 phase 8)", () => {
 	it("is configured as a binding with a stated limit", () => {
 		expect(typeof env.CADMUS_AUTH_RATELIMIT.limit).toBe("function");
 		expect([...IP_LIMITED_AUTH_PATHS].sort()).toEqual([
-			"/auth/callback/google",
-			"/auth/login/dev-password",
-			"/auth/login/google",
-			"/auth/refresh",
-			"/auth/token-login",
+			"/api/auth/login/devPassword",
+			"/api/auth/login/google/callback",
+			"/api/auth/login/google/start",
+			"/api/auth/login/token",
+			"/api/auth/session/refresh",
 		]);
 		expect(resolveAuthRateLimitWindowMs(undefined, "test")).toBeNull();
 		expect(resolveAuthRateLimitWindowMs("15000", "production")).toBeNull();
@@ -75,7 +75,7 @@ describe("per-IP budget (issue #3 phase 8)", () => {
 		expect(resolveAuthRateLimitWindowMs("10", "test")).toBe(1_000);
 	});
 
-	for (const path of ["/auth/token-login"]) {
+	for (const path of ["/api/auth/login/token"]) {
 		it(`${path}: the first ${LIMIT} requests from one IP pass, then 429 with retry-after, no-store and no cookie`, async () => {
 			const ip = freshIp();
 			const res = await statuses(path, LIMIT + 5, ip);
@@ -94,9 +94,13 @@ describe("per-IP budget (issue #3 phase 8)", () => {
 		});
 	}
 
-	it("/auth/refresh has its own larger budget: 120 pass (more than the credential routes' 20), then 429", async () => {
+	it("/api/auth/session/refresh has its own larger budget: 120 pass (more than the credential routes' 20), then 429", async () => {
 		const ip = freshIp();
-		const res = await statuses("/auth/refresh", REFRESH_LIMIT + 5, ip);
+		const res = await statuses(
+			"/api/auth/session/refresh",
+			REFRESH_LIMIT + 5,
+			ip,
+		);
 		for (const r of res.slice(0, REFRESH_LIMIT)) {
 			expect(r.status, "inside the refresh budget").not.toBe(429);
 		}
@@ -110,21 +114,30 @@ describe("per-IP budget (issue #3 phase 8)", () => {
 
 	it("budgets are per IP and per route", async () => {
 		const ip = freshIp();
-		await statuses("/auth/token-login", LIMIT + 2, ip);
-		expect((await post("/auth/token-login", ip)).status).toBe(429);
-		expect((await post("/auth/token-login", freshIp())).status).not.toBe(429);
-		expect((await post("/auth/refresh", ip)).status).not.toBe(429);
+		await statuses("/api/auth/login/token", LIMIT + 2, ip);
+		expect((await post("/api/auth/login/token", ip)).status).toBe(429);
+		expect((await post("/api/auth/login/token", freshIp())).status).not.toBe(
+			429,
+		);
+		expect((await post("/api/auth/session/refresh", ip)).status).not.toBe(429);
 	});
 
 	it("a refused refresh is a transient 429, never a 401 that would sign the tab out", async () => {
 		const ip = freshIp();
-		const res = await statuses("/auth/refresh", REFRESH_LIMIT + 1, ip);
+		const res = await statuses(
+			"/api/auth/session/refresh",
+			REFRESH_LIMIT + 1,
+			ip,
+		);
 		expect(res.at(-1)?.status).toBe(429);
 		expect(res.at(-1)?.status).not.toBe(401);
 	});
 
 	it("google start and callback: over the budget they redirect to the app with auth_error=rate_limited (no raw JSON page, no cookie)", async () => {
-		for (const path of ["/auth/login/google", "/auth/callback/google"]) {
+		for (const path of [
+			"/api/auth/login/google/start",
+			"/api/auth/login/google/callback",
+		]) {
 			const ip = freshIp();
 			const res: Response[] = [];
 			for (let i = 0; i < LIMIT + 3; i++) {
@@ -158,7 +171,7 @@ describe("per-IP budget (issue #3 phase 8)", () => {
 		for (let n = 0; n < LIMIT + 3; n++) {
 			// A fresh email each time keeps the per-identity lockout out of this check.
 			dev.push(
-				await SELF.fetch(`${LOCAL}/auth/login/dev-password`, {
+				await SELF.fetch(`${LOCAL}/api/auth/login/devPassword`, {
 					method: "POST",
 					headers: {
 						origin: LOCAL,
@@ -166,8 +179,10 @@ describe("per-IP budget (issue #3 phase 8)", () => {
 						"cf-connecting-ip": ip,
 					},
 					body: JSON.stringify({
-						email: `ip-${crypto.randomUUID()}@example.com`,
-						password: "wrong",
+						payload: {
+							email: `ip-${crypto.randomUUID()}@example.com`,
+							password: "wrong",
+						},
 					}),
 				}),
 			);
@@ -178,22 +193,26 @@ describe("per-IP budget (issue #3 phase 8)", () => {
 	it("providers and logout are not budgeted", async () => {
 		const ip = freshIp();
 		for (let i = 0; i < LIMIT + 10; i++) {
-			const res = await SELF.fetch(`${ORIGIN}/auth/providers`, {
+			const res = await SELF.fetch(`${ORIGIN}/api/auth/login/providers`, {
 				headers: { "cf-connecting-ip": ip },
 			});
 			expect(res.status).toBe(200);
 		}
-		for (const r of await statuses("/auth/logout", LIMIT + 10, ip)) {
+		for (const r of await statuses(
+			"/api/auth/session/logout",
+			LIMIT + 10,
+			ip,
+		)) {
 			expect(r.status).not.toBe(429);
 		}
 	});
 
 	it("a request without cf-connecting-ip (not via the edge) is never budgeted", async () => {
-		for (const r of await statuses("/auth/token-login", LIMIT + 10)) {
+		for (const r of await statuses("/api/auth/login/token", LIMIT + 10)) {
 			expect(r.status).not.toBe(429);
 		}
 		for (let i = 0; i < LIMIT + 5; i++) {
-			const r = await SELF.fetch(`${ORIGIN}/auth/login/google`, {
+			const r = await SELF.fetch(`${ORIGIN}/api/auth/login/google/start`, {
 				redirect: "manual",
 			});
 			expect(r.headers.get("location")).not.toBe("/?auth_error=rate_limited");
@@ -253,10 +272,10 @@ describe("per-identity lockout (issue #3 phase 8)", () => {
 
 	it("dev-password: repeated wrong passwords lock the email, the right password is then refused, another email is unaffected", async () => {
 		const login = (email: string, password: string) =>
-			SELF.fetch(`${LOCAL}/auth/login/dev-password`, {
+			SELF.fetch(`${LOCAL}/api/auth/login/devPassword`, {
 				method: "POST",
 				headers: { origin: LOCAL, "content-type": "application/json" },
-				body: JSON.stringify({ email, password }),
+				body: JSON.stringify({ payload: { email, password } }),
 			});
 		const victim = email();
 		for (let i = 1; i < LOCKOUT_MAX_FAILURES; i++) {
@@ -305,7 +324,7 @@ describe("per-principal budget on auth.ticket and passkeys (issue #3 phase 8)", 
 			grants,
 		});
 		expect(created.ok).toBe(true);
-		const login = await SELF.fetch(`${ORIGIN}/auth/token-login`, {
+		const login = await SELF.fetch(`${ORIGIN}/api/auth/login/token`, {
 			method: "POST",
 			headers: {
 				authorization: `Bearer ${(created as { token: string }).token}`,
@@ -313,18 +332,6 @@ describe("per-principal budget on auth.ticket and passkeys (issue #3 phase 8)", 
 		});
 		expect(login.status).toBe(200);
 		return ((await login.json()) as { accessToken: string }).accessToken;
-	}
-	/** A human-style session, which is what the passkey commands are for. */
-	async function humanSession() {
-		const s = new D1AdminStore({
-			db: env.CADMUS_ADMIN_DB,
-			encryptionKey: env.CADMUS_ENCRYPTION_KEY,
-			edgeCache: getEdgeCache(env),
-		});
-		const accountId = uniqueAccountId("rpc-limit-h");
-		const userId = `usr_${accountId}`;
-		await s.ensureAccountAndUser({ accountId, userId, role: "account-admin" });
-		return (await s.createSession({ userId, accountId })).accessToken;
 	}
 	const rpc = async (
 		accessToken: string,
@@ -355,32 +362,6 @@ describe("per-principal budget on auth.ticket and passkeys (issue #3 phase 8)", 
 			true,
 		);
 	});
-
-	for (const type of ["auth.passkeys.begin", "auth.passkeys.finish"]) {
-		it(`${type}: refused calls count against the budget and the 61st is rate_limited`, async () => {
-			const token = await humanSession();
-			const codes: string[] = [];
-			for (let i = 0; i < 62; i++) {
-				const r = await rpc(
-					token,
-					type,
-					type === "auth.passkeys.begin"
-						? { purpose: "register" }
-						: {
-								purpose: "register",
-								challengeId: "nope",
-								response: { id: "nope" },
-							},
-				);
-				codes.push(
-					r.body.error?.code ?? `ok:${JSON.stringify(r.body).slice(0, 100)}`,
-				);
-			}
-			expect(codes.slice(0, 60)).not.toContain("rate_limited");
-			expect(codes[60]).toBe("rate_limited");
-			expect(codes[61]).toBe("rate_limited");
-		});
-	}
 
 	it("the REST adapter maps rate_limited to 429 (POST /api/auth/ticket)", async () => {
 		const token = await session(["chat.use", "tokens.self"]);

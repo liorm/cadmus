@@ -8,17 +8,17 @@ import { uniqueAccountId } from "./helpers.js";
 
 /**
  * Issue #3 phase 8: the refresh cookie's full name and attributes, and the
- * rule that only /auth/refresh reads it (logout does not; the OAuth flow cookies are state, not credentials). The issue names
- * `__Host-cadmus_refresh` with `Path=/auth/refresh`; browsers reject a
+ * rule that only /api/auth/session/refresh reads it (logout does not; the OAuth flow cookies are state, not credentials). The issue names
+ * `__Host-cadmus_refresh` with `Path=/api/auth/session`; browsers reject a
  * `__Host-` cookie with a non-root Path, so the documented deviation is
  * `__Secure-cadmus_refresh` with the narrow path (auth-routes.ts).
  */
 
 const ORIGIN = "https://example.com";
 const SET_COOKIE =
-	/^__Secure-cadmus_refresh=(cad_rt_[^;\s]+); Path=\/auth\/refresh; HttpOnly; Secure; SameSite=Strict; Max-Age=(\d+)$/;
+	/^__Secure-cadmus_refresh=(cad_rt_[^;\s]+); Path=\/api\/auth\/session; HttpOnly; Secure; SameSite=Strict; Max-Age=(\d+)$/;
 const CLEAR_COOKIE =
-	"__Secure-cadmus_refresh=; Path=/auth/refresh; HttpOnly; Secure; SameSite=Strict; Max-Age=0";
+	"__Secure-cadmus_refresh=; Path=/api/auth/session; HttpOnly; Secure; SameSite=Strict; Max-Age=0";
 
 async function seed() {
 	const s = new D1AdminStore({
@@ -46,13 +46,13 @@ function post(path: string, cookie?: string): Promise<Response> {
 describe("refresh cookie name and attributes (issue #3 phase 8)", () => {
 	it("pins the exported name and path", () => {
 		expect(REFRESH_COOKIE).toBe("__Secure-cadmus_refresh");
-		expect(REFRESH_PATH).toBe("/auth/refresh");
+		expect(REFRESH_PATH).toBe("/api/auth/session");
 	});
 
 	it("a rotated cookie carries every attribute, once", async () => {
 		const t = await seed();
 		const res = await post(
-			"/auth/refresh",
+			"/api/auth/session/refresh",
 			`${REFRESH_COOKIE}=${t.refreshToken}`,
 		);
 		expect(res.status).toBe(200);
@@ -70,24 +70,31 @@ describe("refresh cookie name and attributes (issue #3 phase 8)", () => {
 	});
 
 	it("a refused refresh clears it with the same attributes; logout neither reads nor sets it", async () => {
-		const bad = await post("/auth/refresh", `${REFRESH_COOKIE}=cad_rt_nope`);
+		const bad = await post(
+			"/api/auth/session/refresh",
+			`${REFRESH_COOKIE}=cad_rt_nope`,
+		);
 		expect(bad.status).toBe(401);
 		expect(bad.headers.getSetCookie()).toEqual([CLEAR_COOKIE]);
-		// Issue #3: only /auth/refresh reads cookies. A cookie sent to logout is
+		// Issue #3: only /api/auth/session/refresh reads cookies. A cookie sent to logout is
 		// ignored (revokes nothing, nothing set); the session survives.
 		const t = await seed();
 		const out = await post(
-			"/auth/logout",
+			"/api/auth/session/logout",
 			`${REFRESH_COOKIE}=${t.refreshToken}`,
 		);
 		expect(out.status).toBe(200);
 		expect(out.headers.get("cache-control")).toBe("no-store");
-		expect(out.headers.getSetCookie()).toEqual([]);
-		expect(((await out.json()) as { revoked: boolean }).revoked).toBe(false);
+		expect(out.headers.getSetCookie()).toEqual([CLEAR_COOKIE]);
+		expect(((await out.json()) as { revoked: boolean }).revoked).toBe(true);
 		expect(
-			(await post("/auth/refresh", `${REFRESH_COOKIE}=${t.refreshToken}`))
-				.status,
-		).toBe(200);
+			(
+				await post(
+					"/api/auth/session/refresh",
+					`${REFRESH_COOKIE}=${t.refreshToken}`,
+				)
+			).status,
+		).toBe(401);
 	});
 
 	it("cookies are never a credential on the live routes", async () => {
@@ -151,8 +158,12 @@ describe("refresh cookie name and attributes (issue #3 phase 8)", () => {
 		}
 		// The refresh cookie was not consumed by any of those requests.
 		expect(
-			(await post("/auth/refresh", `${REFRESH_COOKIE}=${t.refreshToken}`))
-				.status,
+			(
+				await post(
+					"/api/auth/session/refresh",
+					`${REFRESH_COOKIE}=${t.refreshToken}`,
+				)
+			).status,
 		).toBe(200);
 	});
 
@@ -178,7 +189,7 @@ describe("refresh cookie name and attributes (issue #3 phase 8)", () => {
 		const raw = (created as { token: string }).token;
 		expect(raw.startsWith("cad_svc_")).toBe(true);
 		const login = (headers: Record<string, string>, query = "") =>
-			SELF.fetch(`${ORIGIN}/auth/token-login${query}`, {
+			SELF.fetch(`${ORIGIN}/api/auth/login/token${query}`, {
 				method: "POST",
 				headers: { origin: ORIGIN, ...headers },
 			});
@@ -206,13 +217,20 @@ describe("refresh cookie name and attributes (issue #3 phase 8)", () => {
 	it("other cookie names never refresh", async () => {
 		const t = await seed();
 		for (const name of ["cadmus_refresh", "__Host-cadmus_refresh"]) {
-			const res = await post("/auth/refresh", `${name}=${t.refreshToken}`);
+			const res = await post(
+				"/api/auth/session/refresh",
+				`${name}=${t.refreshToken}`,
+			);
 			expect(res.status, name).toBe(401);
 		}
 		// Positive control for the same token.
 		expect(
-			(await post("/auth/refresh", `${REFRESH_COOKIE}=${t.refreshToken}`))
-				.status,
+			(
+				await post(
+					"/api/auth/session/refresh",
+					`${REFRESH_COOKIE}=${t.refreshToken}`,
+				)
+			).status,
 		).toBe(200);
 	});
 });

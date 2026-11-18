@@ -324,7 +324,7 @@ describe("admin mode (issue #3 phase 6)", () => {
 			ttlMs: 86_400_000,
 		});
 		if (!token.ok) throw new Error(token.message);
-		const login = await SELF.fetch(`${ORIGIN}/auth/token-login`, {
+		const login = await SELF.fetch(`${ORIGIN}/api/auth/login/token`, {
 			method: "POST",
 			headers: { authorization: `Bearer ${token.token}` },
 		});

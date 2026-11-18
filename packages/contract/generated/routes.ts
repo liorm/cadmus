@@ -88,33 +88,33 @@ export const API_ROUTES = {
 		allow: "GET, HEAD",
 		readOnly: true,
 	},
-	"account.oauth.providers": {
+	"account.credentials.oauth.providers": {
 		method: "GET",
-		path: "/api/account/oauth/providers",
+		path: "/api/account/credentials/oauth/providers",
 		allow: "GET, HEAD",
 		readOnly: true,
 	},
-	"account.oauth.start": {
+	"account.credentials.oauth.start": {
 		method: "POST",
-		path: "/api/account/oauth/start",
+		path: "/api/account/credentials/oauth/start",
 		allow: "POST",
 		readOnly: false,
 	},
-	"account.oauth.status": {
+	"account.credentials.oauth.status": {
 		method: "GET",
-		path: "/api/account/oauth/status",
+		path: "/api/account/credentials/oauth/status",
 		allow: "GET, HEAD",
 		readOnly: true,
 	},
-	"account.oauth.submit": {
+	"account.credentials.oauth.submit": {
 		method: "POST",
-		path: "/api/account/oauth/submit",
+		path: "/api/account/credentials/oauth/submit",
 		allow: "POST",
 		readOnly: false,
 	},
-	"account.oauth.cancel": {
+	"account.credentials.oauth.cancel": {
 		method: "POST",
-		path: "/api/account/oauth/cancel",
+		path: "/api/account/credentials/oauth/cancel",
 		allow: "POST",
 		readOnly: false,
 	},
@@ -232,27 +232,9 @@ export const API_ROUTES = {
 		allow: "POST",
 		readOnly: false,
 	},
-	"system.users.resetPasskeys": {
-		method: "POST",
-		path: "/api/system/users/resetPasskeys",
-		allow: "POST",
-		readOnly: false,
-	},
 	"auth.elevate": {
 		method: "POST",
 		path: "/api/auth/elevate",
-		allow: "POST",
-		readOnly: false,
-	},
-	"auth.passkeys.begin": {
-		method: "POST",
-		path: "/api/auth/passkeys/begin",
-		allow: "POST",
-		readOnly: false,
-	},
-	"auth.passkeys.finish": {
-		method: "POST",
-		path: "/api/auth/passkeys/finish",
 		allow: "POST",
 		readOnly: false,
 	},
@@ -292,15 +274,45 @@ export const API_ROUTES = {
 		allow: "GET, HEAD",
 		readOnly: true,
 	},
-	"auth.methods.link.start": {
+	"auth.methods.delete": {
 		method: "POST",
-		path: "/api/auth/methods/link/start",
+		path: "/api/auth/methods/delete",
 		allow: "POST",
 		readOnly: false,
 	},
-	"auth.methods.revoke": {
+	"auth.login.providers": {
+		method: "GET",
+		path: "/api/auth/login/providers",
+		allow: "GET, HEAD",
+		readOnly: true,
+	},
+	"auth.login.devPassword": {
 		method: "POST",
-		path: "/api/auth/methods/revoke",
+		path: "/api/auth/login/devPassword",
+		allow: "POST",
+		readOnly: false,
+	},
+	"auth.login.token": {
+		method: "POST",
+		path: "/api/auth/login/token",
+		allow: "POST",
+		readOnly: false,
+	},
+	"auth.login.google.start": {
+		method: "POST",
+		path: "/api/auth/login/google/start",
+		allow: "POST",
+		readOnly: false,
+	},
+	"auth.session.refresh": {
+		method: "POST",
+		path: "/api/auth/session/refresh",
+		allow: "POST",
+		readOnly: false,
+	},
+	"auth.session.logout": {
+		method: "POST",
+		path: "/api/auth/session/logout",
 		allow: "POST",
 		readOnly: false,
 	},
@@ -565,6 +577,10 @@ export const API_ROUTES = {
 } as const satisfies Record<string, ApiRoute>;
 
 export type ApiCommandName = keyof typeof API_ROUTES;
+
+/** Google redirects the browser here. This is not a client command. */
+export const AUTH_LOGIN_GOOGLE_CALLBACK_PATH =
+	"/api/auth/login/google/callback";
 
 export function routeForCommand<C extends ApiCommandName>(
 	command: C,

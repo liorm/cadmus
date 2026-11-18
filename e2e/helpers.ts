@@ -154,7 +154,7 @@ export function cookiePair(lines: string[], name: string): string {
 }
 
 /**
- * POST /auth/login/dev-password. The bootstrap claim can lose a race
+ * POST /api/auth/login/devPassword. The bootstrap claim can lose a race
  * (`not_invited`) until the winner's login method exists, so that code retries.
  */
 export async function loginDevPassword(
@@ -163,14 +163,18 @@ export async function loginDevPassword(
 	let last = "";
 	for (let attempt = 0; attempt < 6; attempt++) {
 		const res = await workerFetch(
-			`${DEV_LOGIN_ORIGIN}/auth/login/dev-password`,
+			`${DEV_LOGIN_ORIGIN}/api/auth/login/devPassword`,
 			{
 				method: "POST",
 				headers: {
 					Origin: DEV_LOGIN_ORIGIN,
 					"Content-Type": "application/json",
 				},
-				body: JSON.stringify({ email, password: DEV_PASSWORD }),
+				body: JSON.stringify({
+					id: "dev-password",
+					type: "auth.login.devPassword",
+					payload: { email, password: DEV_PASSWORD },
+				}),
 			},
 		);
 		const text = await res.text();
@@ -221,7 +225,10 @@ export async function provisionInvitedMember(input: {
 	const accountName = input.name ?? `Tenant ${crypto.randomUUID().slice(0, 8)}`;
 	const created = await sendRpc<{ account: { id: string; name: string } }>(
 		"system.accounts.create",
-		{ name: accountName },
+		{
+			name: accountName,
+			ownerEmail: `owner-${crypto.randomUUID()}@example.com`,
+		},
 		{ token: boss.accessToken },
 	);
 	if (!created.frame.ok || !created.frame.result) {

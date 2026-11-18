@@ -263,6 +263,10 @@ export const API_ROUTES = ${body} as const satisfies Record<string, ApiRoute>;
 
 export type ApiCommandName = keyof typeof API_ROUTES;
 
+/** Google redirects the browser here. This is not a client command. */
+export const AUTH_LOGIN_GOOGLE_CALLBACK_PATH =
+	"/api/auth/login/google/callback";
+
 export function routeForCommand<C extends ApiCommandName>(
 	command: C,
 ): (typeof API_ROUTES)[C] {

@@ -189,7 +189,7 @@ export async function limitByIp(
 	);
 	if (testWindowMs !== null) {
 		const key = `${route}:${ip}`;
-		const limit = route === "/auth/refresh" ? 120 : 20;
+		const limit = route === "/api/auth/session/refresh" ? 120 : 20;
 		const now = Date.now();
 		if (testWindowCounters.size > 500) {
 			for (const [k, v] of testWindowCounters) {
@@ -214,7 +214,7 @@ export async function limitByIp(
 			: tooManyRequests(retryAfterSec, "rate_limited");
 	}
 	const binding =
-		route === "/auth/refresh"
+		route === "/api/auth/session/refresh"
 			? env.CADMUS_AUTH_REFRESH_RATELIMIT
 			: env.CADMUS_AUTH_RATELIMIT;
 	const { success } = await binding.limit({ key: `${route}:${ip}` });

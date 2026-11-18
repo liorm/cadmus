@@ -450,7 +450,7 @@ export type AccountEvent = Static<typeof AccountEventSchema>;
  */
 export const AccountOAuthEventSchema = Type.Object(
 	{
-		type: Type.Literal("account.oauth.event", {
+		type: Type.Literal("account.credentials.oauth.event", {
 			description: "Event type identifier for OAuth lifecycle updates.",
 		}),
 		payload: OAuthFlowRecordSchema,

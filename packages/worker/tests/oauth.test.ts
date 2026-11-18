@@ -91,7 +91,7 @@ describe("Generic OAuth Protocol & xAI Device Code Flow", () => {
 
 	it("discovers available OAuth providers including xAI with device_code flowType", async () => {
 		const res = await sendRpc<{ providers: OAuthProviderInfo[] }>(
-			"account.oauth.providers",
+			"account.credentials.oauth.providers",
 			{},
 			{ accountId: uniqueAccountId("oauth-discover") },
 		);
@@ -117,7 +117,7 @@ describe("Generic OAuth Protocol & xAI Device Code Flow", () => {
 
 		// 1. Start OAuth flow
 		const startRes = await sendRpc<{ flow: OAuthFlowRecord }>(
-			"account.oauth.start",
+			"account.credentials.oauth.start",
 			{ providerId: "xai" },
 			{ accountId },
 		);
@@ -139,7 +139,7 @@ describe("Generic OAuth Protocol & xAI Device Code Flow", () => {
 
 		// 2. Wait slightly for background poll to resolve & persist
 		let statusRes = await sendRpc<{ flow: OAuthFlowRecord }>(
-			"account.oauth.status",
+			"account.credentials.oauth.status",
 			{ flowId: flow.flowId },
 			{ accountId },
 		);
@@ -151,7 +151,7 @@ describe("Generic OAuth Protocol & xAI Device Code Flow", () => {
 		) {
 			await new Promise((r) => setTimeout(r, 100));
 			statusRes = await sendRpc<{ flow: OAuthFlowRecord }>(
-				"account.oauth.status",
+				"account.credentials.oauth.status",
 				{ flowId: flow.flowId },
 				{ accountId },
 			);
@@ -187,13 +187,13 @@ describe("Generic OAuth Protocol & xAI Device Code Flow", () => {
 		expect(d1Row?.iv_hex.length).toBeGreaterThan(0);
 	});
 
-	it("broadcasts account.oauth.event and account.event frames over WebSocket", async () => {
+	it("broadcasts account.credentials.oauth.event and account.event frames over WebSocket", async () => {
 		const accountId = uniqueAccountId("oauth-ws");
 		const testWs = await connectTestWs({ accountId });
 
 		try {
 			const startRes = await testWs.send<{ flow: OAuthFlowRecord }>(
-				"account.oauth.start",
+				"account.credentials.oauth.start",
 				{ providerId: "xai" },
 			);
 
@@ -206,7 +206,7 @@ describe("Generic OAuth Protocol & xAI Device Code Flow", () => {
 				Date.now() < wsDeadline &&
 				!testWs.events.some(
 					(e) =>
-						e.type === "account.oauth.event" &&
+						e.type === "account.credentials.oauth.event" &&
 						(e.payload as OAuthFlowRecord).status === "completed",
 				)
 			) {
@@ -214,13 +214,13 @@ describe("Generic OAuth Protocol & xAI Device Code Flow", () => {
 			}
 
 			const oauthEvents = testWs.events.filter(
-				(e) => e.type === "account.oauth.event",
+				(e) => e.type === "account.credentials.oauth.event",
 			);
 			expect(oauthEvents.length).toBeGreaterThan(0);
 
 			const completedEvent = oauthEvents.find(
 				(e) =>
-					e.type === "account.oauth.event" &&
+					e.type === "account.credentials.oauth.event" &&
 					(e.payload as OAuthFlowRecord).status === "completed",
 			);
 			expect(completedEvent).toBeDefined();
@@ -271,7 +271,7 @@ describe("Generic OAuth Protocol & xAI Device Code Flow", () => {
 
 		try {
 			const startRes = await sendRpc<{ flow: OAuthFlowRecord }>(
-				"account.oauth.start",
+				"account.credentials.oauth.start",
 				{ providerId: "xai" },
 				{ accountId },
 			);
@@ -285,7 +285,7 @@ describe("Generic OAuth Protocol & xAI Device Code Flow", () => {
 			const cancelRes = await sendRpc<{
 				flow: OAuthFlowRecord;
 				cancelled: boolean;
-			}>("account.oauth.cancel", { flowId }, { accountId });
+			}>("account.credentials.oauth.cancel", { flowId }, { accountId });
 
 			expect(cancelRes.status).toBe(200);
 			expect(cancelRes.frame.ok).toBe(true);
@@ -294,7 +294,7 @@ describe("Generic OAuth Protocol & xAI Device Code Flow", () => {
 
 			// Status query also shows cancelled
 			const statusRes = await sendRpc<{ flow: OAuthFlowRecord }>(
-				"account.oauth.status",
+				"account.credentials.oauth.status",
 				{ flowId },
 				{ accountId },
 			);
@@ -306,7 +306,7 @@ describe("Generic OAuth Protocol & xAI Device Code Flow", () => {
 
 	it("rejects unknown OAuth providers cleanly with an error frame", async () => {
 		const res = await sendRpc<{ flow: OAuthFlowRecord }>(
-			"account.oauth.start",
+			"account.credentials.oauth.start",
 			{ providerId: "unknown-provider-xyz" },
 			{ accountId: uniqueAccountId("oauth-err") },
 		);

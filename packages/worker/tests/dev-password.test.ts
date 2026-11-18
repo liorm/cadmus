@@ -3,10 +3,14 @@ import { describe, expect, it } from "vitest";
 import { devPasswordState } from "../src/auth/dev-password.js";
 
 function login(host: string, body: Record<string, unknown>, origin = host) {
-	return SELF.fetch(`${host}/auth/login/dev-password`, {
+	return SELF.fetch(`${host}/api/auth/login/devPassword`, {
 		method: "POST",
 		headers: { origin, "content-type": "application/json" },
-		body: JSON.stringify(body),
+		body: JSON.stringify({
+			id: "dev",
+			type: "auth.login.devPassword",
+			payload: body,
+		}),
 	});
 }
 
@@ -43,11 +47,13 @@ describe("dev password login (issue #3 phase 5)", () => {
 	});
 
 	it("is not offered as a provider off localhost", async () => {
-		const remote = await SELF.fetch("https://example.com/auth/providers");
+		const remote = await SELF.fetch(
+			"https://example.com/api/auth/login/providers",
+		);
 		const ids = ((await remote.json()) as { providers: { id: string }[] })
 			.providers;
 		expect(ids.map((p) => p.id)).not.toContain("dev-password");
-		const local = await SELF.fetch("http://localhost/auth/providers");
+		const local = await SELF.fetch("http://localhost/api/auth/login/providers");
 		const localIds = ((await local.json()) as { providers: { id: string }[] })
 			.providers;
 		expect(localIds.map((p) => p.id)).toContain("dev-password");

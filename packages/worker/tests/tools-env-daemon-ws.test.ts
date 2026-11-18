@@ -81,7 +81,7 @@ async function scopedToken(
 		result?: { token: string; summary: { id: string } };
 	};
 	if (!body.ok || !body.result) throw new Error("token create failed");
-	const login = await SELF.fetch("https://example.com/auth/token-login", {
+	const login = await SELF.fetch("https://example.com/api/auth/login/token", {
 		method: "POST",
 		headers: { authorization: `Bearer ${body.result.token}` },
 	});

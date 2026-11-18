@@ -233,7 +233,7 @@ export const AccountOAuthProvidersCommandSchema = Type.Object(
 			description:
 				"Non-empty unique correlation identifier for this command request.",
 		}),
-		type: Type.Literal("account.oauth.providers", {
+		type: Type.Literal("account.credentials.oauth.providers", {
 			description: "Command type identifier.",
 		}),
 		payload: Type.Optional(
@@ -244,7 +244,7 @@ export const AccountOAuthProvidersCommandSchema = Type.Object(
 		readOnly: true,
 		grant: "credentials.read",
 		description:
-			"Command to list all supported OAuth providers and their authorization requirements.",
+			"List model-provider OAuth providers. This stores a credential on the account. It does not sign a user into Cadmus.",
 	},
 );
 export type AccountOAuthProvidersCommand = Static<
@@ -261,7 +261,7 @@ export const AccountOAuthStartCommandSchema = Type.Object(
 			description:
 				"Non-empty unique correlation identifier for this command request.",
 		}),
-		type: Type.Literal("account.oauth.start", {
+		type: Type.Literal("account.credentials.oauth.start", {
 			description: "Command type identifier.",
 		}),
 		payload: Type.Object(
@@ -284,7 +284,7 @@ export const AccountOAuthStartCommandSchema = Type.Object(
 	{
 		grant: "credentials.manage",
 		description:
-			"Command to begin an OAuth authentication process for a provider, returning verification URLs and flowId.",
+			"Start OAuth that signs the account into a model provider and stores that credential. It does not open a Cadmus session.",
 	},
 );
 export type AccountOAuthStartCommand = Static<
@@ -301,7 +301,7 @@ export const AccountOAuthStatusCommandSchema = Type.Object(
 			description:
 				"Non-empty unique correlation identifier for this command request.",
 		}),
-		type: Type.Literal("account.oauth.status", {
+		type: Type.Literal("account.credentials.oauth.status", {
 			description: "Command type identifier.",
 		}),
 		payload: Type.Object(
@@ -309,7 +309,7 @@ export const AccountOAuthStatusCommandSchema = Type.Object(
 				flowId: Type.String({
 					minLength: 1,
 					description:
-						"Unique flow identifier returned by account.oauth.start.",
+						"Unique flow identifier returned by account.credentials.oauth.start.",
 				}),
 			},
 			{ description: "Parameters identifying the active OAuth flow." },
@@ -336,7 +336,7 @@ export const AccountOAuthSubmitCommandSchema = Type.Object(
 			description:
 				"Non-empty unique correlation identifier for this command request.",
 		}),
-		type: Type.Literal("account.oauth.submit", {
+		type: Type.Literal("account.credentials.oauth.submit", {
 			description: "Command type identifier.",
 		}),
 		payload: Type.Object(
@@ -344,7 +344,7 @@ export const AccountOAuthSubmitCommandSchema = Type.Object(
 				flowId: Type.String({
 					minLength: 1,
 					description:
-						"Unique flow identifier returned by account.oauth.start.",
+						"Unique flow identifier returned by account.credentials.oauth.start.",
 				}),
 				input: Type.String({
 					minLength: 1,
@@ -378,7 +378,7 @@ export const AccountOAuthCancelCommandSchema = Type.Object(
 			description:
 				"Non-empty unique correlation identifier for this command request.",
 		}),
-		type: Type.Literal("account.oauth.cancel", {
+		type: Type.Literal("account.credentials.oauth.cancel", {
 			description: "Command type identifier.",
 		}),
 		payload: Type.Object(
@@ -402,7 +402,7 @@ export type AccountOAuthCancelCommand = Static<
 >;
 
 /**
- * Result returned by account.oauth.providers containing the list of supported providers.
+ * Result returned by account.credentials.oauth.providers containing the list of supported providers.
  */
 export const AccountOAuthProvidersResultSchema = Type.Object(
 	{
@@ -413,7 +413,7 @@ export const AccountOAuthProvidersResultSchema = Type.Object(
 	},
 	{
 		description:
-			"Result payload returned by account.oauth.providers containing available OAuth providers.",
+			"Result payload returned by account.credentials.oauth.providers containing available OAuth providers.",
 	},
 );
 export type AccountOAuthProvidersResult = Static<
@@ -421,7 +421,7 @@ export type AccountOAuthProvidersResult = Static<
 >;
 
 /**
- * Result returned by account.oauth.start containing the initial flow state.
+ * Result returned by account.credentials.oauth.start containing the initial flow state.
  */
 export const AccountOAuthStartResultSchema = Type.Object(
 	{
@@ -429,7 +429,7 @@ export const AccountOAuthStartResultSchema = Type.Object(
 	},
 	{
 		description:
-			"Result payload returned by account.oauth.start containing initial flow state and verification URLs.",
+			"Result payload returned by account.credentials.oauth.start containing initial flow state and verification URLs.",
 	},
 );
 export type AccountOAuthStartResult = Static<
@@ -437,7 +437,7 @@ export type AccountOAuthStartResult = Static<
 >;
 
 /**
- * Result returned by account.oauth.status containing updated flow progress.
+ * Result returned by account.credentials.oauth.status containing updated flow progress.
  */
 export const AccountOAuthStatusResultSchema = Type.Object(
 	{
@@ -445,7 +445,7 @@ export const AccountOAuthStatusResultSchema = Type.Object(
 	},
 	{
 		description:
-			"Result payload returned by account.oauth.status with current flow status.",
+			"Result payload returned by account.credentials.oauth.status with current flow status.",
 	},
 );
 export type AccountOAuthStatusResult = Static<
@@ -453,7 +453,7 @@ export type AccountOAuthStatusResult = Static<
 >;
 
 /**
- * Result returned by account.oauth.submit containing updated flow progress.
+ * Result returned by account.credentials.oauth.submit containing updated flow progress.
  */
 export const AccountOAuthSubmitResultSchema = Type.Object(
 	{
@@ -461,7 +461,7 @@ export const AccountOAuthSubmitResultSchema = Type.Object(
 	},
 	{
 		description:
-			"Result payload returned by account.oauth.submit after processing user input.",
+			"Result payload returned by account.credentials.oauth.submit after processing user input.",
 	},
 );
 export type AccountOAuthSubmitResult = Static<
@@ -469,7 +469,7 @@ export type AccountOAuthSubmitResult = Static<
 >;
 
 /**
- * Result returned by account.oauth.cancel confirming cancellation.
+ * Result returned by account.credentials.oauth.cancel confirming cancellation.
  */
 export const AccountOAuthCancelResultSchema = Type.Object(
 	{
@@ -480,7 +480,7 @@ export const AccountOAuthCancelResultSchema = Type.Object(
 	},
 	{
 		description:
-			"Result payload returned by account.oauth.cancel confirming cancellation of the flow.",
+			"Result payload returned by account.credentials.oauth.cancel confirming cancellation of the flow.",
 	},
 );
 export type AccountOAuthCancelResult = Static<

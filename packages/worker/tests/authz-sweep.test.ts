@@ -184,9 +184,15 @@ async function openWs(token: string, who: string) {
 describe("denial sweep over every registered command (issue #3 L237)", () => {
 	it("registry is non-empty and every command grant is in the grant table", () => {
 		const types = listCommandTypes();
-		expect(types.length).toBe(92);
-		for (const t of types)
-			expect(GRANTS[getCommandGrant(t) as Grant]).toBeDefined();
+		expect(types.length).toBe(94);
+		for (const t of types) {
+			const grant = getCommandGrant(t);
+			if (t.startsWith("auth.login.") || t.startsWith("auth.session.")) {
+				expect(grant).toBeUndefined();
+				continue;
+			}
+			expect(GRANTS[grant as Grant]).toBeDefined();
+		}
 	});
 
 	async function setup() {
@@ -212,7 +218,7 @@ describe("denial sweep over every registered command (issue #3 L237)", () => {
 			ttlDays: 1,
 		});
 		expect(made.ok).toBe(true);
-		const login = await SELF.fetch(`${ORIGIN}/auth/token-login`, {
+		const login = await SELF.fetch(`${ORIGIN}/api/auth/login/token`, {
 			method: "POST",
 			headers: { authorization: `Bearer ${made.result?.token}` },
 		});
@@ -246,16 +252,16 @@ describe("denial sweep over every registered command (issue #3 L237)", () => {
 	}
 
 	const expectedReport = [
-		"user: 39 denied of 92",
-		"account-admin (no admin mode): 36 denied of 92",
-		"chat.use-only token: 60 denied of 92",
+		"user: 44 denied of 94",
+		"account-admin (no admin mode): 41 denied of 94",
+		"chat.use-only token: 65 denied of 94",
 	];
 	// Independent literals: calls actually sent per transport, not derived
 	// from the denied list the loop iterates.
 	const expectedCalls = [
-		{ rpc: 39, ws: 39 },
-		{ rpc: 36, ws: 36 },
-		{ rpc: 60, ws: 60 },
+		{ rpc: 44, ws: 44 },
+		{ rpc: 41, ws: 41 },
+		{ rpc: 65, ws: 65 },
 	];
 
 	for (const [idx, label] of [

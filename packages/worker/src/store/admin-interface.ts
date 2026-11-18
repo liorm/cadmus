@@ -9,7 +9,7 @@ import type {
 	CredentialSummary,
 	FamilyRecord,
 } from "../protocol.js";
-import type { LinkMethodResult, LoginResult } from "./d1-login.js";
+import type { LoginResult } from "./d1-login.js";
 import type {
 	InviteResult,
 	InviteSummary,
@@ -203,11 +203,6 @@ export interface AdminStore {
 		userId: string,
 		methodId: string,
 	): Promise<RevokeMethodResult>;
-	linkLoginMethod(
-		userId: string,
-		sessionId: string,
-		identity: LoginIdentity,
-	): Promise<LinkMethodResult>;
 	completeLogin(
 		identity: LoginIdentity,
 		options?: {
@@ -229,6 +224,8 @@ export interface AdminStore {
 	): Promise<SessionIdentity | undefined>;
 	rotateRefreshToken(rawRefresh: string): Promise<RefreshResult>;
 	revokeSession(sessionId: string): Promise<boolean>;
+	/** Revokes the session that currently holds this refresh token. Does not rotate it. */
+	revokeSessionByRefresh(rawRefresh: string): Promise<boolean>;
 	sessionRefusalReason(
 		sessionId: string,
 		accountId?: string,
@@ -247,15 +244,11 @@ export interface AdminStore {
 		userId: string;
 		actor: string;
 	}): Promise<SystemResult<{ revoked: number }>>;
-	resetUserPasskeys(input: {
-		userId: string;
-		actor: string;
-		actorSessionId: string;
-	}): Promise<SystemResult<{ passkeys: number; sessions: number }>>;
 	createSystemAccount(input: {
 		name: string;
 		timezone?: string;
 		actor: string;
+		ownerEmail: string;
 	}): Promise<SystemResult<{ account: SystemAccount }>>;
 	setSystemAccountStatus(input: {
 		accountId: string;

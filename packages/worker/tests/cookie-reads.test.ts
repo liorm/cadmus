@@ -7,7 +7,7 @@ import { D1AdminStore } from "../src/store/d1-admin.js";
 import { uniqueAccountId } from "./helpers.js";
 
 /**
- * Issue #3 phase 8 (L159): "no route other than /auth/refresh reads cookies".
+ * Issue #3 phase 8 (L159): "no route other than /api/auth/session/refresh reads cookies".
  * Intended reading: no route takes a CREDENTIAL from a cookie. The Google
  * sign-in routes also read two short-lived OAuth state cookies (the
  * transaction and the link bind); they carry no session, are bound to the
@@ -26,9 +26,9 @@ import { uniqueAccountId } from "./helpers.js";
  * - The source guard counts direct reads of the cookie header per file, and
  *   calls of the shared `readCookie` helper. It does not see a read through
  *   another Headers object or a variable name.
- * - The behaviour test sends cookies only to /auth/logout, /auth/providers,
- *   /auth/login/dev-password and /auth/login/google. Cookies on /rpc, /api,
- *   /events, /ws and /auth/token-login are covered in cookie-attributes.test.ts
+ * - The behaviour test sends cookies only to /api/auth/session/logout, /api/auth/login/providers,
+ *   /api/auth/login/devPassword and /api/auth/login/google/start. Cookies on /rpc, /api,
+ *   /events, /ws and /api/auth/login/token are covered in cookie-attributes.test.ts
  *   ("cookies are not credentials" and the token-login case).
  */
 const ORIGIN = "https://example.com";
@@ -80,19 +80,11 @@ describe("cookie reads are confined (issue #3 phase 8, L159)", () => {
 		).toBe(200);
 
 		const cookie = `cadmus_session=${t.accessToken}; ${REFRESH_COOKIE}=${t.refreshToken}`;
-		// /auth/logout with only cookies revokes nothing and clears nothing.
-		const logout = await SELF.fetch(`${ORIGIN}/auth/logout`, {
-			method: "POST",
-			headers: { origin: ORIGIN, "x-cadmus-refresh": "1", cookie },
-		});
-		expect(logout.status).toBe(200);
-		expect(await logout.json()).toEqual({ revoked: false });
-		expect(logout.headers.get("set-cookie")).toBeNull();
-		// Public and login routes ignore the cookies: no Set-Cookie, no session.
+		// Public login routes ignore the cookies: no Set-Cookie, no session.
 		for (const [path, base, method] of [
-			["/auth/providers", ORIGIN, "GET"],
-			["/auth/login/dev-password", LOCAL, "POST"],
-			["/auth/login/google", ORIGIN, "GET"],
+			["/api/auth/login/providers", ORIGIN, "GET"],
+			["/api/auth/login/devPassword", LOCAL, "POST"],
+			["/api/auth/login/google/start", ORIGIN, "GET"],
 		] as const) {
 			const res = await SELF.fetch(`${base}${path}`, {
 				method,
@@ -103,11 +95,20 @@ describe("cookie reads are confined (issue #3 phase 8, L159)", () => {
 			expect(set, path).not.toContain("cad_rt_");
 			expect(set, path).not.toContain(REFRESH_COOKIE);
 		}
-		// The session and the refresh cookie are still intact after all of it.
 		expect(
 			(await whoami({ authorization: `Bearer ${t.accessToken}` })).status,
 		).toBe(200);
-		const refreshed = await SELF.fetch(`${ORIGIN}/auth/refresh`, {
+		const logout = await SELF.fetch(`${ORIGIN}/api/auth/session/logout`, {
+			method: "POST",
+			headers: { origin: ORIGIN, "x-cadmus-refresh": "1", cookie },
+		});
+		expect(logout.status).toBe(200);
+		expect(await logout.json()).toEqual({ revoked: true });
+		expect(logout.headers.get("set-cookie") ?? "").toContain("Max-Age=0");
+		expect(
+			(await whoami({ authorization: `Bearer ${t.accessToken}` })).status,
+		).toBe(401);
+		const refreshed = await SELF.fetch(`${ORIGIN}/api/auth/session/refresh`, {
 			method: "POST",
 			headers: {
 				origin: ORIGIN,
@@ -115,7 +116,7 @@ describe("cookie reads are confined (issue #3 phase 8, L159)", () => {
 				cookie: `${REFRESH_COOKIE}=${t.refreshToken}`,
 			},
 		});
-		expect(refreshed.status).toBe(200);
+		expect(refreshed.status).toBe(401);
 	});
 
 	it("a malformed cadmus_session percent-escape is absent, not a 500", async () => {

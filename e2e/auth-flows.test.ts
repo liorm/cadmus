@@ -149,9 +149,12 @@ interface Started {
 let pendingStart: Started | undefined;
 
 async function startGoogle(): Promise<Started> {
-	const res = await workerFetch(`${WORKER_BASE_URL}/auth/login/google`, {
-		redirect: "manual",
-	});
+	const res = await workerFetch(
+		`${WORKER_BASE_URL}/api/auth/login/google/start`,
+		{
+			redirect: "manual",
+		},
+	);
 	expect(res.status).toBe(302);
 	const location = new URL(res.headers.get("location") ?? "", WORKER_BASE_URL);
 	expect(location.hostname).toBe("accounts.google.com");
@@ -170,7 +173,7 @@ async function callback(options: GoogleSignIn): Promise<GoogleOutcome> {
 	pendingStart = undefined;
 	const state = options.state ? options.state(started.state) : started.state;
 	const res = await workerFetch(
-		`${WORKER_BASE_URL}/auth/callback/google?code=abc&state=${encodeURIComponent(state)}`,
+		`${WORKER_BASE_URL}/api/auth/login/google/callback?code=abc&state=${encodeURIComponent(state)}`,
 		{ redirect: "manual", headers: { cookie: started.txn } },
 	);
 	return {
@@ -185,7 +188,7 @@ async function refresh(cookie: string): Promise<{
 	accessToken: string;
 	cookie: string;
 }> {
-	const res = await workerFetch(`${WORKER_BASE_URL}/auth/refresh`, {
+	const res = await workerFetch(`${WORKER_BASE_URL}/api/auth/session/refresh`, {
 		method: "POST",
 		headers: {
 			Origin: WORKER_BASE_URL,
@@ -227,7 +230,7 @@ async function whoami(token: string): Promise<{
 describe("auth flows (google, invites, sessions, phase 6)", () => {
 	useWorkerFixture();
 
-	it("claims bootstrap once through dev-password and refuses Google for that email", async () => {
+	it("claims bootstrap once through dev-password and attaches Google for that email", async () => {
 		const first = await loginDevPassword();
 		const second = await loginDevPassword();
 		const a = await whoami(first.accessToken);
@@ -240,8 +243,12 @@ describe("auth flows (google, invites, sessions, phase 6)", () => {
 				sub: `g-${crypto.randomUUID()}`,
 			});
 			expect(outcome.status).toBe(302);
-			expect(outcome.location).toContain("auth_error=not_invited");
-			expect(outcome.refresh).toBe("");
+			expect(outcome.location).toBe("/");
+			expect(outcome.refresh.startsWith(`${REFRESH_COOKIE}=cad_rt_`)).toBe(
+				true,
+			);
+			const rotated = await refresh(outcome.refresh);
+			expect((await whoami(rotated.accessToken)).userId).toBe(a.userId);
 		});
 		const third = await whoami((await loginDevPassword()).accessToken);
 		expect(third.userId).toBe(a.userId);
@@ -321,14 +328,21 @@ describe("auth flows (google, invites, sessions, phase 6)", () => {
 			expect(outcome.location).toContain("auth_error=not_invited");
 			expect(outcome.refresh).toBe("");
 		});
-		const res = await workerFetch("http://127.0.0.1/auth/login/dev-password", {
-			method: "POST",
-			headers: {
-				Origin: "http://127.0.0.1",
-				"Content-Type": "application/json",
+		const res = await workerFetch(
+			"http://127.0.0.1/api/auth/login/devPassword",
+			{
+				method: "POST",
+				headers: {
+					Origin: "http://127.0.0.1",
+					"Content-Type": "application/json",
+				},
+				body: JSON.stringify({
+					id: "dev",
+					type: "auth.login.devPassword",
+					payload: { email, password: DEV_PASSWORD },
+				}),
 			},
-			body: JSON.stringify({ email, password: DEV_PASSWORD }),
-		});
+		);
 		expect(res.status).toBe(401);
 		expect(await res.text()).toContain("not_invited");
 	});
@@ -339,7 +353,10 @@ describe("auth flows (google, invites, sessions, phase 6)", () => {
 		await elevateAccessToken(boss.accessToken);
 		const created = await sendRpc<{ account: { id: string } }>(
 			"system.accounts.create",
-			{ name: `Invite ${crypto.randomUUID().slice(0, 8)}` },
+			{
+				name: `Invite ${crypto.randomUUID().slice(0, 8)}`,
+				ownerEmail: `owner-${crypto.randomUUID()}@example.com`,
+			},
 			{ token: boss.accessToken },
 		);
 		expect(created.frame.ok, JSON.stringify(created.frame)).toBe(true);
@@ -382,19 +399,19 @@ describe("auth flows (google, invites, sessions, phase 6)", () => {
 		expect(dead.frame.error?.code).toBe("unauthorized");
 	});
 
-	it("exchanges a cad_pat_ at /auth/token-login and clamps the session", async () => {
+	it("exchanges a cad_pat_ at /api/auth/login/token and clamps the session", async () => {
 		const tenant = await provisionInvitedMember({ role: "user" });
 		const bearer = await addMemberBearer({ accountId: tenant.accountId });
 		expect(bearer.token.startsWith("cad_pat_")).toBe(true);
 		const viaQuery = await workerFetch(
-			`${WORKER_BASE_URL}/auth/token-login?token=hidden`,
+			`${WORKER_BASE_URL}/api/auth/login/token?token=hidden`,
 			{
 				method: "POST",
 				headers: { Authorization: `Bearer ${bearer.token}` },
 			},
 		);
 		expect(viaQuery.status).toBe(401);
-		const login = await workerFetch(`${WORKER_BASE_URL}/auth/token-login`, {
+		const login = await workerFetch(`${WORKER_BASE_URL}/api/auth/login/token`, {
 			method: "POST",
 			headers: { Authorization: `Bearer ${bearer.token}` },
 		});
@@ -438,7 +455,10 @@ describe("auth flows (google, invites, sessions, phase 6)", () => {
 		const accountName = `Empty ${crypto.randomUUID().slice(0, 8)}`;
 		const created = await sendRpc<{ account: { id: string; name: string } }>(
 			"system.accounts.create",
-			{ name: accountName },
+			{
+				name: accountName,
+				ownerEmail: `owner-${crypto.randomUUID()}@example.com`,
+			},
 			{ token: boss.accessToken },
 		);
 		expect(created.frame.ok, JSON.stringify(created.frame)).toBe(true);

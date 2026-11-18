@@ -23,11 +23,8 @@ import {
 	AuthElevateCommandSchema,
 	AuthElevationEndCommandSchema,
 	AuthMembershipsListCommandSchema,
-	AuthMethodsLinkStartCommandSchema,
+	AuthMethodsDeleteCommandSchema,
 	AuthMethodsListCommandSchema,
-	AuthMethodsRevokeCommandSchema,
-	AuthPasskeysBeginCommandSchema,
-	AuthPasskeysFinishCommandSchema,
 	AuthSessionsListCommandSchema,
 	AuthSessionsRevokeCommandSchema,
 	AuthSessionsRevokeOthersCommandSchema,
@@ -81,13 +78,24 @@ import {
 	SystemMembersUpdateCommandSchema,
 	SystemUsersDisableCommandSchema,
 	SystemUsersEnableCommandSchema,
-	SystemUsersResetPasskeysCommandSchema,
 	SystemUsersRevokeSessionsCommandSchema,
 	TurnAbortCommandSchema,
 	TurnInterruptCommandSchema,
 	TurnSteerCommandSchema,
 	TurnSubmitCommandSchema,
 } from "./commands.js";
+import {
+	AuthLoginDevPasswordCommandSchema,
+	AuthLoginGoogleStartCommandSchema,
+	AuthLoginGoogleStartResultSchema,
+	AuthLoginProvidersCommandSchema,
+	AuthLoginProvidersResultSchema,
+	AuthLoginSessionResultSchema,
+	AuthLoginTokenCommandSchema,
+	AuthSessionLogoutCommandSchema,
+	AuthSessionLogoutResultSchema,
+	AuthSessionRefreshCommandSchema,
+} from "./login.js";
 import {
 	AccountOAuthCancelCommandSchema,
 	AccountOAuthCancelResultSchema,
@@ -124,11 +132,8 @@ import {
 	AuthElevateResultSchema,
 	AuthElevationEndResultSchema,
 	AuthMembershipsListResultSchema,
-	AuthMethodsLinkStartResultSchema,
+	AuthMethodsDeleteResultSchema,
 	AuthMethodsListResultSchema,
-	AuthMethodsRevokeResultSchema,
-	AuthPasskeysBeginResultSchema,
-	AuthPasskeysFinishResultSchema,
 	AuthSessionsListResultSchema,
 	AuthSessionsRevokeOthersResultSchema,
 	AuthSessionsRevokeResultSchema,
@@ -176,7 +181,6 @@ import {
 	SystemMembersListResultSchema,
 	SystemUsersDisableResultSchema,
 	SystemUsersEnableResultSchema,
-	SystemUsersResetPasskeysResultSchema,
 	SystemUsersRevokeSessionsResultSchema,
 	TurnInterruptResultSchema,
 	TurnSteerResultSchema,
@@ -240,23 +244,23 @@ export const commandCatalog = {
 		command: AccountModelsListCommandSchema,
 		result: AccountModelsListResultSchema,
 	},
-	"account.oauth.providers": {
+	"account.credentials.oauth.providers": {
 		command: AccountOAuthProvidersCommandSchema,
 		result: AccountOAuthProvidersResultSchema,
 	},
-	"account.oauth.start": {
+	"account.credentials.oauth.start": {
 		command: AccountOAuthStartCommandSchema,
 		result: AccountOAuthStartResultSchema,
 	},
-	"account.oauth.status": {
+	"account.credentials.oauth.status": {
 		command: AccountOAuthStatusCommandSchema,
 		result: AccountOAuthStatusResultSchema,
 	},
-	"account.oauth.submit": {
+	"account.credentials.oauth.submit": {
 		command: AccountOAuthSubmitCommandSchema,
 		result: AccountOAuthSubmitResultSchema,
 	},
-	"account.oauth.cancel": {
+	"account.credentials.oauth.cancel": {
 		command: AccountOAuthCancelCommandSchema,
 		result: AccountOAuthCancelResultSchema,
 	},
@@ -336,21 +340,9 @@ export const commandCatalog = {
 		command: SystemUsersRevokeSessionsCommandSchema,
 		result: SystemUsersRevokeSessionsResultSchema,
 	},
-	"system.users.resetPasskeys": {
-		command: SystemUsersResetPasskeysCommandSchema,
-		result: SystemUsersResetPasskeysResultSchema,
-	},
 	"auth.elevate": {
 		command: AuthElevateCommandSchema,
 		result: AuthElevateResultSchema,
-	},
-	"auth.passkeys.begin": {
-		command: AuthPasskeysBeginCommandSchema,
-		result: AuthPasskeysBeginResultSchema,
-	},
-	"auth.passkeys.finish": {
-		command: AuthPasskeysFinishCommandSchema,
-		result: AuthPasskeysFinishResultSchema,
 	},
 	"auth.elevation.end": {
 		command: AuthElevationEndCommandSchema,
@@ -376,13 +368,33 @@ export const commandCatalog = {
 		command: AuthMethodsListCommandSchema,
 		result: AuthMethodsListResultSchema,
 	},
-	"auth.methods.link.start": {
-		command: AuthMethodsLinkStartCommandSchema,
-		result: AuthMethodsLinkStartResultSchema,
+	"auth.methods.delete": {
+		command: AuthMethodsDeleteCommandSchema,
+		result: AuthMethodsDeleteResultSchema,
 	},
-	"auth.methods.revoke": {
-		command: AuthMethodsRevokeCommandSchema,
-		result: AuthMethodsRevokeResultSchema,
+	"auth.login.providers": {
+		command: AuthLoginProvidersCommandSchema,
+		result: AuthLoginProvidersResultSchema,
+	},
+	"auth.login.devPassword": {
+		command: AuthLoginDevPasswordCommandSchema,
+		result: AuthLoginSessionResultSchema,
+	},
+	"auth.login.token": {
+		command: AuthLoginTokenCommandSchema,
+		result: AuthLoginSessionResultSchema,
+	},
+	"auth.login.google.start": {
+		command: AuthLoginGoogleStartCommandSchema,
+		result: AuthLoginGoogleStartResultSchema,
+	},
+	"auth.session.refresh": {
+		command: AuthSessionRefreshCommandSchema,
+		result: AuthLoginSessionResultSchema,
+	},
+	"auth.session.logout": {
+		command: AuthSessionLogoutCommandSchema,
+		result: AuthSessionLogoutResultSchema,
 	},
 	"family.list": {
 		command: FamilyListCommandSchema,

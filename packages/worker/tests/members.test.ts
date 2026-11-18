@@ -141,7 +141,7 @@ describe("members and invites (issue #3 phase 4)", () => {
 			grants: ["chat.use", "tokens.self"],
 			ttlDays: 1,
 		});
-		const login = await SELF.fetch(`${ORIGIN}/auth/token-login`, {
+		const login = await SELF.fetch(`${ORIGIN}/api/auth/login/token`, {
 			method: "POST",
 			headers: { authorization: `Bearer ${pat.result?.token ?? ""}` },
 		});
@@ -156,7 +156,7 @@ describe("members and invites (issue #3 phase 4)", () => {
 		expect((await rpc(accessToken, "auth.tokens.list")).ok).not.toBe(true);
 		expect(
 			(
-				await SELF.fetch(`${ORIGIN}/auth/token-login`, {
+				await SELF.fetch(`${ORIGIN}/api/auth/login/token`, {
 					method: "POST",
 					headers: { authorization: `Bearer ${pat.result?.token ?? ""}` },
 				})
@@ -300,7 +300,7 @@ describe("service tokens survive creator removal (issue #3 decision 14)", () => 
 		});
 		if (!pat.ok) throw new Error("create failed");
 		const login = (secret: string) =>
-			SELF.fetch(`${ORIGIN}/auth/token-login`, {
+			SELF.fetch(`${ORIGIN}/api/auth/login/token`, {
 				method: "POST",
 				headers: { authorization: `Bearer ${secret}` },
 			});
@@ -565,7 +565,7 @@ describe("service-token transfers and disabled-admin orphan cleanup (review roun
 		if (!svc.ok) throw new Error("create failed");
 
 		// Mint a session using that service token.
-		const login = await SELF.fetch(`${ORIGIN}/auth/token-login`, {
+		const login = await SELF.fetch(`${ORIGIN}/api/auth/login/token`, {
 			method: "POST",
 			headers: { authorization: `Bearer ${svc.token}` },
 		});
@@ -607,7 +607,7 @@ describe("service-token transfers and disabled-admin orphan cleanup (review roun
 
 		// Both the token and its active session are dead.
 		expect((await rpc(accessToken, "chat.list")).ok).not.toBe(true);
-		const retryLogin = await SELF.fetch(`${ORIGIN}/auth/token-login`, {
+		const retryLogin = await SELF.fetch(`${ORIGIN}/api/auth/login/token`, {
 			method: "POST",
 			headers: { authorization: `Bearer ${svc.token}` },
 		});

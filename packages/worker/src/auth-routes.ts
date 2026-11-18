@@ -2,14 +2,12 @@ import { devPasswordState, verifyDevPassword } from "./auth/dev-password.js";
 import {
 	exchangeGoogleCode,
 	getGoogleConfig,
-	LINK_BIND_COOKIE,
 	startGoogleLogin,
 	TXN_COOKIE,
 	verifyGoogleIdToken,
-	verifyLinkTicket,
 	verifyTransaction,
 } from "./auth/google.js";
-import { bearerToken, readCookie, timingSafeEqualSha256 } from "./auth.js";
+import { bearerToken, readCookie } from "./auth.js";
 import {
 	lockoutClear,
 	lockoutFail,
@@ -23,23 +21,24 @@ import type { SessionTokens } from "./store/d1-sessions.js";
 import type { Env } from "./types.js";
 
 /**
- * The refresh cookie. The issue names it `__Host-cadmus_refresh` with
- * `Path=/auth/refresh`, but browsers reject a `__Host-` cookie that is not
- * scoped to `Path=/`, so `__Secure-` keeps the narrow path.
+ * Refresh cookie. `__Secure-` (not `__Host-`) so the path can stay under the
+ * session routes. The path covers both refresh and logout.
  */
 export const REFRESH_COOKIE = "__Secure-cadmus_refresh";
-export const REFRESH_PATH = "/auth/refresh";
+/** Cookie path prefix. Matches `/api/auth/session/refresh` and `/logout`. */
+export const REFRESH_PATH = "/api/auth/session";
 
-const LOGOUT_PATH = "/auth/logout";
-const TOKEN_LOGIN_PATH = "/auth/token-login";
-const DEV_PASSWORD_PATH = "/auth/login/dev-password";
-const PROVIDERS_PATH = "/auth/providers";
-const GOOGLE_LOGIN_PATH = "/auth/login/google";
-const GOOGLE_CALLBACK_PATH = "/auth/callback/google";
+const SESSION_REFRESH_PATH = "/api/auth/session/refresh";
+const LOGOUT_PATH = "/api/auth/session/logout";
+const TOKEN_LOGIN_PATH = "/api/auth/login/token";
+const DEV_PASSWORD_PATH = "/api/auth/login/devPassword";
+const PROVIDERS_PATH = "/api/auth/login/providers";
+const GOOGLE_LOGIN_PATH = "/api/auth/login/google/start";
+const GOOGLE_CALLBACK_PATH = "/api/auth/login/google/callback";
 
 export function isAuthRoute(pathname: string): boolean {
 	return (
-		pathname === REFRESH_PATH ||
+		pathname === SESSION_REFRESH_PATH ||
 		pathname === LOGOUT_PATH ||
 		pathname === TOKEN_LOGIN_PATH ||
 		pathname === DEV_PASSWORD_PATH ||
@@ -56,7 +55,8 @@ export async function handleAuthRoute(
 	adminStore: AdminStore,
 ): Promise<Response> {
 	const { pathname } = new URL(request.url);
-	if (pathname === REFRESH_PATH) return handleRefresh(request, adminStore);
+	if (pathname === SESSION_REFRESH_PATH)
+		return handleRefresh(request, adminStore);
 	if (pathname === LOGOUT_PATH) return handleLogout(request, adminStore);
 	if (pathname === TOKEN_LOGIN_PATH) {
 		return handleTokenLogin(request, adminStore);
@@ -129,59 +129,38 @@ function txnCookie(value: string, maxAge: number): string {
 	return `${TXN_COOKIE}=${value}; Path=${GOOGLE_CALLBACK_PATH}; HttpOnly; Secure; SameSite=Lax; Max-Age=${maxAge}`;
 }
 
-function linkBindCookie(value: string, maxAge: number): string {
-	return `${LINK_BIND_COOKIE}=${value}; Path=${GOOGLE_LOGIN_PATH}; Secure; SameSite=Lax; Max-Age=${maxAge}`;
-}
-
 async function handleGoogleLogin(
 	request: Request,
 	env: Env,
 ): Promise<Response> {
 	const config = getGoogleConfig(env);
 	if (!config) return notConfigured();
-	if (request.method !== "GET") {
+	if (request.method !== "GET" && request.method !== "POST") {
 		return Response.json(
-			{ error: { code: "method_not_allowed", message: "Use GET" } },
+			{ error: { code: "method_not_allowed", message: "Use GET or POST" } },
 			noStore({ status: 405 }),
 		);
 	}
-	const params = new URL(request.url).searchParams;
-	let linkUserId: string | undefined;
-	let linkSessionId: string | undefined;
-	const rawTicket = params.get("link");
-	if (rawTicket !== null) {
-		// Linking: the ticket names the signed-in user, and the browser must also
-		// hold the bind cookie only the caller of auth.methods.link.start received.
-		const ticket = await verifyLinkTicket(env, rawTicket);
-		const bound = readCookie(request, LINK_BIND_COOKIE);
-		if (
-			!ticket ||
-			!bound ||
-			!(await timingSafeEqualSha256(bound, ticket.bind))
-		) {
-			const h = new Headers({
-				location: `/settings/security?link_error=bad_ticket`,
-				"cache-control": "no-store",
-			});
-			h.append("set-cookie", linkBindCookie("", 0));
-			return new Response(null, { status: 302, headers: h });
-		}
-		linkUserId = ticket.userId;
-		linkSessionId = ticket.sessionId;
-	}
-	const { location, txnValue } = await startGoogleLogin(
+	const started = await startGoogleLogin(
 		env,
 		config,
 		redirectUriFor(request, env),
-		Date.now(),
-		{
-			fresh: params.get("fresh") === "1",
-			...(linkUserId && linkSessionId ? { linkUserId, linkSessionId } : {}),
-		},
 	);
-	const headers = new Headers({ location, "cache-control": "no-store" });
-	headers.append("set-cookie", txnCookie(txnValue, 600));
-	if (linkUserId) headers.append("set-cookie", linkBindCookie("", 0));
+	if (request.method === "POST") {
+		return Response.json(
+			{
+				authorizationUrl: started.location,
+				transactionId:
+					new URL(started.location).searchParams.get("state") ?? "",
+			},
+			noStore({ status: 200, cookie: txnCookie(started.txnValue, 600) }),
+		);
+	}
+	const headers = new Headers({
+		location: started.location,
+		"cache-control": "no-store",
+	});
+	headers.append("set-cookie", txnCookie(started.txnValue, 600));
 	return new Response(null, { status: 302, headers });
 }
 
@@ -231,38 +210,18 @@ async function handleGoogleCallback(
 	const googleEmail = verified.identity.email ?? verified.identity.subject;
 	const lock = await lockoutStatus(env, "google-callback", googleEmail);
 	if (lock.locked) return failRedirect("locked_out");
-	if (txn.linkUserId || txn.linkSessionId) {
-		// Link only: no session is created or changed, and the email is never used
-		// to find a user. The method attaches to the user the ticket named.
-		const linked = await adminStore.linkLoginMethod(
-			txn.linkUserId ?? "",
-			txn.linkSessionId ?? "",
-			verified.identity,
-		);
-		const headers = new Headers({
-			location: linked.ok
-				? `/settings/security?linked=${encodeURIComponent(verified.identity.provider)}`
-				: `/settings/security?link_error=${encodeURIComponent(linked.code)}`,
-			"cache-control": "no-store",
-		});
-		headers.append("set-cookie", txnCookie("", 0));
-		return new Response(null, { status: 302, headers });
-	}
 	const login = await adminStore.completeLogin(verified.identity, {
-		bootstrapEmail: env.CADMUS_BOOTSTRAP_SUPER_ADMIN_EMAIL,
 		userAgent: request.headers.get("user-agent") ?? undefined,
 		ipCountry: request.headers.get("cf-ipcountry") ?? undefined,
-		freshGoogleAt: verified.authTimeMs,
 	});
 	if (!login.ok) {
 		await lockoutFail(env, "google-callback", googleEmail);
 		return failRedirect(login.code);
 	}
 	await lockoutClear(env, "google-callback", googleEmail);
-	// A fresh sign-in exists to enroll a passkey, so it returns to the security
-	// page. The target is a fixed path, never taken from the request.
+	// Fixed path. Never taken from the request.
 	const headers = new Headers({
-		location: txn.fresh === true ? "/settings/security" : "/",
+		location: "/",
 		"cache-control": "no-store",
 	});
 	headers.append("set-cookie", refreshCookieHeader(login.tokens));
@@ -380,16 +339,17 @@ async function handleDevPassword(
 			noStore({ status: 403 }),
 		);
 	}
-	let body: { email?: unknown; password?: unknown } = {};
+	let body: { payload?: { email?: unknown; password?: unknown } } = {};
 	try {
 		body = (await request.json()) as typeof body;
 	} catch {
 		body = {};
 	}
-	const password = typeof body.password === "string" ? body.password : "";
+	const payload = body.payload ?? {};
+	const password = typeof payload.password === "string" ? payload.password : "";
 	const email = (
-		typeof body.email === "string" && body.email.trim()
-			? body.email
+		typeof payload.email === "string" && payload.email.trim()
+			? payload.email
 			: (env.CADMUS_BOOTSTRAP_SUPER_ADMIN_EMAIL ?? "")
 	)
 		.trim()
@@ -489,12 +449,8 @@ async function handleTokenLogin(
 }
 
 /**
- * POST /auth/logout: revokes the session named by the bearer access token (the
- * web app refreshes first so the token is current). It does not read cookies:
- * only /auth/refresh does, and the refresh cookie is scoped to
- * Path=/auth/refresh so a browser never sends it here anyway. Same CSRF checks
- * as refresh. Always succeeds from the caller's point of view so a stale
- * bearer cannot wedge sign-out.
+ * POST /api/auth/session/logout. Bearer or the refresh cookie revokes that
+ * session. The cookie is cleared either way. CSRF matches refresh.
  */
 async function handleLogout(
 	request: Request,
@@ -523,10 +479,12 @@ async function handleLogout(
 			revoked = (await adminStore.revokeSession(identity.sessionId)) || revoked;
 		}
 	}
-	// The refresh cookie belongs to whichever session this browser last signed
-	// in as, which may not be the session the bearer named, and only
-	// /auth/refresh reads cookies (issue #3), so logout neither reads nor
-	// clears it. The client flushes it through /auth/refresh, which clears it
-	// once its session is gone.
-	return Response.json({ revoked }, noStore({ status: 200 }));
+	const refresh = readCookie(request, REFRESH_COOKIE);
+	if (refresh) {
+		revoked = (await adminStore.revokeSessionByRefresh(refresh)) || revoked;
+	}
+	return Response.json(
+		{ revoked },
+		noStore({ status: 200, cookie: clearRefreshCookieHeader() }),
+	);
 }

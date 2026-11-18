@@ -1,6 +1,6 @@
 /**
  * Cadmus session helpers (issue #3). The access token lives in memory only;
- * the refresh token is an HttpOnly cookie that only POST /auth/refresh reads.
+ * the refresh token is an HttpOnly cookie that only POST /api/auth/session/refresh reads.
  */
 
 export interface SessionTokens {
@@ -41,7 +41,7 @@ export interface ProvidersInfo {
 
 export async function fetchProvidersInfo(): Promise<ProvidersInfo> {
 	try {
-		const res = await fetch("/auth/providers", { cache: "no-store" });
+		const res = await fetch("/api/auth/login/providers", { cache: "no-store" });
 		if (!res.ok) return { providers: [] };
 		const body = (await res.json()) as {
 			providers?: Array<{ id: string }>;
@@ -209,7 +209,7 @@ async function doRefresh(force: boolean): Promise<RefreshOutcome> {
 		return done(latest);
 	}
 	try {
-		const res = await fetch("/auth/refresh", {
+		const res = await fetch("/api/auth/session/refresh", {
 			method: "POST",
 			headers: CSRF_HEADERS,
 			credentials: "same-origin",
@@ -317,7 +317,7 @@ export async function refreshForBoot(
 
 /**
  * Ends the session on the server and reports whether it is really over. The
- * refresh cookie only reaches /auth/refresh, so logout authenticates with the
+ * refresh cookie only reaches /api/auth/session/refresh, so logout authenticates with the
  * access token. A 200 alone is not proof (a stale bearer revokes nothing), so
  * the body's `revoked` flag decides; on a stale bearer the session is repaired
  * with a forced refresh and logout is retried. Without a confirmed revoke
@@ -326,7 +326,7 @@ export async function refreshForBoot(
 export async function signOut(): Promise<boolean> {
 	const attempt = async (token: string): Promise<boolean> => {
 		try {
-			const res = await fetch("/auth/logout", {
+			const res = await fetch("/api/auth/session/logout", {
 				method: "POST",
 				headers: { ...CSRF_HEADERS, Authorization: `Bearer ${token}` },
 				credentials: "same-origin",

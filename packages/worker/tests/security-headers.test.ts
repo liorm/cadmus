@@ -25,11 +25,15 @@ describe("Worker responses carry the security headers", () => {
 		["GET /health", "/health", {}],
 		["GET /protocol/schema", "/protocol/schema", {}],
 		["GET unknown path (401 or 404)", "/nope", {}],
-		["GET /auth/providers", "/auth/providers", {}],
-		["GET /auth/login/google (sets a cookie)", "/auth/login/google", {}],
+		["GET /api/auth/login/providers", "/api/auth/login/providers", {}],
 		[
-			"POST /auth/refresh without CSRF header",
-			"/auth/refresh",
+			"GET /api/auth/login/google/start (sets a cookie)",
+			"/api/auth/login/google/start",
+			{},
+		],
+		[
+			"POST /api/auth/session/refresh without CSRF header",
+			"/api/auth/session/refresh",
 			{ method: "POST" },
 		],
 		["GET /rpc unauthenticated", "/rpc", {}],
@@ -50,7 +54,7 @@ describe("Worker responses carry the security headers", () => {
 	}
 
 	it("keeps the real Set-Cookie on the Google login redirect", async () => {
-		const res = await SELF.fetch(`${ORIGIN}/auth/login/google`, {
+		const res = await SELF.fetch(`${ORIGIN}/api/auth/login/google/start`, {
 			redirect: "manual",
 		});
 		const cookies = res.headers.getSetCookie();
