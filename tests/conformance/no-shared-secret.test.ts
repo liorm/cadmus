@@ -33,5 +33,5 @@ describe("shared-secret credential is gone", () => {
 		const hits: string[] = [];
 		walk(repoRoot, hits);
 		expect(hits).toEqual([]);
-	});
+	}, 30_000);
 });

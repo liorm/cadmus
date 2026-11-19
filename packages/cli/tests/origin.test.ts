@@ -1,14 +1,15 @@
 import { describe, expect, it } from "bun:test";
 import {
-	defaultOrigin,
 	DEV_ORIGIN,
+	defaultOrigin,
 	isCompiledCli,
 	PRODUCTION_ORIGIN,
 } from "../src/origin.js";
 
 describe("defaultOrigin", () => {
 	it("uses localhost for a source module URL", () => {
-		const url = "file:///Users/developer/projects/pi-bot/packages/cli/src/origin.ts";
+		const url =
+			"file:///Users/developer/projects/pi-bot/packages/cli/src/origin.ts";
 		expect(isCompiledCli(url)).toBe(false);
 		expect(defaultOrigin(url)).toBe(DEV_ORIGIN);
 	});
