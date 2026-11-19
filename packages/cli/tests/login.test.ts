@@ -3,7 +3,12 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseArgv } from "../src/argv.js";
-import { ensureAccessToken, runLogin, runLogout } from "../src/login.js";
+import {
+	ensureAccessToken,
+	runAuthStatus,
+	runLogin,
+	runLogout,
+} from "../src/login.js";
 import {
 	createFileSecretStore,
 	createMemorySecretStore,
@@ -44,8 +49,9 @@ async function capture(
 
 describe("cli login", () => {
 	it("parses login flags", () => {
-		const parsed = parseArgv(["login", "--dev-password", "--device"]);
-		expect(parsed.command).toBe("login");
+		const parsed = parseArgv(["auth", "login", "--dev-password", "--device"]);
+		expect(parsed.command).toBe("auth");
+		expect(parsed.positionals).toEqual(["login"]);
 		expect(parsed.devPassword).toBe(true);
 		expect(parsed.device).toBe(true);
 	});
@@ -163,7 +169,7 @@ describe("cli login", () => {
 				)) as unknown as typeof fetch,
 			lockDir: dir,
 		});
-		expect("error" in ensured && ensured.error).toBe("Run cadmus login.");
+		expect("error" in ensured && ensured.error).toBe("Run cadmus auth login.");
 		expect(await store.get(ORIGIN)).toBeUndefined();
 	});
 
@@ -206,6 +212,65 @@ describe("cli login", () => {
 		expect(result.code).toBe(0);
 		expect(JSON.parse(result.stdout)).toEqual({ ok: true, revoked: true });
 		expect(await store.get(ORIGIN)).toBeUndefined();
+	});
+
+	it("reports logged out when no refresh secret is stored", async () => {
+		const store = createMemorySecretStore();
+		const result = await capture(() =>
+			runAuthStatus({
+				origin: ORIGIN,
+				pretty: false,
+				store,
+				token: "",
+				fetchImpl: (async () => {
+					throw new Error("should not call the worker");
+				}) as unknown as typeof fetch,
+			}),
+		);
+		expect(result.code).toBe(0);
+		expect(JSON.parse(result.stdout)).toEqual({
+			loggedIn: false,
+			origin: ORIGIN,
+		});
+	});
+
+	it("prints the auth.whoami principal when a session refreshes", async () => {
+		const store = createMemorySecretStore();
+		await store.set(ORIGIN, "cad_rt_old");
+		const dir = await mkdtemp(join(tmpdir(), "cadmus-status-"));
+		const principal = {
+			kind: "user",
+			userId: "usr_1",
+			name: "Ada",
+			accountId: "acct_1",
+			role: "user",
+		};
+		const result = await capture(() =>
+			runAuthStatus({
+				origin: ORIGIN,
+				pretty: false,
+				store,
+				token: "",
+				lockDir: dir,
+				fetchImpl: (async (url: string) => {
+					if (String(url).endsWith("/api/auth/session/refresh")) {
+						return json({
+							accessToken: "cad_at_new",
+							refreshToken: "cad_rt_new",
+							expiresAt: 5,
+						});
+					}
+					return json({ principal });
+				}) as unknown as typeof fetch,
+			}),
+		);
+		expect(result.code).toBe(0);
+		expect(JSON.parse(result.stdout)).toEqual({
+			loggedIn: true,
+			origin: ORIGIN,
+			principal,
+		});
+		expect(await store.get(ORIGIN)).toBe("cad_rt_new");
 	});
 
 	it("writes the file fallback as mode 0600", async () => {

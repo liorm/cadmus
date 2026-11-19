@@ -17,7 +17,12 @@ import {
 	EXIT_USAGE,
 	exitForCommandFailure,
 } from "./exit-codes.js";
-import { ensureAccessToken, runLogin, runLogout } from "./login.js";
+import {
+	ensureAccessToken,
+	runAuthStatus,
+	runLogin,
+	runLogout,
+} from "./login.js";
 import { defaultOrigin } from "./origin.js";
 import { createDefaultSecretStore } from "./secret-store.js";
 import { CLI_VERSION } from "./version.js";
@@ -58,27 +63,11 @@ async function main(): Promise<number> {
 	}
 	if (parsed.command === undefined)
 		return usage("missing command", parsed.pretty);
-	if (parsed.command === "login") {
-		if (parsed.help) {
-			return usage("login [--device|--dev-password]", parsed.pretty);
-		}
-		const connection = resolveConnection(parsed);
-		return runLogin({
-			origin: connection.url,
-			pretty: connection.pretty,
-			store: createDefaultSecretStore(),
-			device: parsed.device,
-			devPassword: parsed.devPassword,
-		});
+	if (parsed.command === "auth") {
+		return runAuth(parsed);
 	}
-	if (parsed.command === "logout") {
-		if (parsed.help) return usage("logout", parsed.pretty);
-		const connection = resolveConnection(parsed);
-		return runLogout({
-			origin: connection.url,
-			pretty: connection.pretty,
-			store: createDefaultSecretStore(),
-		});
+	if (parsed.command === "login" || parsed.command === "logout") {
+		return usage(`cadmus auth ${parsed.command}`, parsed.pretty);
 	}
 	if (parsed.command === "commands") {
 		writeJson(
@@ -118,6 +107,48 @@ async function main(): Promise<number> {
 	} catch (error) {
 		return transport(error, connection.pretty);
 	}
+}
+
+async function runAuth(parsed: ParsedArgv): Promise<number> {
+	const sub = parsed.positionals[0];
+	const usageText =
+		"auth <login|logout|status>\n  auth login [--device|--dev-password]\n  auth logout\n  auth status";
+	if (parsed.help && sub === undefined) return usage(usageText, parsed.pretty);
+	if (sub === "login") {
+		if (parsed.help) {
+			return usage("auth login [--device|--dev-password]", parsed.pretty);
+		}
+		const connection = resolveConnection(parsed);
+		return runLogin({
+			origin: connection.url,
+			pretty: connection.pretty,
+			store: createDefaultSecretStore(),
+			device: parsed.device,
+			devPassword: parsed.devPassword,
+		});
+	}
+	if (sub === "logout") {
+		if (parsed.help) return usage("auth logout", parsed.pretty);
+		const connection = resolveConnection(parsed);
+		return runLogout({
+			origin: connection.url,
+			pretty: connection.pretty,
+			store: createDefaultSecretStore(),
+		});
+	}
+	if (sub === "status") {
+		if (parsed.help) return usage("auth status", parsed.pretty);
+		const connection = resolveConnection(parsed);
+		return runAuthStatus({
+			origin: connection.url,
+			pretty: connection.pretty,
+			store: createDefaultSecretStore(),
+			token: connection.token,
+			account: connection.account,
+			family: connection.family,
+		});
+	}
+	return usage(usageText, parsed.pretty);
 }
 
 function resolveConnection(parsed: ParsedArgv): Connection {
@@ -362,7 +393,14 @@ function globalHelp(): string {
 	return JSON.stringify(
 		{
 			usage: "cadmus <command> [json] [--payload @file|-] [--key value]",
-			verbs: ["login", "logout", "send", "events", "commands"],
+			verbs: [
+				"auth login",
+				"auth logout",
+				"auth status",
+				"send",
+				"events",
+				"commands",
+			],
 			flags: [
 				"--url",
 				"--token",

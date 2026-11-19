@@ -179,13 +179,14 @@ Flags override environment variables.
 | \`--account\` | \`CADMUS_ACCOUNT_ID\` | \`x-account-id\`. |
 | \`--family\` | \`CADMUS_FAMILY_ID\` | \`X-Cadmus-Family-Id\` and the \`/ws\` \`familyId\` query. |
 
-\`cadmus login\` stores only the refresh secret (\`cad_rt_\`) in the OS keychain, or in \`~/.config/cadmus/credentials.json\` when the keychain is unavailable. Later commands refresh that secret. \`cadmus logout\` revokes it and deletes the local copy. \`--dev-password\` uses the worker's dev-password login when that provider is offered. \`--device\` prints the URL instead of opening a browser.
+\`cadmus auth login\` stores only the refresh secret (\`cad_rt_\`) in the OS keychain, or in \`~/.config/cadmus/credentials.json\` when the keychain is unavailable. Later commands refresh that secret. \`cadmus auth logout\` revokes it and deletes the local copy. \`cadmus auth status\` prints the signed-in principal from \`auth.whoami\`, or \`loggedIn: false\` when no session is stored. \`--dev-password\` uses the worker's dev-password login when that provider is offered. \`--device\` prints the URL instead of opening a browser.
 
 ## Invoke
 
 \`\`\`text
-cadmus login [--device|--dev-password]
-cadmus logout
+cadmus auth login [--device|--dev-password]
+cadmus auth logout
+cadmus auth status
 cadmus <command> [json] [--payload @file|-] [--key value]
 cadmus <command> --help
 cadmus commands

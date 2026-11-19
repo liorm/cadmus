@@ -2,7 +2,13 @@ import { spawn } from "node:child_process";
 import { mkdir, rmdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { EXIT_OK, EXIT_TRANSPORT, EXIT_USAGE } from "./exit-codes.js";
+import { createClient } from "./client.js";
+import {
+	EXIT_OK,
+	EXIT_PROTOCOL,
+	EXIT_TRANSPORT,
+	EXIT_USAGE,
+} from "./exit-codes.js";
 import type { SecretStore } from "./secret-store.js";
 
 export interface LoginIO {
@@ -348,6 +354,65 @@ export async function runLogout(
 	}
 }
 
+const LOGGED_OUT = "Run cadmus auth login.";
+
+export async function runAuthStatus(
+	io: Pick<LoginIO, "origin" | "pretty" | "store" | "fetchImpl" | "lockDir"> & {
+		token: string;
+		account?: string;
+		family?: string;
+	},
+): Promise<number> {
+	const origin = io.origin.replace(/\/$/, "");
+	let token = io.token;
+	if (token.length === 0) {
+		const ensured = await ensureAccessToken({
+			origin,
+			token: "",
+			store: io.store,
+			fetchImpl: io.fetchImpl,
+			lockDir: io.lockDir,
+		});
+		if ("error" in ensured) {
+			if (
+				ensured.error === LOGGED_OUT ||
+				ensured.error.startsWith("Refresh refused.")
+			) {
+				writeJson({ loggedIn: false, origin }, io.pretty);
+				return EXIT_OK;
+			}
+			return fail(EXIT_TRANSPORT, "transport", ensured.error, io.pretty);
+		}
+		token = ensured.token;
+	}
+	try {
+		const frame = await createClient(
+			{ url: origin, token, account: io.account, family: io.family },
+			{ fetchImpl: io.fetchImpl, useTickets: false },
+		).callRpc<{ principal?: unknown }>("auth.whoami", {});
+		if (!frame.ok) {
+			return fail(
+				EXIT_PROTOCOL,
+				frame.error?.code ?? "command_failed",
+				frame.error?.message ?? "auth.whoami failed",
+				io.pretty,
+			);
+		}
+		writeJson(
+			{ loggedIn: true, origin, principal: frame.result?.principal ?? null },
+			io.pretty,
+		);
+		return EXIT_OK;
+	} catch (error) {
+		return fail(
+			EXIT_TRANSPORT,
+			"transport",
+			error instanceof Error ? error.message : String(error),
+			io.pretty,
+		);
+	}
+}
+
 export async function ensureAccessToken(input: {
 	origin: string;
 	token: string;
@@ -363,7 +428,7 @@ export async function ensureAccessToken(input: {
 			input.lockDir ?? join(homedir(), ".config", "cadmus"),
 			async () => {
 				const refreshToken = await input.store.get(origin);
-				if (!refreshToken) return { error: "Run cadmus login." };
+				if (!refreshToken) return { error: "Run cadmus auth login." };
 				const refreshed = await postJson(
 					fetchImpl,
 					`${origin}/api/auth/session/refresh`,
@@ -379,8 +444,8 @@ export async function ensureAccessToken(input: {
 					if (dead) await input.store.delete(origin);
 					return {
 						error: dead
-							? "Run cadmus login."
-							: "Refresh refused. Run cadmus login.",
+							? "Run cadmus auth login."
+							: "Refresh refused. Run cadmus auth login.",
 					};
 				}
 				const next = refreshed.body.refreshToken;
@@ -392,7 +457,7 @@ export async function ensureAccessToken(input: {
 				} catch {
 					return {
 						error:
-							"Could not store the rotated refresh secret. Run cadmus login.",
+							"Could not store the rotated refresh secret. Run cadmus auth login.",
 					};
 				}
 				return { token: refreshed.body.accessToken as string };
