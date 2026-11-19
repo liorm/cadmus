@@ -5756,8 +5756,18 @@
 									"type": "string",
 									"description": "Login method provider, e.g. google."
 								},
+								"client": {
+									"anyOf": [
+										{ "type": "string", "const": "web" },
+										{ "type": "string", "const": "cli" }
+									],
+									"description": "Where the session was started. Absent on rows created before this field."
+								},
 								"tokenId": { "type": "string" },
-								"userAgent": { "type": "string" },
+								"userAgent": {
+									"type": "string",
+									"description": "Browser user agent, or a Cadmus CLI label (version, OS, arch, hostname)."
+								},
 								"ipCountry": { "type": "string" },
 								"createdAt": { "type": "number" },
 								"lastUsedAt": { "type": "number" }

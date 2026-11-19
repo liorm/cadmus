@@ -95,16 +95,18 @@ async function open<T>(encryptionKey: string, blob: string): Promise<T> {
 
 export async function startDeviceLogin(
 	db: D1Database,
-	now = Date.now(),
+	input: { now?: number; userAgent?: string; ipCountry?: string } = {},
 ): Promise<DeviceLoginStart> {
+	const now = input.now ?? Date.now();
 	const code = deviceCode();
 	const secret = randomToken("cad_ds_");
 	const id = randomId("dev_", 12);
 	await db
 		.prepare(
 			`INSERT INTO cadmus_device_logins
-         (id, device_code_hash, device_secret_hash, status, expires_at, created_at)
-       VALUES (?1, ?2, ?3, 'pending', ?4, ?5)`,
+         (id, device_code_hash, device_secret_hash, status, expires_at, created_at,
+          user_agent, ip_country)
+       VALUES (?1, ?2, ?3, 'pending', ?4, ?5, ?6, ?7)`,
 		)
 		.bind(
 			id,
@@ -112,6 +114,8 @@ export async function startDeviceLogin(
 			await sha256Hex(secret),
 			now + DEVICE_TTL_MS,
 			now,
+			input.userAgent ?? null,
+			input.ipCountry ?? null,
 		)
 		.run();
 	return {
@@ -187,11 +191,16 @@ export async function approveDeviceLogin(
 	const hash = await sha256Hex(normalizeDeviceCode(input.deviceCode));
 	const row = await db
 		.prepare(
-			`SELECT status, expires_at FROM cadmus_device_logins
+			`SELECT status, expires_at, user_agent, ip_country FROM cadmus_device_logins
          WHERE device_code_hash = ?1`,
 		)
 		.bind(hash)
-		.first<{ status: string; expires_at: number }>();
+		.first<{
+			status: string;
+			expires_at: number;
+			user_agent: string | null;
+			ip_country: string | null;
+		}>();
 	if (!row) return { ok: false, code: "unauthorized" };
 	if (row.status !== "pending" || row.expires_at <= now) {
 		return { ok: false, code: "unauthorized" };
@@ -201,6 +210,8 @@ export async function approveDeviceLogin(
 		accountId: input.identity.accountId,
 		activeRole: input.identity.role,
 		profile: "cli",
+		userAgent: row.user_agent ?? "Cadmus CLI",
+		ipCountry: row.ip_country ?? undefined,
 		now,
 	});
 	const blob = await seal(encryptionKey, tokens);

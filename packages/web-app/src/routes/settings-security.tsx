@@ -8,16 +8,33 @@ import { useSession } from "@/context/SessionContext";
 import { useMemberships } from "@/hooks/useMemberships";
 import { useScopedResource } from "@/hooks/useScopedResource";
 import { isoTime, signOut } from "@/lib/session";
+import { orderSessions } from "@/lib/session-order";
 
 interface SessionRow {
 	id: string;
 	accountId: string;
 	current: boolean;
 	loginMethod?: string;
+	client?: "web" | "cli";
 	userAgent?: string;
 	ipCountry?: string;
 	createdAt: number;
 	lastUsedAt: number;
+}
+
+function sessionTitle(row: SessionRow): string {
+	if (row.userAgent) return row.userAgent;
+	return row.client === "cli" ? "Cadmus CLI" : "Web session";
+}
+
+function sessionDetail(row: SessionRow): string {
+	const source = row.client === "cli" ? "CLI" : (row.loginMethod ?? "web");
+	return [
+		...(row.current ? ["This session"] : []),
+		source,
+		...(row.ipCountry ? [row.ipCountry] : []),
+		`last used ${isoTime(row.lastUsedAt)}`,
+	].join(" · ");
 }
 
 interface MethodRow {
@@ -258,7 +275,7 @@ function SignedIn() {
 		loaded.retry();
 	};
 
-	const sessions = loaded.data?.sessions ?? [];
+	const sessions = orderSessions(loaded.data?.sessions ?? []);
 	const visibleSessions = sessions.slice(0, shownSessions);
 	const hiddenSessions = sessions.length - visibleSessions.length;
 
@@ -330,15 +347,11 @@ function SignedIn() {
 								className="flex items-center gap-3 border-b border-border px-4 py-3 last:border-b-0"
 							>
 								<span className="min-w-0 flex-1">
-									<span className="block font-semibold">
-										{row.current
-											? "This session"
-											: (row.userAgent ?? "Session")}
+									<span className="block truncate font-semibold">
+										{sessionTitle(row)}
 									</span>
 									<span className="block truncate text-[length:var(--fs-sm)] text-text-muted">
-										{row.loginMethod ?? "token"}
-										{row.ipCountry ? ` · ${row.ipCountry}` : ""} · last used{" "}
-										{isoTime(row.lastUsedAt)}
+										{sessionDetail(row)}
 									</span>
 								</span>
 								{row.current ? null : (

@@ -304,8 +304,19 @@ export const AuthSessionsListResultSchema = Type.Object(
 					loginMethod: Type.Optional(
 						Type.String({ description: "Login method provider, e.g. google." }),
 					),
+					client: Type.Optional(
+						Type.Union([Type.Literal("web"), Type.Literal("cli")], {
+							description:
+								"Where the session was started. Absent on rows created before this field.",
+						}),
+					),
 					tokenId: Type.Optional(Type.String()),
-					userAgent: Type.Optional(Type.String()),
+					userAgent: Type.Optional(
+						Type.String({
+							description:
+								"Browser user agent, or a Cadmus CLI label (version, OS, arch, hostname).",
+						}),
+					),
 					ipCountry: Type.Optional(Type.String()),
 					createdAt: Type.Number(),
 					lastUsedAt: Type.Number(),

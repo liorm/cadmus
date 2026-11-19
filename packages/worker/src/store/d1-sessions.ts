@@ -139,8 +139,8 @@ export async function createSession(
          (id, session_family_id, user_id, account_id, login_method_id, token_id,
           refresh_hash, previous_refresh_hash, access_hash, access_expires_at,
           user_agent, ip_country, created_at, last_used_at, idle_expires_at, absolute_expires_at,
-          fresh_google_at, active_role, provisional)
-       VALUES (?1, ?1, ?2, ?3, ?4, ?5, ?6, NULL, ?7, ?8, ?9, ?10, ?11, ?11, ?12, ?13, ?14, ?15, ?16)`,
+          fresh_google_at, active_role, provisional, client)
+       VALUES (?1, ?1, ?2, ?3, ?4, ?5, ?6, NULL, ?7, ?8, ?9, ?10, ?11, ?11, ?12, ?13, ?14, ?15, ?16, ?17)`,
 			)
 			.bind(
 				sessionId,
@@ -159,6 +159,7 @@ export async function createSession(
 				input.freshGoogleAt ?? null,
 				activeRole,
 				input.provisional ? 1 : 0,
+				cli ? "cli" : "web",
 			),
 		...(input.extra ?? []),
 		db
@@ -704,6 +705,8 @@ export interface SessionSummary {
 	id: string;
 	accountId: string;
 	loginMethod?: string;
+	/** web or cli. Absent on sessions created before the column existed. */
+	client?: "web" | "cli";
 	tokenId?: string;
 	userAgent?: string;
 	ipCountry?: string;
@@ -718,13 +721,13 @@ export async function listSessions(
 ): Promise<SessionSummary[]> {
 	const { results } = await db
 		.prepare(
-			`SELECT s.id, s.account_id, s.token_id, s.user_agent, s.ip_country,
+			`SELECT s.id, s.account_id, s.token_id, s.user_agent, s.ip_country, s.client,
               s.created_at, s.last_used_at, l.provider
        FROM cadmus_sessions s
        LEFT JOIN cadmus_login_methods l ON l.id = s.login_method_id
        WHERE s.user_id = ?1 AND s.revoked_at IS NULL
          AND s.absolute_expires_at > ?2 AND s.idle_expires_at > ?2
-       ORDER BY s.last_used_at DESC`,
+       ORDER BY s.last_used_at DESC, s.created_at DESC`,
 		)
 		.bind(userId, now)
 		.all<{
@@ -733,6 +736,7 @@ export async function listSessions(
 			token_id: string | null;
 			user_agent: string | null;
 			ip_country: string | null;
+			client: string | null;
 			created_at: number;
 			last_used_at: number;
 			provider: string | null;
@@ -741,6 +745,7 @@ export async function listSessions(
 		id: r.id,
 		accountId: r.account_id,
 		...(r.provider ? { loginMethod: r.provider } : {}),
+		...(r.client === "web" || r.client === "cli" ? { client: r.client } : {}),
 		...(r.token_id ? { tokenId: r.token_id } : {}),
 		...(r.user_agent ? { userAgent: r.user_agent } : {}),
 		...(r.ip_country ? { ipCountry: r.ip_country } : {}),

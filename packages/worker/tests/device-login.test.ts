@@ -223,4 +223,56 @@ describe("device login", () => {
 		};
 		expect(browserBody.refreshToken).toBeUndefined();
 	});
+
+	it("stores the CLI label and country, and lists that session first for itself", async () => {
+		const browser = await devLogin();
+		const started = await post(
+			"/api/auth/login/device/start",
+			{},
+			{
+				"x-cadmus-cli": "1",
+				"user-agent": "cadmus-cli/0.1.0 (darwin arm64; test-host)",
+				"cf-ipcountry": "IL",
+			},
+		);
+		const start = (await started.json()) as {
+			deviceCode: string;
+			deviceSecret: string;
+		};
+		expect(
+			(
+				await post(
+					"/api/auth/login/device/approve",
+					{ payload: { deviceCode: start.deviceCode } },
+					{ authorization: `Bearer ${browser}` },
+				)
+			).status,
+		).toBe(200);
+		const polled = await post("/api/auth/login/device/poll", {
+			deviceSecret: start.deviceSecret,
+		});
+		const session = (await polled.json()) as { accessToken: string };
+		const listed = await SELF.fetch(`${ORIGIN}/api/auth/sessions/list`, {
+			headers: {
+				authorization: `Bearer ${session.accessToken}`,
+				origin: ORIGIN,
+			},
+		});
+		expect(listed.status).toBe(200);
+		const body = (await listed.json()) as {
+			sessions: Array<{
+				current: boolean;
+				client?: string;
+				userAgent?: string;
+				ipCountry?: string;
+			}>;
+		};
+		expect(body.sessions[0]).toMatchObject({
+			current: true,
+			client: "cli",
+			userAgent: "cadmus-cli/0.1.0 (darwin arm64; test-host)",
+			ipCountry: "IL",
+		});
+		expect(body.sessions.some((row) => row.client === "web")).toBe(true);
+	});
 });

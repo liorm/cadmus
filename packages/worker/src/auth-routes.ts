@@ -651,7 +651,14 @@ async function handleDeviceStart(
 			noStore({ status: 405 }),
 		);
 	}
-	const started = await adminStore.startDeviceLogin();
+	const cli = request.headers.get("x-cadmus-cli") === "1";
+	const started = await adminStore.startDeviceLogin({
+		// Country is the edge's view of the CLI connection, not a client header.
+		ipCountry: request.headers.get("cf-ipcountry") ?? undefined,
+		userAgent: cli
+			? (request.headers.get("user-agent") ?? "Cadmus CLI")
+			: "Cadmus CLI",
+	});
 	const origin = publicOrigin(request, env);
 	return Response.json(
 		{

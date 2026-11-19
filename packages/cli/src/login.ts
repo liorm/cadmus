@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { mkdir, rmdir, stat } from "node:fs/promises";
-import { homedir } from "node:os";
+import { arch, homedir, hostname, platform } from "node:os";
 import { join } from "node:path";
 import { createClient } from "./client.js";
 import {
@@ -10,6 +10,7 @@ import {
 	EXIT_USAGE,
 } from "./exit-codes.js";
 import type { SecretStore } from "./secret-store.js";
+import { CLI_VERSION } from "./version.js";
 
 export interface LoginIO {
 	origin: string;
@@ -24,6 +25,17 @@ export interface LoginIO {
 	sleep?: (ms: number) => Promise<void>;
 	openBrowser?: (url: string) => boolean;
 	lockDir?: string;
+}
+
+/** Sent as User-Agent on device/start. The worker stores it on the CLI session. */
+export function cliClientLabel(): string {
+	let host = "unknown-host";
+	try {
+		host = hostname();
+	} catch {
+		// A restricted environment may refuse the hostname.
+	}
+	return `cadmus-cli/${CLI_VERSION} (${platform()} ${arch()}; ${host})`;
 }
 
 interface DeviceStart {
@@ -190,6 +202,7 @@ export async function runLogin(io: LoginIO): Promise<number> {
 			fetchImpl,
 			`${origin}/api/auth/login/device/start`,
 			{},
+			{ "x-cadmus-cli": "1", "user-agent": cliClientLabel() },
 		);
 		if (!started.ok) {
 			return fail(

@@ -1755,10 +1755,15 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 					caller.userId ?? "",
 				);
 				return {
-					sessions: sessions.map((session) => ({
-						...session,
-						current: session.id === sessionId,
-					})),
+					sessions: sessions
+						.map((session) => ({
+							...session,
+							current: session.id === sessionId,
+						}))
+						.sort((a, b) => {
+							if (a.current !== b.current) return a.current ? -1 : 1;
+							return b.lastUsedAt - a.lastUsedAt;
+						}),
 				};
 			},
 			"auth.sessions.revoke": async (command) => {

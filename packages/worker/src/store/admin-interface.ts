@@ -170,7 +170,11 @@ export interface AdminStore {
 		accountId?: string,
 	): Promise<SessionIdentity | undefined>;
 	rotateRefreshToken(rawRefresh: string): Promise<RefreshResult>;
-	startDeviceLogin(now?: number): Promise<DeviceLoginStart>;
+	startDeviceLogin(input?: {
+		now?: number;
+		userAgent?: string;
+		ipCountry?: string;
+	}): Promise<DeviceLoginStart>;
 	pollDeviceLogin(
 		deviceSecret: string,
 		now?: number,

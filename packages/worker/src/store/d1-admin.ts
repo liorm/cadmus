@@ -310,7 +310,7 @@ function slugifyId(text: string): string {
 	);
 }
 
-export const CADMUS_SCHEMA_VERSION = 16;
+export const CADMUS_SCHEMA_VERSION = 17;
 
 export function isMissingSchemaError(error: unknown): boolean {
 	if (!error) return false;
@@ -760,6 +760,7 @@ async function migrateSessionsSchema(db: D1Database): Promise<void> {
           elevated_account_id TEXT,
           user_agent TEXT,
           ip_country TEXT,
+          client TEXT,
           created_at INTEGER NOT NULL,
           last_used_at INTEGER NOT NULL,
           idle_expires_at INTEGER NOT NULL,
@@ -784,7 +785,9 @@ async function migrateSessionsSchema(db: D1Database): Promise<void> {
           user_id TEXT,
           account_id TEXT,
           role TEXT,
-          token_blob TEXT
+          token_blob TEXT,
+          user_agent TEXT,
+          ip_country TEXT
         )
       `),
 		db.prepare(`
@@ -826,6 +829,11 @@ async function migrateSessionsSchema(db: D1Database): Promise<void> {
 	await addColumnIfNotExists(db, "cadmus_tickets", "account_id", "TEXT");
 	await addColumnIfNotExists(db, "cadmus_tickets", "user_id", "TEXT");
 	await addColumnIfNotExists(db, "cadmus_tickets", "credential", "TEXT");
+	// web or cli. NULL on sessions created before the column existed.
+	await addColumnIfNotExists(db, "cadmus_sessions", "client", "TEXT");
+	// Captured on device/start from the CLI, then copied onto the session.
+	await addColumnIfNotExists(db, "cadmus_device_logins", "user_agent", "TEXT");
+	await addColumnIfNotExists(db, "cadmus_device_logins", "ip_country", "TEXT");
 	const userCols = await db
 		.prepare(`PRAGMA table_info(cadmus_users)`)
 		.all<{ name: string }>();
@@ -1362,9 +1370,11 @@ export class D1AdminStore implements AdminStore {
 		return rotateRefreshToken(this.#db, rawRefresh);
 	}
 
-	async startDeviceLogin(now?: number): Promise<DeviceLoginStart> {
+	async startDeviceLogin(
+		input: { now?: number; userAgent?: string; ipCountry?: string } = {},
+	): Promise<DeviceLoginStart> {
 		await this.initialize();
-		return startDeviceLogin(this.#db, now);
+		return startDeviceLogin(this.#db, input);
 	}
 
 	async pollDeviceLogin(
