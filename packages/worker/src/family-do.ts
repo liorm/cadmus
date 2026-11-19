@@ -1957,6 +1957,30 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 					"unsupported_command",
 				);
 			},
+			"auth.login.device.start": async () => {
+				throw new ProtocolValidationError(
+					"Public login commands run on /api",
+					"unsupported_command",
+				);
+			},
+			"auth.login.device.poll": async () => {
+				throw new ProtocolValidationError(
+					"Public login commands run on /api",
+					"unsupported_command",
+				);
+			},
+			"auth.login.device.approve": async () => {
+				throw new ProtocolValidationError(
+					"Public login commands run on /api",
+					"unsupported_command",
+				);
+			},
+			"auth.login.device.deny": async () => {
+				throw new ProtocolValidationError(
+					"Public login commands run on /api",
+					"unsupported_command",
+				);
+			},
 			"auth.session.refresh": async () => {
 				throw new ProtocolValidationError(
 					"Public login commands run on /api",

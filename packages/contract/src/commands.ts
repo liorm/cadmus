@@ -1,6 +1,10 @@
 import { type Static, Type } from "typebox";
 import {
 	AuthAssumeRoleCommandSchema,
+	AuthLoginDeviceApproveCommandSchema,
+	AuthLoginDeviceDenyCommandSchema,
+	AuthLoginDevicePollCommandSchema,
+	AuthLoginDeviceStartCommandSchema,
 	AuthLoginDevPasswordCommandSchema,
 	AuthLoginGoogleStartCommandSchema,
 	AuthLoginProvidersCommandSchema,
@@ -2943,6 +2947,10 @@ export const ClientCommandSchema = Type.Union(
 		AuthAssumeRoleCommandSchema,
 		AuthLoginDevPasswordCommandSchema,
 		AuthLoginGoogleStartCommandSchema,
+		AuthLoginDeviceStartCommandSchema,
+		AuthLoginDevicePollCommandSchema,
+		AuthLoginDeviceApproveCommandSchema,
+		AuthLoginDeviceDenyCommandSchema,
 		AuthSessionRefreshCommandSchema,
 		AuthSessionLogoutCommandSchema,
 		FamilyListCommandSchema,

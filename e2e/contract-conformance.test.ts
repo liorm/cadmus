@@ -51,6 +51,10 @@ const MAY_FAIL_OFFLINE = new Set<CommandType>([
 	"auth.login.providers",
 	"auth.login.devPassword",
 	"auth.login.google.start",
+	"auth.login.device.start",
+	"auth.login.device.poll",
+	"auth.login.device.approve",
+	"auth.login.device.deny",
 	"auth.session.refresh",
 	"auth.session.logout",
 ]);
@@ -287,6 +291,10 @@ describe("contract conformance", () => {
 			password: "nope",
 		});
 		await call("auth.login.google.start");
+		await call("auth.login.device.start");
+		await call("auth.login.device.poll", { deviceSecret: "missing" });
+		await call("auth.login.device.approve", { deviceCode: "missing" });
+		await call("auth.login.device.deny", { deviceCode: "missing" });
 		await call("auth.session.refresh");
 		await call("auth.session.logout");
 		await call("auth.elevate");

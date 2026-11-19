@@ -15,6 +15,8 @@ export const ERROR_CODES = [
 	"family_not_found",
 	"cas_conflict",
 	"conflict",
+	"provisional_session",
+	"refresh_ambiguous",
 	"role_unchanged",
 	"command_failed",
 	"invalid_command",

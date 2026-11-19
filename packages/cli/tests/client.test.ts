@@ -78,21 +78,6 @@ describe("cli client credential selection", () => {
 		client.close();
 	});
 
-	it("mints a header-backed ticket for a legacy credential and never puts it in the URL", async () => {
-		const { client, calls } = setup("legacy-member-secret");
-		expect(client.useTickets).toBe(true);
-		void client.connect().catch(() => undefined);
-		await settle();
-		expect(calls).toHaveLength(1);
-		expect(calls[0]?.url).toContain("/api/auth/ticket");
-		expect(calls[0]?.auth).toBe("Bearer legacy-member-secret");
-		const url = FakeSocket.urls[0] ?? "";
-		expect(url).toContain("ticket=cad_tk_fake1");
-		expect(url).not.toContain("token=");
-		expect(url).not.toContain("legacy-member-secret");
-		client.close();
-	});
-
 	it("mints a fresh ticket on every connect", async () => {
 		const { client, calls } = setup("cad_at_session");
 		void client.connect().catch(() => undefined);

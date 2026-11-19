@@ -73,6 +73,10 @@ describe("per-IP budget (issue #3 phase 8)", () => {
 		expect(typeof env.CADMUS_AUTH_RATELIMIT.limit).toBe("function");
 		expect([...IP_LIMITED_AUTH_PATHS].sort()).toEqual([
 			"/api/auth/login/devPassword",
+			"/api/auth/login/device/approve",
+			"/api/auth/login/device/deny",
+			"/api/auth/login/device/poll",
+			"/api/auth/login/device/start",
 			"/api/auth/login/google/callback",
 			"/api/auth/login/google/start",
 			"/api/auth/session/refresh",

@@ -130,9 +130,14 @@ export type AuthLoginGoogleStartResult = Static<
 export const AuthLoginSessionResultSchema = Type.Object(
 	{
 		accessToken: Type.String({
-			description:
-				"Session access token. The refresh token is only in the cookie.",
+			description: "Session access token.",
 		}),
+		refreshToken: Type.Optional(
+			Type.String({
+				description:
+					"Rotated or newly issued refresh secret. Set on a CLI refresh and a device poll. Browser login and cookie refresh omit it.",
+			}),
+		),
 		expiresAt: Type.Number({ description: "Access token expiry, epoch ms." }),
 		provisional: Type.Optional(
 			Type.Boolean({
@@ -145,7 +150,8 @@ export const AuthLoginSessionResultSchema = Type.Object(
 		userId: Type.Optional(Type.String()),
 	},
 	{
-		description: "A Cadmus session. The refresh token is not in this payload.",
+		description:
+			"A Cadmus session. Browser responses omit refreshToken; a CLI refresh and a device poll include it.",
 	},
 );
 export type AuthLoginSessionResult = Static<
@@ -160,10 +166,18 @@ export const AuthSessionRefreshCommandSchema = Type.Object(
 		}),
 		payload: Type.Optional(
 			Type.Object(
-				{},
+				{
+					refreshToken: Type.Optional(
+						Type.String({
+							minLength: 1,
+							description:
+								"Refresh secret. The browser sends the cookie instead. Not both.",
+						}),
+					),
+				},
 				{
 					description:
-						"Empty parameter payload. The credential is the refresh cookie.",
+						"Refresh credential. The cookie or refreshToken, not both.",
 				},
 			),
 		),
@@ -183,7 +197,18 @@ export const AuthSessionLogoutCommandSchema = Type.Object(
 			description: "Command type identifier.",
 		}),
 		payload: Type.Optional(
-			Type.Object({}, { description: "Empty parameter payload." }),
+			Type.Object(
+				{
+					refreshToken: Type.Optional(
+						Type.String({
+							minLength: 1,
+							description:
+								"Refresh secret to revoke. The browser sends the cookie instead. Not both.",
+						}),
+					),
+				},
+				{ description: "Session to revoke. The cookie or refreshToken." },
+			),
 		),
 	},
 	{
@@ -236,4 +261,176 @@ export const AuthSessionLogoutResultSchema = Type.Object(
 );
 export type AuthSessionLogoutResult = Static<
 	typeof AuthSessionLogoutResultSchema
+>;
+
+const deviceCodeField = Type.String({
+	minLength: 1,
+	description:
+		"Short device code from the verification URL. This is not the poll secret.",
+});
+
+export const AuthLoginDeviceStartCommandSchema = Type.Object(
+	{
+		id: idField,
+		type: Type.Literal("auth.login.device.start", {
+			description: "Command type identifier.",
+		}),
+		payload: Type.Optional(
+			Type.Object({}, { description: "Empty parameter payload." }),
+		),
+	},
+	{
+		description:
+			"Start a CLI device login. Returns a code, a verification URL, and a one-time poll secret.",
+	},
+);
+export type AuthLoginDeviceStartCommand = Static<
+	typeof AuthLoginDeviceStartCommandSchema
+>;
+
+export const AuthLoginDeviceStartResultSchema = Type.Object(
+	{
+		deviceCode: deviceCodeField,
+		verificationUrl: Type.String({
+			description: "Page where the person approves this device code.",
+		}),
+		deviceSecret: Type.String({
+			description:
+				"Poll secret. Returned once. It is not in the verification URL.",
+		}),
+		interval: Type.Number({
+			description: "Seconds the client waits between polls.",
+		}),
+		expiresIn: Type.Number({
+			description: "Seconds until this grant expires.",
+		}),
+	},
+	{ description: "Result payload returned by auth.login.device.start." },
+);
+export type AuthLoginDeviceStartResult = Static<
+	typeof AuthLoginDeviceStartResultSchema
+>;
+
+export const AuthLoginDevicePollCommandSchema = Type.Object(
+	{
+		id: idField,
+		type: Type.Literal("auth.login.device.poll", {
+			description: "Command type identifier.",
+		}),
+		payload: Type.Object(
+			{
+				deviceSecret: Type.String({
+					minLength: 1,
+					description: "Poll secret from auth.login.device.start.",
+				}),
+			},
+			{ description: "Device poll credential." },
+		),
+	},
+	{ description: "Poll a device login. The device code cannot poll." },
+);
+export type AuthLoginDevicePollCommand = Static<
+	typeof AuthLoginDevicePollCommandSchema
+>;
+
+export const AuthLoginDevicePollResultSchema = Type.Union(
+	[
+		Type.Object(
+			{
+				status: Type.Literal("pending", {
+					description: "The person has not approved yet.",
+				}),
+			},
+			{ description: "Device login still waiting." },
+		),
+		Type.Object(
+			{
+				status: Type.Literal("approved", {
+					description: "The person approved. This poll consumes the grant.",
+				}),
+				accessToken: Type.String({ description: "CLI session access token." }),
+				refreshToken: Type.String({
+					description:
+						"CLI session refresh secret. Store this, not the access token.",
+				}),
+				expiresAt: Type.Number({
+					description: "Access token expiry, epoch ms.",
+				}),
+				accountId: Type.String({ description: "Account of the CLI session." }),
+				userId: Type.String({ description: "User of the CLI session." }),
+				sessionId: Type.Optional(
+					Type.String({ description: "CLI session id." }),
+				),
+			},
+			{ description: "Approved CLI session from a device poll." },
+		),
+	],
+	{ description: "Result payload returned by auth.login.device.poll." },
+);
+export type AuthLoginDevicePollResult = Static<
+	typeof AuthLoginDevicePollResultSchema
+>;
+
+export const AuthLoginDeviceApproveCommandSchema = Type.Object(
+	{
+		id: idField,
+		type: Type.Literal("auth.login.device.approve", {
+			description: "Command type identifier.",
+		}),
+		payload: Type.Object(
+			{ deviceCode: deviceCodeField },
+			{ description: "Device code to approve with the signed-in session." },
+		),
+	},
+	{
+		description:
+			"Approve a device login from a finished user session. Mints the CLI session for the poller and returns no tokens.",
+	},
+);
+export type AuthLoginDeviceApproveCommand = Static<
+	typeof AuthLoginDeviceApproveCommandSchema
+>;
+
+export const AuthLoginDeviceApproveResultSchema = Type.Object(
+	{
+		approved: Type.Boolean({
+			description: "True when the device grant now holds a CLI session.",
+		}),
+	},
+	{ description: "Result payload returned by auth.login.device.approve." },
+);
+export type AuthLoginDeviceApproveResult = Static<
+	typeof AuthLoginDeviceApproveResultSchema
+>;
+
+export const AuthLoginDeviceDenyCommandSchema = Type.Object(
+	{
+		id: idField,
+		type: Type.Literal("auth.login.device.deny", {
+			description: "Command type identifier.",
+		}),
+		payload: Type.Object(
+			{ deviceCode: deviceCodeField },
+			{ description: "Device code to deny." },
+		),
+	},
+	{
+		description:
+			"Deny a device login. The next poll is refused. Requires a finished user session.",
+	},
+);
+export type AuthLoginDeviceDenyCommand = Static<
+	typeof AuthLoginDeviceDenyCommandSchema
+>;
+
+export const AuthLoginDeviceDenyResultSchema = Type.Object(
+	{
+		denied: Type.Boolean({
+			description: "True when a pending device grant was denied.",
+		}),
+	},
+	{ description: "Result payload returned by auth.login.device.deny." },
+);
+export type AuthLoginDeviceDenyResult = Static<
+	typeof AuthLoginDeviceDenyResultSchema
 >;

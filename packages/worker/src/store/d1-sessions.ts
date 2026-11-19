@@ -15,6 +15,9 @@ function sessionHash(raw: string): Promise<string> {
 export const ACCESS_TTL_MS = 15 * 60 * 1000;
 export const REFRESH_IDLE_MS = 7 * 24 * 60 * 60 * 1000;
 export const SESSION_ABSOLUTE_MS = 30 * 24 * 60 * 60 * 1000;
+/** CLI device-login profile. Issue #104. Access stays ACCESS_TTL_MS. */
+export const CLI_REFRESH_IDLE_MS = 30 * 24 * 60 * 60 * 1000;
+export const CLI_SESSION_ABSOLUTE_MS = 90 * 24 * 60 * 60 * 1000;
 /** Admin mode (elevation) lifetime, issue #3 decisions 11 and 12. */
 export const ELEVATION_MS = 15 * 60 * 1000;
 
@@ -88,6 +91,8 @@ export interface CreateSessionInput {
 	activeRole?: Role;
 	/** Short role-choice session. Caps access, idle, and absolute expiry. */
 	provisional?: boolean;
+	/** CLI device login. Ignored while provisional. */
+	profile?: "cli";
 	/** Statements committed in the same batch as the session insert. */
 	extra?: D1PreparedStatement[];
 }
@@ -113,8 +118,17 @@ export async function createSession(
 	if (!activeRole) {
 		throw new Error("session has no stored role on this account");
 	}
-	const life = input.provisional ? ROLE_CHOICE_SESSION_MS : SESSION_ABSOLUTE_MS;
-	const idle = input.provisional ? ROLE_CHOICE_SESSION_MS : REFRESH_IDLE_MS;
+	const cli = !input.provisional && input.profile === "cli";
+	const life = input.provisional
+		? ROLE_CHOICE_SESSION_MS
+		: cli
+			? CLI_SESSION_ABSOLUTE_MS
+			: SESSION_ABSOLUTE_MS;
+	const idle = input.provisional
+		? ROLE_CHOICE_SESSION_MS
+		: cli
+			? CLI_REFRESH_IDLE_MS
+			: REFRESH_IDLE_MS;
 	const accessExpiresAt = Math.min(now + ACCESS_TTL_MS, now + life);
 	const absoluteExpiresAt = now + life;
 	const refreshExpiresAt = Math.min(now + idle, absoluteExpiresAt);

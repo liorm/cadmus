@@ -80,7 +80,9 @@ cadmus events [--chat K] [--types a,b]
 | `events` | NDJSON `/ws` events until SIGINT. |
 | `--skill` | Print a SKILL.md generated from the contract. |
 | `--url` / `CADMUS_URL` | Worker origin. Default `http://localhost:8787`. |
-| `--token` / `CADMUS_TOKEN` | Bearer token. |
+| `--token` / `CADMUS_TOKEN` | Explicit `cad_at_` override. Not stored. |
+| `login` | Device login. Stores `cad_rt_` in the OS keychain, or `~/.config/cadmus/credentials.json` when there is no keychain. `--device` prints the URL. `--dev-password` uses the worker's dev-password provider. |
+| `logout` | Revokes the stored refresh secret and deletes it locally. |
 | `--account` / `CADMUS_ACCOUNT_ID` | Account id header and `/ws` query. |
 | `--family` / `CADMUS_FAMILY_ID` | Family id header and `/ws` query. |
 | `--pretty` | Indent JSON. |

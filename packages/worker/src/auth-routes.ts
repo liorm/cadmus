@@ -35,6 +35,10 @@ const ASSUME_ROLE_PATH = "/api/auth/assumeRole";
 const PROVIDERS_PATH = "/api/auth/login/providers";
 const GOOGLE_LOGIN_PATH = "/api/auth/login/google/start";
 const GOOGLE_CALLBACK_PATH = "/api/auth/login/google/callback";
+const DEVICE_START_PATH = "/api/auth/login/device/start";
+const DEVICE_POLL_PATH = "/api/auth/login/device/poll";
+const DEVICE_APPROVE_PATH = "/api/auth/login/device/approve";
+const DEVICE_DENY_PATH = "/api/auth/login/device/deny";
 
 export function isAuthRoute(pathname: string): boolean {
 	return (
@@ -44,7 +48,11 @@ export function isAuthRoute(pathname: string): boolean {
 		pathname === ASSUME_ROLE_PATH ||
 		pathname === PROVIDERS_PATH ||
 		pathname === GOOGLE_LOGIN_PATH ||
-		pathname === GOOGLE_CALLBACK_PATH
+		pathname === GOOGLE_CALLBACK_PATH ||
+		pathname === DEVICE_START_PATH ||
+		pathname === DEVICE_POLL_PATH ||
+		pathname === DEVICE_APPROVE_PATH ||
+		pathname === DEVICE_DENY_PATH
 	);
 }
 
@@ -66,6 +74,18 @@ export async function handleAuthRoute(
 	}
 	if (pathname === PROVIDERS_PATH) return handleProviders(request, env);
 	if (pathname === GOOGLE_LOGIN_PATH) return handleGoogleLogin(request, env);
+	if (pathname === DEVICE_START_PATH) {
+		return handleDeviceStart(request, env, adminStore);
+	}
+	if (pathname === DEVICE_POLL_PATH) {
+		return handleDevicePoll(request, adminStore);
+	}
+	if (pathname === DEVICE_APPROVE_PATH) {
+		return handleDeviceDecision(request, adminStore, "approve");
+	}
+	if (pathname === DEVICE_DENY_PATH) {
+		return handleDeviceDecision(request, adminStore, "deny");
+	}
 	return handleGoogleCallback(request, env, adminStore);
 }
 
@@ -287,7 +307,46 @@ export async function handleRefresh(
 			noStore({ status: 403 }),
 		);
 	}
-	const raw = readCookie(request, REFRESH_COOKIE);
+	const payload = await readPayload(request);
+	const bodyRefresh =
+		typeof payload.refreshToken === "string" ? payload.refreshToken : "";
+	const cookieRefresh = readCookie(request, REFRESH_COOKIE) ?? "";
+	if (bodyRefresh && cookieRefresh) {
+		return Response.json(
+			{
+				error: {
+					code: "refresh_ambiguous",
+					message: "Send the cookie or the refresh secret, not both",
+				},
+			},
+			noStore({ status: 400 }),
+		);
+	}
+	if (bodyRefresh) {
+		if (request.headers.get("sec-fetch-site")) {
+			return Response.json(
+				{
+					error: {
+						code: "forbidden",
+						message: "Browser refresh uses the cookie",
+					},
+				},
+				noStore({ status: 403 }),
+			);
+		}
+		if (request.headers.get("x-cadmus-cli") !== "1") {
+			return Response.json(
+				{
+					error: {
+						code: "forbidden",
+						message: "CLI refresh header required",
+					},
+				},
+				noStore({ status: 403 }),
+			);
+		}
+	}
+	const raw = bodyRefresh || cookieRefresh;
 	if (!raw) {
 		return Response.json(
 			{ error: { code: "unauthorized", message: "No refresh cookie" } },
@@ -308,6 +367,7 @@ export async function handleRefresh(
 			sessionId: result.tokens.sessionId,
 			accountId: result.accountId,
 			userId: result.userId,
+			...(bodyRefresh ? { refreshToken: result.tokens.refreshToken } : {}),
 		},
 		noStore({ status: 200, cookie: refreshCookieHeader(result.tokens) }),
 	);
@@ -526,19 +586,194 @@ async function handleLogout(
 		);
 	}
 	let revoked = false;
+	const payload = await readPayload(request);
+	const bodyRefresh =
+		typeof payload.refreshToken === "string" ? payload.refreshToken : "";
+	const cookieRefresh = readCookie(request, REFRESH_COOKIE) ?? "";
+	if (bodyRefresh && cookieRefresh) {
+		return Response.json(
+			{
+				error: {
+					code: "refresh_ambiguous",
+					message: "Send the cookie or the refresh secret, not both",
+				},
+			},
+			noStore({ status: 400 }),
+		);
+	}
 	const bearer = bearerToken(request);
-	if (bearer) {
+	if (bearer && !bodyRefresh) {
 		const identity = await adminStore.resolveAccessToken(bearer);
 		if (identity) {
 			revoked = (await adminStore.revokeSession(identity.sessionId)) || revoked;
 		}
 	}
-	const refresh = readCookie(request, REFRESH_COOKIE);
+	const refresh = bodyRefresh || cookieRefresh;
 	if (refresh) {
 		revoked = (await adminStore.revokeSessionByRefresh(refresh)) || revoked;
 	}
 	return Response.json(
 		{ revoked },
 		noStore({ status: 200, cookie: clearRefreshCookieHeader() }),
+	);
+}
+
+async function readPayload(request: Request): Promise<Record<string, unknown>> {
+	const type = request.headers.get("content-type") ?? "";
+	if (!type.includes("application/json")) return {};
+	try {
+		const body = (await request.json()) as unknown;
+		if (!body || typeof body !== "object" || Array.isArray(body)) return {};
+		const record = body as Record<string, unknown>;
+		const payload = record.payload;
+		if (payload && typeof payload === "object" && !Array.isArray(payload)) {
+			return payload as Record<string, unknown>;
+		}
+		return record;
+	} catch {
+		return {};
+	}
+}
+
+function publicOrigin(request: Request, env: Env): string {
+	const base = env.CADMUS_PUBLIC_URL?.trim() || new URL(request.url).origin;
+	return base.replace(/\/$/, "");
+}
+
+async function handleDeviceStart(
+	request: Request,
+	env: Env,
+	adminStore: AdminStore,
+): Promise<Response> {
+	if (request.method !== "POST") {
+		return Response.json(
+			{ error: { code: "method_not_allowed", message: "Use POST" } },
+			noStore({ status: 405 }),
+		);
+	}
+	const started = await adminStore.startDeviceLogin();
+	const origin = publicOrigin(request, env);
+	return Response.json(
+		{
+			deviceCode: started.deviceCode,
+			deviceSecret: started.deviceSecret,
+			verificationUrl: `${origin}/login/device?code=${encodeURIComponent(started.deviceCode)}`,
+			interval: started.interval,
+			expiresIn: started.expiresIn,
+		},
+		noStore({ status: 200 }),
+	);
+}
+
+async function handleDevicePoll(
+	request: Request,
+	adminStore: AdminStore,
+): Promise<Response> {
+	if (request.method !== "POST") {
+		return Response.json(
+			{ error: { code: "method_not_allowed", message: "Use POST" } },
+			noStore({ status: 405 }),
+		);
+	}
+	const payload = await readPayload(request);
+	const deviceSecret =
+		typeof payload.deviceSecret === "string" ? payload.deviceSecret : "";
+	if (!deviceSecret) {
+		return Response.json(
+			{ error: { code: "unauthorized", message: "Device login refused" } },
+			noStore({ status: 401 }),
+		);
+	}
+	const result = await adminStore.pollDeviceLogin(deviceSecret);
+	if (!result.ok) {
+		return Response.json(
+			{ error: { code: "unauthorized", message: "Device login refused" } },
+			noStore({ status: 401 }),
+		);
+	}
+	if (result.status === "pending") {
+		return Response.json({ status: "pending" }, noStore({ status: 200 }));
+	}
+	return Response.json(
+		{
+			status: "approved",
+			accessToken: result.tokens.accessToken,
+			refreshToken: result.tokens.refreshToken,
+			expiresAt: result.tokens.accessExpiresAt,
+			sessionId: result.tokens.sessionId,
+			accountId: result.accountId,
+			userId: result.userId,
+		},
+		noStore({ status: 200 }),
+	);
+}
+
+async function handleDeviceDecision(
+	request: Request,
+	adminStore: AdminStore,
+	decision: "approve" | "deny",
+): Promise<Response> {
+	if (request.method !== "POST") {
+		return Response.json(
+			{ error: { code: "method_not_allowed", message: "Use POST" } },
+			noStore({ status: 405 }),
+		);
+	}
+	const bearer = bearerToken(request);
+	if (!bearer) {
+		return Response.json(
+			{ error: { code: "unauthorized", message: "Device login refused" } },
+			noStore({ status: 401 }),
+		);
+	}
+	const identity = await adminStore.resolveAccessToken(bearer);
+	if (!identity) {
+		return Response.json(
+			{ error: { code: "unauthorized", message: "Device login refused" } },
+			noStore({ status: 401 }),
+		);
+	}
+	if (identity.provisional) {
+		return Response.json(
+			{
+				error: {
+					code: "provisional_session",
+					message: "Finish choosing a role before approving a device",
+				},
+			},
+			noStore({ status: 409 }),
+		);
+	}
+	const payload = await readPayload(request);
+	const deviceCode =
+		typeof payload.deviceCode === "string" ? payload.deviceCode : "";
+	if (!deviceCode) {
+		return Response.json(
+			{ error: { code: "unauthorized", message: "Device login refused" } },
+			noStore({ status: 401 }),
+		);
+	}
+	const result =
+		decision === "approve"
+			? await adminStore.approveDeviceLogin({ deviceCode, identity })
+			: await adminStore.denyDeviceLogin(deviceCode);
+	if (!result.ok) {
+		const status = result.code === "provisional_session" ? 409 : 401;
+		return Response.json(
+			{
+				error: {
+					code: result.code,
+					message:
+						result.code === "provisional_session"
+							? "Finish choosing a role before approving a device"
+							: "Device login refused",
+				},
+			},
+			noStore({ status }),
+		);
+	}
+	return Response.json(
+		decision === "approve" ? { approved: true } : { denied: true },
+		noStore({ status: 200 }),
 	);
 }

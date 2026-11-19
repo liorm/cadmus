@@ -9,6 +9,11 @@ import type {
 	CredentialSummary,
 	FamilyRecord,
 } from "../protocol.js";
+import type {
+	DeviceDecisionResult,
+	DeviceLoginStart,
+	DevicePollResult,
+} from "./d1-device-login.js";
 import type { LoginResult } from "./d1-login.js";
 import type {
 	InviteResult,
@@ -165,6 +170,20 @@ export interface AdminStore {
 		accountId?: string,
 	): Promise<SessionIdentity | undefined>;
 	rotateRefreshToken(rawRefresh: string): Promise<RefreshResult>;
+	startDeviceLogin(now?: number): Promise<DeviceLoginStart>;
+	pollDeviceLogin(
+		deviceSecret: string,
+		now?: number,
+	): Promise<DevicePollResult>;
+	approveDeviceLogin(input: {
+		deviceCode: string;
+		identity: SessionIdentity;
+		now?: number;
+	}): Promise<DeviceDecisionResult>;
+	denyDeviceLogin(
+		deviceCode: string,
+		now?: number,
+	): Promise<DeviceDecisionResult>;
 	revokeSession(sessionId: string): Promise<boolean>;
 	/** Revokes the session that currently holds this refresh token. Does not rotate it. */
 	revokeSessionByRefresh(rawRefresh: string): Promise<boolean>;

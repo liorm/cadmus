@@ -17,6 +17,8 @@ import {
 	EXIT_USAGE,
 	exitForCommandFailure,
 } from "./exit-codes.js";
+import { ensureAccessToken, runLogin, runLogout } from "./login.js";
+import { createDefaultSecretStore } from "./secret-store.js";
 import { CLI_VERSION } from "./version.js";
 
 const STREAM_TYPES = new Set([
@@ -55,6 +57,28 @@ async function main(): Promise<number> {
 	}
 	if (parsed.command === undefined)
 		return usage("missing command", parsed.pretty);
+	if (parsed.command === "login") {
+		if (parsed.help) {
+			return usage("login [--device|--dev-password]", parsed.pretty);
+		}
+		const connection = resolveConnection(parsed);
+		return runLogin({
+			origin: connection.url,
+			pretty: connection.pretty,
+			store: createDefaultSecretStore(),
+			device: parsed.device,
+			devPassword: parsed.devPassword,
+		});
+	}
+	if (parsed.command === "logout") {
+		if (parsed.help) return usage("logout", parsed.pretty);
+		const connection = resolveConnection(parsed);
+		return runLogout({
+			origin: connection.url,
+			pretty: connection.pretty,
+			store: createDefaultSecretStore(),
+		});
+	}
 	if (parsed.command === "commands") {
 		writeJson(
 			listCommands().map(({ fields: _fields, ...rest }) => rest),
@@ -69,14 +93,14 @@ async function main(): Promise<number> {
 		writeJson(commandInfo(parsed.command), parsed.pretty);
 		return EXIT_OK;
 	}
-	const connection = resolveConnection(parsed);
+	const resolved = await resolveAccess(parsed);
+	if (typeof resolved === "number") return resolved;
+	const connection = resolved;
 	if (parsed.command === "send") return runSend(parsed, connection);
 	if (parsed.command === "events") return runEvents(parsed, connection);
 	if (!isRpcCommand(parsed.command)) {
 		return usage(`unknown command ${parsed.command}`, parsed.pretty);
 	}
-	const tokenError = requireToken(connection);
-	if (tokenError !== undefined) return tokenError;
 	let payload: Record<string, unknown>;
 	try {
 		payload = await buildPayload(parsed);
@@ -105,14 +129,23 @@ function resolveConnection(parsed: ParsedArgv): Connection {
 	};
 }
 
-function requireToken(connection: Connection): number | undefined {
-	if (connection.token.length > 0) return undefined;
-	return fail(
-		EXIT_TRANSPORT,
-		"unauthorized",
-		"Set --token or CADMUS_TOKEN.",
-		connection.pretty,
-	);
+async function resolveAccess(parsed: ParsedArgv): Promise<Connection | number> {
+	const connection = resolveConnection(parsed);
+	if (connection.token.length > 0) return connection;
+	const ensured = await ensureAccessToken({
+		origin: connection.url,
+		token: "",
+		store: createDefaultSecretStore(),
+	});
+	if ("error" in ensured) {
+		return fail(
+			EXIT_TRANSPORT,
+			"unauthorized",
+			ensured.error,
+			connection.pretty,
+		);
+	}
+	return { ...connection, token: ensured.token };
 }
 
 async function buildPayload(
@@ -147,8 +180,6 @@ async function runSend(
 	parsed: ParsedArgv,
 	connection: Connection,
 ): Promise<number> {
-	const tokenError = requireToken(connection);
-	if (tokenError !== undefined) return tokenError;
 	const chatKey = parsed.positionals[0];
 	const textArg = parsed.positionals[1];
 	if (!chatKey || textArg === undefined) {
@@ -250,8 +281,6 @@ async function runEvents(
 	parsed: ParsedArgv,
 	connection: Connection,
 ): Promise<number> {
-	const tokenError = requireToken(connection);
-	if (tokenError !== undefined) return tokenError;
 	const types = new Set(
 		(parsed.types ?? "")
 			.split(",")
@@ -332,7 +361,7 @@ function globalHelp(): string {
 	return JSON.stringify(
 		{
 			usage: "cadmus <command> [json] [--payload @file|-] [--key value]",
-			verbs: ["send", "events", "commands"],
+			verbs: ["login", "logout", "send", "events", "commands"],
 			flags: [
 				"--url",
 				"--token",

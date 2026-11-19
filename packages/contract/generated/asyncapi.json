@@ -1154,6 +1154,115 @@
 				},
 				"description": "Local password sign-in. Refused in production. Refresh token is a cookie."
 			},
+			"AuthLoginDeviceApproveCommand": {
+				"type": "object",
+				"required": ["id", "type", "payload"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Request id."
+					},
+					"type": {
+						"type": "string",
+						"const": "auth.login.device.approve",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"required": ["deviceCode"],
+						"properties": {
+							"deviceCode": {
+								"type": "string",
+								"minLength": 1,
+								"description": "Short device code from the verification URL. This is not the poll secret."
+							}
+						},
+						"description": "Device code to approve with the signed-in session."
+					}
+				},
+				"description": "Approve a device login from a finished user session. Mints the CLI session for the poller and returns no tokens."
+			},
+			"AuthLoginDeviceDenyCommand": {
+				"type": "object",
+				"required": ["id", "type", "payload"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Request id."
+					},
+					"type": {
+						"type": "string",
+						"const": "auth.login.device.deny",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"required": ["deviceCode"],
+						"properties": {
+							"deviceCode": {
+								"type": "string",
+								"minLength": 1,
+								"description": "Short device code from the verification URL. This is not the poll secret."
+							}
+						},
+						"description": "Device code to deny."
+					}
+				},
+				"description": "Deny a device login. The next poll is refused. Requires a finished user session."
+			},
+			"AuthLoginDevicePollCommand": {
+				"type": "object",
+				"required": ["id", "type", "payload"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Request id."
+					},
+					"type": {
+						"type": "string",
+						"const": "auth.login.device.poll",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"required": ["deviceSecret"],
+						"properties": {
+							"deviceSecret": {
+								"type": "string",
+								"minLength": 1,
+								"description": "Poll secret from auth.login.device.start."
+							}
+						},
+						"description": "Device poll credential."
+					}
+				},
+				"description": "Poll a device login. The device code cannot poll."
+			},
+			"AuthLoginDeviceStartCommand": {
+				"type": "object",
+				"required": ["id", "type"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Request id."
+					},
+					"type": {
+						"type": "string",
+						"const": "auth.login.device.start",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"properties": {},
+						"description": "Empty parameter payload."
+					}
+				},
+				"description": "Start a CLI device login. Returns a code, a verification URL, and a one-time poll secret."
+			},
 			"AuthLoginGoogleStartCommand": {
 				"type": "object",
 				"required": ["id", "type"],
@@ -1293,8 +1402,14 @@
 					},
 					"payload": {
 						"type": "object",
-						"properties": {},
-						"description": "Empty parameter payload."
+						"properties": {
+							"refreshToken": {
+								"type": "string",
+								"minLength": 1,
+								"description": "Refresh secret to revoke. The browser sends the cookie instead. Not both."
+							}
+						},
+						"description": "Session to revoke. The cookie or refreshToken."
 					}
 				},
 				"description": "Revoke the session and clear the refresh cookie."
@@ -1315,8 +1430,14 @@
 					},
 					"payload": {
 						"type": "object",
-						"properties": {},
-						"description": "Empty parameter payload. The credential is the refresh cookie."
+						"properties": {
+							"refreshToken": {
+								"type": "string",
+								"minLength": 1,
+								"description": "Refresh secret. The browser sends the cookie instead. Not both."
+							}
+						},
+						"description": "Refresh credential. The cookie or refreshToken, not both."
 					}
 				},
 				"description": "Rotate the session from the refresh cookie."
@@ -2596,6 +2717,18 @@
 					},
 					{
 						"$ref": "#/components/schemas/AuthLoginGoogleStartCommand"
+					},
+					{
+						"$ref": "#/components/schemas/AuthLoginDeviceStartCommand"
+					},
+					{
+						"$ref": "#/components/schemas/AuthLoginDevicePollCommand"
+					},
+					{
+						"$ref": "#/components/schemas/AuthLoginDeviceApproveCommand"
+					},
+					{
+						"$ref": "#/components/schemas/AuthLoginDeviceDenyCommand"
 					},
 					{
 						"$ref": "#/components/schemas/AuthSessionRefreshCommand"

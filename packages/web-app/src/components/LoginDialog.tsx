@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { rememberDeviceCode } from "@/lib/device-login";
 import type { SessionMembership } from "@/lib/session";
 
 const RANK = ["user", "account-admin", "super-admin"];
@@ -37,11 +38,16 @@ export function LoginDialog({
 	providers,
 	accessToken,
 	memberships = [],
+	deviceCode,
 }: {
 	providers: string[];
 	accessToken?: string;
 	memberships?: SessionMembership[];
+	deviceCode?: string | null;
 }) {
+	useEffect(() => {
+		if (deviceCode) rememberDeviceCode(deviceCode);
+	}, [deviceCode]);
 	const google = providers.includes("google");
 	const devPassword = providers.includes("dev-password");
 	const [email, setEmail] = useState("");
@@ -113,6 +119,9 @@ export function LoginDialog({
 					{google ? (
 						<a
 							href="/api/auth/login/google/start"
+							onClick={() => {
+								if (deviceCode) rememberDeviceCode(deviceCode);
+							}}
 							className="inline-flex min-h-tap items-center justify-center rounded-md bg-accent px-4 font-semibold text-on-accent"
 						>
 							Sign in with Google

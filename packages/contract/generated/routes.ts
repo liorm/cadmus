@@ -280,6 +280,30 @@ export const API_ROUTES = {
 		allow: "POST",
 		readOnly: false,
 	},
+	"auth.login.device.start": {
+		method: "POST",
+		path: "/api/auth/login/device/start",
+		allow: "POST",
+		readOnly: false,
+	},
+	"auth.login.device.poll": {
+		method: "POST",
+		path: "/api/auth/login/device/poll",
+		allow: "POST",
+		readOnly: false,
+	},
+	"auth.login.device.approve": {
+		method: "POST",
+		path: "/api/auth/login/device/approve",
+		allow: "POST",
+		readOnly: false,
+	},
+	"auth.login.device.deny": {
+		method: "POST",
+		path: "/api/auth/login/device/deny",
+		allow: "POST",
+		readOnly: false,
+	},
 	"auth.session.refresh": {
 		method: "POST",
 		path: "/api/auth/session/refresh",

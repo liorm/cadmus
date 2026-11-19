@@ -96,7 +96,9 @@ type Caller = {
 	elevated: boolean;
 };
 
-function expectedDenial(c: Caller, grant: Grant): string | null {
+function expectedDenial(c: Caller, grant: Grant | undefined): string | null {
+	// Public login and session routes have no grant. The edge handles them.
+	if (!grant) return null;
 	if (!c.held.has(grant)) return "forbidden";
 	if (GRANTS[grant].elevation && !c.elevated) return "elevation_required";
 	return null;
@@ -179,7 +181,7 @@ async function openWs(token: string, who: string) {
 describe("denial sweep over every registered command (issue #3 L237)", () => {
 	it("registry is non-empty and every command grant is in the grant table", () => {
 		const types = listCommandTypes();
-		expect(types.length).toBe(90);
+		expect(types.length).toBe(94);
 		for (const t of types) {
 			const grant = getCommandGrant(t);
 			if (t.startsWith("auth.login.") || t.startsWith("auth.session.")) {
@@ -228,15 +230,15 @@ describe("denial sweep over every registered command (issue #3 L237)", () => {
 	}
 
 	const expectedReport = [
-		"user: 42 denied of 90",
-		"account-admin (no admin mode): 39 denied of 90",
+		"user: 37 denied of 94",
+		"account-admin (no admin mode): 34 denied of 94",
 	];
 	// Independent literals: calls actually sent per transport, not derived
-	// from the denied list the loop iterates. auth.tokens.* and
-	// auth.login.token left the registry, and both roles were denied them.
+	// from the denied list the loop iterates. Public login and session
+	// commands have no grant, so the sweep does not call them.
 	const expectedCalls = [
-		{ rpc: 42, ws: 42 },
-		{ rpc: 39, ws: 39 },
+		{ rpc: 37, ws: 37 },
+		{ rpc: 34, ws: 34 },
 	];
 
 	for (const [idx, label] of [

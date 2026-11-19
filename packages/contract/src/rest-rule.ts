@@ -52,6 +52,8 @@ export const ERROR_HTTP_STATUS = {
 	family_not_found: 404,
 	cas_conflict: 409,
 	conflict: 409,
+	provisional_session: 409,
+	refresh_ambiguous: 400,
 	role_unchanged: 409,
 	command_failed: 500,
 } as const;

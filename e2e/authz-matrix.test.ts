@@ -264,7 +264,7 @@ async function sweep(
 		([, code]) => code === "elevation_required",
 	).length;
 	const forbidden = denied.filter(([, code]) => code === "forbidden").length;
-	expect(commandTypes().length).toBe(90);
+	expect(commandTypes().length).toBe(94);
 	expect(denied.length, caller.name).toBe(caller.denied);
 	expect(elevationRequired, caller.name).toBe(caller.elevationRequired);
 	expect(forbidden, caller.name).toBe(caller.forbidden);

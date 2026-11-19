@@ -12,6 +12,8 @@ export interface ParsedArgv {
 	skill: boolean;
 	pretty: boolean;
 	stream: boolean;
+	device: boolean;
+	devPassword: boolean;
 	url?: string;
 	token?: string;
 	account?: string;
@@ -24,7 +26,15 @@ export interface ParsedArgv {
 	payloadFlags: [string, string][];
 }
 
-const BOOLEAN_FLAGS = new Set(["help", "version", "skill", "pretty", "stream"]);
+const BOOLEAN_FLAGS = new Set([
+	"help",
+	"version",
+	"skill",
+	"pretty",
+	"stream",
+	"device",
+	"dev-password",
+]);
 
 const FORBIDDEN_PATH_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 
@@ -36,6 +46,8 @@ export function parseArgv(argv: string[]): ParsedArgv {
 		skill: false,
 		pretty: false,
 		stream: false,
+		device: false,
+		devPassword: false,
 		payloadFlags: [],
 	};
 	for (let i = 0; i < argv.length; i += 1) {
@@ -80,6 +92,8 @@ function assignBoolean(parsed: ParsedArgv, name: string): void {
 	else if (name === "skill") parsed.skill = true;
 	else if (name === "pretty") parsed.pretty = true;
 	else if (name === "stream") parsed.stream = true;
+	else if (name === "device") parsed.device = true;
+	else if (name === "dev-password") parsed.devPassword = true;
 }
 
 function assignValue(parsed: ParsedArgv, name: string, value: string): void {

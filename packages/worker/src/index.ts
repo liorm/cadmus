@@ -51,6 +51,10 @@ export const IP_LIMITED_AUTH_PATHS = new Set([
 	"/api/auth/login/devPassword",
 	"/api/auth/login/google/start",
 	"/api/auth/login/google/callback",
+	"/api/auth/login/device/start",
+	"/api/auth/login/device/poll",
+	"/api/auth/login/device/approve",
+	"/api/auth/login/device/deny",
 ]);
 
 /**

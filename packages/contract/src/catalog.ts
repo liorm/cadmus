@@ -82,6 +82,14 @@ import {
 } from "./commands.js";
 import {
 	AuthAssumeRoleCommandSchema,
+	AuthLoginDeviceApproveCommandSchema,
+	AuthLoginDeviceApproveResultSchema,
+	AuthLoginDeviceDenyCommandSchema,
+	AuthLoginDeviceDenyResultSchema,
+	AuthLoginDevicePollCommandSchema,
+	AuthLoginDevicePollResultSchema,
+	AuthLoginDeviceStartCommandSchema,
+	AuthLoginDeviceStartResultSchema,
 	AuthLoginDevPasswordCommandSchema,
 	AuthLoginGoogleStartCommandSchema,
 	AuthLoginGoogleStartResultSchema,
@@ -363,6 +371,22 @@ export const commandCatalog = {
 	"auth.login.google.start": {
 		command: AuthLoginGoogleStartCommandSchema,
 		result: AuthLoginGoogleStartResultSchema,
+	},
+	"auth.login.device.start": {
+		command: AuthLoginDeviceStartCommandSchema,
+		result: AuthLoginDeviceStartResultSchema,
+	},
+	"auth.login.device.poll": {
+		command: AuthLoginDevicePollCommandSchema,
+		result: AuthLoginDevicePollResultSchema,
+	},
+	"auth.login.device.approve": {
+		command: AuthLoginDeviceApproveCommandSchema,
+		result: AuthLoginDeviceApproveResultSchema,
+	},
+	"auth.login.device.deny": {
+		command: AuthLoginDeviceDenyCommandSchema,
+		result: AuthLoginDeviceDenyResultSchema,
 	},
 	"auth.session.refresh": {
 		command: AuthSessionRefreshCommandSchema,

@@ -22,6 +22,15 @@ import type {
 	FamilySettingsPatch,
 	StoredToolsEnv,
 } from "./admin-interface.js";
+import {
+	approveDeviceLogin,
+	type DeviceDecisionResult,
+	type DeviceLoginStart,
+	type DevicePollResult,
+	denyDeviceLogin,
+	pollDeviceLogin,
+	startDeviceLogin,
+} from "./d1-device-login.js";
 import { completeLogin, type LoginResult } from "./d1-login.js";
 import {
 	inviteMember,
@@ -301,7 +310,7 @@ function slugifyId(text: string): string {
 	);
 }
 
-export const CADMUS_SCHEMA_VERSION = 15;
+export const CADMUS_SCHEMA_VERSION = 16;
 
 export function isMissingSchemaError(error: unknown): boolean {
 	if (!error) return false;
@@ -764,6 +773,20 @@ async function migrateSessionsSchema(db: D1Database): Promise<void> {
 		db.prepare(
 			`CREATE INDEX IF NOT EXISTS idx_cadmus_sessions_prev ON cadmus_sessions(previous_refresh_hash)`,
 		),
+		db.prepare(`
+        CREATE TABLE IF NOT EXISTS cadmus_device_logins (
+          id TEXT PRIMARY KEY,
+          device_code_hash TEXT NOT NULL UNIQUE,
+          device_secret_hash TEXT NOT NULL UNIQUE,
+          status TEXT NOT NULL,
+          expires_at INTEGER NOT NULL,
+          created_at INTEGER NOT NULL,
+          user_id TEXT,
+          account_id TEXT,
+          role TEXT,
+          token_blob TEXT
+        )
+      `),
 		db.prepare(`
         CREATE TABLE IF NOT EXISTS cadmus_tickets (
           ticket_hash TEXT PRIMARY KEY,
@@ -1337,6 +1360,36 @@ export class D1AdminStore implements AdminStore {
 	async rotateRefreshToken(rawRefresh: string): Promise<RefreshResult> {
 		await this.initialize();
 		return rotateRefreshToken(this.#db, rawRefresh);
+	}
+
+	async startDeviceLogin(now?: number): Promise<DeviceLoginStart> {
+		await this.initialize();
+		return startDeviceLogin(this.#db, now);
+	}
+
+	async pollDeviceLogin(
+		deviceSecret: string,
+		now?: number,
+	): Promise<DevicePollResult> {
+		await this.initialize();
+		return pollDeviceLogin(this.#db, this.#encryptionKey, deviceSecret, now);
+	}
+
+	async approveDeviceLogin(input: {
+		deviceCode: string;
+		identity: SessionIdentity;
+		now?: number;
+	}): Promise<DeviceDecisionResult> {
+		await this.initialize();
+		return approveDeviceLogin(this.#db, this.#encryptionKey, input);
+	}
+
+	async denyDeviceLogin(
+		deviceCode: string,
+		now?: number,
+	): Promise<DeviceDecisionResult> {
+		await this.initialize();
+		return denyDeviceLogin(this.#db, deviceCode, now);
 	}
 
 	async revokeSessionByRefresh(rawRefresh: string): Promise<boolean> {

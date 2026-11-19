@@ -83,6 +83,14 @@ import type {
 import type { CommandResultFrame } from "./frames.js";
 import type {
 	AuthAssumeRoleCommand,
+	AuthLoginDeviceApproveCommand,
+	AuthLoginDeviceApproveResult,
+	AuthLoginDeviceDenyCommand,
+	AuthLoginDeviceDenyResult,
+	AuthLoginDevicePollCommand,
+	AuthLoginDevicePollResult,
+	AuthLoginDeviceStartCommand,
+	AuthLoginDeviceStartResult,
 	AuthLoginDevPasswordCommand,
 	AuthLoginGoogleStartCommand,
 	AuthLoginGoogleStartResult,
@@ -395,6 +403,22 @@ export type AuthLoginGoogleStartRpc = Rpc<
 	AuthLoginGoogleStartCommand,
 	AuthLoginGoogleStartResult
 >;
+export type AuthLoginDeviceStartRpc = Rpc<
+	AuthLoginDeviceStartCommand,
+	AuthLoginDeviceStartResult
+>;
+export type AuthLoginDevicePollRpc = Rpc<
+	AuthLoginDevicePollCommand,
+	AuthLoginDevicePollResult
+>;
+export type AuthLoginDeviceApproveRpc = Rpc<
+	AuthLoginDeviceApproveCommand,
+	AuthLoginDeviceApproveResult
+>;
+export type AuthLoginDeviceDenyRpc = Rpc<
+	AuthLoginDeviceDenyCommand,
+	AuthLoginDeviceDenyResult
+>;
 export type AuthSessionRefreshRpc = Rpc<
 	AuthSessionRefreshCommand,
 	AuthLoginSessionResult
@@ -593,6 +617,10 @@ export interface RpcMap {
 	"auth.assumeRole": AuthAssumeRoleRpc;
 	"auth.login.devPassword": AuthLoginDevPasswordRpc;
 	"auth.login.google.start": AuthLoginGoogleStartRpc;
+	"auth.login.device.start": AuthLoginDeviceStartRpc;
+	"auth.login.device.poll": AuthLoginDevicePollRpc;
+	"auth.login.device.approve": AuthLoginDeviceApproveRpc;
+	"auth.login.device.deny": AuthLoginDeviceDenyRpc;
 	"auth.session.refresh": AuthSessionRefreshRpc;
 	"auth.session.logout": AuthSessionLogoutRpc;
 	"family.list": FamilyListRpc;

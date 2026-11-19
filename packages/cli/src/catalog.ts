@@ -174,15 +174,17 @@ Flags override environment variables.
 | Flag | Environment | Meaning |
 | :--- | :--- | :--- |
 | \`--url\` | \`CADMUS_URL\` | Worker origin. Default \`http://localhost:8787\`. |
-| \`--token\` | \`CADMUS_TOKEN\` | Bearer token. \`/api\` uses the header. \`/ws\` opens with a ticket minted over the header. |
+| \`--token\` | \`CADMUS_TOKEN\` | Explicit \`cad_at_\` override. Not written to the keychain. |
 | \`--account\` | \`CADMUS_ACCOUNT_ID\` | \`x-account-id\`. |
 | \`--family\` | \`CADMUS_FAMILY_ID\` | \`X-Cadmus-Family-Id\` and the \`/ws\` \`familyId\` query. |
 
-A missing token exits 3. There is no config file and no built-in dev secret.
+\`cadmus login\` stores only the refresh secret (\`cad_rt_\`) in the OS keychain, or in \`~/.config/cadmus/credentials.json\` when the keychain is unavailable. Later commands refresh that secret. \`cadmus logout\` revokes it and deletes the local copy. \`--dev-password\` uses the worker's dev-password login when that provider is offered. \`--device\` prints the URL instead of opening a browser.
 
 ## Invoke
 
 \`\`\`text
+cadmus login [--device|--dev-password]
+cadmus logout
 cadmus <command> [json] [--payload @file|-] [--key value]
 cadmus <command> --help
 cadmus commands

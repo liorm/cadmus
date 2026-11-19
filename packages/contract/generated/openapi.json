@@ -2229,6 +2229,171 @@
 				}
 			}
 		},
+		"/api/auth/login/device/start": {
+			"post": {
+				"operationId": "auth.login.device.start",
+				"summary": "Start a CLI device login. Returns a code, a verification URL, and a one-time poll secret.",
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"properties": {},
+								"description": "Empty parameter payload."
+							}
+						}
+					}
+				},
+				"responses": {
+					"200": {
+						"description": "Command result",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/AuthLoginDeviceStartResult"
+								}
+							}
+						}
+					},
+					"400": { "$ref": "#/components/responses/ApiError" },
+					"401": { "$ref": "#/components/responses/ApiError" },
+					"404": { "$ref": "#/components/responses/ApiError" },
+					"405": { "$ref": "#/components/responses/ApiError" },
+					"409": { "$ref": "#/components/responses/ApiError" },
+					"500": { "$ref": "#/components/responses/ApiError" }
+				}
+			}
+		},
+		"/api/auth/login/device/poll": {
+			"post": {
+				"operationId": "auth.login.device.poll",
+				"summary": "Poll a device login. The device code cannot poll.",
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"required": ["deviceSecret"],
+								"properties": {
+									"deviceSecret": {
+										"type": "string",
+										"minLength": 1,
+										"description": "Poll secret from auth.login.device.start."
+									}
+								},
+								"description": "Device poll credential."
+							}
+						}
+					}
+				},
+				"responses": {
+					"200": {
+						"description": "Command result",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/AuthLoginDevicePollResult"
+								}
+							}
+						}
+					},
+					"400": { "$ref": "#/components/responses/ApiError" },
+					"401": { "$ref": "#/components/responses/ApiError" },
+					"404": { "$ref": "#/components/responses/ApiError" },
+					"405": { "$ref": "#/components/responses/ApiError" },
+					"409": { "$ref": "#/components/responses/ApiError" },
+					"500": { "$ref": "#/components/responses/ApiError" }
+				}
+			}
+		},
+		"/api/auth/login/device/approve": {
+			"post": {
+				"operationId": "auth.login.device.approve",
+				"summary": "Approve a device login from a finished user session. Mints the CLI session for the poller and returns no tokens.",
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"required": ["deviceCode"],
+								"properties": {
+									"deviceCode": {
+										"type": "string",
+										"minLength": 1,
+										"description": "Short device code from the verification URL. This is not the poll secret."
+									}
+								},
+								"description": "Device code to approve with the signed-in session."
+							}
+						}
+					}
+				},
+				"responses": {
+					"200": {
+						"description": "Command result",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/AuthLoginDeviceApproveResult"
+								}
+							}
+						}
+					},
+					"400": { "$ref": "#/components/responses/ApiError" },
+					"401": { "$ref": "#/components/responses/ApiError" },
+					"404": { "$ref": "#/components/responses/ApiError" },
+					"405": { "$ref": "#/components/responses/ApiError" },
+					"409": { "$ref": "#/components/responses/ApiError" },
+					"500": { "$ref": "#/components/responses/ApiError" }
+				}
+			}
+		},
+		"/api/auth/login/device/deny": {
+			"post": {
+				"operationId": "auth.login.device.deny",
+				"summary": "Deny a device login. The next poll is refused. Requires a finished user session.",
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"required": ["deviceCode"],
+								"properties": {
+									"deviceCode": {
+										"type": "string",
+										"minLength": 1,
+										"description": "Short device code from the verification URL. This is not the poll secret."
+									}
+								},
+								"description": "Device code to deny."
+							}
+						}
+					}
+				},
+				"responses": {
+					"200": {
+						"description": "Command result",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/AuthLoginDeviceDenyResult"
+								}
+							}
+						}
+					},
+					"400": { "$ref": "#/components/responses/ApiError" },
+					"401": { "$ref": "#/components/responses/ApiError" },
+					"404": { "$ref": "#/components/responses/ApiError" },
+					"405": { "$ref": "#/components/responses/ApiError" },
+					"409": { "$ref": "#/components/responses/ApiError" },
+					"500": { "$ref": "#/components/responses/ApiError" }
+				}
+			}
+		},
 		"/api/auth/session/refresh": {
 			"post": {
 				"operationId": "auth.session.refresh",
@@ -2239,8 +2404,14 @@
 						"application/json": {
 							"schema": {
 								"type": "object",
-								"properties": {},
-								"description": "Empty parameter payload. The credential is the refresh cookie."
+								"properties": {
+									"refreshToken": {
+										"type": "string",
+										"minLength": 1,
+										"description": "Refresh secret. The browser sends the cookie instead. Not both."
+									}
+								},
+								"description": "Refresh credential. The cookie or refreshToken, not both."
 							}
 						}
 					}
@@ -2275,8 +2446,14 @@
 						"application/json": {
 							"schema": {
 								"type": "object",
-								"properties": {},
-								"description": "Empty parameter payload."
+								"properties": {
+									"refreshToken": {
+										"type": "string",
+										"minLength": 1,
+										"description": "Refresh secret to revoke. The browser sends the cookie instead. Not both."
+									}
+								},
+								"description": "Session to revoke. The cookie or refreshToken."
 							}
 						}
 					}
@@ -5301,6 +5478,122 @@
 				},
 				"description": "Result payload returned by auth.elevation.end."
 			},
+			"AuthLoginDeviceApproveResult": {
+				"type": "object",
+				"required": ["approved"],
+				"properties": {
+					"approved": {
+						"type": "boolean",
+						"description": "True when the device grant now holds a CLI session."
+					}
+				},
+				"description": "Result payload returned by auth.login.device.approve."
+			},
+			"AuthLoginDeviceDenyResult": {
+				"type": "object",
+				"required": ["denied"],
+				"properties": {
+					"denied": {
+						"type": "boolean",
+						"description": "True when a pending device grant was denied."
+					}
+				},
+				"description": "Result payload returned by auth.login.device.deny."
+			},
+			"AuthLoginDevicePollResult": {
+				"anyOf": [
+					{
+						"type": "object",
+						"required": ["status"],
+						"properties": {
+							"status": {
+								"type": "string",
+								"const": "pending",
+								"description": "The person has not approved yet."
+							}
+						},
+						"description": "Device login still waiting."
+					},
+					{
+						"type": "object",
+						"required": [
+							"status",
+							"accessToken",
+							"refreshToken",
+							"expiresAt",
+							"accountId",
+							"userId"
+						],
+						"properties": {
+							"status": {
+								"type": "string",
+								"const": "approved",
+								"description": "The person approved. This poll consumes the grant."
+							},
+							"accessToken": {
+								"type": "string",
+								"description": "CLI session access token."
+							},
+							"refreshToken": {
+								"type": "string",
+								"description": "CLI session refresh secret. Store this, not the access token."
+							},
+							"expiresAt": {
+								"type": "number",
+								"description": "Access token expiry, epoch ms."
+							},
+							"accountId": {
+								"type": "string",
+								"description": "Account of the CLI session."
+							},
+							"userId": {
+								"type": "string",
+								"description": "User of the CLI session."
+							},
+							"sessionId": {
+								"type": "string",
+								"description": "CLI session id."
+							}
+						},
+						"description": "Approved CLI session from a device poll."
+					}
+				],
+				"description": "Result payload returned by auth.login.device.poll."
+			},
+			"AuthLoginDeviceStartResult": {
+				"type": "object",
+				"required": [
+					"deviceCode",
+					"verificationUrl",
+					"deviceSecret",
+					"interval",
+					"expiresIn"
+				],
+				"properties": {
+					"deviceCode": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Short device code from the verification URL. This is not the poll secret."
+					},
+					"verificationUrl": {
+						"type": "string",
+						"description": "Page where the person approves this device code."
+					},
+					"deviceSecret": {
+						"type": "string",
+						"description": "Poll secret. Returned once. It is not in the verification URL."
+					},
+					"interval": {
+						"type": "number",
+						"description": "Seconds the client waits between polls."
+					},
+					"expiresIn": {
+						"type": "number",
+						"description": "Seconds until this grant expires."
+					}
+				},
+				"description": "Result payload returned by auth.login.device.start."
+			},
 			"AuthLoginGoogleStartResult": {
 				"type": "object",
 				"required": ["authorizationUrl", "transactionId"],
@@ -5348,7 +5641,11 @@
 				"properties": {
 					"accessToken": {
 						"type": "string",
-						"description": "Session access token. The refresh token is only in the cookie."
+						"description": "Session access token."
+					},
+					"refreshToken": {
+						"type": "string",
+						"description": "Rotated or newly issued refresh secret. Set on a CLI refresh and a device poll. Browser login and cookie refresh omit it."
 					},
 					"expiresAt": {
 						"type": "number",
@@ -5362,7 +5659,7 @@
 					"accountId": { "type": "string" },
 					"userId": { "type": "string" }
 				},
-				"description": "A Cadmus session. The refresh token is not in this payload."
+				"description": "A Cadmus session. Browser responses omit refreshToken; a CLI refresh and a device poll include it."
 			},
 			"AuthMembershipsListResult": {
 				"type": "object",
@@ -6322,6 +6619,8 @@
 					{ "type": "string", "const": "family_not_found" },
 					{ "type": "string", "const": "cas_conflict" },
 					{ "type": "string", "const": "conflict" },
+					{ "type": "string", "const": "provisional_session" },
+					{ "type": "string", "const": "refresh_ambiguous" },
 					{ "type": "string", "const": "role_unchanged" },
 					{ "type": "string", "const": "command_failed" },
 					{ "type": "string", "const": "invalid_command" },
@@ -7871,6 +8170,8 @@
 		"family_not_found": 404,
 		"cas_conflict": 409,
 		"conflict": 409,
+		"provisional_session": 409,
+		"refresh_ambiguous": 400,
 		"role_unchanged": 409,
 		"command_failed": 500
 	}
