@@ -79,7 +79,7 @@ cadmus events [--chat K] [--types a,b]
 | `send` | Submit a turn on `/ws` and wait for the result. `--stream` prints NDJSON events. |
 | `events` | NDJSON `/ws` events until SIGINT. |
 | `--skill` | Print a SKILL.md generated from the contract. |
-| `--url` / `CADMUS_URL` | Worker origin. Default `http://localhost:8787`. |
+| `--url` / `CADMUS_URL` | Worker origin. Default `http://localhost:8787` from source, `https://cadmus.purelogicstudios.com` in the compiled binary. |
 | `--token` / `CADMUS_TOKEN` | Explicit `cad_at_` override. Not stored. |
 | `login` | Device login. Stores `cad_rt_` in the OS keychain, or `~/.config/cadmus/credentials.json` when there is no keychain. `--device` prints the URL. `--dev-password` uses the worker's dev-password provider. |
 | `logout` | Revokes the stored refresh secret and deletes it locally. |

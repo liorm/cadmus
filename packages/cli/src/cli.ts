@@ -18,6 +18,7 @@ import {
 	exitForCommandFailure,
 } from "./exit-codes.js";
 import { ensureAccessToken, runLogin, runLogout } from "./login.js";
+import { defaultOrigin } from "./origin.js";
 import { createDefaultSecretStore } from "./secret-store.js";
 import { CLI_VERSION } from "./version.js";
 
@@ -121,7 +122,7 @@ async function main(): Promise<number> {
 
 function resolveConnection(parsed: ParsedArgv): Connection {
 	return {
-		url: parsed.url ?? process.env.CADMUS_URL ?? "http://localhost:8787",
+		url: parsed.url ?? process.env.CADMUS_URL ?? defaultOrigin(),
 		token: parsed.token ?? process.env.CADMUS_TOKEN ?? "",
 		account: parsed.account ?? process.env.CADMUS_ACCOUNT_ID,
 		family: parsed.family ?? process.env.CADMUS_FAMILY_ID,

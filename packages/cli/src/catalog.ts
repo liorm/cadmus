@@ -5,6 +5,7 @@
  */
 import { API_ROUTES, type ApiCommandName } from "@cadmus/contract/routes";
 import { commandCatalog, ServerEventSchema } from "@cadmus/contract/schemas";
+import { defaultOrigin } from "./origin.js";
 
 export interface PayloadField {
 	name: string;
@@ -173,7 +174,7 @@ Flags override environment variables.
 
 | Flag | Environment | Meaning |
 | :--- | :--- | :--- |
-| \`--url\` | \`CADMUS_URL\` | Worker origin. Default \`http://localhost:8787\`. |
+| \`--url\` | \`CADMUS_URL\` | Worker origin. Default \`${defaultOrigin()}\`. Source runs use \`http://localhost:8787\`. The compiled binary uses \`https://cadmus.purelogicstudios.com\`. |
 | \`--token\` | \`CADMUS_TOKEN\` | Explicit \`cad_at_\` override. Not written to the keychain. |
 | \`--account\` | \`CADMUS_ACCOUNT_ID\` | \`x-account-id\`. |
 | \`--family\` | \`CADMUS_FAMILY_ID\` | \`X-Cadmus-Family-Id\` and the \`/ws\` \`familyId\` query. |
