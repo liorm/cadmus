@@ -4,11 +4,7 @@ import {
 	prepareApiCommand,
 	withPrivateApiCache,
 } from "./api-adapter.js";
-import {
-	authenticateRequest,
-	type ResolvedRequestScope,
-	requireLiveApiTokenUse,
-} from "./auth.js";
+import { authenticateRequest, type ResolvedRequestScope } from "./auth.js";
 import { CadmusAuthLimiterDO, limitByIp } from "./auth-limiter.js";
 import { handleAuthRoute, isAuthRoute } from "./auth-routes.js";
 import {
@@ -52,7 +48,6 @@ const NAVIGATION_AUTH_PATHS = new Set([
 /** Credential routes with a per-IP budget. providers and logout carry no secret to guess. */
 export const IP_LIMITED_AUTH_PATHS = new Set([
 	"/api/auth/session/refresh",
-	"/api/auth/login/token",
 	"/api/auth/login/devPassword",
 	"/api/auth/login/google/start",
 	"/api/auth/login/google/callback",
@@ -168,7 +163,6 @@ const routes = {
 			request,
 			env,
 			adminStore,
-			edgeCache,
 			apiRequest ? { allowQueryToken: false, allowCookie: false } : {},
 		);
 		if (!auth.ok) {
@@ -416,9 +410,6 @@ async function dispatchDecodedCommand(
 	if (command.type === "family.create") {
 		let grant: ReturnType<typeof authorize>;
 		try {
-			// `family.create` runs here, not in the Family DO, so the same
-			// bearer liveness check has to happen before this command runs.
-			await requireLiveApiTokenUse(adminStore, principal, command.type);
 			grant = authorize(principal, command.type);
 		} catch (error) {
 			if (!(error instanceof ProtocolValidationError)) throw error;
@@ -614,16 +605,12 @@ async function forwardToFamilyDO(
 
 function principalFromScope(scope: ResolvedRequestScope): Principal {
 	return {
-		kind: scope.sessionId ? "user" : "token",
+		kind: "user",
 		userId: scope.userId,
 		accountId: scope.accountId,
 		role: scope.role,
 		...(scope.sessionId ? { sessionId: scope.sessionId } : {}),
-		...(scope.grants ? { grants: scope.grants } : {}),
 		...(scope.elevatedUntil ? { elevatedUntil: scope.elevatedUntil } : {}),
 		...(scope.provisional ? { provisional: true } : {}),
-		...(!scope.sessionId && scope.credential
-			? { credential: scope.credential }
-			: {}),
 	};
 }

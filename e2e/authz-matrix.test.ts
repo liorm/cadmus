@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+	addMemberBearer,
 	callApi,
 	commandCatalog,
 	elevateAccessToken,
@@ -17,8 +18,8 @@ import {
  * Allowed commands are not part of the sweep. Super-admin has no `chat.use`,
  * so `/ws` is the refusal to mint `auth.ticket`.
  *
- * An elevated personal token may still omit `ttlDays` (30-day cap). These
- * callers mint only non-elevated tokens, which name an expiry.
+ * Sessions are dev-password access tokens. A `user` role holds `USER`, not a
+ * custom grant subset. `tokens.manage` is not a grant.
  */
 const USER = [
 	"chat.use",
@@ -41,7 +42,6 @@ const ACCOUNT_ADMIN = [
 	"members.manage",
 	"credentials.manage",
 	"toolsEnv.manage",
-	"tokens.manage",
 	"account.manage",
 	"audit.read",
 	"admin.elevate",
@@ -64,7 +64,6 @@ const ELEVATION = new Set([
 	"members.manage",
 	"credentials.manage",
 	"toolsEnv.manage",
-	"tokens.manage",
 	"account.manage",
 	"system.accounts.manage",
 	"system.members.manage",
@@ -265,7 +264,7 @@ async function sweep(
 		([, code]) => code === "elevation_required",
 	).length;
 	const forbidden = denied.filter(([, code]) => code === "forbidden").length;
-	expect(commandTypes().length).toBe(94);
+	expect(commandTypes().length).toBe(90);
 	expect(denied.length, caller.name).toBe(caller.denied);
 	expect(elevationRequired, caller.name).toBe(caller.elevationRequired);
 	expect(forbidden, caller.name).toBe(caller.forbidden);
@@ -338,16 +337,11 @@ async function tenantSnapshot(reader: string): Promise<string> {
 	for (const type of [
 		"account.members.list",
 		"account.invites.list",
-		"auth.tokens.list",
 		"bot.list",
 		"account.get",
 		"account.audit.list",
 	]) {
-		const frame = await rpc(
-			reader,
-			type,
-			type === "auth.tokens.list" ? { all: true } : {},
-		);
+		const frame = await rpc(reader, type, {});
 		out[type] = frame.ok
 			? frame.result
 			: `refused:${frame.error?.code ?? "error"}`;
@@ -387,32 +381,14 @@ describe("authorization matrix over /api, /rpc, and /ws", () => {
 		const user = await loginDevPassword(email);
 		const elevated = await loginDevPassword(admin.email);
 		await elevateAccessToken(elevated.accessToken);
-		const minted = await sendRpc<{ token: string }>(
-			"auth.tokens.create",
-			{
-				kind: "pat",
-				label: "subset",
-				grants: ["chat.use", "tokens.self"],
-				ttlDays: 1,
-			},
-			{ token: elevated.accessToken },
-		);
-		expect(minted.frame.ok, JSON.stringify(minted.frame)).toBe(true);
-		const login = await workerFetch(`${WORKER_BASE_URL}/api/auth/login/token`, {
-			method: "POST",
-			headers: { Authorization: `Bearer ${minted.frame.result?.token ?? ""}` },
-		});
-		expect(login.status).toBe(200);
-		const tokenAccess =
-			((await login.json()) as { accessToken?: string }).accessToken ?? "";
 		const warm = await rpc(admin.accessToken, "family.list", {});
 		expect(codeOf(warm), "warm family.list").toBe("ok");
 		return {
+			accountId: admin.accountId,
 			accountName: admin.accountName,
 			userToken: user.accessToken,
 			adminToken: admin.accessToken,
 			elevatedToken: elevated.accessToken,
-			subsetToken: tokenAccess,
 		};
 	}
 
@@ -490,31 +466,36 @@ describe("authorization matrix over /api, /rpc, and /ws", () => {
 		);
 	}, 180_000);
 
-	it("a chat.use and tokens.self token is refused everything else", async () => {
+	it("a user-role dev-password session holds the user grants, not a subset", async () => {
 		const tenant = await setupTenant();
+		const member = await addMemberBearer({
+			accountId: tenant.accountId,
+			role: "user",
+		});
+		expect(member.token.startsWith("cad_at_")).toBe(true);
 		await sweep(
 			{
-				name: "grant-subset token",
-				token: tenant.subsetToken,
-				held: new Set(["chat.use", "tokens.self"]),
+				name: "user-role session",
+				token: member.token,
+				held: new Set(USER),
 				elevated: false,
-				tokenCaller: true,
-				denied: 59,
+				tokenCaller: false,
+				denied: 37,
 				elevationRequired: 0,
-				forbidden: 59,
+				forbidden: 37,
 				ws: true,
 			},
 			() => tenantSnapshot(tenant.elevatedToken),
 			async () => {
-				expect(codeOf(await rpc(tenant.subsetToken, "chat.list", {}))).toBe(
-					"ok",
-				);
-				expect(codeOf(await rpc(tenant.subsetToken, "bot.list", {}))).toBe(
-					"forbidden",
-				);
-				expect(codeOf(await rpc(tenant.subsetToken, "auth.whoami", {}))).toBe(
-					"ok",
-				);
+				expect(codeOf(await rpc(member.token, "chat.list", {}))).toBe("ok");
+				expect(codeOf(await rpc(member.token, "bot.list", {}))).toBe("ok");
+				const who = await rpc(member.token, "auth.whoami", {});
+				expect(codeOf(who)).toBe("ok");
+				const principal = (
+					who.result as { principal?: { kind?: string } } | undefined
+				)?.principal;
+				expect(principal?.kind).toBe("user");
+				expect(principal).not.toHaveProperty("viaToken");
 			},
 		);
 	}, 180_000);

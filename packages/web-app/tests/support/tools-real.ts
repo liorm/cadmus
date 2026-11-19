@@ -7,11 +7,11 @@ import {
 	signInInvitedMember,
 	uniqueLabel,
 } from "./dev-session.ts";
-import { expect, USER_ROLE_GRANTS } from "./fixtures.ts";
+import { expect } from "./fixtures.ts";
 import { signInWithToken } from "./system-console.ts";
 
 const BLOCKED =
-	"Changing tools environments needs an account admin. Signed-in people also need admin mode; API tokens need matching grants.";
+	"Changing tools environments needs an account admin. Signed-in people also need admin mode.";
 
 async function labeled(page: Page, label: string): Promise<boolean> {
 	const rows = page.locator("li");
@@ -57,9 +57,9 @@ export async function toolsUserBlockedScenario(
 }
 
 /**
- * The fixture account's token session keeps the role of an account admin, so
- * the controls stay. The worker refuses the missing grant. Admin mode is not
- * offered to a token.
+ * A dev-password sign-in on the fixture account. The controls stay when the
+ * session is an account admin who is not in admin mode; the worker refuses
+ * the change until admin mode is on.
  */
 export async function toolsTokenRefusalScenario(
 	page: Page,
@@ -67,7 +67,7 @@ export async function toolsTokenRefusalScenario(
 	baseURL: string,
 ): Promise<void> {
 	allowSlowTest();
-	await signInWithToken(page, baseURL, accountId, [...USER_ROLE_GRANTS]);
+	await signInWithToken(page, baseURL, accountId);
 	const label = uniqueLabel("denied");
 	await page.goto("/settings/tools");
 	await expect(

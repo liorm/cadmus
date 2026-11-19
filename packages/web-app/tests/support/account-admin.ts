@@ -8,8 +8,7 @@ import {
 	uniqueEmail,
 	uniqueLabel,
 } from "./dev-session.ts";
-import { expect, USER_ROLE_GRANTS } from "./fixtures.ts";
-import { signInWithToken } from "./system-console.ts";
+import { expect } from "./fixtures.ts";
 
 async function turnOnAdminMode(page: Page): Promise<void> {
 	await page.goto("/settings/security");
@@ -55,51 +54,12 @@ export async function accountMembersScenario(
 	await expect(invite.getByText(email)).toHaveCount(0);
 }
 
-/**
- * A plain user sees no member controls. A token session whose membership role
- * is account-admin keeps the controls; the worker still refuses a change the
- * token's grants do not allow, and admin mode is not offered.
- */
+/** A plain user sees no member controls and cannot rename the account. */
 export async function accountNonAdminScenario(
 	page: Page,
-	accountId: string,
+	_accountId: string,
 	baseURL: string,
-	who: { role: string; viaToken?: boolean },
 ): Promise<void> {
-	if (who.viaToken) {
-		await signInWithToken(page, baseURL, accountId, [...USER_ROLE_GRANTS]);
-		const membershipLists: string[] = [];
-		page.on("request", (req) => {
-			if (new URL(req.url()).pathname === "/api/auth/memberships/list") {
-				membershipLists.push(req.method());
-			}
-		});
-		await page.goto("/settings/account");
-		await expect(page.getByLabel("Account name")).toBeEnabled();
-		// The memberships hook runs in the same commit as the account read, so
-		// a token session's forbidden list call would already be logged.
-		expect(membershipLists).toEqual([]);
-		await expect(
-			page.getByText("API tokens cannot manage sessions or login methods"),
-		).toHaveCount(0);
-		await expect(
-			page.getByRole("combobox", { name: "Account", exact: true }),
-		).toHaveCount(0);
-		await expect(
-			page.getByRole("button", { name: "Save account" }),
-		).toBeEnabled();
-		await expect(page.getByText("Admin mode", { exact: true })).toHaveCount(0);
-		const renamed = `Renamed ${crypto.randomUUID().slice(0, 8)}`;
-		await fillByLabel(page, "Account name", renamed);
-		await clickByRole(page, "button", "Save account");
-		await expect(
-			page.getByText(/does not hold grant 'account\.manage'/),
-		).toBeVisible();
-		await page.reload();
-		await expect(page.getByLabel("Account name")).not.toHaveValue(renamed);
-		expect(membershipLists).toEqual([]);
-		return;
-	}
 	await signInInvitedMember(page.context().request, baseURL, "user");
 	await page.goto("/settings/account");
 	await expect(
@@ -227,29 +187,13 @@ export async function accountAuditScenario(
 	).toBeVisible();
 }
 
-/** A token without audit.read is refused, with no Retry. A user sees no log. */
+/** A user sees no audit log. */
 export async function accountAuditDeniedScenario(
 	page: Page,
-	accountId: string,
+	_accountId: string,
 	baseURL: string,
-	who: { viaToken?: boolean },
 ): Promise<void> {
 	allowSlowTest();
-	if (who.viaToken) {
-		await signInWithToken(page, baseURL, accountId, [...USER_ROLE_GRANTS]);
-		await page.goto("/settings/account");
-		const log = page.getByRole("region", { name: "Audit log" });
-		await expect(log.getByRole("alert")).toContainText(
-			"did not allow reading the audit log",
-		);
-		await expect(log.getByRole("button", { name: "Retry" })).toHaveCount(0);
-		await page.reload();
-		await expect(log.getByRole("alert")).toContainText(
-			"did not allow reading the audit log",
-		);
-		await expect(log.getByRole("button", { name: "Retry" })).toHaveCount(0);
-		return;
-	}
 	await signInInvitedMember(page.context().request, baseURL, "user");
 	await page.goto("/settings/account");
 	await expect(

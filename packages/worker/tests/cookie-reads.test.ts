@@ -28,7 +28,7 @@ import { uniqueAccountId } from "./helpers.js";
  *   another Headers object or a variable name.
  * - The behaviour test sends cookies only to /api/auth/session/logout, /api/auth/login/providers,
  *   /api/auth/login/devPassword and /api/auth/login/google/start. Cookies on /rpc, /api,
- *   /events, /ws and /api/auth/login/token are covered in cookie-attributes.test.ts
+ *   /events and /ws are covered in cookie-attributes.test.ts
  *   ("cookies are not credentials" and the token-login case).
  */
 const ORIGIN = "https://example.com";

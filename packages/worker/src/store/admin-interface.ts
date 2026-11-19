@@ -1,4 +1,4 @@
-import type { Grant, Role } from "@cadmus/contract/grants";
+import type { Role } from "@cadmus/contract/grants";
 import type { Credential } from "@earendil-works/pi-ai";
 import type { LoginIdentity } from "../auth/google.js";
 import type {
@@ -35,12 +35,6 @@ import type {
 	SystemMember,
 	SystemResult,
 } from "./d1-system.js";
-import type {
-	CreateTokenInput,
-	CreateTokenResult,
-	TokenLoginResult,
-	TokenSummary,
-} from "./d1-tokens.js";
 
 export type { AccountRecord };
 
@@ -50,17 +44,9 @@ export interface AuthenticatedIdentity {
 	userId: string;
 	accountId: string;
 	role: Role;
-	/** Token-backed sessions only: grants clamped to the token. */
-	grants?: Grant[];
 	/** User sessions only: epoch ms when admin mode ends, while it is on. */
 	elevatedUntil?: number;
 	provisional?: boolean;
-	/**
-	 * Sessionless credentials only, set by the edge:
-	 * "member-token:<sha256>" for a legacy member token,
-	 * "api-token:<domain-hash>" for a cad_pat_ / cad_svc_ bearer.
-	 */
-	credential?: string;
 }
 
 export interface UserRecord {
@@ -124,76 +110,15 @@ export interface AdminStore {
 		actor: string;
 		actorKind?: "user" | "super-admin";
 	}): Promise<MemberChangeResult>;
-	createToken(input: CreateTokenInput): Promise<CreateTokenResult>;
-	listTokens(
-		accountId: string,
-		userId: string,
-		all: boolean,
-	): Promise<TokenSummary[]>;
-	revokeTokenById(input: {
-		accountId: string;
-		userId: string;
-		tokenId: string;
-		all: boolean;
-	}): Promise<boolean>;
-	tokenLogin(
-		rawToken: string,
-		meta: { userAgent?: string; ipCountry?: string },
-	): Promise<TokenLoginResult>;
-	/**
-	 * Direct `Authorization: Bearer cad_pat_|cad_svc_` lookup. Undefined when
-	 * the token is not a live API token.
-	 */
-	resolveApiToken(rawToken: string): Promise<
-		| {
-				userId: string;
-				accountId: string;
-				role: Role;
-				grants: Grant[];
-				credential: string;
-		  }
-		| undefined
-	>;
-	/**
-	 * One use of an API-token credential: refreshes last_used_at and, for a
-	 * service token or an elevated token, writes `token.use`. False when the
-	 * token is revoked, expired, or its user, account, or membership is no
-	 * longer live.
-	 */
-	recordApiTokenUse(input: {
-		credential: string;
-		userId: string;
-		accountId: string;
-		use: string;
-	}): Promise<boolean>;
 	createTicket(
 		sessionId: string,
 		target: TicketTarget,
 		accountId?: string,
 	): Promise<{ ticket: string; expiresAt: number }>;
-	createLegacyTicket(
-		userId: string,
-		accountId: string,
-		target: TicketTarget,
-		credential: string | undefined,
-	): Promise<{ ticket: string; expiresAt: number }>;
 	consumeTicket(
 		ticket: string,
 		target: TicketTarget,
 	): Promise<TicketIdentity | undefined>;
-	/**
-	 * Re-checks a sessionless credential (legacy member token or API token):
-	 * the token row is live, the membership, user and account are active.
-	 * A legacy member token returns the live role and the `user` grant set.
-	 * It is not granted account-admin.
-	 */
-	resolveLegacyCredential(
-		credential: string | undefined,
-		userId: string,
-		accountId: string,
-	): Promise<{ role: Role; grants?: Grant[] } | undefined>;
-	/** Close code for a sessionless credential that no longer resolves: 4403 when its user is disabled or account suspended, else 4401. */
-	legacyEndCode(userId: string, accountId: string): Promise<4401 | 4403>;
 	listSessions(userId: string): Promise<SessionSummary[]>;
 	revokeOwnSession(userId: string, sessionId: string): Promise<boolean>;
 	revokeOtherSessions(
@@ -303,9 +228,6 @@ export interface AdminStore {
 	initialize(options?: { force?: boolean }): Promise<void>;
 
 	// Auth & Accounts
-	resolveToken(rawToken: string): Promise<AuthenticatedIdentity | undefined>;
-	revokeToken(rawToken: string): Promise<boolean>;
-	revokeTokenByHash(tokenHash: string): Promise<boolean>;
 	ensureAccountAndUser(input: {
 		accountId: string;
 		userId: string;
@@ -330,7 +252,6 @@ export interface AdminStore {
 		name?: string;
 		email?: string;
 		roles?: Role[];
-		rawToken?: string;
 	}): Promise<AccountMember>;
 
 	// Account-level Encrypted BYOK Credentials

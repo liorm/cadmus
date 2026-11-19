@@ -15,10 +15,8 @@ import { useScopedResource } from "@/hooks/useScopedResource";
 export function AccountSettingsPage() {
 	const { client } = useCadmus();
 	const session = useSession();
-	// Callers whose role cannot manage members do not get the controls. whoami
-	// does not report a token's persisted grants, so a token session with an
-	// account-admin role keeps them and the worker decides (decision 13 allows
-	// elevated tokens). Signed out is not an admin.
+	// Callers whose role cannot manage members do not get the controls.
+	// Signed out is not an admin.
 	const principal = session.principal;
 	const principalPending = session.signedIn && principal === null;
 	const canManage =
@@ -347,8 +345,8 @@ export function AccountSettingsPage() {
 													>
 														<span className="break-words">
 															Remove {member.userId} from this account? This
-															signs them out of it and revokes their personal
-															tokens. They keep access to other accounts.
+															signs them out of it. They keep access to other
+															accounts.
 														</span>
 														<span className="flex flex-wrap gap-2">
 															<button
@@ -361,10 +359,8 @@ export function AccountSettingsPage() {
 																		{ userId: member.userId },
 																		(r) =>
 																			`Member removed${
-																				typeof r.tokensRevoked === "number"
-																					? `; ${r.tokensRevoked} tokens and ${String(
-																							r.sessionsRevoked ?? 0,
-																						)} sessions revoked`
+																				typeof r.sessionsRevoked === "number"
+																					? `; ${String(r.sessionsRevoked)} sessions revoked`
 																					: ""
 																			}.`,
 																	)

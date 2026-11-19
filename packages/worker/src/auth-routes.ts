@@ -14,7 +14,6 @@ import {
 	lockoutStatus,
 	tooManyRequests,
 } from "./auth-limiter.js";
-import { sha256Hex } from "./edge-cache.js";
 import { resolveClampedTestInt } from "./env-overrides.js";
 import { getLogger } from "./log.js";
 import type { AdminStore } from "./store/admin-interface.js";
@@ -31,7 +30,6 @@ export const REFRESH_PATH = "/api/auth/session";
 
 const SESSION_REFRESH_PATH = "/api/auth/session/refresh";
 const LOGOUT_PATH = "/api/auth/session/logout";
-const TOKEN_LOGIN_PATH = "/api/auth/login/token";
 const DEV_PASSWORD_PATH = "/api/auth/login/devPassword";
 const ASSUME_ROLE_PATH = "/api/auth/assumeRole";
 const PROVIDERS_PATH = "/api/auth/login/providers";
@@ -42,7 +40,6 @@ export function isAuthRoute(pathname: string): boolean {
 	return (
 		pathname === SESSION_REFRESH_PATH ||
 		pathname === LOGOUT_PATH ||
-		pathname === TOKEN_LOGIN_PATH ||
 		pathname === DEV_PASSWORD_PATH ||
 		pathname === ASSUME_ROLE_PATH ||
 		pathname === PROVIDERS_PATH ||
@@ -61,9 +58,6 @@ export async function handleAuthRoute(
 	if (pathname === SESSION_REFRESH_PATH)
 		return handleRefresh(request, adminStore);
 	if (pathname === LOGOUT_PATH) return handleLogout(request, adminStore);
-	if (pathname === TOKEN_LOGIN_PATH) {
-		return handleTokenLogin(request, env, adminStore);
-	}
 	if (pathname === DEV_PASSWORD_PATH) {
 		return handleDevPassword(request, env, adminStore);
 	}
@@ -314,7 +308,6 @@ export async function handleRefresh(
 			sessionId: result.tokens.sessionId,
 			accountId: result.accountId,
 			userId: result.userId,
-			viaToken: result.viaToken,
 		},
 		noStore({ status: 200, cookie: refreshCookieHeader(result.tokens) }),
 	);
@@ -445,7 +438,7 @@ async function handleAssumeRole(
 			noStore({ status: 401 }),
 		);
 	}
-	const auth = await authenticateRequest(request, env, adminStore, undefined, {
+	const auth = await authenticateRequest(request, env, adminStore, {
 		allowQueryToken: false,
 		allowCookie: false,
 	});
@@ -455,7 +448,7 @@ async function handleAssumeRole(
 			noStore({ status: auth.code === "unauthorized" ? 401 : 403 }),
 		);
 	}
-	if (!auth.scope.sessionId || auth.scope.grants) {
+	if (!auth.scope.sessionId) {
 		return Response.json(
 			{ error: { code: "forbidden", message: "Assume role refused" } },
 			noStore({ status: 403 }),
@@ -504,78 +497,6 @@ async function handleAssumeRole(
 			accessToken: result.tokens.accessToken,
 			expiresAt: result.tokens.accessExpiresAt,
 			sessionId: result.tokens.sessionId,
-		},
-		noStore({ status: 200, cookie: refreshCookieHeader(result.tokens) }),
-	);
-}
-
-/**
- * POST /auth/token-login: exchanges `Authorization: Bearer cad_pat_|cad_svc_`
- * (header only, never a query parameter) for a normal session bound to the
- * token's account, and sets the refresh cookie. The session's grants are
- * clamped to the token's. Failures are uniform 401 so a probe learns nothing.
- * The same bearer string shares one Durable Object lockout counter (the
- * identity is the hash of the secret, so the secret is not a DO name). A
- * different string, including a valid token, has its own counter. The per-IP
- * budget still caps guessing across many strings.
- */
-async function handleTokenLogin(
-	request: Request,
-	env: Env,
-	adminStore: AdminStore,
-): Promise<Response> {
-	if (request.method !== "POST") {
-		return Response.json(
-			{ error: { code: "method_not_allowed", message: "Use POST" } },
-			noStore({ status: 405 }),
-		);
-	}
-	const url = new URL(request.url);
-	const header = request.headers.get("authorization") ?? "";
-	const raw = /^Bearer\s+(\S+)$/i.exec(header)?.[1];
-	if (url.searchParams.has("token") || !raw) {
-		return Response.json(
-			{ error: { code: "unauthorized", message: "Token login refused" } },
-			noStore({ status: 401 }),
-		);
-	}
-	// Hash first so the lockout key is case-sensitive. The limiter lowercases
-	// identities, which is right for emails and wrong for token secrets.
-	const identity = await sha256Hex(raw);
-	const lock = await lockoutStatus(env, "token-login", identity);
-	if (lock.locked) return tooManyRequests(lock.retryAfterSec, "locked_out");
-	let result: Awaited<ReturnType<AdminStore["tokenLogin"]>>;
-	try {
-		result = await adminStore.tokenLogin(raw, {
-			userAgent: request.headers.get("user-agent") ?? undefined,
-			ipCountry:
-				(request as Request & { cf?: { country?: string } }).cf?.country ??
-				undefined,
-		});
-	} catch (error) {
-		getLogger().error("token login failed closed", {
-			error: error instanceof Error ? error.message : "unknown",
-		});
-		return Response.json(
-			{ error: { code: "internal", message: "Token login refused" } },
-			noStore({ status: 500 }),
-		);
-	}
-	if (!result.ok) {
-		const failed = await lockoutFail(env, "token-login", identity);
-		if (failed.locked)
-			return tooManyRequests(failed.retryAfterSec, "locked_out");
-		return Response.json(
-			{ error: { code: "unauthorized", message: "Token login refused" } },
-			noStore({ status: 401 }),
-		);
-	}
-	await lockoutClear(env, "token-login", identity);
-	return Response.json(
-		{
-			accessToken: result.tokens.accessToken,
-			expiresAt: result.tokens.accessExpiresAt,
-			accountId: result.accountId,
 		},
 		noStore({ status: 200, cookie: refreshCookieHeader(result.tokens) }),
 	);

@@ -64,7 +64,6 @@ export function ElevationProvider({ children }: { children: ReactNode }) {
 	const session = useSession();
 	const eligible =
 		session.principal?.kind === "user" &&
-		!session.principal.viaToken &&
 		(session.principal.role === "account-admin" ||
 			session.principal.role === "super-admin");
 	return (

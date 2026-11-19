@@ -216,6 +216,22 @@ async function runSend(
 			const code = frame.error?.code ?? "turn_failed";
 			return fail(EXIT_TURN, code, message, connection.pretty);
 		}
+		// Events are delivered after a live authority check, so they can land
+		// just after the command result. Keep the socket open until the turn
+		// event arrives when the caller asked to stream.
+		if (parsed.stream) {
+			const deadline = Date.now() + Math.min(timeoutSeconds, 5) * 1000;
+			while (
+				Date.now() < deadline &&
+				!events.some(
+					(event) =>
+						event.type === "turn.completed" ||
+						(event as { type: string }).type === "turn.failed",
+				)
+			) {
+				await new Promise((resolve) => setTimeout(resolve, 15));
+			}
+		}
 		writeJson(frame.result ?? null, connection.pretty);
 		return EXIT_OK;
 	} catch (error) {

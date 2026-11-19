@@ -30,7 +30,6 @@ import { FamilySettingsPage } from "@/routes/settings-family";
 import { ProvidersSettingsPage } from "@/routes/settings-providers";
 import { AllSchedulesPage } from "@/routes/settings-schedules";
 import { SecuritySettingsPage } from "@/routes/settings-security";
-import { TokensSettingsPage } from "@/routes/settings-tokens";
 import { ToolsSettingsPage } from "@/routes/settings-tools";
 import { SystemConsolePage } from "@/routes/system";
 import { ToolsPage } from "@/routes/tools";
@@ -223,12 +222,6 @@ const securitySettingsRoute = createRoute({
 	component: SecuritySettingsPage,
 });
 
-const tokensSettingsRoute = createRoute({
-	getParentRoute: () => rootRoute,
-	path: "/settings/tokens",
-	component: TokensSettingsPage,
-});
-
 const familySettingsRoute = createRoute({
 	getParentRoute: () => rootRoute,
 	path: "/settings/family",
@@ -280,7 +273,6 @@ const routeTree = rootRoute.addChildren([
 	settingsRoute,
 	systemRoute,
 	securitySettingsRoute,
-	tokensSettingsRoute,
 	accountSettingsRoute,
 	familySettingsRoute,
 	providersSettingsRoute,

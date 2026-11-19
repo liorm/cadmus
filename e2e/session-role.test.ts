@@ -47,6 +47,7 @@ async function devLogin(email: string, chooseRole = false) {
 async function whoami(token: string, accountId?: string) {
 	return sendRpc<{
 		principal: {
+			kind?: string;
 			role?: string;
 			provisional?: boolean;
 			accountId?: string;
@@ -395,7 +396,7 @@ describe("session hats", () => {
 		);
 	});
 
-	it("SR-14 missing bearer, rejected bearer, and token session", async () => {
+	it("SR-14 missing bearer, rejected bearer, and a dev-password session", async () => {
 		const missing = await workerFetch(`${ORIGIN}/api/auth/assumeRole`, {
 			method: "POST",
 			headers: { Origin: ORIGIN, "Content-Type": "application/json" },
@@ -411,32 +412,21 @@ describe("session hats", () => {
 		expect(rejected.body.error?.code).toBe("unauthorized");
 		const member = await provisionInvitedMember({ role: "user" });
 		const session = await devLogin(member.email);
-		const minted = await sendRpc<{ token: string }>(
-			"auth.tokens.create",
-			{
-				kind: "pat",
-				label: "hat",
-				grants: ["chat.use", "tokens.self"],
-				ttlDays: 1,
-			},
-			{ token: session.body.accessToken ?? "" },
-		);
-		expect(minted.frame.ok, JSON.stringify(minted.frame)).toBe(true);
-		const tokenLogin = await workerFetch(`${ORIGIN}/api/auth/login/token`, {
-			method: "POST",
-			headers: { Authorization: `Bearer ${minted.frame.result?.token ?? ""}` },
-		});
-		expect(tokenLogin.status).toBe(200);
-		const opened = (await tokenLogin.json()) as { accessToken?: string };
-		const before = await whoami(opened.accessToken ?? "");
+		const token = session.body.accessToken ?? "";
+		expect(token.startsWith("cad_at_")).toBe(true);
+		const before = await whoami(token);
 		expect(before.frame.ok).toBe(true);
-		const refused = await assume(
-			opened.accessToken ?? "",
-			"user",
-			member.accountId,
-		);
-		expect(refused.body.error?.code).toBe("forbidden");
-		const after = await whoami(opened.accessToken ?? "");
+		expect(before.frame.result?.principal.kind).toBe("user");
+		expect(before.frame.result?.principal).not.toHaveProperty("viaToken");
+		for (const bearer of [
+			`cad_pat_${crypto.randomUUID()}`,
+			`cad_svc_${crypto.randomUUID()}`,
+			crypto.randomUUID(),
+		]) {
+			const refused = await assume(bearer, "user", member.accountId);
+			expect(refused.res.status).toBe(401);
+		}
+		const after = await whoami(token);
 		expect(after.frame.result?.principal.sessionId).toBe(
 			before.frame.result?.principal.sessionId,
 		);
@@ -526,7 +516,7 @@ describe("session hats", () => {
 		);
 	});
 
-	it("SR-18 revoking account-admin kills that hat and personal tokens", async () => {
+	it("SR-18 revoking account-admin kills that hat", async () => {
 		const member = await provisionInvitedMember({ role: "account-admin" });
 		const boss = await loginDevPassword();
 		await elevateAccessToken(boss.accessToken);
@@ -547,11 +537,6 @@ describe("session hats", () => {
 			member.accountId,
 		);
 		const user = await devLogin(member.email);
-		const minted = await sendRpc<{ token: string }>(
-			"auth.tokens.create",
-			{ kind: "pat", label: "mine", grants: ["chat.use"], ttlDays: 1 },
-			{ token: asAdmin.body.accessToken ?? "", accountId: member.accountId },
-		);
 		await sendRpc(
 			"system.members.update",
 			{
@@ -563,14 +548,10 @@ describe("session hats", () => {
 			{ token: boss.accessToken },
 		);
 		expect((await whoami(asAdmin.body.accessToken ?? "")).frame.ok).toBe(false);
-		expect(
-			(await whoami(user.body.accessToken ?? "")).frame.result?.principal.role,
-		).toBe("user");
-		const again = await workerFetch(`${ORIGIN}/api/auth/login/token`, {
-			method: "POST",
-			headers: { Authorization: `Bearer ${minted.frame.result?.token ?? ""}` },
-		});
-		expect(again.status).toBe(401);
+		const still = await whoami(user.body.accessToken ?? "");
+		expect(still.frame.result?.principal.role).toBe("user");
+		expect(still.frame.result?.principal.kind).toBe("user");
+		expect(still.frame.result?.principal).not.toHaveProperty("viaToken");
 	});
 
 	it("SR-19 provisional hat is the lowest role, not the last-used account", async () => {

@@ -27,7 +27,6 @@ test("deep-linking across settings views keeps CockpitFrame mounted", async ({
 		"/settings",
 		"/settings/account",
 		"/settings/security",
-		"/settings/tokens",
 		"/settings/family",
 		"/settings/providers",
 		"/settings/tools",

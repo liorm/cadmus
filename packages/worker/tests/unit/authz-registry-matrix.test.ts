@@ -198,7 +198,6 @@ const GOLDEN_ROLE_GRANTS: Record<string, string[]> = {
 		"members.manage",
 		"credentials.manage",
 		"toolsEnv.manage",
-		"tokens.manage",
 		"account.manage",
 		"audit.read",
 		"admin.elevate",
@@ -251,9 +250,6 @@ const GOLDEN_COMMAND_GRANTS: Record<string, string> = {
 	"auth.sessions.revoke": "tokens.self",
 	"auth.sessions.revokeOthers": "tokens.self",
 	"auth.ticket": "chat.use",
-	"auth.tokens.create": "tokens.self",
-	"auth.tokens.list": "tokens.self",
-	"auth.tokens.revoke": "tokens.self",
 	"auth.whoami": "tokens.self",
 	"bot.create": "bot.write",
 	"bot.delete": "bot.delete",
@@ -340,7 +336,6 @@ describe("golden classification", () => {
 				"system.members.manage",
 				"system.users.manage",
 				"toolsEnv.manage",
-				"tokens.manage",
 			].sort(),
 		);
 	});

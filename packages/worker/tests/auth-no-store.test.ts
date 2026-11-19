@@ -13,7 +13,6 @@ const LOCAL = "http://localhost";
 const PATHS = [
 	"/api/auth/session/refresh",
 	"/api/auth/session/logout",
-	"/api/auth/login/token",
 	"/api/auth/login/devPassword",
 	"/api/auth/login/providers",
 	"/api/auth/login/google/start",

@@ -88,7 +88,7 @@ bun run deploy
 Cadmus includes an edge caching layer (`packages/worker/src/edge-cache.ts`) for token resolution and Bot Family DO routing info:
 - **L1 (In-Memory)**: Always enabled, zero latency, 60s TTL, bounded LRU cache per isolate.
 - **L2 (Workers KV)**: Optional distributed cache via `CADMUS_CACHE_KV` binding.
-- There is no shared-secret bearer. A request authenticates with a Cadmus session, an API token, or a legacy member token.
+- There is no shared-secret bearer and no API token. A request authenticates with a Cadmus session access token (`cad_at_`). Anything else is 401.
 
 To enable L2 distributed KV caching across isolates:
 ```bash

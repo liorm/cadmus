@@ -1,7 +1,6 @@
 import {
 	isRole,
 	normalizeRole,
-	ROLE_GRANTS,
 	type Role,
 	SYSTEM_ACCOUNT_ID,
 } from "@cadmus/contract/grants";
@@ -20,7 +19,6 @@ import type {
 import type {
 	AccountRecord,
 	AdminStore,
-	AuthenticatedIdentity,
 	FamilySettingsPatch,
 	StoredToolsEnv,
 } from "./admin-interface.js";
@@ -37,19 +35,16 @@ import {
 	auditElevatedCommand,
 	type CreateSessionInput,
 	consumeTicket,
-	createLegacyTicket,
 	createSession,
 	createTicket,
 	type ElevatedCommandPhase,
 	type ElevatedOperation,
 	endElevation,
-	legacyEndCode,
 	listLoginMethods,
 	listMemberships,
 	listSessions,
 	type RefreshResult,
 	resolveAccessToken,
-	resolveLegacyCredential,
 	resolveSessionById,
 	revokeLoginMethod,
 	revokeOtherSessions,
@@ -78,15 +73,6 @@ import {
 	setAccountStatus,
 	setUserDisabled,
 } from "./d1-system.js";
-import {
-	type CreateTokenInput,
-	createToken,
-	listTokens,
-	recordApiTokenUse,
-	resolveApiToken,
-	revokeTokenById,
-	tokenLogin,
-} from "./d1-tokens.js";
 import { parseStoredRoles } from "./roles.js";
 import {
 	insertPrimaryUserStatements,
@@ -315,7 +301,7 @@ function slugifyId(text: string): string {
 	);
 }
 
-export const CADMUS_SCHEMA_VERSION = 14;
+export const CADMUS_SCHEMA_VERSION = 15;
 
 export function isMissingSchemaError(error: unknown): boolean {
 	if (!error) return false;
@@ -542,6 +528,7 @@ export async function runD1SchemaMigrations(db: D1Database): Promise<void> {
 	await migrateRolesAndAccounts(db);
 	await migrateSessionsSchema(db);
 	await migrateMemberRoles(db);
+	await dropApiTokens(db);
 	// Phase 7: verified Google auth_time (epoch ms) for a fresh-sign-in session.
 	await addColumnIfNotExists(
 		db,
@@ -624,9 +611,31 @@ async function migrateRolesAndAccounts(db: D1Database): Promise<void> {
 }
 
 /**
+ * Issue #104. Revoke sessions that were opened from an API token, then drop
+ * `cadmus_auth_tokens`. A token-login session must not keep working as a user
+ * session after the table is gone. Fresh databases create the table in
+ * `runD1SchemaMigrations` and drop it here, once, when the schema version moves.
+ */
+async function dropApiTokens(db: D1Database): Promise<void> {
+	const now = Date.now();
+	// DROP IF EXISTS so two isolates migrating the same database do not fail
+	// when the other already removed the table between the check and the drop.
+	await db.batch([
+		db
+			.prepare(
+				`UPDATE cadmus_sessions SET revoked_at = ?1
+         WHERE token_id IS NOT NULL AND revoked_at IS NULL`,
+			)
+			.bind(now),
+		db.prepare(`DROP TABLE IF EXISTS cadmus_auth_tokens`),
+	]);
+}
+
+/**
  * Issue #3 phase 3a. Idempotent. Adds the user identity columns, the token
  * metadata columns (legacy tokens become `pat` rows labelled legacy), and the
- * invite, login method, session and bootstrap tables.
+ * invite, login method, session and bootstrap tables. `dropApiTokens` removes
+ * the token table after this runs.
  */
 async function migrateSessionsSchema(db: D1Database): Promise<void> {
 	await addColumnIfNotExists(db, "cadmus_users", "primary_email", "TEXT");
@@ -654,18 +663,32 @@ async function migrateSessionsSchema(db: D1Database): Promise<void> {
 		"INTEGER",
 	);
 	await addColumnIfNotExists(db, "cadmus_auth_tokens", "revoked_at", "INTEGER");
-	await db.batch([
-		db.prepare(
-			`UPDATE cadmus_auth_tokens
+	const tokenTable = await db
+		.prepare(
+			`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'cadmus_auth_tokens'`,
+		)
+		.first<{ name: string }>();
+	if (tokenTable) {
+		try {
+			await db.batch([
+				db.prepare(
+					`UPDATE cadmus_auth_tokens
          SET id = 'tok_' || lower(hex(randomblob(8)))
        WHERE id IS NULL`,
-		),
-		db.prepare(
-			`UPDATE cadmus_auth_tokens SET label = 'legacy' WHERE label IS NULL OR label = 'member-token'`,
-		),
-		db.prepare(
-			`CREATE UNIQUE INDEX IF NOT EXISTS idx_cadmus_auth_tokens_id ON cadmus_auth_tokens(id)`,
-		),
+				),
+				db.prepare(
+					`UPDATE cadmus_auth_tokens SET label = 'legacy' WHERE label IS NULL OR label = 'member-token'`,
+				),
+				db.prepare(
+					`CREATE UNIQUE INDEX IF NOT EXISTS idx_cadmus_auth_tokens_id ON cadmus_auth_tokens(id)`,
+				),
+			]);
+		} catch (err) {
+			const msg = err instanceof Error ? err.message : String(err);
+			if (!msg.includes("no such table")) throw err;
+		}
+	}
+	await db.batch([
 		db.prepare(`
         CREATE TABLE IF NOT EXISTS cadmus_invites (
           id TEXT PRIMARY KEY,
@@ -950,6 +973,11 @@ async function addColumnIfNotExists(
 		if (msg.includes("duplicate column name")) {
 			return false;
 		}
+		// Schema 15 drops cadmus_auth_tokens. A second migrate can pass the
+		// column check and then find the table already gone.
+		if (table === "cadmus_auth_tokens" && msg.includes("no such table")) {
+			return false;
+		}
 		throw err;
 	}
 }
@@ -1176,16 +1204,6 @@ export class D1AdminStore implements AdminStore {
 		return createTicket(this.#db, sessionId, target, accountId);
 	}
 
-	async createLegacyTicket(
-		userId: string,
-		accountId: string,
-		target: TicketTarget,
-		credential: string | undefined,
-	) {
-		await this.initialize();
-		return createLegacyTicket(this.#db, userId, accountId, target, credential);
-	}
-
 	async consumeTicket(ticket: string, target: TicketTarget) {
 		await this.initialize();
 		return consumeTicket(this.#db, ticket, target);
@@ -1236,12 +1254,7 @@ export class D1AdminStore implements AdminStore {
 		actorKind?: "user" | "super-admin";
 	}) {
 		await this.initialize();
-		const result = await updateMemberRole(this.#db, input);
-		await this.#dropCachedTokens({
-			userId: input.userId,
-			accountId: input.accountId,
-		});
-		return result;
+		return updateMemberRole(this.#db, input);
 	}
 
 	async removeMember(input: {
@@ -1251,67 +1264,7 @@ export class D1AdminStore implements AdminStore {
 		actorKind?: "user" | "super-admin";
 	}) {
 		await this.initialize();
-		const result = await removeMember(this.#db, input);
-		await this.#dropCachedTokens({
-			userId: input.userId,
-			accountId: input.accountId,
-		});
-		return result;
-	}
-
-	async createToken(input: CreateTokenInput) {
-		await this.initialize();
-		return createToken(this.#db, input);
-	}
-
-	async listTokens(accountId: string, userId: string, all: boolean) {
-		await this.initialize();
-		return listTokens(this.#db, accountId, userId, all);
-	}
-
-	async revokeTokenById(input: {
-		accountId: string;
-		userId: string;
-		tokenId: string;
-		all: boolean;
-	}) {
-		await this.initialize();
-		// Capture the hash first so this isolate's cache entry can be dropped
-		// right after the revoke (other isolates: at most the cache TTL).
-		const row = await this.#db
-			.prepare(
-				`SELECT token_hash FROM cadmus_auth_tokens WHERE id = ?1 AND account_id = ?2`,
-			)
-			.bind(input.tokenId, input.accountId)
-			.first<{ token_hash: string | null }>();
-		const revoked = await revokeTokenById(this.#db, input);
-		if (row?.token_hash && this.#edgeCache) {
-			await this.#edgeCache.invalidateToken(row.token_hash, true);
-		}
-		return revoked;
-	}
-
-	async tokenLogin(
-		rawToken: string,
-		meta: { userAgent?: string; ipCountry?: string },
-	) {
-		await this.initialize();
-		return tokenLogin(this.#db, rawToken, meta);
-	}
-
-	async resolveApiToken(rawToken: string) {
-		await this.initialize();
-		return resolveApiToken(this.#db, rawToken);
-	}
-
-	async recordApiTokenUse(input: {
-		credential: string;
-		userId: string;
-		accountId: string;
-		use: string;
-	}) {
-		await this.initialize();
-		return recordApiTokenUse(this.#db, input);
+		return removeMember(this.#db, input);
 	}
 
 	async revokeOtherSessions(userId: string, currentSessionId: string) {
@@ -1348,8 +1301,6 @@ export class D1AdminStore implements AdminStore {
 		await this.initialize();
 		const caller = await resolveAccessToken(this.#db, input.rawAccess);
 		if (!caller) return { ok: false as const, code: "unauthorized" as const };
-		if (caller.grants)
-			return { ok: false as const, code: "forbidden" as const };
 		return assumeStoredRole(this.#db, {
 			sessionId: caller.sessionId,
 			userId: caller.userId,
@@ -1409,9 +1360,7 @@ export class D1AdminStore implements AdminStore {
 		actor: string;
 	}) {
 		await this.initialize();
-		const result = await setUserDisabled(this.#db, input);
-		await this.#dropCachedTokens({ userId: input.userId });
-		return result;
+		return setUserDisabled(this.#db, input);
 	}
 
 	async revokeUserSessions(input: { userId: string; actor: string }) {
@@ -1508,9 +1457,7 @@ export class D1AdminStore implements AdminStore {
 		actor: string;
 	}) {
 		await this.initialize();
-		const result = await setAccountStatus(this.#db, input);
-		await this.#dropCachedTokens({ accountId: input.accountId });
-		return result;
+		return setAccountStatus(this.#db, input);
 	}
 
 	async renameSystemAccount(input: {
@@ -1574,124 +1521,6 @@ export class D1AdminStore implements AdminStore {
 			phase,
 			operation,
 		);
-	}
-
-	async resolveToken(
-		rawToken: string,
-	): Promise<AuthenticatedIdentity | undefined> {
-		await this.initialize();
-		const tokenHash = await sha256Hex(rawToken);
-		const row = await this.#db
-			.prepare(
-				`SELECT t.user_id, t.account_id,
-                (SELECT r.role FROM cadmus_member_roles r
-                  WHERE r.account_id = t.account_id AND r.user_id = t.user_id
-                  ORDER BY CASE r.role WHEN 'super-admin' THEN 2 WHEN 'account-admin' THEN 1 ELSE 0 END DESC
-                  LIMIT 1) AS role
-         FROM cadmus_auth_tokens t
-         JOIN cadmus_account_members m
-           ON m.account_id = t.account_id AND m.user_id = t.user_id
-         JOIN cadmus_accounts a ON a.id = t.account_id
-         JOIN cadmus_users u ON u.id = t.user_id
-         WHERE t.token_hash = ?1 AND t.revoked_at IS NULL
-           AND a.status = 'active' AND u.disabled_at IS NULL
-           AND (t.expires_at IS NULL OR t.expires_at > ?2)`,
-			)
-			.bind(tokenHash, Date.now())
-			.first<{
-				user_id: string;
-				account_id: string;
-				role: string;
-			}>();
-		if (!row) return undefined;
-		// Issue #3: legacy rows are `pat` rows with the `user` grant set. The role
-		// stays the member's live role so callerGrants() can only narrow.
-		return {
-			userId: row.user_id,
-			accountId: row.account_id,
-			role: normalizeRole(row.role) ?? "user",
-			grants: [...ROLE_GRANTS.user],
-		};
-	}
-
-	/**
-	 * Drops this isolate's (and the KV) cache entries for the legacy tokens of a
-	 * user and/or account whose authority just changed (member removed or
-	 * demoted, user disabled, account suspended or resumed). Other isolates
-	 * serve a cached scope for at most the cache TTL from the write.
-	 */
-	async #dropCachedTokens(who: { userId?: string; accountId?: string }) {
-		const cache = this.#edgeCache;
-		if (!cache) return;
-		try {
-			await this.#dropCachedTokensOrThrow(cache, who);
-		} catch (err) {
-			// The authority change is already committed, so a failed lookup must
-			// not fail it. Floor this isolate's token cache instead: L1 cleared, KV
-			// entries written before now refused, in-flight older resolves not
-			// cached. Immediate here; other isolates are bounded by the 60 s age.
-			getLogger().warn("token cache invalidation failed; cleared isolate L1", {
-				error: err,
-			});
-			cache.floorTokens();
-		}
-	}
-
-	async #dropCachedTokensOrThrow(
-		cache: EdgeCache,
-		who: { userId?: string; accountId?: string },
-	) {
-		const { results } = await this.#db
-			.prepare(
-				`SELECT token_hash FROM cadmus_auth_tokens
-         WHERE (?1 IS NULL OR user_id = ?1) AND (?2 IS NULL OR account_id = ?2)
-           AND token_hash IS NOT NULL`,
-			)
-			.bind(who.userId ?? null, who.accountId ?? null)
-			.all<{ token_hash: string }>();
-		// Every token of the user/account, in batches: same-isolate invalidation
-		// must be complete, so there is no row cap.
-		for (let i = 0; i < results.length; i += 50) {
-			await Promise.all(
-				results
-					.slice(i, i + 50)
-					.map((row) => cache.invalidateToken(row.token_hash, true)),
-			);
-		}
-	}
-
-	async legacyEndCode(userId: string, accountId: string) {
-		await this.initialize();
-		return legacyEndCode(this.#db, userId, accountId);
-	}
-
-	/** Live authority of a sessionless credential; see resolveLegacyCredential. */
-	async resolveLegacyCredential(
-		credential: string | undefined,
-		userId: string,
-		accountId: string,
-	) {
-		await this.initialize();
-		return resolveLegacyCredential(this.#db, credential, userId, accountId);
-	}
-
-	async revokeToken(rawToken: string): Promise<boolean> {
-		await this.initialize();
-		const tokenHash = await sha256Hex(rawToken);
-		return this.revokeTokenByHash(tokenHash);
-	}
-
-	async revokeTokenByHash(tokenHash: string): Promise<boolean> {
-		await this.initialize();
-		const res = await this.#db
-			.prepare(`DELETE FROM cadmus_auth_tokens WHERE token_hash = ?1`)
-			.bind(tokenHash)
-			.run();
-		const deleted = (res.meta?.changes ?? 0) > 0;
-		if (this.#edgeCache) {
-			await this.#edgeCache.invalidateToken(tokenHash, true);
-		}
-		return deleted;
 	}
 
 	async ensureAccountAndUser(input: {
@@ -1876,7 +1705,6 @@ export class D1AdminStore implements AdminStore {
 		name?: string;
 		email?: string;
 		roles?: Role[];
-		rawToken?: string;
 	}): Promise<AccountMember> {
 		await this.initialize();
 		const now = Date.now();
@@ -1912,24 +1740,8 @@ export class D1AdminStore implements AdminStore {
 			),
 		];
 
-		let tokenHash: string | undefined;
-		if (input.rawToken) {
-			tokenHash = await sha256Hex(input.rawToken);
-			statements.push(
-				this.#db
-					.prepare(
-						`INSERT OR REPLACE INTO cadmus_auth_tokens (token_hash, user_id, account_id, label, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5)`,
-					)
-					.bind(tokenHash, input.userId, input.accountId, "member-token", now),
-			);
-		}
-
 		await this.#db.batch(statements);
 
-		if (tokenHash && this.#edgeCache) {
-			await this.#edgeCache.invalidateToken(tokenHash, true);
-		}
 		return {
 			accountId: input.accountId,
 			userId: input.userId,

@@ -204,7 +204,6 @@ test.describe("CSP checks that need a browser which reports violations", () => {
 			"/settings",
 			"/settings/account",
 			"/settings/security",
-			"/settings/tokens",
 			"/settings/family",
 			"/settings/providers",
 			"/settings/tools",

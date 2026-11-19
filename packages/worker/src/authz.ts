@@ -12,8 +12,9 @@ import { ProtocolValidationError } from "./protocol.js";
 
 /**
  * Who is acting, as resolved at the edge from the request credential.
- * Sessionless callers are legacy member tokens (and API tokens). A legacy
- * member token stays on the user grant set; it is not account-admin.
+ * Live HTTP auth always sets a user session. `grants` stays so a principal
+ * that still carries a token grant list is clamped and refused for session
+ * management.
  */
 export interface Principal {
 	/** What kind of credential authenticated the request. */
@@ -23,13 +24,16 @@ export interface Principal {
 	role: Role;
 	/** Cadmus session that authenticated the request, when there is one. */
 	sessionId?: string;
-	/** Token-backed sessions: the grants the token allows (clamped to the role). */
+	/**
+	 * Leftover token grant list. Live auth does not set this. When it is set,
+	 * grants are clamped to the role and session management is refused.
+	 */
 	grants?: Grant[];
 	/** User sessions: epoch ms when admin mode ends, while it is on. */
 	elevatedUntil?: number;
 	/** Short role-choice session. */
 	provisional?: boolean;
-	/** Sessionless credentials: which credential authenticated (edge-set). */
+	/** Unused by live auth. Kept so an old principal attachment still parses. */
 	credential?: string;
 }
 
@@ -112,7 +116,7 @@ export function callerMetaFromAttachment(value: unknown): CallerMeta {
 	return callerMetaFromPrincipal(value);
 }
 
-/** Grants the caller holds: the role's, clamped to a token's when it has one. */
+/** Grants the caller holds: the role's, clamped when a leftover grant list is set. */
 export function callerGrants(caller: CallerMeta): readonly Grant[] {
 	const fromRole: readonly Grant[] = caller.role
 		? ROLE_GRANTS[caller.role]
@@ -121,24 +125,14 @@ export function callerGrants(caller: CallerMeta): readonly Grant[] {
 	return caller.grants.filter((g) => fromRole.includes(g));
 }
 
-export function tokenUserRequired(): ProtocolValidationError {
-	return new ProtocolValidationError(
-		"This command needs a signed-in user",
-		"forbidden",
-	);
-}
-
 /**
  * The single authorization check for every transport (/api, /rpc, /ws).
  * A command is allowed when the principal's role holds the grant the command
  * schema declares. A command with no known grant is denied.
  *
- * A grant flagged `elevation` also needs admin mode when the caller is a user
- * session. A token (a token-login session, or a `cad_pat_` / `cad_svc_` bearer)
- * carries exactly the grants it was created with, including elevated grants
- * when it was minted in admin mode, so it is not asked to elevate again.
- * Callers with no session and no grant list are legacy member tokens. They
- * are not asked to elevate, and they are not account-admin.
+ * A grant flagged `elevation` also needs admin mode for a user session.
+ * A principal that still carries a grant list is not asked to elevate again;
+ * those grants are the only ones it holds.
  */
 export function authorize(caller: CallerMeta, commandType: string): Grant {
 	const grant = getCommandGrant(commandType) as Grant | undefined;
@@ -171,8 +165,8 @@ export function needsElevation(grant: Grant, caller: CallerMeta): boolean {
 
 /**
  * True when this use of `grant` is an elevated use that must be audited: a user
- * session in admin mode, or a token session whose token was created in admin
- * mode and so carries the elevated grant (decision 13: "audited on every use").
+ * session in admin mode, or a principal whose grant list includes an elevated
+ * grant.
  */
 export function isElevatedUse(grant: Grant, caller: CallerMeta): boolean {
 	if (!caller.sessionId) return false;
@@ -205,7 +199,7 @@ export function requireElevationFor(
 	}
 }
 
-/** Session-bound commands need a Cadmus session, not a bare token. */
+/** Session-bound commands need a Cadmus user session. */
 export function requireSession(caller: CallerMeta): string {
 	if (!caller.sessionId || !caller.userId) {
 		throw new ProtocolValidationError(
@@ -213,8 +207,8 @@ export function requireSession(caller: CallerMeta): string {
 			"forbidden",
 		);
 	}
-	// Token-backed sessions carry clamped grants. They act for one account and
-	// must not manage the user's sessions or login methods, which span accounts.
+	// A principal that still carries a grant list acts for one account and
+	// must not manage the user's sessions or login methods.
 	if (caller.grants) {
 		throw new ProtocolValidationError(
 			"API tokens cannot manage sessions or login methods",

@@ -27,20 +27,14 @@ test("an account admin manages members behind admin mode (desktop)", async ({
 	).toBeVisible();
 });
 
-for (const who of [
-	{ name: "a plain user", role: "user" },
-	{ name: "a token session", role: "account-admin", viaToken: true },
-]) {
-	test(`${who.name} keeps only what the server allows on members (desktop)`, async ({
+test("a plain user keeps only what the server allows on members (desktop)", async ({
+	page,
+	accountId,
+	baseURL,
+}) => {
+	await accountNonAdminScenario(
 		page,
 		accountId,
-		baseURL,
-	}) => {
-		await accountNonAdminScenario(
-			page,
-			accountId,
-			baseURL ?? "http://127.0.0.1:8799",
-			{ role: who.role, viaToken: who.viaToken },
-		);
-	});
-}
+		baseURL ?? "http://127.0.0.1:8799",
+	);
+});

@@ -767,7 +767,7 @@ describe("system console members and users (issue #3 phase 6b)", () => {
 		expect((await audit("member.remove", victim.userId)).length).toBe(1);
 	});
 
-	it("a losing demotion does not revoke a token created after the winner", async () => {
+	it("a losing demotion does not revoke a session created after the winner", async () => {
 		const { accountId } = await tenant();
 		const s = store();
 		const target = await addMember(accountId, "account-admin");
@@ -781,13 +781,14 @@ describe("system console members and users (issue #3 phase 6b)", () => {
 		});
 		const db = env.CADMUS_ADMIN_DB;
 		let injected = false;
+		let freshId = "";
 		const racing = new Proxy(db, {
 			get(obj, prop) {
 				if (prop === "batch") {
 					return async (stmts: D1PreparedStatement[]) => {
 						if (!injected) {
 							injected = true;
-							// The winner commits, then a fresh personal token appears, before the loser's batch runs.
+							// The winner commits, then a user-role session appears, before the loser's batch runs.
 							const win = await updateMemberRole(db, {
 								accountId,
 								userId: target.userId,
@@ -799,17 +800,12 @@ describe("system console members and users (issue #3 phase 6b)", () => {
 								ok: true,
 								changed: true,
 							});
-							const made = await s.createToken({
+							const fresh = await s.createSession({
 								accountId,
-								creatorUserId: target.userId,
-								creatorRole: "user",
-								creatorGrants: ["chat.use"],
-								kind: "pat",
-								label: "fresh",
-								grants: ["chat.use"],
-								ttlMs: 86_400_000,
+								userId: target.userId,
+								activeRole: "user",
 							});
-							expect(made.ok).toBe(true);
+							freshId = fresh.sessionId;
 						}
 						return db.batch(stmts);
 					};
@@ -827,12 +823,10 @@ describe("system console members and users (issue #3 phase 6b)", () => {
 		});
 		expect(loser).toMatchObject({ ok: true, changed: false });
 		const live = await db
-			.prepare(
-				`SELECT COUNT(*) AS n FROM cadmus_auth_tokens WHERE account_id = ?1 AND user_id = ?2 AND kind = 'pat' AND revoked_at IS NULL`,
-			)
-			.bind(accountId, target.userId)
-			.first<{ n: number }>();
-		expect(live?.n).toBe(1);
+			.prepare("SELECT revoked_at FROM cadmus_sessions WHERE id = ?1")
+			.bind(freshId)
+			.first<{ revoked_at: number | null }>();
+		expect(live?.revoked_at).toBeNull();
 		expect((await audit("member.role.revoke", target.userId)).length).toBe(1);
 	});
 });

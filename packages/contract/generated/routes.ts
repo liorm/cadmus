@@ -238,24 +238,6 @@ export const API_ROUTES = {
 		allow: "POST",
 		readOnly: false,
 	},
-	"auth.tokens.list": {
-		method: "GET",
-		path: "/api/auth/tokens/list",
-		allow: "GET, HEAD",
-		readOnly: true,
-	},
-	"auth.tokens.create": {
-		method: "POST",
-		path: "/api/auth/tokens/create",
-		allow: "POST",
-		readOnly: false,
-	},
-	"auth.tokens.revoke": {
-		method: "POST",
-		path: "/api/auth/tokens/revoke",
-		allow: "POST",
-		readOnly: false,
-	},
 	"auth.memberships.list": {
 		method: "GET",
 		path: "/api/auth/memberships/list",
@@ -289,12 +271,6 @@ export const API_ROUTES = {
 	"auth.login.devPassword": {
 		method: "POST",
 		path: "/api/auth/login/devPassword",
-		allow: "POST",
-		readOnly: false,
-	},
-	"auth.login.token": {
-		method: "POST",
-		path: "/api/auth/login/token",
 		allow: "POST",
 		readOnly: false,
 	},

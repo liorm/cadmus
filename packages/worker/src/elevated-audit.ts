@@ -19,11 +19,9 @@ export async function withElevatedAudit<T>(input: {
 	caller: CallerMeta;
 	grant: Grant;
 	/**
-	 * Overrides `isElevatedUse(grant, caller)`. `auth.tokens.revoke` passes
-	 * `false` for an own-token revoke so that `tokens.self` use is not recorded
-	 * as `tokens.manage`. When the call can manage other members' tokens it
-	 * leaves this unset, and `isElevatedUse("tokens.manage", caller)` records
-	 * both an admin-mode user session and an elevated token session.
+	 * Overrides `isElevatedUse(grant, caller)`. Leave unset to record the use
+	 * when the caller is in admin mode. Pass `false` when this call is not an
+	 * elevated use.
 	 */
 	elevated?: boolean;
 	commandType: string;

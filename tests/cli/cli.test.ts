@@ -1,9 +1,10 @@
 import { env, SELF } from "cloudflare:test";
 import { API_ROUTES } from "@cadmus/contract/routes";
 import { describe, expect, it } from "vitest";
-import { uniqueAccountId } from "../../packages/worker/tests/helpers.js";
-
-const FIXTURE_TOKEN = "cli-fixture-token";
+import {
+	actingAdmin,
+	uniqueAccountId,
+} from "../../packages/worker/tests/helpers.js";
 
 import { DAEMON_BRIDGE_HOST } from "../daemon/daemon-bridge-port.js";
 
@@ -184,12 +185,17 @@ function delay(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function baseArgs(accountId: string): string[] {
+async function baseArgs(accountId: string): Promise<string[]> {
+	const token = await actingAdmin({
+		accountId,
+		userId: `usr_${accountId}`,
+		elevated: true,
+	});
 	return [
 		"--url",
 		bridgeBase(),
 		"--token",
-		FIXTURE_TOKEN,
+		token,
 		"--account",
 		accountId,
 		"--family",
@@ -212,7 +218,7 @@ describe("cadmus CLI", () => {
 	it("creates a bot, writes a file from stdin, and reads it back", async () => {
 		const accountId = uniqueAccountId("cli-files");
 		const created = await run([
-			...baseArgs(accountId),
+			...(await baseArgs(accountId)),
 			"bot.create",
 			"--slug",
 			"scribe",
@@ -225,7 +231,7 @@ describe("cadmus CLI", () => {
 		expect(JSON.parse(created.stdout).bot.id).toBe("scribe");
 
 		const written = await run(
-			[...baseArgs(accountId), "file.write", "--payload", "-"],
+			[...(await baseArgs(accountId)), "file.write", "--payload", "-"],
 			JSON.stringify({
 				botId: "scribe",
 				path: "MEMORY.md",
@@ -235,7 +241,7 @@ describe("cadmus CLI", () => {
 		expect(written.code, written.stderr).toBe(0);
 
 		const read = await run([
-			...baseArgs(accountId),
+			...(await baseArgs(accountId)),
 			"file.read",
 			"--botId",
 			"scribe",
@@ -251,7 +257,7 @@ describe("cadmus CLI", () => {
 		expect(
 			(
 				await run([
-					...baseArgs(accountId),
+					...(await baseArgs(accountId)),
 					"bot.create",
 					"--slug",
 					"echo",
@@ -265,7 +271,7 @@ describe("cadmus CLI", () => {
 		expect(
 			(
 				await run([
-					...baseArgs(accountId),
+					...(await baseArgs(accountId)),
 					"chat.create",
 					"--botId",
 					"echo",
@@ -274,12 +280,17 @@ describe("cadmus CLI", () => {
 				])
 			).code,
 		).toBe(0);
-		const quiet = await run([...baseArgs(accountId), "send", "main", "Hello"]);
+		const quiet = await run([
+			...(await baseArgs(accountId)),
+			"send",
+			"main",
+			"Hello",
+		]);
 		expect(quiet.code, quiet.stderr).toBe(0);
 		expect(JSON.parse(quiet.stdout).reply).toContain("Hello");
 
 		const streamed = await run([
-			...baseArgs(accountId),
+			...(await baseArgs(accountId)),
 			"send",
 			"main",
 			"Hello",
@@ -299,7 +310,7 @@ describe("cadmus CLI", () => {
 		expect(
 			(
 				await run([
-					...baseArgs(accountId),
+					...(await baseArgs(accountId)),
 					"bot.create",
 					"--slug",
 					"coordinator",
@@ -313,7 +324,7 @@ describe("cadmus CLI", () => {
 		expect(
 			(
 				await run([
-					...baseArgs(accountId),
+					...(await baseArgs(accountId)),
 					"bot.create",
 					"--slug",
 					"chef",
@@ -327,7 +338,7 @@ describe("cadmus CLI", () => {
 		expect(
 			(
 				await run([
-					...baseArgs(accountId),
+					...(await baseArgs(accountId)),
 					"chat.create",
 					"--botId",
 					"coordinator",
@@ -337,7 +348,7 @@ describe("cadmus CLI", () => {
 			).code,
 		).toBe(0);
 		const events = await start([
-			...baseArgs(accountId),
+			...(await baseArgs(accountId)),
 			"events",
 			"--types",
 			"bot.message",
@@ -349,7 +360,7 @@ describe("cadmus CLI", () => {
 			text: '[[group-reply]][tool:end_conversation {"response":"al dente"}][[/group-reply]]',
 		})}]`;
 		const turned = await run([
-			...baseArgs(accountId),
+			...(await baseArgs(accountId)),
 			"turn.submit",
 			"--chatKey",
 			"coord",
@@ -383,7 +394,7 @@ describe("cadmus CLI", () => {
 		expect(
 			(
 				await run([
-					...baseArgs(accountId),
+					...(await baseArgs(accountId)),
 					"bot.create",
 					"--slug",
 					"timer",
@@ -397,7 +408,7 @@ describe("cadmus CLI", () => {
 		expect(
 			(
 				await run([
-					...baseArgs(accountId),
+					...(await baseArgs(accountId)),
 					"chat.create",
 					"--botId",
 					"timer",
@@ -407,7 +418,7 @@ describe("cadmus CLI", () => {
 			).code,
 		).toBe(0);
 		const created = await run([
-			...baseArgs(accountId),
+			...(await baseArgs(accountId)),
 			"schedule.create",
 			"--id",
 			"wake",
@@ -427,7 +438,7 @@ describe("cadmus CLI", () => {
 		expect(created.code, created.stderr).toBe(0);
 		expect(JSON.parse(created.stdout).schedule.id).toBe("wake");
 		const listed = await run([
-			...baseArgs(accountId),
+			...(await baseArgs(accountId)),
 			"schedule.list",
 			"--botId",
 			"timer",
@@ -439,14 +450,14 @@ describe("cadmus CLI", () => {
 			),
 		).toBe(true);
 		const deleted = await run([
-			...baseArgs(accountId),
+			...(await baseArgs(accountId)),
 			"schedule.delete",
 			"--id",
 			"wake",
 		]);
 		expect(deleted.code, deleted.stderr).toBe(0);
 		const after = await run([
-			...baseArgs(accountId),
+			...(await baseArgs(accountId)),
 			"schedule.list",
 			"--botId",
 			"timer",
@@ -464,7 +475,10 @@ describe("cadmus CLI", () => {
 		expect(usage.code).toBe(2);
 		expect(JSON.parse(usage.stderr).code).toBe("usage");
 
-		const unknown = await run([...baseArgs(accountId), "not.a.command"]);
+		const unknown = await run([
+			...(await baseArgs(accountId)),
+			"not.a.command",
+		]);
 		expect(unknown.code).toBe(2);
 
 		const missingToken = await run([
@@ -476,7 +490,7 @@ describe("cadmus CLI", () => {
 		expect(JSON.parse(missingToken.stderr).code).toBe("unauthorized");
 
 		const protocol = await run([
-			...baseArgs(accountId),
+			...(await baseArgs(accountId)),
 			"file.read",
 			"--botId",
 			"missing",
@@ -493,7 +507,7 @@ describe("cadmus CLI", () => {
 		expect(version.stdout.trim()).toBe("0.1.0");
 
 		const accountId = uniqueAccountId("cli-enum");
-		const catalog = await run([...baseArgs(accountId), "commands"]);
+		const catalog = await run([...(await baseArgs(accountId)), "commands"]);
 		expect(catalog.code).toBe(0);
 		const names = new Set(
 			(JSON.parse(catalog.stdout) as { name: string }[]).map(
@@ -505,7 +519,7 @@ describe("cadmus CLI", () => {
 		for (const name of Object.keys(API_ROUTES)) {
 			expect(names.has(name), name).toBe(true);
 			expect(skill.stdout).toContain(`\`${name}\``);
-			const help = await run([...baseArgs(accountId), name, "--help"]);
+			const help = await run([...(await baseArgs(accountId)), name, "--help"]);
 			expect(help.code, help.stderr).toBe(0);
 			const body = JSON.parse(help.stdout) as {
 				name: string;

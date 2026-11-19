@@ -1,8 +1,4 @@
-import {
-	grantsForRole,
-	normalizeRole,
-	type Role,
-} from "@cadmus/contract/grants";
+import { normalizeRole, type Role } from "@cadmus/contract/grants";
 import { randomId } from "./random-id.js";
 import { parseStoredRoles } from "./roles.js";
 import {
@@ -220,68 +216,9 @@ export type MemberChangeResult =
 	| {
 			ok: true;
 			changed: boolean;
-			tokensRevoked: number;
 			sessionsRevoked: number;
 	  }
 	| { ok: false; code: "invalid" | "conflict" | "not_found"; message: string };
-
-/** Personal tokens (kind=pat) the user created in the account. */
-function revokePersonalTokens(
-	db: D1Database,
-	accountId: string,
-	userId: string,
-	now: number,
-	/** Optional SQL condition over ?1 (account) and ?2 (user), so the revoke only applies when the guarded change succeeded. */
-	when?: string,
-) {
-	const and = when ? ` AND ${when}` : "";
-	return [
-		db
-			.prepare(
-				`UPDATE cadmus_sessions SET revoked_at = ?3
-          WHERE revoked_at IS NULL AND token_id IN
-            (SELECT id FROM cadmus_auth_tokens
-              WHERE account_id = ?1 AND user_id = ?2 AND kind = 'pat' AND revoked_at IS NULL)${and}`,
-			)
-			.bind(accountId, userId, now),
-		db
-			.prepare(
-				`UPDATE cadmus_auth_tokens SET revoked_at = ?3
-          WHERE account_id = ?1 AND user_id = ?2 AND kind = 'pat' AND revoked_at IS NULL${and}`,
-			)
-			.bind(accountId, userId, now),
-	];
-}
-
-/**
- * Service tokens never gain grants back: when their creator's role shrinks
- * (demotion, or removal before the token moves to an admin) the stored grant
- * set is cut to the intersection with the new role's grants. A later promotion
- * or reassignment cannot restore what was lost.
- */
-function clampServiceTokens(
-	db: D1Database,
-	accountId: string,
-	userId: string,
-	role: Role,
-	/** SQL over ?1 (account) and ?2 (user): the statement applies only when it holds. */
-	when: string,
-): D1PreparedStatement {
-	const allowed = [...grantsForRole(role)];
-	const marks = allowed.map((_, i) => `?${i + 3}`).join(", ");
-	// Computed from each token's stored grants at write time, inside the same
-	// transaction as the role change, so a token minted a moment earlier is
-	// clamped too.
-	return db
-		.prepare(
-			`UPDATE cadmus_auth_tokens
-          SET grants = COALESCE((SELECT json_group_array(value) FROM json_each(grants)
-                                  WHERE value IN (${marks || "''"})), '[]')
-        WHERE account_id = ?1 AND user_id = ?2 AND kind = 'service' AND revoked_at IS NULL
-          AND ${when}`,
-		)
-		.bind(accountId, userId, ...allowed);
-}
 
 const OTHER_ADMIN = `EXISTS (SELECT 1 FROM cadmus_member_roles r
             JOIN cadmus_users u ON u.id = r.user_id
@@ -331,7 +268,7 @@ export async function updateMemberRole(
 		.filter((role): role is Role => role !== undefined);
 	const has = roles.includes(input.role);
 	if (input.op === "grant" ? has : !has) {
-		return { ok: true, changed: false, tokensRevoked: 0, sessionsRevoked: 0 };
+		return { ok: true, changed: false, sessionsRevoked: 0 };
 	}
 	if (input.op === "revoke" && roles.length <= 1) {
 		return {
@@ -341,15 +278,6 @@ export async function updateMemberRole(
 		};
 	}
 	const droppingAdmin = input.op === "revoke" && input.role === "account-admin";
-	const before = droppingAdmin
-		? await db
-				.prepare(
-					`SELECT COUNT(*) AS n FROM cadmus_auth_tokens
-            WHERE account_id = ?1 AND user_id = ?2 AND kind = 'pat' AND revoked_at IS NULL`,
-				)
-				.bind(input.accountId, input.userId)
-				.first<{ n: number }>()
-		: null;
 	const sessionsBefore = droppingAdmin
 		? await db
 				.prepare(
@@ -362,12 +290,6 @@ export async function updateMemberRole(
 		: null;
 	const opId = randomId("aud_");
 	const mine = `EXISTS (SELECT 1 FROM cadmus_audit WHERE id = '${opId}')`;
-	const remaining = droppingAdmin
-		? roles.filter((role) => role !== "account-admin")
-		: roles;
-	const clampTo = remaining.includes("account-admin")
-		? "account-admin"
-		: "user";
 	const write =
 		input.op === "grant"
 			? db
@@ -406,8 +328,6 @@ export async function updateMemberRole(
 		),
 		...(droppingAdmin
 			? [
-					clampServiceTokens(db, input.accountId, input.userId, clampTo, mine),
-					...revokePersonalTokens(db, input.accountId, input.userId, now, mine),
 					db
 						.prepare(
 							`UPDATE cadmus_sessions SET revoked_at = ?3
@@ -427,7 +347,7 @@ export async function updateMemberRole(
 			.bind(input.accountId, input.userId, input.role)
 			.first<{ x: number }>();
 		if (!still) {
-			return { ok: true, changed: false, tokensRevoked: 0, sessionsRevoked: 0 };
+			return { ok: true, changed: false, sessionsRevoked: 0 };
 		}
 		if (droppingAdmin) {
 			return {
@@ -436,12 +356,11 @@ export async function updateMemberRole(
 				message: "last_admin: the last account-admin cannot be revoked",
 			};
 		}
-		return { ok: true, changed: false, tokensRevoked: 0, sessionsRevoked: 0 };
+		return { ok: true, changed: false, sessionsRevoked: 0 };
 	}
 	return {
 		ok: true,
 		changed: true,
-		tokensRevoked: before?.n ?? 0,
 		sessionsRevoked: sessionsBefore?.n ?? 0,
 	};
 }
@@ -465,12 +384,6 @@ export async function removeMember(
 	if (!current) {
 		return { ok: false, code: "not_found", message: "member not found" };
 	}
-	const targetAdmin = `SELECT r.user_id FROM cadmus_member_roles r
-                            JOIN cadmus_users u ON u.id = r.user_id
-                           WHERE r.account_id = ?1 AND r.user_id <> ?2
-                             AND r.role = 'account-admin'
-                             AND u.disabled_at IS NULL
-                           ORDER BY r.user_id LIMIT 1`;
 	const count = async (sql: string) =>
 		(
 			await db
@@ -478,11 +391,6 @@ export async function removeMember(
 				.bind(input.accountId, input.userId)
 				.first<{ n: number }>()
 		)?.n ?? 0;
-	const tokens = await count(
-		`SELECT COUNT(*) AS n FROM cadmus_auth_tokens
-      WHERE account_id = ?1 AND user_id = ?2 AND revoked_at IS NULL
-        AND (kind = 'pat' OR (kind = 'service' AND (${targetAdmin}) IS NULL))`,
-	);
 	const sessions = await count(
 		`SELECT COUNT(*) AS n FROM cadmus_sessions
       WHERE account_id = ?1 AND user_id = ?2 AND revoked_at IS NULL`,
@@ -492,7 +400,6 @@ export async function removeMember(
 	const opId = randomId("aud_");
 	const gone = `NOT EXISTS (SELECT 1 FROM cadmus_account_members WHERE account_id = ?1 AND user_id = ?2)`;
 	const mine = `EXISTS (SELECT 1 FROM cadmus_audit WHERE id = '${opId}')`;
-	const actorKind = input.actorKind === "super-admin" ? "super-admin" : "user";
 	const results = await db.batch([
 		db
 			.prepare(
@@ -527,65 +434,6 @@ export async function removeMember(
           WHERE account_id = ?1 AND user_id = ?2 AND ${gone} AND ${mine}`,
 			)
 			.bind(input.accountId, input.userId),
-		...revokePersonalTokens(
-			db,
-			input.accountId,
-			input.userId,
-			now,
-			`${gone} AND ${mine}`,
-		),
-		// Service tokens outlive their creator (issue #3 decision 14): when an
-		// enabled admin remains, move ownership to that admin and keep the minted
-		// grants (created_by keeps provenance). Audit before updating user_id so
-		// chained transfers and re-invited creators only log tokens owned by ?2.
-		db
-			.prepare(
-				`INSERT INTO cadmus_audit (id, account_id, actor_user_id, actor_kind, action, target_account_id, target, data, at)
-         SELECT '${opId}_' || t.id, ?1, ?3, '${actorKind}', 'token.transfer', ?1, t.id,
-                json_object('from', ?2, 'to', (${targetAdmin}), 'grants', json(t.grants)), ?4
-           FROM cadmus_auth_tokens t
-          WHERE t.account_id = ?1 AND t.user_id = ?2
-            AND t.kind = 'service' AND t.revoked_at IS NULL
-            AND (${targetAdmin}) IS NOT NULL AND ${gone} AND ${mine}`,
-			)
-			.bind(input.accountId, input.userId, input.actor, now),
-		db
-			.prepare(
-				`UPDATE cadmus_auth_tokens
-            SET user_id = (${targetAdmin})
-          WHERE account_id = ?1 AND user_id = ?2 AND kind = 'service' AND revoked_at IS NULL
-            AND (${targetAdmin}) IS NOT NULL AND ${gone} AND ${mine}`,
-			)
-			.bind(input.accountId, input.userId),
-		// If every remaining admin is disabled, no enabled owner exists to hold
-		// orphaned service tokens, so revoke them and their sessions instead of
-		// writing user_id = NULL.
-		db
-			.prepare(
-				`UPDATE cadmus_sessions SET revoked_at = ?3
-          WHERE revoked_at IS NULL AND token_id IN
-            (SELECT id FROM cadmus_auth_tokens
-              WHERE account_id = ?1 AND user_id = ?2 AND kind = 'service' AND revoked_at IS NULL)
-            AND (${targetAdmin}) IS NULL AND ${gone} AND ${mine}`,
-			)
-			.bind(input.accountId, input.userId, now),
-		db
-			.prepare(
-				`INSERT INTO cadmus_audit (id, account_id, actor_user_id, actor_kind, action, target_account_id, target, data, at)
-         SELECT '${opId}_' || t.id, ?1, ?3, '${actorKind}', 'token.revoke', ?1, t.id, '{}', ?4
-           FROM cadmus_auth_tokens t
-          WHERE t.account_id = ?1 AND t.user_id = ?2
-            AND t.kind = 'service' AND t.revoked_at IS NULL
-            AND (${targetAdmin}) IS NULL AND ${gone} AND ${mine}`,
-			)
-			.bind(input.accountId, input.userId, input.actor, now),
-		db
-			.prepare(
-				`UPDATE cadmus_auth_tokens SET revoked_at = ?3
-          WHERE account_id = ?1 AND user_id = ?2 AND kind = 'service' AND revoked_at IS NULL
-            AND (${targetAdmin}) IS NULL AND ${gone} AND ${mine}`,
-			)
-			.bind(input.accountId, input.userId, now),
 		db
 			.prepare(
 				`UPDATE cadmus_sessions SET revoked_at = ?3
@@ -602,7 +450,7 @@ export async function removeMember(
 			.first();
 		if (!still) {
 			// A concurrent removal won; nothing more to do or audit.
-			return { ok: true, changed: false, tokensRevoked: 0, sessionsRevoked: 0 };
+			return { ok: true, changed: false, sessionsRevoked: 0 };
 		}
 		return {
 			ok: false,
@@ -613,7 +461,6 @@ export async function removeMember(
 	return {
 		ok: true,
 		changed: true,
-		tokensRevoked: tokens,
 		sessionsRevoked: sessions,
 	};
 }

@@ -8,9 +8,10 @@ export interface ClientConnection {
 }
 
 /**
- * `/ws` opens with a single-use ticket minted over the header-backed RPC for
- * every credential. API tokens (`cad_pat_`, `cad_svc_`) are accepted as
- * `Authorization: Bearer` on `/api` and `/rpc` (`CADMUS_TOKEN`).
+ * `/ws` opens with a single-use ticket minted over the header-backed RPC.
+ * `Authorization: Bearer` on `/api` and `/rpc` is a session access token
+ * (`cad_at_`). `CADMUS_TOKEN` is that same override when the caller already
+ * holds one.
  */
 export function createClient(
 	connection: ClientConnection,

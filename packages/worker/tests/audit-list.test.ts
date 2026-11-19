@@ -1,10 +1,8 @@
-import { env, SELF } from "cloudflare:test";
+import { env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import { getEdgeCache } from "../src/edge-cache.js";
 import { D1AdminStore } from "../src/store/d1-admin.js";
 import { rpc, uniqueAccountId } from "./helpers.js";
-
-const ORIGIN = "https://example.com";
 
 function store(): D1AdminStore {
 	return new D1AdminStore({
@@ -164,33 +162,11 @@ describe("account.audit.list (issue #3 phase 6)", () => {
 		expect(ok.result?.events.length).toBeLessThanOrEqual(2);
 	});
 
-	it("refuses plain users and tokens without audit.read; allows one that has it", async () => {
-		const { s, accountId, admin, member, tokenFor } = await setup();
+	it("refuses a plain user and allows an account-admin", async () => {
+		const { admin, member, tokenFor } = await setup();
 		const denied = await rpc(await tokenFor(member), "account.audit.list");
 		expect(denied.ok).toBe(false);
-		const mint = async (grants: string[]) => {
-			const made = await s.createToken({
-				accountId,
-				creatorUserId: admin,
-				creatorRole: "account-admin",
-				creatorGrants: ["chat.use", "audit.read"],
-				kind: "service",
-				label: grants.join("+"),
-				grants,
-			});
-			if (!made.ok) throw new Error(`create failed ${JSON.stringify(made)}`);
-			const login = await SELF.fetch(`${ORIGIN}/api/auth/login/token`, {
-				method: "POST",
-				headers: { authorization: `Bearer ${made.token}` },
-			});
-			return ((await login.json()) as { accessToken: string }).accessToken;
-		};
-		const subset = await rpc(await mint(["chat.use"]), "account.audit.list");
-		expect(subset.ok).toBe(false);
-		const withGrant = await rpc(
-			await mint(["chat.use", "audit.read"]),
-			"account.audit.list",
-		);
-		expect(withGrant.ok).toBe(true);
+		const allowed = await rpc(await tokenFor(admin), "account.audit.list");
+		expect(allowed.ok).toBe(true);
 	});
 });

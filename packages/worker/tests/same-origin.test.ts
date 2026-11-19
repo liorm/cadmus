@@ -17,7 +17,6 @@ const EVIL = "https://evil.example";
 const WRITE_PATHS = [
 	"/api/auth/session/refresh",
 	"/api/auth/session/logout",
-	"/api/auth/login/token",
 	"/api/auth/login/devPassword",
 	"/api/auth/whoami",
 	"/api/bot/list",
@@ -25,7 +24,7 @@ const WRITE_PATHS = [
 	"/tools-env/pair",
 ];
 
-async function serviceToken(): Promise<string> {
+async function sessionAccess(): Promise<string> {
 	const s = new D1AdminStore({
 		db: env.CADMUS_ADMIN_DB,
 		encryptionKey: env.CADMUS_ENCRYPTION_KEY,
@@ -34,17 +33,8 @@ async function serviceToken(): Promise<string> {
 	const accountId = uniqueAccountId("same-origin");
 	const userId = `usr_${accountId}`;
 	await s.ensureAccountAndUser({ accountId, userId, role: "account-admin" });
-	const created = await s.createToken({
-		accountId,
-		creatorUserId: userId,
-		creatorRole: "account-admin",
-		creatorGrants: ["chat.use", "bot.read"],
-		kind: "service",
-		label: "same-origin probe",
-		grants: ["chat.use", "bot.read"],
-	});
-	expect(created.ok).toBe(true);
-	return (created as { token: string }).token;
+	const session = await s.createSession({ userId, accountId });
+	return session.accessToken;
 }
 
 function expectRefused(res: Response, label: string) {
@@ -86,7 +76,7 @@ describe("strict same-origin (issue #3 phase 8)", () => {
 	}
 
 	it("a cross-origin preflight is refused and grants nothing", async () => {
-		const res = await SELF.fetch(`${ORIGIN}/api/auth/login/token`, {
+		const res = await SELF.fetch(`${ORIGIN}/rpc`, {
 			method: "OPTIONS",
 			headers: {
 				origin: EVIL,
@@ -99,32 +89,8 @@ describe("strict same-origin (issue #3 phase 8)", () => {
 		expect(res.headers.get("access-control-allow-methods")).toBeNull();
 	});
 
-	it("a valid service token cannot be exchanged for a session from another origin", async () => {
-		const raw = await serviceToken();
-		const headers = { authorization: `Bearer ${raw}` };
-		// Positive control: the same token logs in same-origin and origin-less.
-		for (const extra of [{ origin: ORIGIN }, {}] as Record<string, string>[]) {
-			const ok = await SELF.fetch(`${ORIGIN}/api/auth/login/token`, {
-				method: "POST",
-				headers: { ...headers, ...extra },
-			});
-			expect(ok.status, JSON.stringify(extra)).toBe(200);
-		}
-		const res = await SELF.fetch(`${ORIGIN}/api/auth/login/token`, {
-			method: "POST",
-			headers: { ...headers, origin: EVIL },
-		});
-		expectRefused(res, "token-login from evil origin");
-	});
-
 	it("a valid bearer cannot write through /api or /rpc from another origin", async () => {
-		const raw = await serviceToken();
-		const login = await SELF.fetch(`${ORIGIN}/api/auth/login/token`, {
-			method: "POST",
-			headers: { authorization: `Bearer ${raw}` },
-		});
-		expect(login.status).toBe(200);
-		const { accessToken } = (await login.json()) as { accessToken: string };
+		const accessToken = await sessionAccess();
 		const auth = { authorization: `Bearer ${accessToken}` };
 		const same = await SELF.fetch(`${ORIGIN}/api/bot/list`, {
 			headers: { ...auth, origin: ORIGIN },

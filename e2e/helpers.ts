@@ -294,14 +294,12 @@ export async function adminScope(familyId = "default"): Promise<
 }
 
 /**
- * Invite a member onto an existing account and return a short-lived `cad_pat_`
- * they can send as `Authorization: Bearer`. The token's grants are a user
- * subset, so it cannot run account-admin commands.
+ * Invite a member onto an existing account and return their in-memory
+ * dev-password access token (`cad_at_`). A `user` role is the narrow session.
  */
 export async function addMemberBearer(input: {
 	accountId: string;
 	role?: "user" | "account-admin";
-	grants?: string[];
 }): Promise<{ userId: string; email: string; token: string }> {
 	const boss = await loginDevPassword();
 	await elevateAccessToken(boss.accessToken);
@@ -326,25 +324,10 @@ export async function addMemberBearer(input: {
 	if (!who.frame.ok || !who.frame.result?.principal.userId) {
 		throw new Error(`auth.whoami failed: ${JSON.stringify(who.frame)}`);
 	}
-	const minted = await sendRpc<{ token: string }>(
-		"auth.tokens.create",
-		{
-			kind: "pat",
-			label: "member",
-			grants: input.grants ?? ["chat.use", "members.read", "tokens.self"],
-			ttlDays: 1,
-		},
-		{ token: session.accessToken },
-	);
-	if (!minted.frame.ok || !minted.frame.result?.token) {
-		throw new Error(
-			`auth.tokens.create failed: ${JSON.stringify(minted.frame)}`,
-		);
-	}
 	return {
 		userId: who.frame.result.principal.userId,
 		email,
-		token: minted.frame.result.token,
+		token: session.accessToken,
 	};
 }
 

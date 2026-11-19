@@ -2,7 +2,7 @@ import { env, runInDurableObject, SELF } from "cloudflare:test";
 import { CadmusClient, ProtocolClient } from "@cadmus/contract/client";
 import { describe, expect, it } from "vitest";
 import { REFRESH_COOKIE } from "../src/auth-routes.js";
-import { getEdgeCache } from "../src/edge-cache.js";
+import { getEdgeCache, sha256Hex } from "../src/edge-cache.js";
 import { D1AdminStore } from "../src/store/d1-admin.js";
 import { completeLogin } from "../src/store/d1-login.js";
 import {
@@ -238,59 +238,16 @@ describe("x-account-id selects among the caller's memberships (issue #3 L113)", 
 		expect(s).toBeDefined();
 	});
 
-	it("keeps a token-backed session bound to its own account", async () => {
-		const { s, accountId, second, userId } = await twoAccounts();
-		const made = await s.createToken({
-			accountId,
-			creatorUserId: userId,
-			creatorRole: "account-admin",
-			creatorGrants: ["chat.use", "bot.read", "tokens.self"],
-			kind: "service",
-			label: "bound",
-			grants: ["chat.use", "tokens.self"],
-		});
-		if (!made.ok) throw new Error("create failed");
-		const login = await SELF.fetch(`${ORIGIN}/api/auth/login/token`, {
-			method: "POST",
-			headers: { authorization: `Bearer ${made.token}` },
-		});
-		const { accessToken } = (await login.json()) as { accessToken: string };
-		expect((await whoamiAs(accessToken)).status).toBe(200);
-		expect((await whoamiAs(accessToken, accountId)).status).toBe(200);
-		expect((await whoamiAs(accessToken, second)).status).toBe(401);
-	});
-
-	it("refuses a forged ticket that points a token session at another account it is a live member of", async () => {
-		const { s, accountId, second, userId } = await twoAccounts();
-		const made = await s.createToken({
-			accountId,
-			creatorUserId: userId,
-			creatorRole: "account-admin",
-			creatorGrants: ["chat.use", "bot.read", "tokens.self"],
-			kind: "service",
-			label: "forged-ticket",
-			grants: ["chat.use", "tokens.self"],
-		});
-		if (!made.ok) throw new Error("create failed");
-		const login = await SELF.fetch(`${ORIGIN}/api/auth/login/token`, {
-			method: "POST",
-			headers: { authorization: `Bearer ${made.token}` },
-		});
-		expect(login.status).toBe(200);
-		const row = await env.CADMUS_ADMIN_DB.prepare(
-			"SELECT s.id AS id FROM cadmus_sessions s JOIN cadmus_auth_tokens t ON t.id = s.token_id WHERE t.label = ?1",
+	it("consumeTicket returns undefined when the ticket names a legacy session", async () => {
+		const { s, accountId, userId } = await twoAccounts();
+		const ticket = `cad_tk_${crypto.randomUUID().replaceAll("-", "")}`;
+		await env.CADMUS_ADMIN_DB.prepare(
+			`INSERT INTO cadmus_tickets (ticket_hash, session_id, target, expires_at, account_id, user_id)
+       VALUES (?1, 'legacy', 'events', ?2, ?3, ?4)`,
 		)
-			.bind("forged-ticket")
-			.first<{ id: string }>();
-		if (!row) throw new Error("no token session");
-		// The user IS a live member of `second`, so the membership join alone
-		// would let this through; only the token-session bound refuses it.
-		const forged = await s.createTicket(row.id, "events", second);
-		expect(await s.consumeTicket(forged.ticket, "events")).toBeUndefined();
-		const own = await s.createTicket(row.id, "events", accountId);
-		expect(await s.consumeTicket(own.ticket, "events")).toMatchObject({
-			accountId,
-		});
+			.bind(await sha256Hex(ticket), Date.now() + 60_000, accountId, userId)
+			.run();
+		expect(await s.consumeTicket(ticket, "events")).toBeUndefined();
 	});
 
 	it("a signed-in CadmusClient acts in the session's own account until it selects another", async () => {
@@ -1013,7 +970,7 @@ describe("session and login method commands (issue #3 phase 3c)", () => {
 	});
 
 	it("accepts a session access token on /rpc only as a bearer header", async () => {
-		const { s, accountId, userId } = await seedUser();
+		const { accountId, userId, s } = await seedUser();
 		const t = await s.createSession({ userId, accountId });
 		const body = (id: string) =>
 			JSON.stringify({ id, type: "auth.whoami", payload: {} });
@@ -1055,452 +1012,30 @@ describe("session and login method commands (issue #3 phase 3c)", () => {
 			).status,
 			"header wins over cookie",
 		).toBe(200);
-		// A real API token is a bearer on /rpc. This fixture holds chat.use only,
-		// so whoami is forbidden. The cookie and ?token= forms stay refused.
-		for (const kind of ["pat", "service"] as const) {
-			const made = await s.createToken({
-				accountId,
-				creatorUserId: userId,
-				creatorRole: "account-admin",
-				creatorGrants: ["chat.use"],
-				kind,
-				label: `rpc-${kind}`,
-				grants: ["chat.use"],
-				...(kind === "pat" ? { ttlMs: 86_400_000 } : {}),
-			});
-			if (!made.ok) throw new Error("create failed");
-			const header = await post(`${ORIGIN}/rpc`, {
-				authorization: `Bearer ${made.token}`,
-			});
-			expect(header.status, `${kind} header`).toBe(400);
-			const headerBody = (await header.json()) as {
-				ok?: boolean;
-				error?: { code?: string };
-			};
-			expect(headerBody.ok, `${kind} header`).toBe(false);
-			expect(headerBody.error?.code, `${kind} header`).toBe("forbidden");
-			for (const [form, url, headers] of [
-				["cookie", `${ORIGIN}/rpc`, { cookie: `cadmus_session=${made.token}` }],
-				["query", `${ORIGIN}/rpc?token=${made.token}`, {}],
-			] as const) {
-				const res = await post(url, { ...headers });
-				expect(res.status, `${kind} ${form}`).toBe(401);
-			}
-		}
-		// A legacy member token is header-only on /rpc. A bearer shaped
-		// account:user:secret is not a credential on any transport.
-		const raw = `legacy-member-rpc-${accountId}`;
-		await s.addMember({
-			accountId,
-			userId,
-			roles: ["account-admin"],
-			rawToken: raw,
-		});
+		// API tokens, a prefix-less secret, and account:user:secret are not bearers.
+		// Cookie and ?token= stay refused for those too.
 		const shaped = `${accountId}:${userId}:not-a-credential`;
-		for (const [tok, headerStatus] of [
-			[raw, 200],
-			[shaped, 401],
-		] as const) {
-			for (const [form, url, headers, want] of [
-				[
-					"header",
-					`${ORIGIN}/rpc`,
-					{ authorization: `Bearer ${tok}` },
-					headerStatus,
-				],
+		for (const tok of [
+			"cad_pat_x",
+			"cad_svc_x",
+			shaped,
+			`plain-${accountId}`,
+		]) {
+			for (const [form, url, headers] of [
+				["header", `${ORIGIN}/rpc`, { authorization: `Bearer ${tok}` }],
 				[
 					"cookie",
 					`${ORIGIN}/rpc`,
 					{ cookie: `cadmus_session=${encodeURIComponent(tok)}` },
-					401,
 				],
 				[
 					"query",
 					`${ORIGIN}/rpc?token=${encodeURIComponent(tok)}&accountId=${accountId}`,
 					{},
-					401,
 				],
 			] as const) {
 				const res = await post(url, { ...headers });
-				expect(res.status, `${tok.slice(0, 12)} ${form}`).toBe(want);
-			}
-		}
-	});
-
-	it("a legacy ticket is bound to the credential that minted it: revoked or expired after the mint is refused, master keeps working, an unnamed credential is refused", async () => {
-		const { s, accountId, userId } = await seedUser();
-		const mint = async (token: string, asUser?: string) => {
-			const minted = await sendRpc<{ ticket: string }>(
-				"auth.ticket",
-				{ target: "events" },
-				{ token, accountId, ...(asUser ? { userId: asUser } : {}) },
-			);
-			expect(minted.frame.ok).toBe(true);
-			return minted.frame.result?.ticket ?? "";
-		};
-		const open = async (ticket: string) => {
-			const res = await SELF.fetch(`${ORIGIN}/events?ticket=${ticket}`);
-			await res.body?.cancel().catch(() => undefined);
-			return res.status;
-		};
-		const addToken = async (label: string) => {
-			const raw = `legacy-bound-${label}-${accountId}`;
-			await s.addMember({
-				accountId,
-				userId: `${userId}-${label}`,
-				roles: ["user"],
-				rawToken: raw,
-			});
-			return raw;
-		};
-		// Control: a live legacy token's ticket opens.
-		const live = await addToken("live");
-		expect(await open(await mint(live))).toBe(200);
-		// Revoked between mint and consume.
-		const revoked = await addToken("revoked");
-		const t1 = await mint(revoked);
-		expect(await s.revokeToken(revoked)).toBe(true);
-		expect(await open(t1), "revoked after mint").toBe(401);
-		// Expired between mint and consume.
-		const expiring = await addToken("expiring");
-		const t2 = await mint(expiring);
-		await env.CADMUS_ADMIN_DB.prepare(
-			"UPDATE cadmus_auth_tokens SET expires_at = ?1 WHERE user_id = ?2",
-		)
-			.bind(Date.now() - 1000, `${userId}-expiring`)
-			.run();
-		expect(await open(t2), "expired after mint").toBe(401);
-		// A token row flagged revoked (revoked_at set, row kept) between mint and
-		// consume is refused too.
-		const flagged = await addToken("flagged");
-		const t3 = await mint(flagged);
-		await env.CADMUS_ADMIN_DB.prepare(
-			"UPDATE cadmus_auth_tokens SET revoked_at = ?1 WHERE user_id = ?2",
-		)
-			.bind(Date.now(), `${userId}-flagged`)
-			.run();
-		expect(await open(t3), "revoked_at set after mint").toBe(401);
-		// A shared secret is not a credential, so it cannot mint a ticket.
-		const denied = await sendRpc(
-			"auth.ticket",
-			{ target: "events" },
-			{ token: `not-a-credential-${accountId}`, accountId, userId },
-		);
-		expect(denied.frame.ok).toBe(false);
-		expect(denied.status).toBe(401);
-		// A ticket whose mint named no credential is refused.
-		const { createLegacyTicket } = await import("../src/store/d1-sessions.js");
-		const bare = await createLegacyTicket(
-			env.CADMUS_ADMIN_DB,
-			userId,
-			accountId,
-			"events",
-			undefined,
-		);
-		expect(await open(bare.ticket), "no credential named").toBe(401);
-	});
-
-	it("a client cannot claim the master credential for a legacy member token through a principal header", async () => {
-		const { s, accountId, userId } = await seedUser();
-		const raw = `legacy-spoof-${accountId}`;
-		await s.addMember({
-			accountId,
-			userId: `${userId}-spoof`,
-			roles: ["account-admin"],
-			rawToken: raw,
-		});
-		const forged = btoa(
-			JSON.stringify({
-				kind: "token",
-				userId: `${userId}-spoof`,
-				accountId,
-				role: "account-admin",
-				credential: "master",
-			}),
-		);
-		const mint = async (extra: Record<string, string>) => {
-			const res = await SELF.fetch(`${ORIGIN}/rpc`, {
-				method: "POST",
-				headers: {
-					"content-type": "application/json",
-					authorization: `Bearer ${raw}`,
-					...extra,
-				},
-				body: JSON.stringify({
-					id: "spoof",
-					type: "auth.ticket",
-					payload: { target: "events" },
-				}),
-			});
-			const frame = (await res.json()) as {
-				ok: boolean;
-				result?: { ticket: string };
-			};
-			expect(frame.ok).toBe(true);
-			return frame.result?.ticket ?? "";
-		};
-		const open = async (ticket: string) => {
-			const res = await SELF.fetch(`${ORIGIN}/events?ticket=${ticket}`);
-			await res.body?.cancel().catch(() => undefined);
-			return res.status;
-		};
-		// Control: with no spoof header a live token's ticket opens.
-		expect(await open(await mint({}))).toBe(200);
-		// With forged principal headers the ticket still carries the edge's own
-		// credential claim, so revoking the token voids it.
-		const spoofed = await mint({
-			"X-Cadmus-Principal": forged,
-			"x-cadmus-principal": forged,
-			"X-Cadmus-Credential": "master",
-		});
-		expect(await s.revokeToken(raw)).toBe(true);
-		expect(await open(spoofed), "forged master claim").toBe(401);
-	});
-
-	it("a legacy ticket carries exactly the minting header identity: no retargeting, no escalation, and what happens after the socket opens", async () => {
-		const a = await seedUser("user");
-		const b = await seedUser("account-admin");
-		const raw = `legacy-ident-${a.accountId}`;
-		await a.s.addMember({
-			accountId: a.accountId,
-			userId: `${a.userId}-m`,
-			roles: ["user"],
-			rawToken: raw,
-		});
-		const whoami = async (url: string) => {
-			const res = await SELF.fetch(url, { headers: { upgrade: "websocket" } });
-			const ws = res.webSocket;
-			if (!ws) throw new Error(`no socket: ${res.status}`);
-			ws.accept();
-			const reply = await new Promise<{
-				result?: { principal?: unknown };
-				error?: unknown;
-				ok?: boolean;
-			}>((resolve) => {
-				ws.addEventListener("message", (ev) =>
-					resolve(JSON.parse(String(ev.data))),
-				);
-				ws.send(JSON.stringify({ id: "w1", type: "auth.whoami" }));
-			});
-			return { ws, reply };
-		};
-		// Legacy member token minted in account A, opened with account B's id and
-		// a foreign user id in the URL: the ticket's identity wins.
-		const minted = await sendRpc<{ ticket: string }>(
-			"auth.ticket",
-			{ target: "ws" },
-			{ token: raw, accountId: a.accountId },
-		);
-		const t1 = minted.frame.result?.ticket ?? "";
-		const { ws, reply } = await whoami(
-			`${ORIGIN}/ws?ticket=${t1}&accountId=${b.accountId}&userId=${b.userId}`,
-		);
-		expect(reply.result?.principal).toMatchObject({
-			accountId: a.accountId,
-			userId: `${a.userId}-m`,
-			role: "user",
-		});
-		ws.close();
-		// A legacy member token that asks for account B in the header still gets
-		// its own account: the ticket is bound to A.
-		const foreign = await sendRpc<{ ticket: string }>(
-			"auth.ticket",
-			{ target: "ws" },
-			{ token: raw, accountId: b.accountId },
-		);
-		expect(foreign.frame.ok).toBe(true);
-		const f = await whoami(
-			`${ORIGIN}/ws?ticket=${foreign.frame.result?.ticket}`,
-		);
-		expect(f.reply.result?.principal).toMatchObject({
-			accountId: a.accountId,
-			userId: `${a.userId}-m`,
-		});
-		f.ws.close();
-		// An account-admin session: the ticket yields the same identity the
-		// header form gets (positive control: whoami over the header).
-		const viaHeader = await sendRpc<{ principal?: unknown }>(
-			"auth.whoami",
-			{},
-			{ accountId: a.accountId, userId: "master-user" },
-		);
-		const mm = await sendRpc<{ ticket: string }>(
-			"auth.ticket",
-			{ target: "ws" },
-			{ accountId: a.accountId, userId: "master-user" },
-		);
-		const m = await whoami(
-			`${ORIGIN}/ws?ticket=${mm.frame.result?.ticket}&accountId=${b.accountId}`,
-		);
-		expect(m.reply.result?.principal).toMatchObject({
-			accountId: a.accountId,
-			userId: "master-user",
-			role: "account-admin",
-		});
-		expect(m.reply.result?.principal).toEqual(
-			viaHeader.frame.result?.principal,
-		);
-		m.ws.close();
-	});
-
-	it("keeps the other credential kinds' stream behavior unchanged", async () => {
-		const { s, accountId, userId } = await seedUser();
-		const raw = `legacy-member-${accountId}`;
-		await s.addMember({
-			accountId,
-			userId,
-			roles: ["account-admin"],
-			rawToken: raw,
-		});
-		// A legacy member token is header-only on /events and /ws. ?token= and
-		// the cookie are retired; the header form is the positive control.
-		for (const path of ["events", "ws"] as const) {
-			const upgrade: Record<string, string> =
-				path === "ws" ? { upgrade: "websocket" } : {};
-			for (const [form, url, headers] of [
-				["query", `${ORIGIN}/${path}?token=${raw}&accountId=${accountId}`, {}],
-				[
-					"cookie",
-					`${ORIGIN}/${path}?accountId=${accountId}`,
-					{ cookie: `cadmus_session=${raw}` },
-				],
-			] as const) {
-				const res = await SELF.fetch(url, {
-					headers: { ...upgrade, ...headers },
-				});
-				expect(res.status, `legacy ${path} ${form}`).toBe(401);
-			}
-			const ok = await SELF.fetch(`${ORIGIN}/${path}?accountId=${accountId}`, {
-				headers: { ...upgrade, authorization: `Bearer ${raw}` },
-			});
-			expect(ok.status, `legacy ${path} header`).toBe(
-				path === "ws" ? 101 : 200,
-			);
-			await ok.body?.cancel().catch(() => undefined);
-			ok.webSocket?.accept();
-			ok.webSocket?.close();
-		}
-		// A shared secret is refused on ?token= and in the cookie for streams,
-		// and it cannot mint a ticket either.
-		const shared = `not-a-credential-${accountId}`;
-		for (const path of ["events", "ws"] as const) {
-			const upgrade: Record<string, string> =
-				path === "ws" ? { upgrade: "websocket" } : {};
-			const q = await SELF.fetch(
-				`${ORIGIN}/${path}?token=${shared}&accountId=${accountId}`,
-				{ headers: upgrade },
-			);
-			expect(q.status, `shared ${path} query`).toBe(401);
-			const c = await SELF.fetch(`${ORIGIN}/${path}?accountId=${accountId}`, {
-				headers: { ...upgrade, cookie: `cadmus_session=${shared}` },
-			});
-			expect(c.status, `shared ${path} cookie`).toBe(401);
-			const mintedShared = await sendRpc(
-				"auth.ticket",
-				{ target: path },
-				{ token: shared, accountId, userId },
-			);
-			expect(mintedShared.status, `shared ${path} mint`).toBe(401);
-		}
-		// A legacy member token opens streams with a ticket minted over the header.
-		for (const [who, token] of [["legacy member", raw]] as const) {
-			for (const path of ["events", "ws"] as const) {
-				const upgrade: Record<string, string> =
-					path === "ws" ? { upgrade: "websocket" } : {};
-				const minted = await sendRpc<{ ticket: string }>(
-					"auth.ticket",
-					{ target: path },
-					{ token, accountId, userId },
-				);
-				expect(minted.frame.ok, `${who} ${path} mint`).toBe(true);
-				const ticket = minted.frame.result?.ticket ?? "";
-				const ok = await SELF.fetch(`${ORIGIN}/${path}?ticket=${ticket}`, {
-					headers: upgrade,
-				});
-				expect(ok.status, `${who} ${path} ticket`).toBe(
-					path === "ws" ? 101 : 200,
-				);
-				await ok.body?.cancel().catch(() => undefined);
-				ok.webSocket?.accept();
-				ok.webSocket?.close();
-				// Single use, and bound to its target.
-				const again = await SELF.fetch(`${ORIGIN}/${path}?ticket=${ticket}`, {
-					headers: upgrade,
-				});
-				expect(again.status, `${who} ${path} reuse`).toBe(401);
-			}
-		}
-		// A legacy ticket re-reads the membership: removing the member after the
-		// mint makes the ticket useless.
-		const doomed = `legacy-doomed-${accountId}`;
-		await s.addMember({
-			accountId,
-			userId: `${userId}-doomed`,
-			roles: ["account-admin"],
-			rawToken: doomed,
-		});
-		const minted = await sendRpc<{ ticket: string }>(
-			"auth.ticket",
-			{ target: "events" },
-			{ token: doomed, accountId },
-		);
-		expect(minted.frame.ok).toBe(true);
-		await s.removeMember({
-			accountId,
-			userId: `${userId}-doomed`,
-			actor: userId,
-		});
-		const gone = await SELF.fetch(
-			`${ORIGIN}/events?ticket=${minted.frame.result?.ticket}`,
-		);
-		expect(gone.status).toBe(401);
-		// A disabled user or a suspended account also voids a minted ticket.
-		for (const [what, sql] of [
-			[
-				"disabled user",
-				"UPDATE cadmus_users SET disabled_at = ?2 WHERE id = ?1",
-			],
-			[
-				"suspended account",
-				"UPDATE cadmus_accounts SET status = 'suspended', suspended_at = ?2 WHERE id = ?1",
-			],
-		] as const) {
-			const sub = await seedUser();
-			const tok = `legacy-${what.replace(" ", "-")}-${sub.accountId}`;
-			await sub.s.addMember({
-				accountId: sub.accountId,
-				userId: `${sub.userId}-x`,
-				roles: ["user"],
-				rawToken: tok,
-			});
-			const ok = await sendRpc<{ ticket: string }>(
-				"auth.ticket",
-				{ target: "events" },
-				{ token: tok, accountId: sub.accountId },
-			);
-			expect(ok.frame.ok, `${what} mint`).toBe(true);
-			await env.CADMUS_ADMIN_DB.prepare(sql)
-				.bind(
-					what === "disabled user" ? `${sub.userId}-x` : sub.accountId,
-					Date.now(),
-				)
-				.run();
-			const res = await SELF.fetch(
-				`${ORIGIN}/events?ticket=${ok.frame.result?.ticket}`,
-			);
-			expect(res.status, what).toBe(401);
-		}
-		// An unknown API token is not a bearer. A real cad_pat_ / cad_svc_ is;
-		// that path is covered with a minted token below and in e2e.
-		for (const kind of ["cad_pat_", "cad_svc_"]) {
-			for (const path of ["/ws", "/events", "/api/auth/whoami"]) {
-				const res = await SELF.fetch(`${ORIGIN}${path}`, {
-					headers: {
-						authorization: `Bearer ${kind}notarealtoken`,
-						...(path === "/ws" ? { upgrade: "websocket" } : {}),
-					},
-				});
-				expect(res.status, `${kind} on ${path}`).toBe(401);
+				expect(res.status, `${tok.slice(0, 16)} ${form}`).toBe(401);
 			}
 		}
 	});
@@ -1640,105 +1175,6 @@ describe("session and login method commands (issue #3 phase 3c)", () => {
 			new Promise((r) => setTimeout(() => r("open"), 3000)),
 		]);
 		expect(outcome).toBe("closed");
-	});
-
-	it("lets a token-backed session open its own event socket", async () => {
-		const { s, accountId, userId } = await seedUser();
-		const made = await s.createToken({
-			accountId,
-			creatorUserId: userId,
-			creatorRole: "account-admin",
-			creatorGrants: ["chat.use", "bot.read"],
-			kind: "service",
-			label: "stream",
-			grants: ["chat.use"],
-		});
-		if (!made.ok) throw new Error("create failed");
-		const login = await SELF.fetch(`${ORIGIN}/api/auth/login/token`, {
-			method: "POST",
-			headers: { authorization: `Bearer ${made.token}` },
-		});
-		const { accessToken } = (await login.json()) as { accessToken: string };
-		const issued = await rpcWithSession(accessToken, "auth.ticket", {
-			target: "ws",
-		});
-		expect(issued.frame.ok).toBe(true);
-		const { ticket } = issued.frame.result as { ticket: string };
-		const upgrade = await SELF.fetch(`${ORIGIN}/ws?ticket=${ticket}`, {
-			headers: { upgrade: "websocket" },
-		});
-		expect(upgrade.status).toBe(101);
-		upgrade.webSocket?.accept();
-		upgrade.webSocket?.close();
-	});
-
-	it("closes an SSE stream when its service token is revoked", async () => {
-		const { s, accountId, userId } = await seedUser();
-		const owner = await s.createSession({ userId, accountId });
-		const made = await s.createToken({
-			accountId,
-			creatorUserId: userId,
-			creatorRole: "account-admin",
-			creatorGrants: ["chat.use"],
-			kind: "service",
-			label: "revoked stream",
-			grants: ["chat.use"],
-		});
-		if (!made.ok) throw new Error("create failed");
-		const login = await SELF.fetch(`${ORIGIN}/api/auth/login/token`, {
-			method: "POST",
-			headers: { authorization: `Bearer ${made.token}` },
-		});
-		const { accessToken } = (await login.json()) as { accessToken: string };
-		const issued = await rpcWithSession(accessToken, "auth.ticket", {
-			target: "events",
-		});
-		const { ticket } = issued.frame.result as { ticket: string };
-		const res = await SELF.fetch(
-			`${ORIGIN}/events?ticket=${ticket}&familyId=default`,
-		);
-		const reader = res.body?.getReader();
-		if (!reader) throw new Error("no stream body");
-		await reader.read();
-		const ended = reader.read();
-		const revoked = await rpcWithSession(
-			owner.accessToken,
-			"auth.tokens.revoke",
-			{
-				tokenId: made.summary.id,
-			},
-		);
-		expect(revoked.frame.ok).toBe(true);
-		const outcome = await Promise.race([
-			ended.then((r) => (r.done ? "closed" : "data")),
-			new Promise((r) => setTimeout(() => r("open"), 3000)),
-		]);
-		expect(outcome).toBe("closed");
-	});
-
-	it("refuses a stream ticket to a token without chat.use", async () => {
-		const { s, accountId, userId } = await seedUser();
-		const made = await s.createToken({
-			accountId,
-			creatorUserId: userId,
-			creatorRole: "account-admin",
-			creatorGrants: ["chat.use", "bot.read"],
-			kind: "service",
-			label: "read only",
-			grants: ["bot.read"],
-		});
-		if (!made.ok) throw new Error("create failed");
-		const login = await SELF.fetch(`${ORIGIN}/api/auth/login/token`, {
-			method: "POST",
-			headers: { authorization: `Bearer ${made.token}` },
-		});
-		const { accessToken } = (await login.json()) as { accessToken: string };
-		for (const target of ["ws", "events"]) {
-			const issued = await rpcWithSession(accessToken, "auth.ticket", {
-				target,
-			});
-			expect(issued.frame.ok).toBe(false);
-		}
 	});
 
 	it("audits session create, revoke and refresh reuse", async () => {
@@ -1936,79 +1372,22 @@ describe("POST /api/auth/session/logout (issue #3 phase 3d)", () => {
 	});
 });
 
-describe("credential kinds on streams, with real created tokens", () => {
-	async function realToken(kind: "pat" | "service") {
-		const { s, accountId, userId } = await seedUser();
-		const made = await s.createToken({
-			accountId,
-			creatorUserId: userId,
-			creatorRole: "account-admin",
-			creatorGrants: ["chat.use", "bot.read"],
-			kind,
-			label: `real-${kind}`,
-			grants: ["chat.use"],
-			...(kind === "pat" ? { ttlMs: 86_400_000 } : {}),
-		});
-		if (!made.ok) throw new Error("create failed");
-		return { raw: made.token, accountId };
-	}
-
-	for (const kind of ["pat", "service"] as const) {
-		it(`accepts a real ${kind} token as a bearer on /api, refuses it on streams and ?token=, then token-login works`, async () => {
-			const { raw, accountId } = await realToken(kind);
-			expect(raw.startsWith(kind === "pat" ? "cad_pat_" : "cad_svc_")).toBe(
-				true,
-			);
-			const whoami = await SELF.fetch(`${ORIGIN}/api/auth/whoami`, {
-				headers: { authorization: `Bearer ${raw}` },
-			});
-			// The fixture token holds chat.use only, so the bearer is accepted and
-			// the command is refused for the missing tokens.self grant.
-			expect(whoami.status).toBe(403);
-			const whoBody = (await whoami.json()) as { error?: { code?: string } };
-			expect(whoBody.error?.code).toBe("forbidden");
-			const statuses: number[] = [];
-			for (const path of ["/ws", "/events"]) {
-				const upgrade: Record<string, string> =
-					path === "/ws" ? { upgrade: "websocket" } : {};
-				const bearer = await SELF.fetch(`${ORIGIN}${path}`, {
-					headers: { authorization: `Bearer ${raw}`, ...upgrade },
-				});
-				statuses.push(bearer.status);
-				const query = await SELF.fetch(
-					`${ORIGIN}${path}?token=${raw}&accountId=${accountId}`,
-					{ headers: upgrade },
-				);
-				statuses.push(query.status);
-			}
-			const apiQuery = await SELF.fetch(
-				`${ORIGIN}/api/auth/whoami?token=${encodeURIComponent(raw)}`,
-				{ headers: { authorization: `Bearer ${raw}` } },
-			);
-			statuses.push(apiQuery.status);
-			expect(statuses).toEqual([401, 401, 401, 401, 401]);
-			// Positive control: the same real token works through token-login.
-			const login = await SELF.fetch(`${ORIGIN}/api/auth/login/token`, {
-				method: "POST",
-				headers: { authorization: `Bearer ${raw}` },
-			});
-			expect(login.status).toBe(200);
-			const { accessToken } = (await login.json()) as { accessToken: string };
-			expect(accessToken.startsWith("cad_at_")).toBe(true);
-			const issued = await rpcWithSession(accessToken, "auth.ticket", {
-				target: "ws",
-			});
-			expect(issued.frame.ok).toBe(true);
-		});
-	}
+describe("session streams", () => {
+	it("refuses cad_pat_, cad_svc_, and a prefix-less secret on /rpc", async () => {
+		for (const token of [
+			"cad_pat_x",
+			"cad_svc_x",
+			`plain-${crypto.randomUUID()}`,
+		]) {
+			const res = await rpcWithSession(token, "auth.whoami");
+			expect(res.status, token).toBe(401);
+			expect(res.frame.ok, token).toBe(false);
+		}
+	});
 
 	it("opens /ws through the real ProtocolClient with a fresh ticket per connect", async () => {
-		const { raw } = await realToken("service");
-		const login = await SELF.fetch(`${ORIGIN}/api/auth/login/token`, {
-			method: "POST",
-			headers: { authorization: `Bearer ${raw}` },
-		});
-		const { accessToken } = (await login.json()) as { accessToken: string };
+		const { s, accountId, userId } = await seedUser();
+		const { accessToken } = await s.createSession({ userId, accountId });
 		const urls: string[] = [];
 		const statuses: number[] = [];
 		// A WebSocket stand-in that performs the real upgrade against the worker.

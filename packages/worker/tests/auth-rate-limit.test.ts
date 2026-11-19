@@ -1,10 +1,10 @@
 import { env, SELF } from "cloudflare:test";
-import type { Grant } from "@cadmus/contract/grants";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
 	LOCKOUT_MAX_FAILURES,
 	LOCKOUT_MS,
 	LOCKOUT_WINDOW_MS,
+	limitByIp,
 	lockoutClear,
 	lockoutFail,
 	lockoutStatus,
@@ -13,6 +13,7 @@ import {
 import { getEdgeCache } from "../src/edge-cache.js";
 import { IP_LIMITED_AUTH_PATHS, refuseWorkersDev } from "../src/index.js";
 import { D1AdminStore } from "../src/store/d1-admin.js";
+import type { Env } from "../src/types.js";
 import { sendRpc, uniqueAccountId } from "./helpers.js";
 
 /**
@@ -42,6 +43,9 @@ let ipSeq = 0;
 const freshIp = () => `203.0.113.${(ipSeq++ % 250) + 1}-${crypto.randomUUID()}`;
 
 function post(path: string, ip?: string, host = ORIGIN) {
+	// A fresh email each time. An empty email is the shared bootstrap
+	// identity, and five wrong passwords would lock it for every other test
+	// on this workerd.
 	return SELF.fetch(`${host}${path}`, {
 		method: "POST",
 		headers: {
@@ -49,7 +53,12 @@ function post(path: string, ip?: string, host = ORIGIN) {
 			"content-type": "application/json",
 			...(ip ? { "cf-connecting-ip": ip } : {}),
 		},
-		body: JSON.stringify({ payload: { password: "wrong" } }),
+		body: JSON.stringify({
+			payload: {
+				email: `budget-${crypto.randomUUID()}@example.com`,
+				password: "wrong",
+			},
+		}),
 	});
 }
 
@@ -66,7 +75,6 @@ describe("per-IP budget (issue #3 phase 8)", () => {
 			"/api/auth/login/devPassword",
 			"/api/auth/login/google/callback",
 			"/api/auth/login/google/start",
-			"/api/auth/login/token",
 			"/api/auth/session/refresh",
 		]);
 		expect(resolveAuthRateLimitWindowMs(undefined, "test")).toBeNull();
@@ -75,24 +83,39 @@ describe("per-IP budget (issue #3 phase 8)", () => {
 		expect(resolveAuthRateLimitWindowMs("10", "test")).toBe(1_000);
 	});
 
-	for (const path of ["/api/auth/login/token"]) {
-		it(`${path}: the first ${LIMIT} requests from one IP pass, then 429 with retry-after, no-store and no cookie`, async () => {
-			const ip = freshIp();
-			const res = await statuses(path, LIMIT + 5, ip);
-			for (const r of res.slice(0, LIMIT)) {
-				expect(r.status, "inside the budget").not.toBe(429);
-			}
-			for (const r of res.slice(LIMIT)) {
-				expect(r.status, "over the budget").toBe(429);
-				expect(r.headers.get("cache-control")).toBe("no-store");
-				expect(Number(r.headers.get("retry-after"))).toBeGreaterThan(0);
-				expect(r.headers.get("set-cookie")).toBeNull();
-				expect(
-					((await r.json()) as { error: { code: string } }).error.code,
-				).toBe("rate_limited");
-			}
-		});
-	}
+	it("the test window override counts per route and redirects navigations", async () => {
+		const override = {
+			CADMUS_DEPLOY_ENV: "test",
+			CADMUS_AUTH_RATE_LIMIT_WINDOW_MS: "60000",
+		} as Env;
+		const ip = `198.51.100.${crypto.randomUUID()}`;
+		const ask = (path: string, mode: "api" | "navigation" = "api") =>
+			limitByIp(
+				override,
+				new Request(`http://localhost${path}`, {
+					headers: { "cf-connecting-ip": ip },
+				}),
+				path,
+				mode,
+			);
+		for (let i = 0; i < LIMIT; i++) {
+			expect(await ask("/api/auth/login/devPassword")).toBeNull();
+		}
+		const blocked = await ask("/api/auth/login/devPassword");
+		if (!blocked) throw new Error("expected a rate-limit response");
+		expect(blocked.status).toBe(429);
+		expect(
+			((await blocked.json()) as { error: { code: string } }).error.code,
+		).toBe("rate_limited");
+		for (let i = 0; i < LIMIT; i++) {
+			expect(
+				await ask("/api/auth/login/google/start", "navigation"),
+			).toBeNull();
+		}
+		const nav = await ask("/api/auth/login/google/start", "navigation");
+		expect(nav?.status).toBe(302);
+		expect(nav?.headers.get("location")).toBe("/?auth_error=rate_limited");
+	});
 
 	it("/api/auth/session/refresh has its own larger budget: 120 pass (more than the credential routes' 20), then 429", async () => {
 		const ip = freshIp();
@@ -114,11 +137,13 @@ describe("per-IP budget (issue #3 phase 8)", () => {
 
 	it("budgets are per IP and per route", async () => {
 		const ip = freshIp();
-		await statuses("/api/auth/login/token", LIMIT + 2, ip);
-		expect((await post("/api/auth/login/token", ip)).status).toBe(429);
-		expect((await post("/api/auth/login/token", freshIp())).status).not.toBe(
+		await statuses("/api/auth/login/devPassword", LIMIT + 2, ip, LOCAL);
+		expect((await post("/api/auth/login/devPassword", ip, LOCAL)).status).toBe(
 			429,
 		);
+		expect(
+			(await post("/api/auth/login/devPassword", freshIp(), LOCAL)).status,
+		).not.toBe(429);
 		expect((await post("/api/auth/session/refresh", ip)).status).not.toBe(429);
 	});
 
@@ -208,7 +233,12 @@ describe("per-IP budget (issue #3 phase 8)", () => {
 	});
 
 	it("a request without cf-connecting-ip (not via the edge) is never budgeted", async () => {
-		for (const r of await statuses("/api/auth/login/token", LIMIT + 10)) {
+		for (const r of await statuses(
+			"/api/auth/login/devPassword",
+			LIMIT + 10,
+			undefined,
+			LOCAL,
+		)) {
 			expect(r.status).not.toBe(429);
 		}
 		for (let i = 0; i < LIMIT + 5; i++) {
@@ -305,7 +335,7 @@ describe("per-identity lockout (issue #3 phase 8)", () => {
 });
 
 describe("per-principal budget on auth.ticket and passkeys (issue #3 phase 8)", () => {
-	async function session(grants: Grant[]) {
+	async function session() {
 		const s = new D1AdminStore({
 			db: env.CADMUS_ADMIN_DB,
 			encryptionKey: env.CADMUS_ENCRYPTION_KEY,
@@ -314,24 +344,7 @@ describe("per-principal budget on auth.ticket and passkeys (issue #3 phase 8)", 
 		const accountId = uniqueAccountId("rpc-limit");
 		const userId = `usr_${accountId}`;
 		await s.ensureAccountAndUser({ accountId, userId, role: "account-admin" });
-		const created = await s.createToken({
-			accountId,
-			creatorUserId: userId,
-			creatorRole: "account-admin",
-			creatorGrants: grants,
-			kind: "service",
-			label: "rpc limit probe",
-			grants,
-		});
-		expect(created.ok).toBe(true);
-		const login = await SELF.fetch(`${ORIGIN}/api/auth/login/token`, {
-			method: "POST",
-			headers: {
-				authorization: `Bearer ${(created as { token: string }).token}`,
-			},
-		});
-		expect(login.status).toBe(200);
-		return ((await login.json()) as { accessToken: string }).accessToken;
+		return (await s.createSession({ userId, accountId })).accessToken;
 	}
 	const rpc = async (
 		accessToken: string,
@@ -345,7 +358,7 @@ describe("per-principal budget on auth.ticket and passkeys (issue #3 phase 8)", 
 	};
 
 	it("auth.ticket: 60 calls pass, the next is rate_limited; another session is unaffected; whoami is not budgeted", async () => {
-		const token = await session(["chat.use", "tokens.self"]);
+		const token = await session();
 		for (let i = 0; i < 60; i++) {
 			const r = await rpc(token, "auth.ticket", { target: "ws" });
 			expect(r.body.ok, `call ${i + 1}: ${JSON.stringify(r.body)}`).toBe(true);
@@ -357,14 +370,14 @@ describe("per-principal budget on auth.ticket and passkeys (issue #3 phase 8)", 
 		expect(over.status).toBe(400);
 		const who = await rpc(token, "auth.whoami");
 		expect(who.body.ok, JSON.stringify(who.body).slice(0, 200)).toBe(true);
-		const other = await session(["chat.use", "tokens.self"]);
+		const other = await session();
 		expect((await rpc(other, "auth.ticket", { target: "ws" })).body.ok).toBe(
 			true,
 		);
 	});
 
 	it("the REST adapter maps rate_limited to 429 (POST /api/auth/ticket)", async () => {
-		const token = await session(["chat.use", "tokens.self"]);
+		const token = await session();
 		let last = 0;
 		let body = "";
 		for (let i = 0; i < 61; i++) {

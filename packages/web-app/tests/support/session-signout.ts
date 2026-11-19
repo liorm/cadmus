@@ -1,6 +1,6 @@
 import type { Page, PlaywrightWorkerArgs } from "@playwright/test";
-import { sendAccountRpc } from "./account.ts";
 import { clickByRole } from "./actions.ts";
+import { elevate, sessionCommand, signInInvitedMember } from "./dev-session.ts";
 import { expect } from "./fixtures.ts";
 import { crossTabMessagingWorks } from "./tabs.ts";
 
@@ -11,29 +11,17 @@ import { crossTabMessagingWorks } from "./tabs.ts";
 export async function sessionSignoutScenario(
 	page: Page,
 	playwright: PlaywrightWorkerArgs["playwright"],
-	accountId: string,
+	_accountId: string,
 	origin: string,
 	onReady?: () => Promise<void>,
 ): Promise<void> {
-	const created = await sendAccountRpc<{ token: string }>(
-		origin,
-		accountId,
-		"auth.tokens.create",
-		{
-			kind: "pat",
-			label: "ui session",
-			grants: ["chat.use", "bot.read", "tokens.self"],
-			ttlDays: 1,
-		},
-	);
-	// Token login sets the refresh cookie in the browser context, as a real
-	// sign-in would. The cookie is scoped to /auth/refresh.
-	const login = await page
-		.context()
-		.request.post(`${origin}/auth/token-login`, {
-			headers: { Authorization: `Bearer ${created.token}` },
-		});
-	expect(login.ok()).toBe(true);
+	const request = page.context().request;
+	const session = await signInInvitedMember(request, origin, "account-admin");
+	await elevate(request, origin, session.accessToken);
+	await sessionCommand(request, origin, session.accessToken, "family.create", {
+		familyId: "alt-family",
+		name: "Alt family",
+	});
 
 	await page.goto("/settings/security");
 	await expect(page.getByText("Signed in as")).toBeVisible();
@@ -53,10 +41,6 @@ export async function sessionSignoutScenario(
 	expect(stored).not.toContain("cad_at_");
 
 	// Switching family writes a preference to storage; it must stay secret-free.
-	await sendAccountRpc(origin, accountId, "family.create", {
-		familyId: "alt-family",
-		name: "Alt family",
-	});
 	await page.goto("/settings/family");
 	await expect(page.getByText("Alt family")).toBeVisible();
 	// A second tab boots and rotates the session's access token. The first tab
@@ -100,7 +84,7 @@ export async function sessionSignoutScenario(
 		const original = window.fetch.bind(window);
 		window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
 			const url = typeof input === "string" ? input : (input as Request).url;
-			if (url.endsWith("/auth/logout")) {
+			if (url.endsWith("/api/auth/session/logout")) {
 				const headers = new Headers(init?.headers);
 				report((headers.get("authorization") ?? "").replace("Bearer ", ""));
 			}
@@ -120,20 +104,22 @@ export async function sessionSignoutScenario(
 		headers: { Authorization: `Bearer ${liveBearer}` },
 	});
 	expect(who.status()).toBe(401);
-	const refreshed = await independent.post(`${origin}/auth/refresh`, {
-		headers: {
-			origin,
-			"X-Cadmus-Refresh": "1",
-			cookie: `${cookie?.name}=${cookie?.value}`,
+	const refreshed = await independent.post(
+		`${origin}/api/auth/session/refresh`,
+		{
+			headers: {
+				origin,
+				"X-Cadmus-Refresh": "1",
+				cookie: `${cookie?.name}=${cookie?.value}`,
+			},
 		},
-	});
+	);
 	expect(refreshed.status()).toBe(401);
 	await independent.dispose();
 
-	// Same browser, after sign-out. Logout never reads or clears the refresh
-	// cookie (it is Path=/auth/refresh, so the browser does not send it there);
-	// the page's next refresh is refused for the revoked session and clears the
-	// stale cookie. Then a reload and a fresh navigation both stay signed out.
+	// Same browser, after sign-out. The page's next refresh is refused for the
+	// revoked session and clears the stale cookie. Then a reload and a fresh
+	// navigation both stay signed out.
 	const staleCookie = async () =>
 		(await page.context().cookies()).some((c) =>
 			c.name.endsWith("cadmus_refresh"),

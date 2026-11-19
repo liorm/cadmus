@@ -128,10 +128,7 @@ export function ToolsSettingsPage() {
 	// Callers whose role cannot hold the grants do not get the controls.
 	// Create, pair, update, delete and deregister need toolsEnv.manage; the
 	// default env change is account.update and needs account.manage. Both are
-	// account-admin grants. whoami does not report a token's persisted grants,
-	// so a token session with an account-admin role keeps the controls and the
-	// worker's answer decides (decision 13 allows elevated tokens). Signed out
-	// is not an admin.
+	// account-admin grants. Signed out is not an admin.
 	const session = useSession();
 	const principal = session.principal;
 	const principalPending = session.signedIn && principal === null;
@@ -446,7 +443,7 @@ export function ToolsSettingsPage() {
 				{phase === "ready" && !canManage && !principalPending ? (
 					<p className="text-[length:var(--fs-sm)] text-text-muted">
 						Changing tools environments needs an account admin. Signed-in people
-						also need admin mode; API tokens need matching grants.
+						also need admin mode.
 					</p>
 				) : null}
 				{phase === "ready" && canManage ? (

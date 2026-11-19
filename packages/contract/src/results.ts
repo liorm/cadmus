@@ -101,7 +101,7 @@ export type AccountMembersInviteResult = Static<
 >;
 
 export const AccountMembersUpdateResultSchema = Type.Object(
-	{ updated: Type.Boolean(), tokensRevoked: Type.Number() },
+	{ updated: Type.Boolean() },
 	{ description: "Result payload returned by account.members.update." },
 );
 export type AccountMembersUpdateResult = Static<
@@ -111,7 +111,6 @@ export type AccountMembersUpdateResult = Static<
 export const AccountMembersRemoveResultSchema = Type.Object(
 	{
 		removed: Type.Boolean(),
-		tokensRevoked: Type.Number(),
 		sessionsRevoked: Type.Number(),
 	},
 	{ description: "Result payload returned by account.members.remove." },
@@ -251,12 +250,6 @@ export const AuthWhoamiResultSchema = Type.Object(
 					}),
 				),
 				accountId: Type.String({ description: "Account the request acts in." }),
-				viaToken: Type.Optional(
-					Type.Boolean({
-						description:
-							"True when the session was opened by an API token. Such sessions cannot enter admin mode.",
-					}),
-				),
 				elevatedUntil: Type.Optional(
 					Type.Number({
 						description:
@@ -548,63 +541,6 @@ export const AuthSessionsRevokeOthersResultSchema = Type.Object(
 );
 export type AuthSessionsRevokeOthersResult = Static<
 	typeof AuthSessionsRevokeOthersResultSchema
->;
-
-export const AuthTokensListResultSchema = Type.Object(
-	{
-		tokens: Type.Array(
-			Type.Object(
-				{
-					id: Type.String(),
-					kind: Type.Union([Type.Literal("pat"), Type.Literal("service")]),
-					label: Type.String(),
-					grants: Type.Array(Type.String()),
-					createdBy: Type.Union([Type.String(), Type.Null()]),
-					createdAt: Type.Number(),
-					expiresAt: Type.Union([Type.Number(), Type.Null()]),
-					lastUsedAt: Type.Union([Type.Number(), Type.Null()]),
-					revokedAt: Type.Union([Type.Number(), Type.Null()]),
-					elevated: Type.Boolean(),
-				},
-				{ description: "One API token (never the secret)." },
-			),
-		),
-	},
-	{ description: "Result payload returned by auth.tokens.list." },
-);
-export type AuthTokensListResult = Static<typeof AuthTokensListResultSchema>;
-
-export const AuthTokensCreateResultSchema = Type.Object(
-	{
-		token: Type.String({ description: "The secret, shown once." }),
-		summary: Type.Object(
-			{
-				id: Type.String(),
-				kind: Type.Union([Type.Literal("pat"), Type.Literal("service")]),
-				label: Type.String(),
-				grants: Type.Array(Type.String()),
-				createdBy: Type.Union([Type.String(), Type.Null()]),
-				createdAt: Type.Number(),
-				expiresAt: Type.Union([Type.Number(), Type.Null()]),
-				lastUsedAt: Type.Union([Type.Number(), Type.Null()]),
-				revokedAt: Type.Union([Type.Number(), Type.Null()]),
-				elevated: Type.Boolean(),
-			},
-			{ description: "One API token (never the secret)." },
-		),
-	},
-	{ description: "Result payload returned by auth.tokens.create." },
-);
-export type AuthTokensCreateResult = Static<
-	typeof AuthTokensCreateResultSchema
->;
-
-export const AuthTokensRevokeResultSchema = Type.Object(
-	{ revoked: Type.Boolean() },
-	{ description: "Result payload returned by auth.tokens.revoke." },
-);
-export type AuthTokensRevokeResult = Static<
-	typeof AuthTokensRevokeResultSchema
 >;
 
 export const AuthMethodsListResultSchema = Type.Object(

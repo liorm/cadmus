@@ -39,8 +39,8 @@ export function HintSkeleton() {
 
 /**
  * The server refuses a command the caller's sign-in is not allowed to run
- * with a plain message (a missing role grant, or an API token on a user-only
- * command). That message is matched here only to pick a clearer screen: a
+ * with a plain message (a missing role grant, or a session-only command).
+ * That message is matched here only to pick a clearer screen: a
  * refusal will not change on retry, so there is no Retry. Any other message,
  * including a reworded refusal, still gets the raw text and Retry.
  */

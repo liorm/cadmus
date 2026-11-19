@@ -58,9 +58,9 @@ export async function actingAdmin(input: {
 }
 
 /**
- * Test fixture: a member with a caller-chosen legacy bearer token, written
- * through the store. Membership over RPC is invite-by-email only, so
- * legacy-token tests seed the row here instead.
+ * Test fixture: a member written through the store. Membership over RPC is
+ * invite-by-email only. The member has no bearer of their own; sign them in
+ * with the dev password when a request needs a credential.
  */
 export async function addLegacyMember(input: {
 	accountId: string;
@@ -68,7 +68,6 @@ export async function addLegacyMember(input: {
 	name?: string;
 	email?: string;
 	role?: "user" | "account-admin";
-	token: string;
 }): Promise<AccountMember> {
 	const store = new D1AdminStore({
 		db: env.CADMUS_ADMIN_DB,
@@ -86,7 +85,6 @@ export async function addLegacyMember(input: {
 		name: input.name,
 		email: input.email,
 		roles: [input.role === "account-admin" ? "account-admin" : "user"],
-		rawToken: input.token,
 	});
 }
 
@@ -132,7 +130,14 @@ export async function sendRpc<T = unknown>(
 	} else if (!options.cookie) {
 		const accountId = options.accountId ?? "default-account";
 		const userId = options.userId ?? `user:${accountId}`;
-		headers.Authorization = `Bearer ${await actingAdmin({ accountId, userId })}`;
+		// Implicit fixture admin is in admin mode, so account-management
+		// commands run. A test that needs a signed-in admin who has not
+		// turned admin mode on passes its own token.
+		headers.Authorization = `Bearer ${await actingAdmin({
+			accountId,
+			userId,
+			elevated: true,
+		})}`;
 	}
 	if (options.cookie) {
 		headers.Cookie = options.cookie;

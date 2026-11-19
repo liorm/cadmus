@@ -4,7 +4,6 @@ import {
 	AuthLoginDevPasswordCommandSchema,
 	AuthLoginGoogleStartCommandSchema,
 	AuthLoginProvidersCommandSchema,
-	AuthLoginTokenCommandSchema,
 	AuthSessionLogoutCommandSchema,
 	AuthSessionRefreshCommandSchema,
 } from "./login.js";
@@ -644,107 +643,6 @@ export const AuthElevationEndCommandSchema = Type.Object(
 );
 export type AuthElevationEndCommand = Static<
 	typeof AuthElevationEndCommandSchema
->;
-
-export const AuthTokensListCommandSchema = Type.Object(
-	{
-		id: Type.String({
-			minLength: 1,
-			description:
-				"Non-empty unique correlation identifier for this command request.",
-		}),
-		type: Type.Literal("auth.tokens.list", {
-			description: "Command type identifier.",
-		}),
-		payload: Type.Optional(
-			Type.Object(
-				{
-					all: Type.Optional(
-						Type.Boolean({
-							description:
-								"List every token in the account (needs tokens.manage). Default lists the caller's own.",
-						}),
-					),
-				},
-				{ description: "List filter." },
-			),
-		),
-	},
-	{
-		readOnly: true,
-		grant: "tokens.self",
-		description:
-			"List API tokens: the caller's own, or all in the account for admins.",
-	},
-);
-export type AuthTokensListCommand = Static<typeof AuthTokensListCommandSchema>;
-
-export const AuthTokensCreateCommandSchema = Type.Object(
-	{
-		id: Type.String({
-			minLength: 1,
-			description:
-				"Non-empty unique correlation identifier for this command request.",
-		}),
-		type: Type.Literal("auth.tokens.create", {
-			description: "Command type identifier.",
-		}),
-		payload: Type.Object(
-			{
-				kind: Type.Union([Type.Literal("pat"), Type.Literal("service")], {
-					description: "pat is personal; service needs tokens.manage.",
-				}),
-				label: Type.String({ minLength: 1, maxLength: 80 }),
-				grants: Type.Array(Type.String({ minLength: 1 }), {
-					minItems: 1,
-					description: "Explicit subset of the caller's grants.",
-				}),
-				ttlDays: Type.Optional(
-					Type.Number({
-						minimum: 0.01,
-						maximum: 365,
-						description:
-							"Expiry in days. Required for a personal token that carries no elevated grant (max 365). An elevated personal token that omits it expires in 30 days (max 30). A service token defaults to 7 days and maxes out at 30.",
-					}),
-				),
-			},
-			{ description: "Token to create." },
-		),
-	},
-	{
-		grant: "tokens.self",
-		description:
-			"Create a server-generated cad_pat_ or cad_svc_ token. The secret is returned once.",
-	},
-);
-export type AuthTokensCreateCommand = Static<
-	typeof AuthTokensCreateCommandSchema
->;
-
-export const AuthTokensRevokeCommandSchema = Type.Object(
-	{
-		id: Type.String({
-			minLength: 1,
-			description:
-				"Non-empty unique correlation identifier for this command request.",
-		}),
-		type: Type.Literal("auth.tokens.revoke", {
-			description: "Command type identifier.",
-		}),
-		payload: Type.Object(
-			{
-				tokenId: Type.String({ minLength: 1, description: "Token to revoke." }),
-			},
-			{ description: "Token to revoke." },
-		),
-	},
-	{
-		grant: "tokens.self",
-		description: "Revoke a token and every session started from it.",
-	},
-);
-export type AuthTokensRevokeCommand = Static<
-	typeof AuthTokensRevokeCommandSchema
 >;
 
 export const AuthMethodsListCommandSchema = Type.Object(
@@ -3038,16 +2936,12 @@ export const ClientCommandSchema = Type.Union(
 		SystemUsersDisableCommandSchema,
 		SystemUsersEnableCommandSchema,
 		SystemUsersRevokeSessionsCommandSchema,
-		AuthTokensListCommandSchema,
-		AuthTokensCreateCommandSchema,
-		AuthTokensRevokeCommandSchema,
 		AuthMethodsListCommandSchema,
 		AuthMembershipsListCommandSchema,
 		AuthMethodsDeleteCommandSchema,
 		AuthLoginProvidersCommandSchema,
 		AuthAssumeRoleCommandSchema,
 		AuthLoginDevPasswordCommandSchema,
-		AuthLoginTokenCommandSchema,
 		AuthLoginGoogleStartCommandSchema,
 		AuthSessionRefreshCommandSchema,
 		AuthSessionLogoutCommandSchema,

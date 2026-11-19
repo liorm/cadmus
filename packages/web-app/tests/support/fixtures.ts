@@ -5,15 +5,9 @@ import {
 	type Page,
 	type Request,
 } from "@playwright/test";
-import {
-	MASTER_TOKEN,
-	provisionAccount,
-	retryProxyDrop,
-	sendAccountRpc,
-	throwOnProxyDrop,
-	uniqueAccountId,
-} from "./account.ts";
+import { MASTER_TOKEN, provisionAccount, uniqueAccountId } from "./account.ts";
 import { captureCoverage } from "./coverage.ts";
+import { loginDevPassword } from "./dev-session.ts";
 import {
 	CDP_URL_FILE,
 	cdpUrlFromEnv,
@@ -35,7 +29,7 @@ const WORKER_BASE = "http://127.0.0.1:8799";
 /**
  * The dev worker budgets credential routes per cf-connecting-ip, and every
  * test here reaches it from the same loopback address, so the whole suite
- * shares one budget (20 per minute on /auth/token-login). Each test gets its
+ * shares one budget (20 per minute on /api/auth/login/devPassword). Each test gets its
  * own source address so tests do not spend each other's budget. Production is
  * unaffected: these headers exist only in the test run. Whether the real edge
  * replaces a client-sent value is relied on but not verified (see the comment in
@@ -51,11 +45,9 @@ export function sourceAddressFor(testId: string, retry: number): string {
 
 /**
  * Grants of the `user` role (worker contract ROLE_GRANTS.user, pinned by the
- * golden in worker/tests/unit/authz-registry-matrix.test.ts). A "user" session
- * below is a token-login session clamped to exactly these grants. It cannot
- * enter admin mode (API tokens cannot manage sessions), so specs whose subject
- * is admin mode, passkey step-up or a real session use support/fresh-session.ts
- * instead of this option.
+ * golden in worker/tests/unit/authz-registry-matrix.test.ts). A "user" sign-in
+ * is a dev-password session. Specs whose subject is admin mode use
+ * support/dev-session.ts instead of the default option.
  */
 // Must equal ROLE_GRANTS.user in the contract; packages/worker/tests/user-role-grants-fixture.test.ts checks it.
 export const USER_ROLE_GRANTS = [
@@ -111,15 +103,13 @@ async function readStoredDevConfig(
 }
 
 /**
- * How the browser signs in. "user" (default) signs in through /auth/token-login
- * with a PAT holding the user-role grants and seeds no master token, so the page
- * only works through the session cookie. "master" seeds the dev master token
- * into localStorage (the legacy path phase 9 removes); specs that still need
- * those grants opt in. "none" seeds no master token and signs in nothing: the
- * spec does its own sign-in (or none), and the fixture only proves that no
- * master dev config reached storage and, where request headers are observable,
- * that no page request carried the master bearer. It does not require a token
- * session.
+ * How the browser signs in. "user" (default) signs in through dev-password and
+ * seeds no master token, so the page only works through the session cookie.
+ * "master" seeds the dev master token into localStorage (a dev-config leftover).
+ * "none" seeds no master token and signs in nothing: the spec does its own
+ * sign-in (or none), and the fixture only proves that no master dev config
+ * reached storage and, where request headers are observable, that no page
+ * request carried the master bearer.
  */
 export type SignInMode = "master" | "user" | "none";
 
@@ -241,38 +231,20 @@ export const test = base.extend<
 			}
 			if (signIn === "user") {
 				const origin = baseURL ?? WORKER_BASE;
-				const created = await sendAccountRpc<{ token: string }>(
-					origin,
-					accountId,
-					"auth.tokens.create",
-					{
-						kind: "pat",
-						label: "ui user session",
-						grants: USER_ROLE_GRANTS,
-						ttlDays: 1,
-					},
-				);
-				await retryProxyDrop(async () => {
-					const login = await page
-						.context()
-						.request.post(`${origin}/auth/token-login`, {
-							headers: { Authorization: `Bearer ${created.token}` },
-						});
-					if (login.ok()) return;
-					const loginStatus = login.status();
-					const text = await login.text().catch(() => "");
-					throwOnProxyDrop(loginStatus, text);
-					throw new Error(`token-login failed: ${loginStatus}`);
-				});
+				await loginDevPassword(page.context().request, origin);
 				// Passive proof, no extra requests: record what the page itself sends.
 				// No page request may carry the master bearer, at least one must carry
 				// another bearer, the dev config must be absent after every load, and
-				// the page's own whoami answer must be the token session. Master RPC
+				// the page's own whoami answer must be a user principal. Master RPC
 				// above and in specs is setup only.
 				const context = page.context();
 				const bearers = new Set<string>();
+				type WhoamiPrincipal = {
+					kind?: string;
+					viaToken?: boolean;
+				} | null;
 				type WhoamiOutcome =
-					| { kind: "ok"; principal: { viaToken?: boolean } | null | undefined }
+					| { kind: "ok"; principal: WhoamiPrincipal | undefined }
 					| { kind: "bad-status"; status: number }
 					| { kind: "bad-json"; error: string }
 					| { kind: "nav-aborted" };
@@ -292,8 +264,8 @@ export const test = base.extend<
 					}
 					try {
 						const body = JSON.parse(text) as {
-							result?: { principal?: { viaToken?: boolean } | null };
-							principal?: { viaToken?: boolean } | null;
+							result?: { principal?: WhoamiPrincipal };
+							principal?: WhoamiPrincipal;
 						};
 						return {
 							kind: "ok",
@@ -407,7 +379,7 @@ export const test = base.extend<
 				} else {
 					// Some engines (obscura) expose no request headers at all, so a
 					// bearer check would pass or fail vacuously. Record that, and rely
-					// on the whoami token-session proof and the absent dev config.
+					// on the whoami user-principal proof and the absent dev config.
 					info.annotations.push({
 						type: "user-sign-in-proof-headers-unobservable",
 						description: `0 of ${pageRequests} page requests exposed any header; bearer check not performed`,
@@ -444,30 +416,23 @@ export const test = base.extend<
 					}
 					outcomes = await Promise.all(whoami);
 				}
+				const userPrincipal = (principal: WhoamiPrincipal | undefined) =>
+					Boolean(principal) &&
+					principal?.viaToken !== true &&
+					(principal?.kind === "user" || principal?.viaToken === undefined);
 				const badOutcomes = outcomes.filter(
 					(o) =>
 						o.kind === "bad-status" ||
 						o.kind === "bad-json" ||
-						(o.kind === "ok" && o.principal?.viaToken !== true),
+						(o.kind === "ok" && !userPrincipal(o.principal)),
 				);
 				const okOutcomes = outcomes.filter((o) => o.kind === "ok");
 				if (outcomes.length === 0) {
 					problems.push("the page made no whoami request");
 				} else if (badOutcomes.length > 0 || okOutcomes.length === 0) {
 					problems.push(
-						`page whoami was unreadable or not the token session: ${JSON.stringify(outcomes)}`,
+						`page whoami was unreadable or not a user principal: ${JSON.stringify(outcomes)}`,
 					);
-				}
-				const listed = await sendAccountRpc<{
-					tokens: Array<{ label: string; grants?: string[] }>;
-				}>(origin, accountId, "auth.tokens.list", {});
-				const mine = listed.tokens.find((t) => t.label === "ui user session");
-				if (
-					!mine ||
-					JSON.stringify([...(mine.grants ?? [])].sort()) !==
-						JSON.stringify([...USER_ROLE_GRANTS].sort())
-				) {
-					problems.push(`minted grants differ: ${JSON.stringify(mine)}`);
 				}
 				if (problems.length > 0) {
 					throw new Error(`user sign-in proof: ${problems.join("; ")}`);

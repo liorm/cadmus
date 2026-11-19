@@ -13,6 +13,7 @@ import {
 	runD1SchemaMigrations,
 	wrapD1WithSchemaFallback,
 } from "../src/store/d1-admin.js";
+import { resolveAccessToken } from "../src/store/d1-sessions.js";
 import { sendRpc, uniqueAccountId } from "./helpers.js";
 
 async function restoreAdminSchema(): Promise<void> {
@@ -50,7 +51,7 @@ describe("D1 Schema Initialization & Isolate Caching (Issue #18)", () => {
 		expect(tableNames).toContain("cadmus_accounts");
 		expect(tableNames).toContain("cadmus_users");
 		expect(tableNames).toContain("cadmus_account_members");
-		expect(tableNames).toContain("cadmus_auth_tokens");
+		expect(tableNames).not.toContain("cadmus_auth_tokens");
 		expect(tableNames).toContain("cadmus_account_credentials");
 		expect(tableNames).toContain("cadmus_families");
 		expect(tableNames).toContain("cadmus_tools_envs");
@@ -426,6 +427,83 @@ describe("D1 Schema Initialization & Isolate Caching (Issue #18)", () => {
 			// Verify resetD1InitializationCache(db) resets initialized state cleanly
 			resetD1InitializationCache(env.CADMUS_ADMIN_DB);
 			expect(isD1DatabaseInitialized(env.CADMUS_ADMIN_DB)).toBe(false);
+		} finally {
+			await restoreAdminSchema();
+		}
+	});
+
+	it("(m) drops cadmus_auth_tokens and revokes token-backed sessions", async () => {
+		const accountId = uniqueAccountId("tok-drop");
+		const userId = `usr_${accountId}`;
+		const admin = new D1AdminStore({ db: env.CADMUS_ADMIN_DB });
+		try {
+			await admin.ensureAccountAndUser({
+				accountId,
+				userId,
+				role: "account-admin",
+			});
+			const live = await admin.createSession({ userId, accountId });
+			const doomed = await admin.createSession({ userId, accountId });
+			await env.CADMUS_ADMIN_DB.prepare(
+				"UPDATE cadmus_sessions SET token_id = 'tok_old' WHERE id = ?1",
+			)
+				.bind(doomed.sessionId)
+				.run();
+			// A session row that still names a token does not resolve, even
+			// before the migration revokes it.
+			expect(
+				await resolveAccessToken(env.CADMUS_ADMIN_DB, doomed.accessToken),
+			).toBeUndefined();
+			expect(
+				await resolveAccessToken(env.CADMUS_ADMIN_DB, live.accessToken),
+			).toMatchObject({ sessionId: live.sessionId, userId });
+
+			await env.CADMUS_ADMIN_DB.prepare(
+				`CREATE TABLE IF NOT EXISTS cadmus_auth_tokens (
+          token_hash TEXT PRIMARY KEY,
+          user_id TEXT NOT NULL,
+          account_id TEXT NOT NULL,
+          label TEXT,
+          created_at INTEGER NOT NULL
+        )`,
+			).run();
+			await env.CADMUS_ADMIN_DB.prepare(
+				`INSERT INTO cadmus_auth_tokens (token_hash, user_id, account_id, label, created_at)
+         VALUES ('hash-old', ?1, ?2, 'legacy', 1)`,
+			)
+				.bind(userId, accountId)
+				.run();
+			await env.CADMUS_ADMIN_DB.prepare(
+				"UPDATE cadmus_schema_meta SET value = '14' WHERE key = 'version'",
+			).run();
+			resetD1InitializationCache(env.CADMUS_ADMIN_DB);
+			await ensureD1Schema(env.CADMUS_ADMIN_DB);
+
+			const table = await env.CADMUS_ADMIN_DB.prepare(
+				"SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'cadmus_auth_tokens'",
+			).first<{ name: string }>();
+			expect(table).toBeNull();
+			const revoked = await env.CADMUS_ADMIN_DB.prepare(
+				"SELECT revoked_at FROM cadmus_sessions WHERE id = ?1",
+			)
+				.bind(doomed.sessionId)
+				.first<{ revoked_at: number | null }>();
+			expect(revoked?.revoked_at).not.toBeNull();
+			const kept = await env.CADMUS_ADMIN_DB.prepare(
+				"SELECT revoked_at, token_id FROM cadmus_sessions WHERE id = ?1",
+			)
+				.bind(live.sessionId)
+				.first<{ revoked_at: number | null; token_id: string | null }>();
+			expect(kept).toEqual({ revoked_at: null, token_id: null });
+			expect(
+				await resolveAccessToken(env.CADMUS_ADMIN_DB, live.accessToken),
+			).toMatchObject({ sessionId: live.sessionId });
+			expect(
+				await resolveAccessToken(env.CADMUS_ADMIN_DB, doomed.accessToken),
+			).toBeUndefined();
+			expect(await readSchemaVersion(env.CADMUS_ADMIN_DB)).toBe(
+				CADMUS_SCHEMA_VERSION,
+			);
 		} finally {
 			await restoreAdminSchema();
 		}

@@ -93,29 +93,6 @@ export type AuthLoginDevPasswordCommand = Static<
 	typeof AuthLoginDevPasswordCommandSchema
 >;
 
-export const AuthLoginTokenCommandSchema = Type.Object(
-	{
-		id: idField,
-		type: Type.Literal("auth.login.token", {
-			description: "Command type identifier.",
-		}),
-		payload: Type.Optional(
-			Type.Object(
-				{},
-				{
-					description:
-						"Empty parameter payload. The secret is the Authorization bearer.",
-				},
-			),
-		),
-	},
-	{
-		description:
-			"Exchange cad_pat_ or cad_svc_ for a session. Refresh token is a cookie.",
-	},
-);
-export type AuthLoginTokenCommand = Static<typeof AuthLoginTokenCommandSchema>;
-
 export const AuthLoginGoogleStartCommandSchema = Type.Object(
 	{
 		id: idField,
@@ -166,7 +143,6 @@ export const AuthLoginSessionResultSchema = Type.Object(
 		sessionId: Type.Optional(Type.String()),
 		accountId: Type.Optional(Type.String()),
 		userId: Type.Optional(Type.String()),
-		viaToken: Type.Optional(Type.Boolean()),
 	},
 	{
 		description: "A Cadmus session. The refresh token is not in this payload.",

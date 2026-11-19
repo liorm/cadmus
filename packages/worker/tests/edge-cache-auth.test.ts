@@ -9,9 +9,9 @@ import type {
 import { D1AdminStore } from "../src/store/d1-admin.js";
 import {
 	actingAdmin,
-	addLegacyMember,
 	connectTestWs,
 	sendRpc,
+	streamAuthParams,
 	uniqueAccountId,
 } from "./helpers.js";
 
@@ -22,26 +22,12 @@ describe("Edge Caching for Tokens and Family DO Routing (Issue #19)", () => {
 		cache.resetMetrics();
 	});
 
-	it("repeated /rpc with a member token hits D1 auth tokens only once within TTL", async () => {
+	it("non-session bearers are 401 and do not touch the token cache", async () => {
 		const accountId = uniqueAccountId("cache");
-		const customToken = crypto.randomUUID();
-
-		// 1. Add member with a token
-		const addRes = await addLegacyMember({
-			userId: "cached-user-1",
-			name: "Cached User",
-			role: "user",
-			accountId: accountId,
-			token: customToken,
-		});
-		expect(addRes.userId).toBe("cached-user-1");
-
-		// Clear memory cache so we start cold
+		const userId = `usr_${accountId}`;
 		EdgeCache.clearAllMemory();
 		const edgeCache = getEdgeCache(env);
 		edgeCache.resetMetrics();
-
-		// Count D1 queries matching cadmus_auth_tokens
 		let d1TokenQueries = 0;
 		const originalPrepare = env.CADMUS_ADMIN_DB.prepare.bind(
 			env.CADMUS_ADMIN_DB,
@@ -52,96 +38,22 @@ describe("Edge Caching for Tokens and Family DO Routing (Issue #19)", () => {
 			}
 			return originalPrepare(query);
 		}) as typeof env.CADMUS_ADMIN_DB.prepare;
-
 		try {
-			// First call with member token -> cache miss, hits D1
-			const res1 = await sendRpc<{ bots: BotRecord[] }>(
-				"bot.list",
-				{},
-				{ token: customToken, accountId },
-			);
-			expect(res1.status).toBe(200);
-			expect(res1.frame.ok).toBe(true);
-			expect(d1TokenQueries).toBe(1);
+			for (const token of [
+				"cad_pat_x",
+				"cad_svc_x",
+				`plain-${crypto.randomUUID()}`,
+				`${accountId}:${userId}:not-a-credential`,
+			]) {
+				const res = await sendRpc("bot.list", {}, { token, accountId, userId });
+				expect(res.status, token).toBe(401);
+				expect(res.frame.ok, token).toBe(false);
+			}
+			expect(d1TokenQueries).toBe(0);
 			expect(edgeCache.getMetrics().tokenL1Hits).toBe(0);
-			expect(edgeCache.getMetrics().tokenMisses).toBe(1);
-
-			// Second call with member token -> cache hit, does NOT query D1
-			const res2 = await sendRpc<{ bots: BotRecord[] }>(
-				"bot.list",
-				{},
-				{ token: customToken, accountId },
-			);
-			expect(res2.status).toBe(200);
-			expect(res2.frame.ok).toBe(true);
-			expect(d1TokenQueries).toBe(1); // Still 1!
-			expect(edgeCache.getMetrics().tokenL1Hits).toBe(1);
-
-			// Third call with member token -> still cache hit, does NOT query D1
-			const res3 = await sendRpc<{ bots: BotRecord[] }>(
-				"bot.list",
-				{},
-				{ token: customToken, accountId },
-			);
-			expect(res3.status).toBe(200);
-			expect(res3.frame.ok).toBe(true);
-			expect(d1TokenQueries).toBe(1); // Still 1!
-			expect(edgeCache.getMetrics().tokenL1Hits).toBe(2);
+			expect(edgeCache.getMetrics().tokenMisses).toBe(0);
 		} finally {
 			env.CADMUS_ADMIN_DB.prepare = originalPrepare;
-		}
-	});
-
-	it("revoked token is rejected immediately after revocation", async () => {
-		const accountId = uniqueAccountId("revoke");
-		const customToken = crypto.randomUUID();
-
-		// 1. Add member with token
-		await addLegacyMember({
-			userId: "revokable-user",
-			name: "Revokable User",
-			role: "user",
-			accountId: accountId,
-			token: customToken,
-		});
-
-		// 2. Authenticate to populate edge cache
-		const res1 = await sendRpc<{ bots: BotRecord[] }>(
-			"bot.list",
-			{},
-			{ token: customToken, accountId },
-		);
-		expect(res1.status).toBe(200);
-		expect(res1.frame.ok).toBe(true);
-
-		// 3. Revoke the token via D1AdminStore.revokeToken
-		const edgeCache = getEdgeCache(env);
-		const adminStore = new D1AdminStore({
-			db: env.CADMUS_ADMIN_DB,
-			encryptionKey: env.CADMUS_ENCRYPTION_KEY,
-			edgeCache,
-		});
-		const revoked = await adminStore.revokeToken(customToken);
-		expect(revoked).toBe(true);
-
-		// 4. Subsequent request must be rejected (401 Unauthorized)
-		const res2 = await sendRpc<{ bots: BotRecord[] }>(
-			"bot.list",
-			{},
-			{ token: customToken, accountId },
-		);
-		expect(res2.status).toBe(401);
-		expect(res2.frame.ok).toBe(false);
-	});
-
-	it("a raw shared secret and an account:user:secret bearer are 401", async () => {
-		const accountId = uniqueAccountId("not-a-secret");
-		const userId = "nobody";
-		const raw = `shared-${crypto.randomUUID()}`;
-		for (const token of [raw, `${accountId}:${userId}:${raw}`]) {
-			const res = await sendRpc("bot.list", {}, { token, accountId, userId });
-			expect(res.status).toBe(401);
-			expect(res.frame.ok).toBe(false);
 		}
 	});
 
@@ -216,19 +128,17 @@ describe("Edge Caching for Tokens and Family DO Routing (Issue #19)", () => {
 
 	it("WebSocket verifies auth only during handshake and frames need no re-verification", async () => {
 		const accountId = uniqueAccountId("ws-auth");
-		const customToken = crypto.randomUUID();
-
-		await addLegacyMember({
-			userId: "ws-user-1",
-			name: "WS User",
-			role: "user",
-			accountId: accountId,
-			token: customToken,
+		const userId = `usr_${accountId}`;
+		const store = new D1AdminStore({
+			db: env.CADMUS_ADMIN_DB,
+			encryptionKey: env.CADMUS_ENCRYPTION_KEY,
+			edgeCache: getEdgeCache(env),
 		});
+		await store.ensureAccountAndUser({ accountId, userId, role: "user" });
+		const session = await store.createSession({ userId, accountId });
 
-		// Connect WebSocket
 		const client = await connectTestWs({
-			token: customToken,
+			token: session.accessToken,
 			accountId,
 		});
 
@@ -249,28 +159,38 @@ describe("Edge Caching for Tokens and Family DO Routing (Issue #19)", () => {
 
 	it("SSE (/events) verifies authentication at stream establishment", async () => {
 		const accountId = uniqueAccountId("sse-auth");
-		const customToken = crypto.randomUUID();
-
-		await addLegacyMember({
-			userId: "sse-user-1",
-			name: "SSE User",
-			role: "user",
-			accountId: accountId,
-			token: customToken,
+		const userId = `usr_${accountId}`;
+		const store = new D1AdminStore({
+			db: env.CADMUS_ADMIN_DB,
+			encryptionKey: env.CADMUS_ENCRYPTION_KEY,
+			edgeCache: getEdgeCache(env),
 		});
+		await store.ensureAccountAndUser({ accountId, userId, role: "user" });
+		const session = await store.createSession({ userId, accountId });
 
-		// 1. Missing token -> 401
 		const unauthRes = await SELF.fetch("http://example.com/events", {
 			headers: { "x-account-id": accountId },
 		});
 		expect(unauthRes.status).toBe(401);
 
-		// 2. Valid token -> 200 OK stream established
-		const authRes = await SELF.fetch("http://example.com/events", {
-			headers: {
-				Authorization: `Bearer ${customToken}`,
-				"x-account-id": accountId,
-			},
+		for (const token of ["cad_pat_x", "cad_svc_x", `plain-${accountId}`]) {
+			const refused = await SELF.fetch("http://example.com/events", {
+				headers: {
+					Authorization: `Bearer ${token}`,
+					"x-account-id": accountId,
+				},
+			});
+			expect(refused.status, token).toBe(401);
+		}
+
+		const ticket = await streamAuthParams("events", {
+			token: session.accessToken,
+			accountId,
+		});
+		const url = new URL("http://example.com/events");
+		for (const [k, v] of Object.entries(ticket)) url.searchParams.set(k, v);
+		const authRes = await SELF.fetch(url.toString(), {
+			headers: { "x-account-id": accountId },
 		});
 		expect(authRes.status).toBe(200);
 		expect(authRes.headers.get("content-type")).toContain("text/event-stream");
@@ -280,26 +200,29 @@ describe("Edge Caching for Tokens and Family DO Routing (Issue #19)", () => {
 	it("preserves multi-tenant isolation with edge caching", async () => {
 		const accountA = uniqueAccountId("tenant-a");
 		const accountB = uniqueAccountId("tenant-b");
-		const tokenA = crypto.randomUUID();
-		const tokenB = crypto.randomUUID();
-
-		await addLegacyMember({
-			userId: "user-a",
-			name: "User A",
-			role: "user",
+		const store = new D1AdminStore({
+			db: env.CADMUS_ADMIN_DB,
+			encryptionKey: env.CADMUS_ENCRYPTION_KEY,
+			edgeCache: getEdgeCache(env),
+		});
+		await store.ensureAccountAndUser({
 			accountId: accountA,
-			token: tokenA,
-		});
-
-		await addLegacyMember({
-			userId: "user-b",
-			name: "User B",
+			userId: "user-a",
 			role: "user",
-			accountId: accountB,
-			token: tokenB,
 		});
+		await store.ensureAccountAndUser({
+			accountId: accountB,
+			userId: "user-b",
+			role: "user",
+		});
+		const tokenA = (
+			await store.createSession({ userId: "user-a", accountId: accountA })
+		).accessToken;
+		const tokenB = (
+			await store.createSession({ userId: "user-b", accountId: accountB })
+		).accessToken;
 
-		// Token A resolves only to Account A
+		// Session A resolves only to Account A
 		const listA = await sendRpc<{ members: AccountMember[] }>(
 			"account.members.list",
 			{},
@@ -469,65 +392,30 @@ describe("Edge Caching for Tokens and Family DO Routing (Issue #19)", () => {
 		expect(edgeCache.getMetrics().familyL1Hits).toBe(1);
 	});
 
-	it("addMember invalidates cached token only after successful batch write", async () => {
+	it("addMember does not require a raw token and leaves the token cache alone", async () => {
 		const accountId = uniqueAccountId("member-batch");
-		const rawToken = crypto.randomUUID();
-		const tokenHash = await sha256Hex(rawToken);
+		const tokenHash = await sha256Hex("untouched");
 		const edgeCache = getEdgeCache(env);
-
 		const adminStore = new D1AdminStore({
 			db: env.CADMUS_ADMIN_DB,
 			encryptionKey: "test-encryption-key-for-admin-store-tests",
 			edgeCache,
 		});
-
 		await adminStore.ensureAccountAndUser({
 			accountId,
 			userId: "owner-batch-1",
 		});
-
-		// 1. Prime cache with an existing token entry
 		await edgeCache.setToken(tokenHash, {
 			userId: "old-user",
 			accountId,
 			role: "user",
 		});
-		expect(await edgeCache.getToken(tokenHash)).toBeDefined();
-
-		// 2. If D1 batch fails, the existing cache entry must NOT be invalidated prematurely
-		const originalBatch = env.CADMUS_ADMIN_DB.batch.bind(env.CADMUS_ADMIN_DB);
-		env.CADMUS_ADMIN_DB.batch = (() => {
-			return Promise.reject(new Error("Simulated D1 batch commit failure"));
-		}) as typeof env.CADMUS_ADMIN_DB.batch;
-
-		try {
-			await expect(
-				adminStore.addMember({
-					accountId,
-					userId: "new-user",
-					rawToken,
-				}),
-			).rejects.toThrow("Simulated D1 batch commit failure");
-
-			// Cache entry must still be intact because batch aborted
-			expect(await edgeCache.getToken(tokenHash)).toBeDefined();
-			expect((await edgeCache.getToken(tokenHash))?.userId).toBe("old-user");
-		} finally {
-			env.CADMUS_ADMIN_DB.batch = originalBatch;
-		}
-
-		// 3. When batch succeeds, cache entry is invalidated post-commit
-		await adminStore.addMember({
+		const member = await adminStore.addMember({
 			accountId,
 			userId: "new-user",
-			rawToken,
+			roles: ["user"],
 		});
-
-		// Cache entry was invalidated
-		expect(await edgeCache.getToken(tokenHash)).toBeUndefined();
-
-		// Resolving token via D1 now reflects the newly committed member
-		const resolved = await adminStore.resolveToken(rawToken);
-		expect(resolved?.userId).toBe("new-user");
+		expect(member.userId).toBe("new-user");
+		expect((await edgeCache.getToken(tokenHash))?.userId).toBe("old-user");
 	});
 });

@@ -1,5 +1,4 @@
 import type { Page } from "@playwright/test";
-import { sendAccountRpc } from "./account.ts";
 import { clickByRole, fillByLabel } from "./actions.ts";
 import {
 	allowSlowTest,
@@ -17,32 +16,17 @@ import {
 import { expect } from "./fixtures.ts";
 
 /**
- * Signs in through /auth/token-login with a short-lived personal token.
- * The session cannot enter admin mode. Setup still uses the master secret.
+ * Signs the browser in with dev-password. API tokens are gone, so this is a
+ * session cookie, not a personal access token. `accountId` is the fixture
+ * account the caller already provisioned; the password login is the session.
  */
 export async function signInWithToken(
 	page: Page,
 	origin: string,
 	accountId: string,
-	grants: string[] = ["chat.use", "bot.read", "tokens.self"],
 ): Promise<void> {
-	const created = await sendAccountRpc<{ token: string }>(
-		origin,
-		accountId,
-		"auth.tokens.create",
-		{
-			kind: "pat",
-			label: "ui token session",
-			grants,
-			ttlDays: 1,
-		},
-	);
-	const login = await page
-		.context()
-		.request.post(`${origin}/auth/token-login`, {
-			headers: { Authorization: `Bearer ${created.token}` },
-		});
-	expect(login.ok(), await login.text()).toBe(true);
+	void accountId;
+	await loginDevPassword(page.context().request, origin);
 }
 
 async function findAccountRow(page: Page, name: string) {

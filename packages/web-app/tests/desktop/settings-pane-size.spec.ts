@@ -8,7 +8,6 @@ import { expect, test } from "../support/fixtures.ts";
 const PAGES: [string, string][] = [
 	["/settings", "settings"],
 	["/settings/account", "account"],
-	["/settings/tokens", "tokens"],
 	["/settings/family", "family"],
 	["/settings/providers", "providers"],
 	["/settings/tools", "tools"],

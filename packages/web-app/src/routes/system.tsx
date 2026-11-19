@@ -30,7 +30,6 @@ export function SystemConsolePage() {
 	const principalPending = session.signedIn && session.principal === null;
 	const allowed =
 		session.principal?.kind === "user" &&
-		!session.principal.viaToken &&
 		session.principal.role === "super-admin";
 	return (
 		<AppShell title="System console" backTo="/settings">

@@ -12,19 +12,5 @@ test("a plain user cannot rename the account (flows)", async ({
 		page,
 		accountId,
 		baseURL ?? "http://127.0.0.1:8799",
-		{ role: "user" },
-	);
-});
-
-test("a token session cannot save an account rename (flows)", async ({
-	page,
-	accountId,
-	baseURL,
-}) => {
-	await accountNonAdminScenario(
-		page,
-		accountId,
-		baseURL ?? "http://127.0.0.1:8799",
-		{ role: "account-admin", viaToken: true },
 	);
 });

@@ -1,32 +1,27 @@
 import { randomUUID } from "node:crypto";
-import { sendAccountRpc } from "../support/account.ts";
+import { BOOTSTRAP_EMAIL, DEV_PASSWORD } from "../support/dev-session.ts";
 import { expect, sourceAddressFor, test } from "../support/fixtures.ts";
 
 // Signs in on its own (or not at all); no master dev config is seeded.
 test.use({ signIn: "none" });
 
-test("token login stays budgeted per source address in the hosted stack", async ({
+test("dev-password login stays budgeted per source address in the hosted stack", async ({
 	page,
-	accountId,
 	baseURL,
 }) => {
 	const origin = baseURL ?? "http://127.0.0.1:8799";
-	const created = await sendAccountRpc<{ token: string }>(
-		origin,
-		accountId,
-		"auth.tokens.create",
-		{
-			kind: "pat",
-			label: "budget",
-			grants: ["chat.use", "bot.read", "tokens.self"],
-			ttlDays: 1,
-		},
-	);
+	const url = new URL(origin);
 	const login = (ip?: string) =>
-		page.context().request.post(`${origin}/auth/token-login`, {
+		page.context().request.post(`${origin}/api/auth/login/devPassword`, {
 			headers: {
-				Authorization: `Bearer ${created.token}`,
+				Origin: url.origin,
+				"Content-Type": "application/json",
 				...(ip ? { "cf-connecting-ip": ip } : {}),
+			},
+			data: {
+				id: "dev-password",
+				type: "auth.login.devPassword",
+				payload: { email: BOOTSTRAP_EMAIL, password: DEV_PASSWORD },
 			},
 		});
 	// Fresh addresses every attempt (retry or rerun inside the 60 s window would

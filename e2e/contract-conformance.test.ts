@@ -45,15 +45,11 @@ const MAY_FAIL_OFFLINE = new Set<CommandType>([
 	"system.users.disable",
 	"system.users.enable",
 	"system.users.revokeSessions",
-	"auth.tokens.list",
-	"auth.tokens.create",
-	"auth.tokens.revoke",
 	"auth.memberships.list",
 	"auth.methods.list",
 	"auth.methods.delete",
 	"auth.login.providers",
 	"auth.login.devPassword",
-	"auth.login.token",
 	"auth.login.google.start",
 	"auth.session.refresh",
 	"auth.session.logout",
@@ -282,20 +278,14 @@ describe("contract conformance", () => {
 		await call("system.users.disable", { userId: "usr_missing" });
 		await call("system.users.enable", { userId: "usr_missing" });
 		await call("system.users.revokeSessions", { userId: "usr_missing" });
-		await call("auth.tokens.list");
-		await call("auth.tokens.create", {
-			kind: "pat",
-			label: "conformance",
-			grants: ["chat.use"],
-			ttlDays: 1,
-		});
-		await call("auth.tokens.revoke", { tokenId: "tok_missing" });
 		await call("auth.memberships.list");
 		await call("auth.methods.list");
 		await call("auth.methods.delete", { methodId: "lm_missing" });
 		await call("auth.login.providers");
-		await call("auth.login.devPassword", { password: "nope" });
-		await call("auth.login.token", {});
+		await call("auth.login.devPassword", {
+			email: `nope-${suffix}@example.com`,
+			password: "nope",
+		});
 		await call("auth.login.google.start");
 		await call("auth.session.refresh");
 		await call("auth.session.logout");

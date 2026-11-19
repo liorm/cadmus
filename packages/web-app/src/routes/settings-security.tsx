@@ -304,14 +304,9 @@ function SignedIn() {
 					</button>
 				</div>
 			</SettingsSection>
+			{!principalPending && principal?.kind === "user" ? <AssumeRole /> : null}
 			{!principalPending &&
 			principal?.kind === "user" &&
-			!principal.viaToken ? (
-				<AssumeRole />
-			) : null}
-			{!principalPending &&
-			principal?.kind === "user" &&
-			!principal.viaToken &&
 			(principal.role === "account-admin" ||
 				principal.role === "super-admin") ? (
 				<AdminMode />

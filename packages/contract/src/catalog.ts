@@ -28,9 +28,6 @@ import {
 	AuthSessionsRevokeCommandSchema,
 	AuthSessionsRevokeOthersCommandSchema,
 	AuthTicketCommandSchema,
-	AuthTokensCreateCommandSchema,
-	AuthTokensListCommandSchema,
-	AuthTokensRevokeCommandSchema,
 	AuthWhoamiCommandSchema,
 	BotCreateCommandSchema,
 	BotDeleteCommandSchema,
@@ -91,7 +88,6 @@ import {
 	AuthLoginProvidersCommandSchema,
 	AuthLoginProvidersResultSchema,
 	AuthLoginSessionResultSchema,
-	AuthLoginTokenCommandSchema,
 	AuthSessionLogoutCommandSchema,
 	AuthSessionLogoutResultSchema,
 	AuthSessionRefreshCommandSchema,
@@ -137,9 +133,6 @@ import {
 	AuthSessionsRevokeOthersResultSchema,
 	AuthSessionsRevokeResultSchema,
 	AuthTicketResultSchema,
-	AuthTokensCreateResultSchema,
-	AuthTokensListResultSchema,
-	AuthTokensRevokeResultSchema,
 	AuthWhoamiResultSchema,
 	BotCreateResultSchema,
 	BotDeleteResultSchema,
@@ -343,18 +336,6 @@ export const commandCatalog = {
 		command: AuthElevationEndCommandSchema,
 		result: AuthElevationEndResultSchema,
 	},
-	"auth.tokens.list": {
-		command: AuthTokensListCommandSchema,
-		result: AuthTokensListResultSchema,
-	},
-	"auth.tokens.create": {
-		command: AuthTokensCreateCommandSchema,
-		result: AuthTokensCreateResultSchema,
-	},
-	"auth.tokens.revoke": {
-		command: AuthTokensRevokeCommandSchema,
-		result: AuthTokensRevokeResultSchema,
-	},
 	"auth.memberships.list": {
 		command: AuthMembershipsListCommandSchema,
 		result: AuthMembershipsListResultSchema,
@@ -377,10 +358,6 @@ export const commandCatalog = {
 	},
 	"auth.login.devPassword": {
 		command: AuthLoginDevPasswordCommandSchema,
-		result: AuthLoginSessionResultSchema,
-	},
-	"auth.login.token": {
-		command: AuthLoginTokenCommandSchema,
 		result: AuthLoginSessionResultSchema,
 	},
 	"auth.login.google.start": {

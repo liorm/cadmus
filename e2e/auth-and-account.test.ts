@@ -80,10 +80,10 @@ describe("Authentication, Accounts, Encrypted BYOK Credentials & Multi-Family Ca
 		expect(viaScopedHeader.status).toBe(401);
 		expect(viaScopedHeader.frame.ok).toBe(false);
 
-		// 5. Invite a member and authenticate with the cad_pat_ they mint.
+		// 5. Invite a member and authenticate with their dev-password session.
 		const member = await addMemberBearer({ accountId });
 		expect(member.userId).toBeTruthy();
-		expect(member.token.startsWith("cad_pat_")).toBe(true);
+		expect(member.token.startsWith("cad_at_")).toBe(true);
 
 		const viaMemberToken = await sendRpc<{ members: AccountMember[] }>(
 			"account.members.list",

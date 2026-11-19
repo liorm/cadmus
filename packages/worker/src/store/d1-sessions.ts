@@ -1,36 +1,14 @@
-import {
-	type Grant,
-	isGrant,
-	normalizeRole,
-	ROLE_GRANTS,
-	type Role,
-} from "@cadmus/contract/grants";
+import { normalizeRole, type Role } from "@cadmus/contract/grants";
 import { sha256Hex } from "../edge-cache.js";
-import {
-	API_TOKEN_CREDENTIAL_PREFIX,
-	apiTokenHashFromCredential,
-} from "./api-token-credential.js";
 import { randomId, randomToken } from "./random-id.js";
 import {
-	clampTokenGrantsToRoles,
 	parseStoredRoles,
 	ROLE_CHOICE_SESSION_MS,
 	ROLE_RANK_SQL,
 } from "./roles.js";
 
-/**
- * Token-backed sessions (token login) store their access and refresh hashes
- * under a domain-separated digest. The Worker from before token login looks
- * sessions up as `sha256(raw)` and ignores the token grant clamp, so a plain
- * digest would let a rolled-back Worker run, or refresh, a token session with
- * the member's full role. User sessions keep the plain digest. Lookups try both.
- */
-export const TOKEN_SESSION_HASH_DOMAIN = "cadmus-token-session-v1:";
-function tokenSessionHash(raw: string): Promise<string> {
-	return sha256Hex(`${TOKEN_SESSION_HASH_DOMAIN}${raw}`);
-}
-function sessionHash(raw: string, tokenBacked: boolean): Promise<string> {
-	return tokenBacked ? tokenSessionHash(raw) : sha256Hex(raw);
+function sessionHash(raw: string): Promise<string> {
+	return sha256Hex(raw);
 }
 
 /** Lifetimes from issue #3 decision 12. */
@@ -56,39 +34,10 @@ export interface SessionIdentity {
 	userId: string;
 	accountId: string;
 	role: Role;
-	/** Set for token-backed sessions: the token's grants clamped to the role. */
-	grants?: Grant[];
 	/** Epoch ms when admin mode on this session ends. Only set while it is on. */
 	elevatedUntil?: number;
 	/** Short role-choice session. */
 	provisional?: boolean;
-}
-
-/** Token grants clamped to what the role still holds (demotion clamps). */
-export function clampTokenGrants(stored: string | null, role: Role): Grant[] {
-	let parsed: unknown;
-	try {
-		parsed = stored ? JSON.parse(stored) : [];
-	} catch {
-		parsed = [];
-	}
-	const held = ROLE_GRANTS[role];
-	return (Array.isArray(parsed) ? parsed : []).filter(
-		(g): g is Grant => isGrant(g) && held.includes(g),
-	);
-}
-
-interface TokenJoin {
-	token_id: string | null;
-	token_grants: string | null;
-	token_revoked_at: number | null;
-	token_expires_at: number | null;
-}
-
-function tokenAllows(row: TokenJoin, now: number): boolean {
-	if (!row.token_id) return true;
-	if (row.token_revoked_at !== null) return false;
-	return row.token_expires_at === null || row.token_expires_at > now;
 }
 
 export type RefreshResult =
@@ -97,7 +46,6 @@ export type RefreshResult =
 			tokens: SessionTokens;
 			accountId: string;
 			userId: string;
-			viaToken: boolean;
 	  }
 	| {
 			ok: false;
@@ -133,7 +81,6 @@ export interface CreateSessionInput {
 	loginMethodId?: string;
 	/** Verified Google auth_time in epoch ms; only a fresh sign-in flow sets it. */
 	freshGoogleAt?: number;
-	tokenId?: string;
 	userAgent?: string;
 	ipCountry?: string;
 	now?: number;
@@ -166,20 +113,11 @@ export async function createSession(
 	if (!activeRole) {
 		throw new Error("session has no stored role on this account");
 	}
-	// A token-backed session never outlives its token.
-	let cap = Number.POSITIVE_INFINITY;
-	if (input.tokenId) {
-		const token = await db
-			.prepare(`SELECT expires_at FROM cadmus_auth_tokens WHERE id = ?1`)
-			.bind(input.tokenId)
-			.first<{ expires_at: number | null }>();
-		if (token?.expires_at != null) cap = token.expires_at;
-	}
 	const life = input.provisional ? ROLE_CHOICE_SESSION_MS : SESSION_ABSOLUTE_MS;
 	const idle = input.provisional ? ROLE_CHOICE_SESSION_MS : REFRESH_IDLE_MS;
-	const accessExpiresAt = Math.min(now + ACCESS_TTL_MS, now + life, cap);
-	const absoluteExpiresAt = Math.min(now + life, cap);
-	const refreshExpiresAt = Math.min(now + idle, absoluteExpiresAt, cap);
+	const accessExpiresAt = Math.min(now + ACCESS_TTL_MS, now + life);
+	const absoluteExpiresAt = now + life;
+	const refreshExpiresAt = Math.min(now + idle, absoluteExpiresAt);
 	await db.batch([
 		db
 			.prepare(
@@ -195,9 +133,9 @@ export async function createSession(
 				input.userId,
 				input.accountId,
 				input.loginMethodId ?? null,
-				input.tokenId ?? null,
-				await sessionHash(refreshToken, Boolean(input.tokenId)),
-				await sessionHash(accessToken, Boolean(input.tokenId)),
+				null,
+				await sessionHash(refreshToken),
+				await sessionHash(accessToken),
 				accessExpiresAt,
 				input.userAgent ?? null,
 				input.ipCountry ?? null,
@@ -219,7 +157,6 @@ export async function createSession(
 				input.userId,
 				sessionId,
 				JSON.stringify({
-					tokenId: input.tokenId ?? null,
 					loginMethodId: input.loginMethodId ?? null,
 				}),
 				now,
@@ -314,13 +251,14 @@ export async function assumeStoredRole(
 	return { ok: true, tokens };
 }
 
-type SessionRow = TokenJoin & {
+type SessionRow = {
 	id: string;
 	user_id: string;
 	account_id: string;
 	/** The account the session was signed in to. */
 	home_account_id: string;
 	role: string;
+	token_id: string | null;
 	access_expires_at: number;
 	absolute_expires_at: number;
 	idle_expires_at: number;
@@ -330,26 +268,21 @@ type SessionRow = TokenJoin & {
 	elevated_until: number | null;
 	elevated_account_id: string | null;
 	provisional: number;
-	stored_roles: string | null;
 };
 
 function sessionSelect(selected: boolean): string {
 	// With a selected account (?2) the membership, account and role come from
 	// that account; without one, from the session's own account.
 	const acct = selected ? "?2" : "s.account_id";
-	return `SELECT s.token_id AS token_id, t.grants AS token_grants,
-              t.revoked_at AS token_revoked_at, t.expires_at AS token_expires_at, s.id, s.user_id, a.id AS account_id, s.account_id AS home_account_id, r.role, s.access_expires_at,
-              s.absolute_expires_at, s.idle_expires_at, s.revoked_at, s.elevated_until, s.elevated_account_id, s.provisional, u.disabled_at, a.status,
-              (SELECT json_group_array(mr.role) FROM cadmus_member_roles mr
-                WHERE mr.account_id = ${acct} AND mr.user_id = s.user_id) AS stored_roles
+	return `SELECT s.token_id AS token_id, s.id, s.user_id, a.id AS account_id, s.account_id AS home_account_id, r.role, s.access_expires_at,
+              s.absolute_expires_at, s.idle_expires_at, s.revoked_at, s.elevated_until, s.elevated_account_id, s.provisional, u.disabled_at, a.status
        FROM cadmus_sessions s
        JOIN cadmus_account_members m
          ON m.account_id = ${acct} AND m.user_id = s.user_id
        JOIN cadmus_member_roles r
          ON r.account_id = ${acct} AND r.user_id = s.user_id AND r.role = s.active_role
        JOIN cadmus_users u ON u.id = s.user_id
-       JOIN cadmus_accounts a ON a.id = ${acct}
-       LEFT JOIN cadmus_auth_tokens t ON t.id = s.token_id`;
+       JOIN cadmus_accounts a ON a.id = ${acct}`;
 }
 const SESSION_SELECT = sessionSelect(false);
 
@@ -359,15 +292,13 @@ function identityFromRow(
 	checkAccessExpiry: boolean,
 ): SessionIdentity | undefined {
 	if (!row) return undefined;
+	if (row.token_id !== null) return undefined;
 	if (row.revoked_at !== null || row.disabled_at !== null) return undefined;
 	if (row.status !== "active") return undefined;
 	if (row.absolute_expires_at <= now || row.idle_expires_at <= now) {
 		return undefined;
 	}
 	if (checkAccessExpiry && row.access_expires_at <= now) return undefined;
-	if (!tokenAllows(row, now)) return undefined;
-	// A token session is bound to the account it was opened in.
-	if (row.token_id && row.account_id !== row.home_account_id) return undefined;
 	const role = normalizeRole(row.role);
 	if (!role) return undefined;
 	return {
@@ -375,18 +306,11 @@ function identityFromRow(
 		userId: row.user_id,
 		accountId: row.account_id,
 		role,
-		...(row.token_id
-			? {
-					grants: clampTokenGrantsToRoles(
-						row.token_grants,
-						parseStoredRoles(row.stored_roles),
-					),
-				}
-			: row.elevated_until !== null &&
-					row.elevated_until > now &&
-					row.account_id === (row.elevated_account_id ?? row.home_account_id)
-				? { elevatedUntil: row.elevated_until }
-				: {}),
+		...(row.elevated_until !== null &&
+		row.elevated_until > now &&
+		row.account_id === (row.elevated_account_id ?? row.home_account_id)
+			? { elevatedUntil: row.elevated_until }
+			: {}),
 		...(row.provisional ? { provisional: true } : {}),
 	};
 }
@@ -400,21 +324,17 @@ export async function resolveAccessToken(
 ): Promise<SessionIdentity | undefined> {
 	if (!rawToken.startsWith(ACCESS_PREFIX)) return undefined;
 	const hash = await sha256Hex(rawToken);
-	const tokenHash = await tokenSessionHash(rawToken);
 	const row = await (selectedAccountId
 		? db
-				.prepare(`${sessionSelect(true)} WHERE s.access_hash IN (?1, ?3)`)
-				.bind(hash, selectedAccountId, tokenHash)
-		: db
-				.prepare(`${SESSION_SELECT} WHERE s.access_hash IN (?1, ?2)`)
-				.bind(hash, tokenHash)
+				.prepare(`${sessionSelect(true)} WHERE s.access_hash = ?1`)
+				.bind(hash, selectedAccountId)
+		: db.prepare(`${SESSION_SELECT} WHERE s.access_hash = ?1`).bind(hash)
 	).first<SessionRow>();
 	const identity = identityFromRow(row, now, true);
 	// An explicit, verified selection counts as use of that account for the
-	// next sign-in default. Refused requests returned above and write nothing;
-	// token sessions never select. Throttled so a busy client is not a D1 write
-	// per request.
-	if (identity && selectedAccountId && !row?.token_id) {
+	// next sign-in default. Refused requests returned above and write nothing.
+	// Throttled so a busy client is not a D1 write per request.
+	if (identity && selectedAccountId) {
 		await db
 			.prepare(
 				`UPDATE cadmus_account_members SET last_used_at = ?3
@@ -478,24 +398,6 @@ export async function sessionRefusalReason(
 	return undefined;
 }
 
-/** 4403 when the user is disabled or the account is not active, else 4401 (sessionless credential that no longer resolves). */
-export async function legacyEndCode(
-	db: D1Database,
-	userId: string,
-	accountId: string,
-): Promise<4401 | 4403> {
-	const row = await db
-		.prepare(
-			`SELECT a.status AS status, u.disabled_at AS disabled_at
-       FROM cadmus_users u, cadmus_accounts a
-       WHERE u.id = ?1 AND a.id = ?2`,
-		)
-		.bind(userId, accountId)
-		.first<{ status: string; disabled_at: number | null }>();
-	if (!row) return 4401;
-	return row.status !== "active" || row.disabled_at !== null ? 4403 : 4401;
-}
-
 export async function revokeSession(
 	db: D1Database,
 	sessionId: string,
@@ -521,21 +423,20 @@ export async function revokeSessionByRefresh(
 ): Promise<boolean> {
 	if (!rawRefresh.startsWith(REFRESH_PREFIX)) return false;
 	const hash = await sha256Hex(rawRefresh);
-	const tokenHash = await tokenSessionHash(rawRefresh);
 	const row = await db
 		.prepare(
 			`SELECT id, session_family_id, refresh_hash
        FROM cadmus_sessions
-       WHERE refresh_hash IN (?1, ?2) OR previous_refresh_hash IN (?1, ?2)`,
+       WHERE refresh_hash = ?1 OR previous_refresh_hash = ?1`,
 		)
-		.bind(hash, tokenHash)
+		.bind(hash)
 		.first<{
 			id: string;
 			session_family_id: string;
 			refresh_hash: string;
 		}>();
 	if (!row) return false;
-	if (row.refresh_hash !== hash && row.refresh_hash !== tokenHash) {
+	if (row.refresh_hash !== hash) {
 		const [res] = await db.batch([
 			db
 				.prepare(
@@ -684,30 +585,27 @@ export async function rotateRefreshToken(
 		return { ok: false, code: "invalid_refresh" };
 	}
 	const hash = await sha256Hex(rawRefresh);
-	const tokenHash = await tokenSessionHash(rawRefresh);
 	const row = await db
 		.prepare(
 			`SELECT id, session_family_id, refresh_hash, previous_refresh_hash,
               idle_expires_at, absolute_expires_at, revoked_at
        FROM cadmus_sessions
-       WHERE refresh_hash IN (?1, ?2) OR previous_refresh_hash IN (?1, ?2)`,
+       WHERE refresh_hash = ?1 OR previous_refresh_hash = ?1`,
 		)
-		.bind(hash, tokenHash)
-		.first<
-			TokenJoin & {
-				id: string;
-				session_family_id: string;
-				refresh_hash: string;
-				previous_refresh_hash: string | null;
-				idle_expires_at: number;
-				absolute_expires_at: number;
-				revoked_at: number | null;
-			}
-		>();
+		.bind(hash)
+		.first<{
+			id: string;
+			session_family_id: string;
+			refresh_hash: string;
+			previous_refresh_hash: string | null;
+			idle_expires_at: number;
+			absolute_expires_at: number;
+			revoked_at: number | null;
+		}>();
 	if (!row || row.revoked_at !== null) {
 		return { ok: false, code: "invalid_refresh" };
 	}
-	if (row.refresh_hash !== hash && row.refresh_hash !== tokenHash) {
+	if (row.refresh_hash !== hash) {
 		await db.batch([
 			db
 				.prepare(
@@ -738,19 +636,16 @@ export async function rotateRefreshToken(
 	if (!identity) {
 		return { ok: false, code: "invalid_refresh" };
 	}
-	const cap = state?.token_expires_at ?? Number.POSITIVE_INFINITY;
 	const accessToken = randomToken(ACCESS_PREFIX);
 	const refreshToken = randomToken(REFRESH_PREFIX);
 	const provisional = (state?.provisional ?? 0) !== 0;
 	const accessExpiresAt = Math.min(
 		now + (provisional ? ROLE_CHOICE_SESSION_MS : ACCESS_TTL_MS),
 		row.absolute_expires_at,
-		cap,
 	);
 	const refreshExpiresAt = Math.min(
 		now + (provisional ? ROLE_CHOICE_SESSION_MS : REFRESH_IDLE_MS),
 		row.absolute_expires_at,
-		cap,
 	);
 	// Compare-and-set on the current refresh hash so two concurrent refreshes
 	// cannot both win.
@@ -764,8 +659,8 @@ export async function rotateRefreshToken(
 		)
 		.bind(
 			row.id,
-			await sessionHash(refreshToken, Boolean(state?.token_id)),
-			await sessionHash(accessToken, Boolean(state?.token_id)),
+			await sessionHash(refreshToken),
+			await sessionHash(accessToken),
 			accessExpiresAt,
 			refreshExpiresAt,
 			now,
@@ -786,7 +681,6 @@ export async function rotateRefreshToken(
 		},
 		accountId: identity.accountId,
 		userId: identity.userId,
-		viaToken: Boolean(state?.token_id),
 	};
 }
 
@@ -1050,126 +944,8 @@ export async function createTicket(
 	return { ticket, expiresAt };
 }
 
-/** `session_id` of a ticket minted by a credential that has no session. */
-export const LEGACY_TICKET_SESSION = "legacy";
-
-/** Identity a consumed ticket yields. Legacy tickets carry no session. */
-export type TicketIdentity = Omit<SessionIdentity, "sessionId"> & {
-	sessionId?: string;
-	/** Legacy tickets only: the credential the edge named at mint. */
-	credential?: string;
-};
-
-/**
- * A ticket for a credential with no session: a legacy member token or an API
- * token. It is minted over the header-authenticated RPC, so the
- * credential never goes in a URL. Consuming it re-reads the live membership.
- */
-export async function createLegacyTicket(
-	db: D1Database,
-	userId: string,
-	accountId: string,
-	target: TicketTarget,
-	credential: string | undefined,
-	now = Date.now(),
-): Promise<{ ticket: string; expiresAt: number }> {
-	const ticket = randomToken("cad_tk_");
-	const expiresAt = now + TICKET_TTL_MS;
-	await db
-		.prepare(
-			`INSERT INTO cadmus_tickets (ticket_hash, session_id, target, expires_at, account_id, user_id, credential)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`,
-		)
-		.bind(
-			await sha256Hex(ticket),
-			LEGACY_TICKET_SESSION,
-			target,
-			expiresAt,
-			accountId,
-			userId,
-			credential ?? null,
-		)
-		.run();
-	return { ticket, expiresAt };
-}
-
-/**
- * Live authority of a credential that has no session: a legacy member token
- * or an API token (`cad_pat_` / `cad_svc_`) presented as a bearer. A legacy
- * member token must still have a live `cadmus_auth_tokens` row (not revoked,
- * not expired) for this user and account, and its grants are the `user` set
- * (issue #3 data model: legacy rows are `pat` rows with the `user` grant set).
- * An API token's grants are the stored set clamped to the member's live role.
- * The grants are an intersection with that role (callerGrants), so a demotion
- * never widens them. A shared secret, including one shaped account:user:secret,
- * is not a credential and does not resolve. Membership, user and account state
- * are re-read.
- */
-export async function resolveLegacyCredential(
-	db: D1Database,
-	credential: string | null | undefined,
-	userId: string,
-	accountId: string,
-	now = Date.now(),
-): Promise<{ role: Role; grants?: Grant[] } | undefined> {
-	const apiHash = apiTokenHashFromCredential(credential);
-	if (apiHash) {
-		const row = await db
-			.prepare(
-				`SELECT t.grants,
-                (SELECT json_group_array(r.role) FROM cadmus_member_roles r
-                  WHERE r.account_id = t.account_id AND r.user_id = t.user_id) AS roles
-         FROM cadmus_auth_tokens t
-         JOIN cadmus_account_members m
-           ON m.account_id = t.account_id AND m.user_id = t.user_id
-         JOIN cadmus_users u ON u.id = t.user_id AND u.disabled_at IS NULL
-         JOIN cadmus_accounts a ON a.id = t.account_id AND a.status = 'active'
-         WHERE t.token_hash = ?1 AND t.user_id = ?2 AND t.account_id = ?3
-           AND t.revoked_at IS NULL AND (t.expires_at IS NULL OR t.expires_at > ?4)`,
-			)
-			.bind(apiHash, userId, accountId, now)
-			.first<{ grants: string | null; roles: string }>();
-		if (!row) return undefined;
-		const roles = parseStoredRoles(row.roles);
-		const role = roles.at(-1);
-		if (!role) return undefined;
-		return { role, grants: clampTokenGrantsToRoles(row.grants, roles) };
-	}
-	if (credential?.startsWith(API_TOKEN_CREDENTIAL_PREFIX)) return undefined;
-	if (!credential?.startsWith("member-token:")) return undefined;
-	const live = await db
-		.prepare(
-			`SELECT 1 AS ok FROM cadmus_auth_tokens
-         WHERE token_hash = ?1 AND user_id = ?2 AND account_id = ?3
-           AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > ?4)`,
-		)
-		.bind(credential.slice("member-token:".length), userId, accountId, now)
-		.first();
-	if (!live) return undefined;
-	const member = await db
-		.prepare(
-			`SELECT (SELECT json_group_array(r.role) FROM cadmus_member_roles r
-                 WHERE r.account_id = m.account_id AND r.user_id = m.user_id) AS roles,
-              u.disabled_at, a.status
-         FROM cadmus_account_members m
-         JOIN cadmus_users u ON u.id = m.user_id
-         JOIN cadmus_accounts a ON a.id = m.account_id
-         WHERE m.account_id = ?1 AND m.user_id = ?2`,
-		)
-		.bind(accountId, userId)
-		.first<{
-			roles: string;
-			disabled_at: number | null;
-			status: string;
-		}>();
-	if (!member || member.disabled_at !== null || member.status !== "active") {
-		return undefined;
-	}
-	const role = parseStoredRoles(member.roles).at(-1);
-	if (!role) return undefined;
-	// Legacy member tokens stay on the user grant set. They are not account-admin.
-	return { role, grants: [...ROLE_GRANTS.user] };
-}
+/** Identity a consumed ticket yields. A ticket always names a live session. */
+export type TicketIdentity = SessionIdentity;
 
 /** Consumes a ticket exactly once; returns the identity it was minted for. */
 export async function consumeTicket(
@@ -1193,25 +969,7 @@ export async function consumeTicket(
 			user_id: string | null;
 			credential: string | null;
 		}>();
-	if (!claimed) return undefined;
-	if (claimed.session_id === LEGACY_TICKET_SESSION) {
-		if (!claimed.account_id || !claimed.user_id) return undefined;
-		const live = await resolveLegacyCredential(
-			db,
-			claimed.credential,
-			claimed.user_id,
-			claimed.account_id,
-			now,
-		);
-		if (!live) return undefined;
-		return {
-			userId: claimed.user_id,
-			accountId: claimed.account_id,
-			role: live.role,
-			...(live.grants ? { grants: live.grants } : {}),
-			credential: claimed.credential ?? undefined,
-		};
-	}
+	if (!claimed || claimed.session_id === "legacy") return undefined;
 	const identity = await resolveSessionById(
 		db,
 		claimed.session_id,
@@ -1220,12 +978,6 @@ export async function consumeTicket(
 	);
 	if (!identity) return undefined;
 	// Streams re-read admin mode on each message. The ticket must not snapshot it.
-	const { sessionId, userId, accountId, role, grants } = identity;
-	return {
-		sessionId,
-		userId,
-		accountId,
-		role,
-		...(grants ? { grants } : {}),
-	};
+	const { sessionId, userId, accountId, role } = identity;
+	return { sessionId, userId, accountId, role };
 }

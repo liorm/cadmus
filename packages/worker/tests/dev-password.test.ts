@@ -25,9 +25,14 @@ describe("dev password login (issue #3 phase 5)", () => {
 	});
 
 	it("rejects a wrong password and a missing origin", async () => {
-		expect((await login("http://localhost", { password: "nope" })).status).toBe(
-			401,
-		);
+		expect(
+			(
+				await login("http://localhost", {
+					email: `wrong-${crypto.randomUUID()}@example.com`,
+					password: "nope",
+				})
+			).status,
+		).toBe(401);
 		expect(
 			(
 				await login(

@@ -374,7 +374,7 @@ describe("member roles", () => {
 		expect(second.frame.result).toMatchObject({ updated: false });
 	});
 
-	it("MR-09 service token loses members.manage when admin is revoked", async () => {
+	it("MR-09 a user session loses members.manage when admin is revoked", async () => {
 		const boss = await loginDevPassword();
 		await elevateAccessToken(boss.accessToken);
 		const created = await sendRpc<{ account: { id: string } }>(
@@ -394,22 +394,11 @@ describe("member roles", () => {
 		);
 		const owner = await loginDevPassword(ownerEmail);
 		await elevateAccessToken(owner.accessToken);
-		const minted = await sendRpc<{ token: string }>(
-			"auth.tokens.create",
-			{
-				kind: "service",
-				label: "svc",
-				grants: ["members.read", "chat.use", "tokens.self", "members.manage"],
-				ttlDays: 1,
-			},
-			{ token: owner.accessToken, accountId },
-		);
-		expect(minted.frame.ok, JSON.stringify(minted.frame)).toBe(true);
-		const who = await sendRpc<{ principal: { userId?: string } }>(
-			"auth.whoami",
-			{},
-			{ token: owner.accessToken, accountId },
-		);
+		const who = await sendRpc<{
+			principal: { userId?: string; kind?: string };
+		}>("auth.whoami", {}, { token: owner.accessToken, accountId });
+		expect(who.frame.result?.principal.kind).toBe("user");
+		expect(who.frame.result?.principal).not.toHaveProperty("viaToken");
 		await sendRpc(
 			"system.members.update",
 			{
@@ -438,19 +427,33 @@ describe("member roles", () => {
 			{ token: peer.accessToken, accountId },
 		);
 		expect(revoked.frame.ok, JSON.stringify(revoked.frame)).toBe(true);
-		const service = minted.frame.result?.token ?? "";
+		expect(
+			(
+				await sendRpc(
+					"auth.whoami",
+					{},
+					{ token: owner.accessToken, accountId },
+				)
+			).frame.ok,
+		).toBe(false);
+		const again = await loginDevPassword(ownerEmail);
 		const used = await sendRpc(
 			"account.members.list",
 			{},
-			{ token: service, accountId },
+			{ token: again.accessToken, accountId },
 		);
 		expect(used.frame.ok, JSON.stringify(used.frame)).toBe(true);
 		const manage = await sendRpc(
 			"account.members.update",
-			{ userId: who.frame.result?.principal.userId, op: "grant", role: "user" },
-			{ token: service, accountId },
+			{
+				userId: who.frame.result?.principal.userId,
+				op: "grant",
+				role: "user",
+			},
+			{ token: again.accessToken, accountId },
 		);
 		expect(manage.frame.ok).toBe(false);
+		expect(manage.frame.error?.code).toBe("forbidden");
 	});
 
 	it("MR-10 owner and member are not roles", async () => {

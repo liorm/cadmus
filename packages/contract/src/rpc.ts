@@ -27,9 +27,6 @@ import type {
 	AuthSessionsRevokeCommand,
 	AuthSessionsRevokeOthersCommand,
 	AuthTicketCommand,
-	AuthTokensCreateCommand,
-	AuthTokensListCommand,
-	AuthTokensRevokeCommand,
 	AuthWhoamiCommand,
 	BotCreateCommand,
 	BotDeleteCommand,
@@ -92,7 +89,6 @@ import type {
 	AuthLoginProvidersCommand,
 	AuthLoginProvidersResult,
 	AuthLoginSessionResult,
-	AuthLoginTokenCommand,
 	AuthSessionLogoutCommand,
 	AuthSessionLogoutResult,
 	AuthSessionRefreshCommand,
@@ -138,9 +134,6 @@ import type {
 	AuthSessionsRevokeOthersResult,
 	AuthSessionsRevokeResult,
 	AuthTicketResult,
-	AuthTokensCreateResult,
-	AuthTokensListResult,
-	AuthTokensRevokeResult,
 	AuthWhoamiResult,
 	BotCreateResult,
 	BotDeleteResult,
@@ -374,18 +367,6 @@ export type AuthSessionsRevokeOthersRpc = Rpc<
 	AuthSessionsRevokeOthersCommand,
 	AuthSessionsRevokeOthersResult
 >;
-export type AuthTokensListRpc = Rpc<
-	AuthTokensListCommand,
-	AuthTokensListResult
->;
-export type AuthTokensCreateRpc = Rpc<
-	AuthTokensCreateCommand,
-	AuthTokensCreateResult
->;
-export type AuthTokensRevokeRpc = Rpc<
-	AuthTokensRevokeCommand,
-	AuthTokensRevokeResult
->;
 export type AuthMembershipsListRpc = Rpc<
 	AuthMembershipsListCommand,
 	AuthMembershipsListResult
@@ -408,10 +389,6 @@ export type AuthAssumeRoleRpc = Rpc<
 >;
 export type AuthLoginDevPasswordRpc = Rpc<
 	AuthLoginDevPasswordCommand,
-	AuthLoginSessionResult
->;
-export type AuthLoginTokenRpc = Rpc<
-	AuthLoginTokenCommand,
 	AuthLoginSessionResult
 >;
 export type AuthLoginGoogleStartRpc = Rpc<
@@ -609,16 +586,12 @@ export interface RpcMap {
 	"system.users.enable": SystemUsersEnableRpc;
 	"system.users.revokeSessions": SystemUsersRevokeSessionsRpc;
 	"auth.elevation.end": AuthElevationEndRpc;
-	"auth.tokens.list": AuthTokensListRpc;
-	"auth.tokens.create": AuthTokensCreateRpc;
-	"auth.tokens.revoke": AuthTokensRevokeRpc;
 	"auth.memberships.list": AuthMembershipsListRpc;
 	"auth.methods.list": AuthMethodsListRpc;
 	"auth.methods.delete": AuthMethodsDeleteRpc;
 	"auth.login.providers": AuthLoginProvidersRpc;
 	"auth.assumeRole": AuthAssumeRoleRpc;
 	"auth.login.devPassword": AuthLoginDevPasswordRpc;
-	"auth.login.token": AuthLoginTokenRpc;
 	"auth.login.google.start": AuthLoginGoogleStartRpc;
 	"auth.session.refresh": AuthSessionRefreshRpc;
 	"auth.session.logout": AuthSessionLogoutRpc;

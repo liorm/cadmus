@@ -169,53 +169,6 @@ describe("refresh cookie name and attributes (issue #3 phase 8)", () => {
 		).toBe(200);
 	});
 
-	it("token-login takes the token from the Authorization header only", async () => {
-		const s = new D1AdminStore({
-			db: env.CADMUS_ADMIN_DB,
-			encryptionKey: env.CADMUS_ENCRYPTION_KEY,
-			edgeCache: getEdgeCache(env),
-		});
-		const accountId = uniqueAccountId("cookie-tok");
-		const userId = `usr_${accountId}`;
-		await s.ensureAccountAndUser({ accountId, userId, role: "account-admin" });
-		const created = await s.createToken({
-			accountId,
-			creatorUserId: userId,
-			creatorRole: "account-admin",
-			creatorGrants: ["chat.use"],
-			kind: "service",
-			label: "cookie probe",
-			grants: ["chat.use"],
-		});
-		expect(created.ok).toBe(true);
-		const raw = (created as { token: string }).token;
-		expect(raw.startsWith("cad_svc_")).toBe(true);
-		const login = (headers: Record<string, string>, query = "") =>
-			SELF.fetch(`${ORIGIN}/api/auth/login/token${query}`, {
-				method: "POST",
-				headers: { origin: ORIGIN, ...headers },
-			});
-		// Positive control.
-		const ok = await login({ authorization: `Bearer ${raw}` });
-		expect(ok.status).toBe(200);
-		expect(ok.headers.get("cache-control")).toBe("no-store");
-		for (const [name, res] of [
-			["cookie", await login({ cookie: `cadmus_session=${raw}` })],
-			[
-				"refresh-named cookie",
-				await login({ cookie: `${REFRESH_COOKIE}=${raw}` }),
-			],
-			["query", await login({}, `?token=${raw}`)],
-			[
-				"header plus query",
-				await login({ authorization: `Bearer ${raw}` }, `?token=${raw}`),
-			],
-		] as const) {
-			expect(res.status, name).toBe(401);
-			expect(res.headers.get("set-cookie"), name).toBeNull();
-		}
-	});
-
 	it("other cookie names never refresh", async () => {
 		const t = await seed();
 		for (const name of ["cadmus_refresh", "__Host-cadmus_refresh"]) {

@@ -1930,174 +1930,6 @@
 				}
 			}
 		},
-		"/api/auth/tokens/list": {
-			"get": {
-				"operationId": "auth.tokens.list",
-				"x-cadmus-grant": "tokens.self",
-				"summary": "List API tokens: the caller's own, or all in the account for admins.",
-				"parameters": [
-					{
-						"name": "all",
-						"in": "query",
-						"required": false,
-						"schema": {
-							"type": "boolean",
-							"description": "List every token in the account (needs tokens.manage). Default lists the caller's own."
-						},
-						"description": "List every token in the account (needs tokens.manage). Default lists the caller's own."
-					}
-				],
-				"responses": {
-					"200": {
-						"description": "Command result",
-						"content": {
-							"application/json": {
-								"schema": {
-									"$ref": "#/components/schemas/AuthTokensListResult"
-								}
-							}
-						}
-					},
-					"400": { "$ref": "#/components/responses/ApiError" },
-					"401": { "$ref": "#/components/responses/ApiError" },
-					"404": { "$ref": "#/components/responses/ApiError" },
-					"405": { "$ref": "#/components/responses/ApiError" },
-					"409": { "$ref": "#/components/responses/ApiError" },
-					"500": { "$ref": "#/components/responses/ApiError" }
-				}
-			},
-			"head": {
-				"operationId": "auth.tokens.list.head",
-				"x-cadmus-grant": "tokens.self",
-				"summary": "List API tokens: the caller's own, or all in the account for admins.",
-				"parameters": [
-					{
-						"name": "all",
-						"in": "query",
-						"required": false,
-						"schema": {
-							"type": "boolean",
-							"description": "List every token in the account (needs tokens.manage). Default lists the caller's own."
-						},
-						"description": "List every token in the account (needs tokens.manage). Default lists the caller's own."
-					}
-				],
-				"responses": {
-					"200": { "description": "Same as GET with an empty body" },
-					"400": { "$ref": "#/components/responses/ApiError" },
-					"401": { "$ref": "#/components/responses/ApiError" },
-					"404": { "$ref": "#/components/responses/ApiError" },
-					"405": { "$ref": "#/components/responses/ApiError" }
-				}
-			}
-		},
-		"/api/auth/tokens/create": {
-			"post": {
-				"operationId": "auth.tokens.create",
-				"x-cadmus-grant": "tokens.self",
-				"summary": "Create a server-generated cad_pat_ or cad_svc_ token. The secret is returned once.",
-				"requestBody": {
-					"required": true,
-					"content": {
-						"application/json": {
-							"schema": {
-								"type": "object",
-								"required": ["kind", "label", "grants"],
-								"properties": {
-									"kind": {
-										"anyOf": [
-											{ "type": "string", "const": "pat" },
-											{ "type": "string", "const": "service" }
-										],
-										"description": "pat is personal; service needs tokens.manage."
-									},
-									"label": {
-										"type": "string",
-										"minLength": 1,
-										"maxLength": 80
-									},
-									"grants": {
-										"type": "array",
-										"items": { "type": "string", "minLength": 1 },
-										"minItems": 1,
-										"description": "Explicit subset of the caller's grants."
-									},
-									"ttlDays": {
-										"type": "number",
-										"minimum": 0.01,
-										"maximum": 365,
-										"description": "Expiry in days. Required for a personal token that carries no elevated grant (max 365). An elevated personal token that omits it expires in 30 days (max 30). A service token defaults to 7 days and maxes out at 30."
-									}
-								},
-								"description": "Token to create."
-							}
-						}
-					}
-				},
-				"responses": {
-					"200": {
-						"description": "Command result",
-						"content": {
-							"application/json": {
-								"schema": {
-									"$ref": "#/components/schemas/AuthTokensCreateResult"
-								}
-							}
-						}
-					},
-					"400": { "$ref": "#/components/responses/ApiError" },
-					"401": { "$ref": "#/components/responses/ApiError" },
-					"404": { "$ref": "#/components/responses/ApiError" },
-					"405": { "$ref": "#/components/responses/ApiError" },
-					"409": { "$ref": "#/components/responses/ApiError" },
-					"500": { "$ref": "#/components/responses/ApiError" }
-				}
-			}
-		},
-		"/api/auth/tokens/revoke": {
-			"post": {
-				"operationId": "auth.tokens.revoke",
-				"x-cadmus-grant": "tokens.self",
-				"summary": "Revoke a token and every session started from it.",
-				"requestBody": {
-					"required": true,
-					"content": {
-						"application/json": {
-							"schema": {
-								"type": "object",
-								"required": ["tokenId"],
-								"properties": {
-									"tokenId": {
-										"type": "string",
-										"minLength": 1,
-										"description": "Token to revoke."
-									}
-								},
-								"description": "Token to revoke."
-							}
-						}
-					}
-				},
-				"responses": {
-					"200": {
-						"description": "Command result",
-						"content": {
-							"application/json": {
-								"schema": {
-									"$ref": "#/components/schemas/AuthTokensRevokeResult"
-								}
-							}
-						}
-					},
-					"400": { "$ref": "#/components/responses/ApiError" },
-					"401": { "$ref": "#/components/responses/ApiError" },
-					"404": { "$ref": "#/components/responses/ApiError" },
-					"405": { "$ref": "#/components/responses/ApiError" },
-					"409": { "$ref": "#/components/responses/ApiError" },
-					"500": { "$ref": "#/components/responses/ApiError" }
-				}
-			}
-		},
 		"/api/auth/memberships/list": {
 			"get": {
 				"operationId": "auth.memberships.list",
@@ -2337,42 +2169,6 @@
 									}
 								},
 								"description": "Local password sign-in."
-							}
-						}
-					}
-				},
-				"responses": {
-					"200": {
-						"description": "Command result",
-						"content": {
-							"application/json": {
-								"schema": {
-									"$ref": "#/components/schemas/AuthLoginSessionResult"
-								}
-							}
-						}
-					},
-					"400": { "$ref": "#/components/responses/ApiError" },
-					"401": { "$ref": "#/components/responses/ApiError" },
-					"404": { "$ref": "#/components/responses/ApiError" },
-					"405": { "$ref": "#/components/responses/ApiError" },
-					"409": { "$ref": "#/components/responses/ApiError" },
-					"500": { "$ref": "#/components/responses/ApiError" }
-				}
-			}
-		},
-		"/api/auth/login/token": {
-			"post": {
-				"operationId": "auth.login.token",
-				"summary": "Exchange cad_pat_ or cad_svc_ for a session. Refresh token is a cookie.",
-				"requestBody": {
-					"required": true,
-					"content": {
-						"application/json": {
-							"schema": {
-								"type": "object",
-								"properties": {},
-								"description": "Empty parameter payload. The secret is the Authorization bearer."
 							}
 						}
 					}
@@ -5295,21 +5091,17 @@
 			},
 			"AccountMembersRemoveResult": {
 				"type": "object",
-				"required": ["removed", "tokensRevoked", "sessionsRevoked"],
+				"required": ["removed", "sessionsRevoked"],
 				"properties": {
 					"removed": { "type": "boolean" },
-					"tokensRevoked": { "type": "number" },
 					"sessionsRevoked": { "type": "number" }
 				},
 				"description": "Result payload returned by account.members.remove."
 			},
 			"AccountMembersUpdateResult": {
 				"type": "object",
-				"required": ["updated", "tokensRevoked"],
-				"properties": {
-					"updated": { "type": "boolean" },
-					"tokensRevoked": { "type": "number" }
-				},
+				"required": ["updated"],
+				"properties": { "updated": { "type": "boolean" } },
 				"description": "Result payload returned by account.members.update."
 			},
 			"AccountModelsListResult": {
@@ -5568,8 +5360,7 @@
 					},
 					"sessionId": { "type": "string" },
 					"accountId": { "type": "string" },
-					"userId": { "type": "string" },
-					"viaToken": { "type": "boolean" }
+					"userId": { "type": "string" }
 				},
 				"description": "A Cadmus session. The refresh token is not in this payload."
 			},
@@ -5717,115 +5508,6 @@
 				},
 				"description": "Result payload returned by auth.ticket."
 			},
-			"AuthTokensCreateResult": {
-				"type": "object",
-				"required": ["token", "summary"],
-				"properties": {
-					"token": {
-						"type": "string",
-						"description": "The secret, shown once."
-					},
-					"summary": {
-						"type": "object",
-						"required": [
-							"id",
-							"kind",
-							"label",
-							"grants",
-							"createdBy",
-							"createdAt",
-							"expiresAt",
-							"lastUsedAt",
-							"revokedAt",
-							"elevated"
-						],
-						"properties": {
-							"id": { "type": "string" },
-							"kind": {
-								"anyOf": [
-									{ "type": "string", "const": "pat" },
-									{ "type": "string", "const": "service" }
-								]
-							},
-							"label": { "type": "string" },
-							"grants": { "type": "array", "items": { "type": "string" } },
-							"createdBy": {
-								"anyOf": [{ "type": "string" }, { "type": "null" }]
-							},
-							"createdAt": { "type": "number" },
-							"expiresAt": {
-								"anyOf": [{ "type": "number" }, { "type": "null" }]
-							},
-							"lastUsedAt": {
-								"anyOf": [{ "type": "number" }, { "type": "null" }]
-							},
-							"revokedAt": {
-								"anyOf": [{ "type": "number" }, { "type": "null" }]
-							},
-							"elevated": { "type": "boolean" }
-						},
-						"description": "One API token (never the secret)."
-					}
-				},
-				"description": "Result payload returned by auth.tokens.create."
-			},
-			"AuthTokensListResult": {
-				"type": "object",
-				"required": ["tokens"],
-				"properties": {
-					"tokens": {
-						"type": "array",
-						"items": {
-							"type": "object",
-							"required": [
-								"id",
-								"kind",
-								"label",
-								"grants",
-								"createdBy",
-								"createdAt",
-								"expiresAt",
-								"lastUsedAt",
-								"revokedAt",
-								"elevated"
-							],
-							"properties": {
-								"id": { "type": "string" },
-								"kind": {
-									"anyOf": [
-										{ "type": "string", "const": "pat" },
-										{ "type": "string", "const": "service" }
-									]
-								},
-								"label": { "type": "string" },
-								"grants": { "type": "array", "items": { "type": "string" } },
-								"createdBy": {
-									"anyOf": [{ "type": "string" }, { "type": "null" }]
-								},
-								"createdAt": { "type": "number" },
-								"expiresAt": {
-									"anyOf": [{ "type": "number" }, { "type": "null" }]
-								},
-								"lastUsedAt": {
-									"anyOf": [{ "type": "number" }, { "type": "null" }]
-								},
-								"revokedAt": {
-									"anyOf": [{ "type": "number" }, { "type": "null" }]
-								},
-								"elevated": { "type": "boolean" }
-							},
-							"description": "One API token (never the secret)."
-						}
-					}
-				},
-				"description": "Result payload returned by auth.tokens.list."
-			},
-			"AuthTokensRevokeResult": {
-				"type": "object",
-				"required": ["revoked"],
-				"properties": { "revoked": { "type": "boolean" } },
-				"description": "Result payload returned by auth.tokens.revoke."
-			},
 			"AuthWhoamiResult": {
 				"type": "object",
 				"required": ["principal"],
@@ -5857,10 +5539,6 @@
 							"accountId": {
 								"type": "string",
 								"description": "Account the request acts in."
-							},
-							"viaToken": {
-								"type": "boolean",
-								"description": "True when the session was opened by an API token. Such sessions cannot enter admin mode."
 							},
 							"elevatedUntil": {
 								"type": "number",

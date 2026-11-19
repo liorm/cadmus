@@ -10,13 +10,10 @@ export interface SessionTokens {
 	sessionId?: string;
 	accountId?: string;
 	userId?: string;
-	viaToken?: boolean;
 }
 
 export interface SessionPrincipal {
 	kind?: string;
-	/** True when an API token opened this session; it cannot enter admin mode. */
-	viaToken?: boolean;
 	userId?: string;
 	/** Display name from the user record. */
 	name?: string;
@@ -233,7 +230,6 @@ async function doRefresh(force: boolean): Promise<RefreshOutcome> {
 			sessionId?: string;
 			accountId?: string;
 			userId?: string;
-			viaToken?: boolean;
 		};
 		if (!body.accessToken || typeof body.expiresAt !== "number")
 			return done(null);
@@ -243,9 +239,6 @@ async function doRefresh(force: boolean): Promise<RefreshOutcome> {
 			sessionId: body.sessionId,
 			...(body.accountId ? { accountId: body.accountId } : {}),
 			...(body.userId ? { userId: body.userId } : {}),
-			...(typeof body.viaToken === "boolean"
-				? { viaToken: body.viaToken }
-				: {}),
 		};
 		if (bound && next.sessionId !== bound) {
 			// The browser's cookie now belongs to another sign-in. This tab keeps

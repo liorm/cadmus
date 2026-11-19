@@ -2,13 +2,7 @@ import { env, SELF } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { getEdgeCache } from "../src/edge-cache.js";
 import { D1AdminStore } from "../src/store/d1-admin.js";
-import {
-	addLegacyMember,
-	connectTestWs,
-	rpc,
-	sendRpc,
-	uniqueAccountId,
-} from "./helpers.js";
+import { rpc, uniqueAccountId } from "./helpers.js";
 
 /**
  * Issue #3 L77/L148: provider OAuth is credentials.manage. The progress event of
@@ -187,231 +181,23 @@ describe("account.credentials.oauth.event delivery is limited to credentials.man
 		await userSse.reader.cancel().catch(() => undefined);
 	});
 
-	it("sessionless connections: only the master secret receives it; legacy member tokens (user or admin role, clamped to non-elevated grants) and a scoped token do not", async () => {
-		const s = store();
-		const tag = uniqueAccountId("oevl");
-		const accountId = `${tag}_acct`;
-		const ownerId = `usr_o_${tag}`;
-		await s.ensureAccountAndUser({
-			accountId,
-			userId: ownerId,
-			role: "account-admin",
-		});
-		const legacyUser = `cad_legacy_user_${tag}`;
-		const legacyAdmin = `cad_legacy_admin_${tag}`;
-		await addLegacyMember({
-			accountId,
-			userId: `usr_lu_${tag}`,
-			role: "user",
-			token: legacyUser,
-		});
-		await addLegacyMember({
-			accountId,
-			userId: `usr_la_${tag}`,
-			role: "account-admin",
-			token: legacyAdmin,
-		});
-
-		// A token session clamped to chat.use only (created by an elevated admin).
-		const owner = await s.createSession({ userId: ownerId, accountId });
-		expect((await rpc(owner.accessToken, "auth.elevate")).ok).toBe(true);
-		const made = await rpc(owner.accessToken, "auth.tokens.create", {
-			kind: "service",
-			label: "chat only",
-			grants: ["chat.use"],
-			ttlDays: 1,
-		});
-		expect(made.ok).toBe(true);
-		const login = await SELF.fetch(`${ORIGIN}/api/auth/login/token`, {
-			method: "POST",
-			headers: { authorization: `Bearer ${made.result?.token}` },
-		});
-		expect(login.status).toBe(200);
-		const tokenAccess = ((await login.json()) as { accessToken: string })
-			.accessToken;
-
-		const master = await connectTestWs({ token: owner.accessToken, accountId });
-		const admin = await connectTestWs({ token: legacyAdmin, accountId });
-		const user = await connectTestWs({ token: legacyUser, accountId });
-		const sseOf = async (token: string) => {
-			const t = await sendRpc<{ ticket: string }>(
-				"auth.ticket",
-				{ target: "events" },
-				{ token, accountId },
-			);
-			const res = await SELF.fetch(
-				`${ORIGIN}/events?ticket=${t.frame.result?.ticket}`,
-			);
-			expect(res.status).toBe(200);
-			const reader = res.body?.getReader();
-			if (!reader) throw new Error("no sse body");
-			const chunks: string[] = [];
-			void (async () => {
-				const dec = new TextDecoder();
-				for (;;) {
-					const r = await reader
-						.read()
-						.catch(() => ({ done: true, value: undefined }));
-					if (r.done) return;
-					chunks.push(dec.decode(r.value));
-				}
-			})();
-			return { reader, chunks };
-		};
-		const masterSse = await sseOf(owner.accessToken);
-		const userSse = await sseOf(legacyUser);
-		const adminTokenSse = await sseOf(legacyAdmin);
-		const tokenWs = await (async () => {
-			const t = await rpc(tokenAccess, "auth.ticket", { target: "ws" });
-			const res = await SELF.fetch(`${ORIGIN}/ws?ticket=${t.result?.ticket}`, {
-				headers: { upgrade: "websocket" },
+	it("refuses cad_pat_, cad_svc_, and a prefix-less secret on /ws and /events", async () => {
+		for (const token of [
+			"cad_pat_x",
+			"cad_svc_x",
+			`plain-${crypto.randomUUID()}`,
+		]) {
+			const ws = await SELF.fetch(`${ORIGIN}/ws`, {
+				headers: {
+					upgrade: "websocket",
+					authorization: `Bearer ${token}`,
+				},
 			});
-			const ws = res.webSocket;
-			if (!ws) throw new Error(`expected 101, got ${res.status}`);
-			ws.accept();
-			const seen: Frame[] = [];
-			ws.addEventListener("message", (ev) => {
-				seen.push(JSON.parse(ev.data as string) as Frame);
+			expect(ws.status, token).toBe(401);
+			const events = await SELF.fetch(`${ORIGIN}/events`, {
+				headers: { authorization: `Bearer ${token}` },
 			});
-			return { ws, seen };
-		})();
-
-		const started = await sendRpc<{ flow: { flowId: string } }>(
-			"account.credentials.oauth.start",
-			{ providerId: "xai", redirectUri: "http://localhost/cb" },
-			{ token: owner.accessToken, accountId },
-		);
-		expect(started.frame.ok).toBe(true);
-		const has = (events: { type?: string }[]) =>
-			events.some((e) => e.type === "account.credentials.oauth.event");
-		const deadline = Date.now() + 3000;
-		while (
-			Date.now() < deadline &&
-			!(has(master.events) && has(admin.events))
-		) {
-			await new Promise((r) => setTimeout(r, 50));
+			expect(events.status, token).toBe(401);
 		}
-		await new Promise((r) => setTimeout(r, 300));
-		// Positive control: the master secret (account-admin, no token clamp).
-		expect(has(master.events)).toBe(true);
-		expect(masterSse.chunks.join("")).toContain("GATE-4242");
-		// Legacy member tokens carry only non-elevated grants, whatever the role.
-		expect(has(admin.events)).toBe(false);
-		expect(has(user.events)).toBe(false);
-		expect(adminTokenSse.chunks.join("")).not.toContain(
-			"account.credentials.oauth.event",
-		);
-		expect(userSse.chunks.join("")).not.toContain(
-			"account.credentials.oauth.event",
-		);
-		expect(userSse.chunks.join("")).not.toContain("GATE-4242");
-		expect(
-			tokenWs.seen.some((f) => f.type === "account.credentials.oauth.event"),
-		).toBe(false);
-
-		await sendRpc(
-			"account.credentials.oauth.cancel",
-			{ flowId: started.frame.result?.flow.flowId ?? "" },
-			{ token: owner.accessToken, accountId },
-		);
-		for (const c of [master, admin, user]) c.close();
-		tokenWs.ws.close();
-	});
-	it("token sessions: an elevated token that holds credentials.manage receives it on WS and SSE; a chat.use-only token does not", async () => {
-		const s = store();
-		const tag = uniqueAccountId("oevk");
-		const accountId = `${tag}_acct`;
-		const ownerId = `usr_o_${tag}`;
-		await s.ensureAccountAndUser({
-			accountId,
-			userId: ownerId,
-			role: "account-admin",
-		});
-		const owner = await s.createSession({ userId: ownerId, accountId });
-		expect((await rpc(owner.accessToken, "auth.elevate")).ok).toBe(true);
-		const login = async (grants: string[]) => {
-			const made = await rpc(owner.accessToken, "auth.tokens.create", {
-				kind: "pat",
-				label: grants.join("+"),
-				grants,
-				ttlDays: 1,
-			});
-			expect(made.ok).toBe(true);
-			const res = await SELF.fetch(`${ORIGIN}/api/auth/login/token`, {
-				method: "POST",
-				headers: { authorization: `Bearer ${made.result?.token}` },
-			});
-			expect(res.status).toBe(200);
-			return ((await res.json()) as { accessToken: string }).accessToken;
-		};
-		const manageTok = await login([
-			"chat.use",
-			"credentials.manage",
-			"tokens.self",
-		]);
-		const chatTok = await login(["chat.use", "tokens.self"]);
-		const open = async (token: string) => {
-			const w = await rpc(token, "auth.ticket", { target: "ws" });
-			const res = await SELF.fetch(`${ORIGIN}/ws?ticket=${w.result?.ticket}`, {
-				headers: { upgrade: "websocket" },
-			});
-			const ws = res.webSocket;
-			if (!ws) throw new Error(`expected 101, got ${res.status}`);
-			ws.accept();
-			const seen: Frame[] = [];
-			ws.addEventListener("message", (ev) => {
-				seen.push(JSON.parse(ev.data as string) as Frame);
-			});
-			const e = await rpc(token, "auth.ticket", { target: "events" });
-			const sres = await SELF.fetch(
-				`${ORIGIN}/events?ticket=${e.result?.ticket}`,
-			);
-			expect(sres.status).toBe(200);
-			const reader = sres.body?.getReader();
-			if (!reader) throw new Error("no sse body");
-			const chunks: string[] = [];
-			void (async () => {
-				const dec = new TextDecoder();
-				for (;;) {
-					const r = await reader
-						.read()
-						.catch(() => ({ done: true, value: undefined }));
-					if (r.done) return;
-					chunks.push(dec.decode(r.value));
-				}
-			})();
-			return { ws, seen, chunks };
-		};
-		const manage = await open(manageTok);
-		const chat = await open(chatTok);
-		const started = await rpc(
-			owner.accessToken,
-			"account.credentials.oauth.start",
-			{
-				providerId: "xai",
-				redirectUri: "http://localhost/cb",
-			},
-		);
-		expect(started.ok).toBe(true);
-		const got = () =>
-			manage.seen.some((f) => f.type === "account.credentials.oauth.event") &&
-			manage.chunks.join("").includes("account.credentials.oauth.event");
-		const deadline = Date.now() + 3000;
-		while (Date.now() < deadline && !got()) {
-			await new Promise((r) => setTimeout(r, 50));
-		}
-		await new Promise((r) => setTimeout(r, 300));
-		expect(
-			manage.seen.some((f) => f.type === "account.credentials.oauth.event"),
-		).toBe(true);
-		expect(manage.chunks.join("")).toContain("GATE-4242");
-		expect(
-			chat.seen.some((f) => f.type === "account.credentials.oauth.event"),
-		).toBe(false);
-		expect(chat.chunks.join("")).not.toContain(
-			"account.credentials.oauth.event",
-		);
-		manage.ws.close();
-		chat.ws.close();
 	});
 });

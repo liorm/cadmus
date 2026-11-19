@@ -37,13 +37,13 @@ function scope(
 	};
 }
 
-async function scopedToken(
+/** A real session. Role `user` and `account-admin` both hold toolsEnv.read. */
+async function accountSession(
 	accountId: string,
-	grants: string[],
-	kind: "pat" | "service" = "service",
+	role: "user" | "account-admin" = "account-admin",
 ): Promise<{
-	raw: string;
 	accessToken: string;
+	sessionId: string;
 	revoke: () => Promise<void>;
 }> {
 	const store = new D1AdminStore({
@@ -51,71 +51,24 @@ async function scopedToken(
 		encryptionKey: env.CADMUS_ENCRYPTION_KEY,
 		edgeCache: getEdgeCache(env),
 	});
-	const userId = `usr_${accountId}`;
+	const userId = `usr_${crypto.randomUUID()}`;
 	await store.ensureAccountAndUser({
 		accountId,
 		userId,
-		role: "account-admin",
+		role,
 	});
-	const admin = await store.createSession({ userId, accountId });
-	// Service tokens are an admin-mode use.
-	await env.CADMUS_ADMIN_DB.prepare(
-		`UPDATE cadmus_sessions SET elevated_until = ?2 WHERE id = ?1`,
-	)
-		.bind(admin.sessionId, Date.now() + 600_000)
-		.run();
-	const created = await SELF.fetch("https://example.com/rpc", {
-		method: "POST",
-		headers: {
-			authorization: `Bearer ${admin.accessToken}`,
-			"content-type": "application/json",
-		},
-		body: JSON.stringify({
-			id: crypto.randomUUID(),
-			type: "auth.tokens.create",
-			payload: { kind, label: "scoped", grants, ttlDays: 1 },
-		}),
+	const session = await store.createSession({
+		userId,
+		accountId,
+		activeRole: role,
 	});
-	const body = (await created.json()) as {
-		ok: boolean;
-		result?: { token: string; summary: { id: string } };
-	};
-	if (!body.ok || !body.result) throw new Error("token create failed");
-	const login = await SELF.fetch("https://example.com/api/auth/login/token", {
-		method: "POST",
-		headers: { authorization: `Bearer ${body.result.token}` },
-	});
-	const accessToken = ((await login.json()) as { accessToken: string })
-		.accessToken;
-	const tokenId = body.result.summary.id;
-	const raw = body.result.token;
 	return {
-		raw,
-		accessToken,
+		accessToken: session.accessToken,
+		sessionId: session.sessionId,
 		revoke: async () => {
-			const res = await SELF.fetch("https://example.com/rpc", {
-				method: "POST",
-				headers: {
-					authorization: `Bearer ${admin.accessToken}`,
-					"content-type": "application/json",
-				},
-				body: JSON.stringify({
-					id: crypto.randomUUID(),
-					type: "auth.tokens.revoke",
-					payload: { tokenId },
-				}),
-			});
-			const out = (await res.json()) as { ok: boolean };
-			if (!out.ok) throw new Error("token revoke failed");
+			await store.revokeSession(session.sessionId);
 		},
 	};
-}
-
-async function scopedAccessToken(
-	accountId: string,
-	grants: string[],
-): Promise<string> {
-	return (await scopedToken(accountId, grants)).accessToken;
 }
 
 /** Reads an SSE stream into text; `closed` resolves when the server ends it. */
@@ -487,21 +440,18 @@ describe("daemon websocket DO internals (generation, alarms, fork routes, heartb
 		HEARTBEAT_TEST_BUDGET_MS,
 	);
 
-	it("delivers account.toolsEnv.event only to sessions holding toolsEnv.read", async () => {
+	it("delivers account.toolsEnv.event to user and account-admin sessions", async () => {
 		const options = scope("live-events-grants");
 		const secret = await registerDaemon(options);
 		const envId = secret.envId;
-		const noRead = await scopedAccessToken(options.accountId, [
-			"chat.use",
-			"bot.read",
-		]);
-		const withRead = await scopedAccessToken(options.accountId, [
-			"chat.use",
-			"toolsEnv.read",
-		]);
+		const user = await accountSession(options.accountId, "user");
+		const admin = await accountSession(options.accountId, "account-admin");
 		const master = await connectTestWs(options);
-		const denied = await connectTestWs({ ...options, token: noRead });
-		const allowed = await connectTestWs({ ...options, token: withRead });
+		const asUser = await connectTestWs({ ...options, token: user.accessToken });
+		const asAdmin = await connectTestWs({
+			...options,
+			token: admin.accessToken,
+		});
 		try {
 			const seen = (events: ServerEvent[], status: string) =>
 				events.some(
@@ -519,58 +469,35 @@ describe("daemon websocket DO internals (generation, alarms, fork routes, heartb
 			expect(await waitFor(() => seen(master.events, "connected"), 5_000)).toBe(
 				true,
 			);
+			expect(await waitFor(() => seen(asUser.events, "connected"), 5_000)).toBe(
+				true,
+			);
 			expect(
-				await waitFor(() => seen(allowed.events, "connected"), 5_000),
+				await waitFor(() => seen(asAdmin.events, "connected"), 5_000),
 			).toBe(true);
 			first.peer?.close();
 			expect(
 				await waitFor(() => seen(master.events, "disconnected"), 5_000),
 			).toBe(true);
 			expect(
-				await waitFor(() => seen(allowed.events, "disconnected"), 5_000),
+				await waitFor(() => seen(asUser.events, "disconnected"), 5_000),
 			).toBe(true);
-			// The master and the toolsEnv.read session got both events, so the
-			// fan-out has finished for this stream: the scoped session without
-			// the grant must have received none of the environment metadata.
 			expect(
-				denied.events.some((e) => e.type === "account.toolsEnv.event"),
-			).toBe(false);
-			expect(JSON.stringify(denied.events)).not.toContain("/tmp/live-grants");
+				await waitFor(() => seen(asAdmin.events, "disconnected"), 5_000),
+			).toBe(true);
 		} finally {
 			master.close();
-			denied.close();
-			allowed.close();
+			asUser.close();
+			asAdmin.close();
 		}
 	});
 
-	it("does not deliver account.toolsEnv.event to a sessionless chat.use-only cad_pat_ or cad_svc_ stream", async () => {
+	it("refuses sessionless cad_pat_ and cad_svc_ streams while a session still receives daemon events", async () => {
 		const options = scope("live-events-sessionless-token");
 		const secret = await registerDaemon(options);
 		const envId = secret.envId;
 		const workspace = "/tmp/sessionless-grants";
-		// The raw bearer mints a legacy ticket, so the stream has no session id.
-		// A token-login access token would take the session path instead.
-		const patChat = await scopedToken(options.accountId, ["chat.use"], "pat");
-		const svcChat = await scopedToken(
-			options.accountId,
-			["chat.use"],
-			"service",
-		);
-		const patRead = await scopedToken(
-			options.accountId,
-			["chat.use", "toolsEnv.read"],
-			"pat",
-		);
-		expect(patChat.raw.startsWith("cad_pat_")).toBe(true);
-		expect(svcChat.raw.startsWith("cad_svc_")).toBe(true);
-		expect(patRead.raw.startsWith("cad_pat_")).toBe(true);
 		const master = await connectTestWs(options);
-		const deniedPat = await connectTestWs({ ...options, token: patChat.raw });
-		const deniedSvc = await connectTestWs({ ...options, token: svcChat.raw });
-		const allowed = await connectTestWs({ ...options, token: patRead.raw });
-		const deniedPatSse = await openSse({ ...options, token: patChat.raw });
-		const deniedSvcSse = await openSse({ ...options, token: svcChat.raw });
-		const allowedSse = await openSse({ ...options, token: patRead.raw });
 		const metadata = (events: ServerEvent[]) =>
 			events.some(
 				(e) =>
@@ -586,52 +513,35 @@ describe("daemon websocket DO internals (generation, alarms, fork routes, heartb
 			});
 			expect(daemon.status).toBe(101);
 			expect(await waitFor(() => metadata(master.events), 5_000)).toBe(true);
-			expect(await waitFor(() => metadata(allowed.events), 5_000)).toBe(true);
-			expect(
-				await waitFor(
-					() =>
-						allowedSse.text().includes("account.toolsEnv.event") &&
-						allowedSse.text().includes(workspace),
-					5_000,
-				),
-			).toBe(true);
-			// The master and the toolsEnv.read bearer received the metadata, so
-			// fan-out for this connect has finished. Chat-only bearers got none.
-			expect(metadata(deniedPat.events)).toBe(false);
-			expect(metadata(deniedSvc.events)).toBe(false);
-			expect(JSON.stringify(deniedPat.events)).not.toContain(workspace);
-			expect(JSON.stringify(deniedSvc.events)).not.toContain(workspace);
-			expect(deniedPatSse.text()).not.toContain("account.toolsEnv.event");
-			expect(deniedSvcSse.text()).not.toContain("account.toolsEnv.event");
-			expect(deniedPatSse.text()).not.toContain(workspace);
-			expect(deniedSvcSse.text()).not.toContain(workspace);
+			for (const token of [
+				"cad_pat_x",
+				"cad_svc_x",
+				`plain-${options.accountId}`,
+			]) {
+				for (const path of ["ws", "events"] as const) {
+					const res = await SELF.fetch(`http://example.com/${path}`, {
+						headers: {
+							authorization: `Bearer ${token}`,
+							...(path === "ws" ? { upgrade: "websocket" } : {}),
+						},
+					});
+					expect(res.status, `${token} ${path}`).toBe(401);
+					await res.body?.cancel().catch(() => undefined);
+				}
+			}
 			daemon.peer?.close();
 		} finally {
 			master.close();
-			deniedPat.close();
-			deniedSvc.close();
-			allowed.close();
-			deniedPatSse.cancel();
-			deniedSvcSse.cancel();
-			allowedSse.cancel();
 		}
 	});
 
-	it("gates account.toolsEnv.event on SSE, drops it after revocation, and fails closed when authority cannot be checked", async () => {
+	it("gates account.toolsEnv.event on SSE, drops it after the session is revoked, and fails closed when authority cannot be checked", async () => {
 		const options = scope("live-events-sse");
 		const secret = await registerDaemon(options);
 		const envId = secret.envId;
-		const noRead = await scopedToken(options.accountId, [
-			"chat.use",
-			"bot.read",
-		]);
-		const withRead = await scopedToken(options.accountId, [
-			"chat.use",
-			"toolsEnv.read",
-		]);
+		const reader = await accountSession(options.accountId);
 		const master = await openSse(options);
-		const denied = await openSse({ ...options, token: noRead.accessToken });
-		const allowed = await openSse({ ...options, token: withRead.accessToken });
+		const allowed = await openSse({ ...options, token: reader.accessToken });
 		const marker = (status: string) => `"status":"${status}"`;
 		const count = (text: string, status: string) =>
 			text.split(marker(status)).length - 1;
@@ -645,7 +555,6 @@ describe("daemon websocket DO internals (generation, alarms, fork routes, heartb
 				expect(daemon.status).toBe(101);
 				return daemon;
 			};
-			// Cycle 1: master and the toolsEnv.read stream get it; the other does not.
 			const first = await cycle("/tmp/sse-one");
 			expect(
 				await waitFor(() => count(master.text(), "connected") === 1, 5_000),
@@ -653,8 +562,6 @@ describe("daemon websocket DO internals (generation, alarms, fork routes, heartb
 			expect(
 				await waitFor(() => count(allowed.text(), "connected") === 1, 5_000),
 			).toBe(true);
-			expect(denied.text()).not.toContain("account.toolsEnv.event");
-			expect(denied.text()).not.toContain("/tmp/sse-one");
 			first.peer?.close();
 			expect(
 				await waitFor(() => count(master.text(), "disconnected") === 1, 5_000),
@@ -663,9 +570,8 @@ describe("daemon websocket DO internals (generation, alarms, fork routes, heartb
 				await waitFor(() => count(allowed.text(), "disconnected") === 1, 5_000),
 			).toBe(true);
 
-			// Revoke the toolsEnv.read token: its stream is closed and gets no
-			// further events; the master stream still does.
-			await withRead.revoke();
+			// Revoking the session closes its stream; the master stream still runs.
+			await reader.revoke();
 			const second = await cycle("/tmp/sse-two");
 			expect(
 				await waitFor(() => count(master.text(), "connected") === 2, 5_000),
@@ -673,7 +579,6 @@ describe("daemon websocket DO internals (generation, alarms, fork routes, heartb
 			expect(await waitFor(() => allowed.closed(), 5_000)).toBe(true);
 			expect(count(allowed.text(), "connected")).toBe(1);
 			expect(allowed.text()).not.toContain("/tmp/sse-two");
-			expect(denied.text()).not.toContain("account.toolsEnv.event");
 
 			// Authority lookup failure: nothing is delivered and streams end.
 			await runInDurableObject(
@@ -691,254 +596,11 @@ describe("daemon websocket DO internals (generation, alarms, fork routes, heartb
 			second.peer?.close();
 			expect(await waitFor(() => master.closed(), 5_000)).toBe(true);
 			expect(count(master.text(), "disconnected")).toBe(1);
-			expect(await waitFor(() => denied.closed(), 5_000)).toBe(true);
-			expect(denied.text()).not.toContain("account.toolsEnv.event");
 		} finally {
 			master.cancel();
-			denied.cancel();
 			allowed.cancel();
 		}
 	});
-
-	it("recomputes toolsEnv.read per event: losing only that grant stops metadata while the stream and chat events continue", async () => {
-		const options = scope("live-events-grant-loss");
-		const secret = await registerDaemon(options);
-		const envId = secret.envId;
-		const withRead = await scopedAccessToken(options.accountId, [
-			"chat.use",
-			"toolsEnv.read",
-		]);
-		const allowed = await connectTestWs({ ...options, token: withRead });
-		// Wrap the resolver: the same identity, minus only toolsEnv.read when asked.
-		const dropped = { value: false };
-		await runInDurableObject(
-			familyStub(options.accountId),
-			async (instance) => {
-				const store = (
-					instance as unknown as {
-						adminStore: {
-							resolveSession: (
-								id: string,
-							) => Promise<{ grants?: string[] } | undefined>;
-						};
-					}
-				).adminStore;
-				const original = store.resolveSession.bind(store);
-				store.resolveSession = async (id: string) => {
-					const identity = await original(id);
-					if (!identity || !dropped.value || !identity.grants) return identity;
-					return {
-						...identity,
-						grants: identity.grants.filter((g) => g !== "toolsEnv.read"),
-					};
-				};
-			},
-		);
-		const metadata = (status: string) =>
-			allowed.events.some(
-				(e) =>
-					e.type === "account.toolsEnv.event" &&
-					e.payload.envId === envId &&
-					e.payload.status === status,
-			);
-		try {
-			const cycle = async (workspace: string) => {
-				const daemon = await ScriptedDaemon.upgrade({
-					token: secret.token,
-					envId,
-					workspace,
-				});
-				expect(daemon.status).toBe(101);
-				return daemon;
-			};
-			const first = await cycle("/tmp/grant-one");
-			expect(await waitFor(() => metadata("connected"), 5_000)).toBe(true);
-
-			// Lose only toolsEnv.read, keep chat.use.
-			dropped.value = true;
-			first.peer?.close();
-			// A harmless chat event must still reach the same open socket.
-			const seenBefore = allowed.events.length;
-			await sendRpc(
-				"bot.create",
-				{
-					slug: "assistant",
-					name: "Assistant",
-					model: "faux/echo",
-					tools: CODING_TOOLS,
-				},
-				options,
-			);
-			await sendRpc(
-				"chat.create",
-				{ botId: "assistant", key: "main" },
-				options,
-			);
-			await sendRpc("turn.submit", { chatKey: "main", text: "Hello" }, options);
-			expect(
-				await waitFor(
-					() =>
-						allowed.events
-							.slice(seenBefore)
-							.some((e) => e.type !== "account.toolsEnv.event"),
-					5_000,
-				),
-			).toBe(true);
-			expect(allowed.ws.readyState).toBe(WebSocket.OPEN);
-			expect(metadata("disconnected")).toBe(false);
-
-			// Restore the grant: the next metadata event arrives again.
-			dropped.value = false;
-			const second = await cycle("/tmp/grant-two");
-			expect(
-				await waitFor(
-					() =>
-						allowed.events.some(
-							(e) =>
-								e.type === "account.toolsEnv.event" &&
-								e.payload.status === "connected" &&
-								e.payload.workspacePath === "/tmp/grant-two",
-						),
-					5_000,
-				),
-			).toBe(true);
-			second.peer?.close();
-		} finally {
-			allowed.close();
-		}
-	}, 30_000);
-
-	it("recomputes toolsEnv.read per event on SSE: losing only that grant stops metadata while the stream and chat events continue", async () => {
-		const options = scope("live-events-sse-grant-loss");
-		const secret = await registerDaemon(options);
-		const envId = secret.envId;
-		const withRead = await scopedAccessToken(options.accountId, [
-			"chat.use",
-			"toolsEnv.read",
-		]);
-		const stream = await openSse({ ...options, token: withRead });
-		// The master stream is the witness that a disconnect was emitted.
-		const master = await openSse(options);
-		const dropped = { value: false };
-		await runInDurableObject(
-			familyStub(options.accountId),
-			async (instance) => {
-				const store = (
-					instance as unknown as {
-						adminStore: {
-							resolveSession: (
-								id: string,
-							) => Promise<{ grants?: string[] } | undefined>;
-						};
-					}
-				).adminStore;
-				const original = store.resolveSession.bind(store);
-				store.resolveSession = async (id: string) => {
-					const identity = await original(id);
-					if (!identity || !dropped.value || !identity.grants) return identity;
-					return {
-						...identity,
-						grants: identity.grants.filter((g) => g !== "toolsEnv.read"),
-					};
-				};
-			},
-		);
-		type Frame = {
-			type: string;
-			payload?: { envId?: string; status?: string; workspacePath?: string };
-		};
-		const frames = (text: string): Frame[] =>
-			text
-				.split("\n")
-				.filter((line) => line.startsWith("data:"))
-				.map((line) => JSON.parse(line.slice(5)) as Frame);
-		const meta = (
-			text: string,
-			status: string,
-			workspacePath?: string,
-		): Frame[] =>
-			frames(text).filter(
-				(f) =>
-					f.type === "account.toolsEnv.event" &&
-					f.payload?.envId === envId &&
-					f.payload.status === status &&
-					(workspacePath === undefined ||
-						f.payload.workspacePath === workspacePath),
-			);
-		try {
-			const cycle = async (workspace: string) => {
-				const daemon = await ScriptedDaemon.upgrade({
-					token: secret.token,
-					envId,
-					workspace,
-				});
-				expect(daemon.status).toBe(101);
-				return daemon;
-			};
-			const first = await cycle("/tmp/sse-grant-one");
-			expect(
-				await waitFor(
-					() =>
-						meta(stream.text(), "connected", "/tmp/sse-grant-one").length === 1,
-					5_000,
-				),
-			).toBe(true);
-
-			// Lose only toolsEnv.read, keep chat.use.
-			dropped.value = true;
-			const before = frames(stream.text()).length;
-			first.peer?.close();
-			// Witness: the disconnect was emitted (master received it) while the
-			// token stream's grant is still removed.
-			expect(
-				await waitFor(
-					() => meta(master.text(), "disconnected").length === 1,
-					5_000,
-				),
-			).toBe(true);
-			await sendRpc(
-				"bot.create",
-				{
-					slug: "assistant",
-					name: "Assistant",
-					model: "faux/echo",
-					tools: CODING_TOOLS,
-				},
-				options,
-			);
-			await sendRpc(
-				"chat.create",
-				{ botId: "assistant", key: "main" },
-				options,
-			);
-			await sendRpc("turn.submit", { chatKey: "main", text: "Hello" }, options);
-			const chatFrame = () =>
-				frames(stream.text())
-					.slice(before)
-					.filter((f) => f.type !== "account.toolsEnv.event");
-			expect(await waitFor(() => chatFrame().length > 0, 5_000)).toBe(true);
-			expect(stream.closed()).toBe(false);
-			expect(meta(stream.text(), "disconnected")).toHaveLength(0);
-			expect(meta(stream.text(), "connected")).toHaveLength(1);
-
-			// Restore the grant: the next metadata event arrives again, and the
-			// earlier denied disconnect is not delivered late.
-			dropped.value = false;
-			const second = await cycle("/tmp/sse-grant-two");
-			expect(
-				await waitFor(
-					() =>
-						meta(stream.text(), "connected", "/tmp/sse-grant-two").length === 1,
-					5_000,
-				),
-			).toBe(true);
-			expect(meta(stream.text(), "disconnected")).toHaveLength(0);
-			second.peer?.close();
-		} finally {
-			stream.cancel();
-			master.cancel();
-		}
-	}, 30_000);
 
 	it("broadcasts account.toolsEnv.event on connect/disconnect and reconciles stale connected rows", async () => {
 		const options = scope("live-events");

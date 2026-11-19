@@ -406,136 +406,101 @@ describe("authorization at each transport entry point (issue #3 L237)", () => {
 	});
 
 	// Issue #3 L239 and L32. Account selection for a caller: `x-account-id`
-	// selects among the user's own memberships for a user session (auth.ts:355),
-	// and no other selector counts. A token session is bound to its token's
-	// account. Each case writes through the real entry point and reads the
-	// state of A, B and C from each account's own session.
-	for (const credential of ["session", "token session"] as const) {
-		it(`${credential} bound to account A: only a membership selector can move a write, and never to a non-member account`, async () => {
-			const s = store();
-			const [a, b, c] = ["atxa", "atxb", "atxc"].map((n) => uniqueAccountId(n));
-			const userId = `usr_${a}`;
-			for (const id of [a, b, c]) {
-				await s.ensureAccountAndUser({
-					accountId: id,
-					userId: `usr_${id}`,
-					role: "account-admin",
-				});
-			}
-			await s.addMember({ accountId: b, userId, roles: ["account-admin"] });
-			const grants = ["chat.use", "bot.read", "bot.write"] as const;
-			let token: string;
-			if (credential === "session") {
-				token = (await s.createSession({ userId, accountId: a })).accessToken;
-			} else {
-				const made = await s.createToken({
-					accountId: a,
-					creatorUserId: userId,
-					creatorRole: "account-admin",
-					creatorGrants: [...grants],
-					kind: "pat",
-					label: `atx-${crypto.randomUUID().slice(0, 8)}`,
-					grants: [...grants],
-					ttlMs: 86_400_000,
-				});
-				if (!made.ok) throw new Error("token create failed");
-				const login = await s.tokenLogin(made.token, {});
-				if (!login.ok) throw new Error("token login failed");
-				token = login.tokens.accessToken;
-			}
-			const own = async (id: string) =>
-				(await s.createSession({ userId: `usr_${id}`, accountId: id }))
-					.accessToken;
-			const bOwn = (await s.createSession({ userId, accountId: b }))
+	// selects among the user's own memberships for a user session, and no
+	// other selector counts. The case writes through the real entry point and
+	// reads the state of A, B and C from each account's own session.
+	it("a session bound to account A: only a membership selector can move a write, and never to a non-member account", async () => {
+		const s = store();
+		const [a, b, c] = ["atxa", "atxb", "atxc"].map((n) => uniqueAccountId(n));
+		const userId = `usr_${a}`;
+		for (const id of [a, b, c]) {
+			await s.ensureAccountAndUser({
+				accountId: id,
+				userId: `usr_${id}`,
+				role: "account-admin",
+			});
+		}
+		await s.addMember({ accountId: b, userId, roles: ["account-admin"] });
+		const token = (await s.createSession({ userId, accountId: a })).accessToken;
+		const own = async (id: string) =>
+			(await s.createSession({ userId: `usr_${id}`, accountId: id }))
 				.accessToken;
-			const cOwn = await own(c);
-			const tag = crypto.randomUUID().slice(0, 8);
-			const mk = (slug: string) => ({ slug, name: slug, model: "faux/echo" });
-			const send = async (
-				via: "rpc" | "api",
-				slug: string,
-				opts: { query?: string; headers?: Record<string, string> },
-			) => {
-				const url =
-					via === "rpc"
-						? `${ORIGIN}/rpc${opts.query ?? ""}`
-						: `${ORIGIN}/api/bot/create${opts.query ?? ""}`;
-				const body =
-					via === "rpc"
-						? JSON.stringify({ id: "x", type: "bot.create", payload: mk(slug) })
-						: JSON.stringify(mk(slug));
-				const res = await SELF.fetch(url, {
-					method: "POST",
-					headers: {
-						authorization: `Bearer ${token}`,
-						"content-type": "application/json",
-						...opts.headers,
-					},
-					body,
-				});
-				return res.status;
-			};
-			const slugs = async (tok: string) => {
-				const r = await SELF.fetch(`${ORIGIN}/rpc`, {
-					method: "POST",
-					headers: {
-						authorization: `Bearer ${tok}`,
-						"content-type": "application/json",
-					},
-					body: JSON.stringify({ id: "l", type: "bot.list", payload: {} }),
-				});
-				const f = (await r.json()) as { result?: { bots?: { id?: string }[] } };
-				return (f.result?.bots ?? []).map((x) => x.id).sort();
-			};
-			// Selectors the transports do not read for these credentials: the write lands in A.
-			for (const via of ["rpc", "api"] as const) {
-				expect(
-					await send(via, `q-${via}-${tag}`, { query: `?accountId=${b}` }),
-				).toBe(200);
-				expect(
-					await send(via, `h-${via}-${tag}`, {
-						headers: { "x-cadmus-account-id": b },
-					}),
-				).toBe(200);
-			}
-			// A non-member account is refused on both transports, with no state anywhere.
-			for (const via of ["rpc", "api"] as const) {
-				expect(
-					await send(via, `n-${via}-${tag}`, {
-						headers: { "x-account-id": c },
-					}),
-				).toBe(401);
-			}
-			expect(await slugs(cOwn)).toEqual([]);
-			if (credential === "token session") {
-				// Bound to A: even a membership selector for B is refused.
-				for (const via of ["rpc", "api"] as const) {
-					expect(
-						await send(via, `m-${via}-${tag}`, {
-							headers: { "x-account-id": b },
-						}),
-					).toBe(401);
-				}
-				expect(await slugs(bOwn)).toEqual([]);
-			} else {
-				// A user session selects among the user's memberships: the write lands in B only.
-				for (const via of ["rpc", "api"] as const) {
-					expect(
-						await send(via, `m-${via}-${tag}`, {
-							headers: { "x-account-id": b },
-						}),
-					).toBe(200);
-				}
-				expect(await slugs(bOwn)).toEqual([`m-api-${tag}`, `m-rpc-${tag}`]);
-			}
-			expect(await slugs(token)).toEqual([
-				`h-api-${tag}`,
-				`h-rpc-${tag}`,
-				`q-api-${tag}`,
-				`q-rpc-${tag}`,
-			]);
-		});
-	}
+		const bOwn = (await s.createSession({ userId, accountId: b })).accessToken;
+		const cOwn = await own(c);
+		const tag = crypto.randomUUID().slice(0, 8);
+		const mk = (slug: string) => ({ slug, name: slug, model: "faux/echo" });
+		const send = async (
+			via: "rpc" | "api",
+			slug: string,
+			opts: { query?: string; headers?: Record<string, string> },
+		) => {
+			const url =
+				via === "rpc"
+					? `${ORIGIN}/rpc${opts.query ?? ""}`
+					: `${ORIGIN}/api/bot/create${opts.query ?? ""}`;
+			const body =
+				via === "rpc"
+					? JSON.stringify({ id: "x", type: "bot.create", payload: mk(slug) })
+					: JSON.stringify(mk(slug));
+			const res = await SELF.fetch(url, {
+				method: "POST",
+				headers: {
+					authorization: `Bearer ${token}`,
+					"content-type": "application/json",
+					...opts.headers,
+				},
+				body,
+			});
+			return res.status;
+		};
+		const slugs = async (tok: string) => {
+			const r = await SELF.fetch(`${ORIGIN}/rpc`, {
+				method: "POST",
+				headers: {
+					authorization: `Bearer ${tok}`,
+					"content-type": "application/json",
+				},
+				body: JSON.stringify({ id: "l", type: "bot.list", payload: {} }),
+			});
+			const f = (await r.json()) as { result?: { bots?: { id?: string }[] } };
+			return (f.result?.bots ?? []).map((x) => x.id).sort();
+		};
+		// Selectors the transports do not read for these credentials: the write lands in A.
+		for (const via of ["rpc", "api"] as const) {
+			expect(
+				await send(via, `q-${via}-${tag}`, { query: `?accountId=${b}` }),
+			).toBe(200);
+			expect(
+				await send(via, `h-${via}-${tag}`, {
+					headers: { "x-cadmus-account-id": b },
+				}),
+			).toBe(200);
+		}
+		// A non-member account is refused on both transports, with no state anywhere.
+		for (const via of ["rpc", "api"] as const) {
+			expect(
+				await send(via, `n-${via}-${tag}`, {
+					headers: { "x-account-id": c },
+				}),
+			).toBe(401);
+		}
+		expect(await slugs(cOwn)).toEqual([]);
+		// A user session selects among the user's memberships: the write lands in B only.
+		for (const via of ["rpc", "api"] as const) {
+			expect(
+				await send(via, `m-${via}-${tag}`, {
+					headers: { "x-account-id": b },
+				}),
+			).toBe(200);
+		}
+		expect(await slugs(bOwn)).toEqual([`m-api-${tag}`, `m-rpc-${tag}`]);
+		expect(await slugs(token)).toEqual([
+			`h-api-${tag}`,
+			`h-rpc-${tag}`,
+			`q-api-${tag}`,
+			`q-rpc-${tag}`,
+		]);
+	});
 
 	// Issue #3 L239: account B's session names account A's bot in write and read
 	// commands. Each is refused or finds nothing, and A's own session reads the

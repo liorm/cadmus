@@ -323,7 +323,8 @@ export function ProvidersSettingsPage() {
 													credential: { type: "api_key", apiKey },
 												})
 												.then((res) => {
-													if (noteRefusal(res, "Could not save the key")) return;
+													if (noteRefusal(res, "Could not save the key"))
+														return;
 													setKeys((prev) => ({ ...prev, [id]: "" }));
 													setNote(`API key saved for ${id}`);
 													return load();

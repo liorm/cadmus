@@ -1,5 +1,4 @@
 import { env, SELF } from "cloudflare:test";
-import { ROLE_GRANTS } from "@cadmus/contract/grants";
 import { describe, expect, it } from "vitest";
 import { getEdgeCache } from "../src/edge-cache.js";
 import { D1AdminStore } from "../src/store/d1-admin.js";
@@ -31,7 +30,7 @@ type Frame = {
 		elevatedUntil?: number;
 		ended?: boolean;
 		ticket?: string;
-		principal?: { elevatedUntil?: number; viaToken?: boolean };
+		principal?: { elevatedUntil?: number };
 	};
 	error?: { code: string };
 };
@@ -41,7 +40,7 @@ const rpc = (token: string, type: string, payload?: Record<string, unknown>) =>
 		elevatedUntil?: number;
 		ended?: boolean;
 		ticket?: string;
-		principal?: { elevatedUntil?: number; viaToken?: boolean };
+		principal?: { elevatedUntil?: number };
 	}>(type, payload, { token });
 
 async function audit(sessionId: string): Promise<string[]> {
@@ -313,27 +312,12 @@ describe("admin mode (issue #3 phase 6)", () => {
 		expect(user.frame.error?.code).toBe("forbidden");
 
 		const admin = await seed("account-admin");
-		const token = await admin.s.createToken({
-			accountId: admin.accountId,
-			creatorUserId: admin.userId,
-			creatorRole: "account-admin",
-			creatorGrants: ROLE_GRANTS["account-admin"],
-			kind: "pat",
-			label: "no elevate",
-			grants: ["chat.use", "tokens.self"],
-			ttlMs: 86_400_000,
+		const who = await rpc(admin.session.accessToken, "auth.whoami");
+		expect(who.frame.ok).toBe(true);
+		expect(who.frame.result?.principal).not.toHaveProperty("viaToken");
+		expect(who.frame.result?.principal).toMatchObject({
+			role: "account-admin",
 		});
-		if (!token.ok) throw new Error(token.message);
-		const login = await SELF.fetch(`${ORIGIN}/api/auth/login/token`, {
-			method: "POST",
-			headers: { authorization: `Bearer ${token.token}` },
-		});
-		expect(login.status).toBe(200);
-		const { accessToken } = (await login.json()) as { accessToken: string };
-		const viaToken = await rpc(accessToken, "auth.elevate");
-		expect(viaToken.frame.ok).toBe(false);
-		const who = await rpc(accessToken, "auth.whoami");
-		expect(who.frame.result?.principal?.viaToken).toBe(true);
 	});
 
 	it("applies to a socket opened before admin mode was turned on, and when it ends", async () => {
@@ -386,6 +370,9 @@ describe("admin mode (issue #3 phase 6)", () => {
 			}),
 		});
 		expect(res.status).toBe(401);
-		expect(((await res.json()) as Frame).ok).toBe(false);
+		expect(await res.json()).toMatchObject({
+			type: "protocol.error",
+			payload: { code: "unauthorized" },
+		});
 	});
 });

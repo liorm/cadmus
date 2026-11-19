@@ -11,11 +11,11 @@ import { D1AdminStore } from "../src/store/d1-admin.js";
 import { rpc, uniqueAccountId } from "./helpers.js";
 
 /**
- * Issue #3 L237, denial sweep over /rpc and /ws. For a plain user, an
- * unelevated account-admin and a chat.use-only token session, every registered
- * command the caller must NOT be allowed to run is sent with an empty payload;
- * the exact refusal code is asserted, and the tenant state read before the sweep
- * (members, invites, tokens, bots, account, audit count) is unchanged after it.
+ * Issue #3 L237, denial sweep over /rpc and /ws. For a plain user and an
+ * unelevated account-admin, every registered command the caller must NOT be
+ * allowed to run is sent with an empty payload; the exact refusal code is
+ * asserted, and the tenant state read before the sweep (members, invites,
+ * bots, account, audit count) is unchanged after it.
  * The expected code is derived from the registry grant, ROLE_GRANTS and the
  * grant table's elevation flag. The independent literals live in
  * unit/authz-registry-matrix.test.ts; this file proves each denial is enforced
@@ -110,18 +110,13 @@ async function snapshot(
 	const reads = [
 		"account.members.list",
 		"account.invites.list",
-		"auth.tokens.list",
 		"bot.list",
 		"account.get",
 		"account.audit.list",
 	];
 	const out: Record<string, unknown> = {};
 	for (const t of reads) {
-		const f = await rpc(
-			reader,
-			t,
-			t === "auth.tokens.list" ? { all: true } : {},
-		);
+		const f = await rpc(reader, t, {});
 		out[t] = f.ok ? f.result : `refused:${f.error?.code}`;
 	}
 	// The reader runs elevated commands, which write their own elevated.command
@@ -184,7 +179,7 @@ async function openWs(token: string, who: string) {
 describe("denial sweep over every registered command (issue #3 L237)", () => {
 	it("registry is non-empty and every command grant is in the grant table", () => {
 		const types = listCommandTypes();
-		expect(types.length).toBe(95);
+		expect(types.length).toBe(90);
 		for (const t of types) {
 			const grant = getCommandGrant(t);
 			if (t.startsWith("auth.login.") || t.startsWith("auth.session.")) {
@@ -208,22 +203,9 @@ describe("denial sweep over every registered command (issue #3 L237)", () => {
 		await s.ensureAccountAndUser({ accountId, userId, role: "user" });
 		const admin = await s.createSession({ userId: adminId, accountId });
 		const user = await s.createSession({ userId, accountId });
-		// Admin-mode session only to mint the chat.use token and to read state.
+		// Admin-mode session reads tenant state around the sweep.
 		const owner = await s.createSession({ userId: adminId, accountId });
 		expect((await rpc(owner.accessToken, "auth.elevate")).ok).toBe(true);
-		const made = await rpc(owner.accessToken, "auth.tokens.create", {
-			kind: "pat",
-			label: "chat only",
-			grants: ["chat.use", "tokens.self"],
-			ttlDays: 1,
-		});
-		expect(made.ok).toBe(true);
-		const login = await SELF.fetch(`${ORIGIN}/api/auth/login/token`, {
-			method: "POST",
-			headers: { authorization: `Bearer ${made.result?.token}` },
-		});
-		const tokenAccess = ((await login.json()) as { accessToken: string })
-			.accessToken;
 		const callers: Caller[] = [
 			{
 				name: "user",
@@ -237,12 +219,6 @@ describe("denial sweep over every registered command (issue #3 L237)", () => {
 				held: new Set(ROLE_GRANTS["account-admin"]),
 				elevated: false,
 			},
-			{
-				name: "chat.use-only token",
-				token: tokenAccess,
-				held: new Set(["chat.use", "tokens.self"]),
-				elevated: true, // a token carries explicit grants; elevation grants it lacks are forbidden
-			},
 		];
 		return {
 			callers,
@@ -252,22 +228,20 @@ describe("denial sweep over every registered command (issue #3 L237)", () => {
 	}
 
 	const expectedReport = [
-		"user: 44 denied of 95",
-		"account-admin (no admin mode): 41 denied of 95",
-		"chat.use-only token: 66 denied of 95",
+		"user: 42 denied of 90",
+		"account-admin (no admin mode): 39 denied of 90",
 	];
 	// Independent literals: calls actually sent per transport, not derived
-	// from the denied list the loop iterates.
+	// from the denied list the loop iterates. auth.tokens.* and
+	// auth.login.token left the registry, and both roles were denied them.
 	const expectedCalls = [
-		{ rpc: 44, ws: 44 },
-		{ rpc: 41, ws: 41 },
-		{ rpc: 66, ws: 66 },
+		{ rpc: 42, ws: 42 },
+		{ rpc: 39, ws: 39 },
 	];
 
 	for (const [idx, label] of [
 		[0, "user"],
 		[1, "account-admin (no admin mode)"],
-		[2, "chat.use-only token"],
 	] as const) {
 		it(`every denied (${label}, command) pair is refused with its exact code over /rpc and /ws, and tenant state is unchanged`, async () => {
 			const { callers, readerToken, readerSession } = await setup();

@@ -29,20 +29,15 @@ import {
 } from "@earendil-works/pi-durable";
 import { openDurableObjectSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/cloudflare";
 import { StreamSweepDeadline, syncDurableObjectAlarm } from "./alarms.js";
-import { requireLiveApiTokenUse } from "./auth.js";
 import { withinPrincipalBudget } from "./auth-limiter.js";
 import {
 	authorize,
 	type CallerMeta,
-	callerGrants,
 	callerMetaFromAttachment,
 	callerMetaFromHeader,
 	isElevated,
-	needsElevation,
 	PRINCIPAL_HEADER,
-	requireElevationFor,
 	requireSession,
-	tokenUserRequired,
 } from "./authz.js";
 import { assertBotMetadata, mergeMetadataPatch } from "./bot-metadata.js";
 import {
@@ -743,8 +738,16 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 				request.headers.get(PRINCIPAL_HEADER),
 			);
 			this.ctx.acceptWebSocket(server);
-			this.ensureIdleSweep();
 			server.serializeAttachment(caller);
+			if (!caller.sessionId) {
+				try {
+					server.close(4401, "session ended");
+				} catch {
+					// already closed
+				}
+				return new Response(null, { status: 101, webSocket: client });
+			}
+			this.ensureIdleSweep();
 			await this.ensureHarness();
 			this.log().debug("websocket client connected");
 			return new Response(null, { status: 101, webSocket: client });
@@ -756,11 +759,13 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 			const sseCaller = callerMetaFromHeader(
 				request.headers.get(PRINCIPAL_HEADER),
 			);
+			if (!sseCaller.sessionId) {
+				return new Response(null, { status: 401 });
+			}
 			return this.handleSseStream(
 				request.signal,
 				sseCaller.sessionId,
 				sseCaller.accountId,
-				sseCaller,
 			);
 		}
 
@@ -791,11 +796,7 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 			const attached = callerMetaFromAttachment(ws.deserializeAttachment());
 			const caller = await this.liveCaller(attached);
 			if (!caller) {
-				const code = await this.endCode(
-					attached.sessionId,
-					attached.accountId,
-					attached,
-				);
+				const code = await this.endCode(attached.sessionId, attached.accountId);
 				ws.send(
 					this.shim.encodeFrame({
 						type: "protocol.error",
@@ -943,9 +944,8 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 
 	private handleSseStream(
 		signal: AbortSignal,
-		sessionId?: string,
+		sessionId: string,
 		accountId?: string,
-		legacy?: CallerMeta,
 	): Response {
 		const encoder = new TextEncoder();
 		let activeController:
@@ -956,22 +956,13 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 			start: (controller) => {
 				activeController = controller;
 				this.sseControllers.add(controller);
-				if (sessionId)
-					this.sseSessions.set(controller, { sessionId, accountId });
-				// Sessionless principals (master secret, legacy member tokens, and
-				// cad_pat_ / cad_svc_ bearer tickets) are recorded on sseLegacyWho so
-				// the sweep can re-check them. An unmapped controller has no entry
-				// and is denied by sessionlessHolds(undefined).
-				else if (legacy?.credential && legacy.userId && legacy.accountId) {
-					this.sseLegacyWho.set(controller, legacy);
-				}
+				this.sseSessions.set(controller, { sessionId, accountId });
 				this.ensureIdleSweep();
 				signal.addEventListener(
 					"abort",
 					() => {
 						this.sseControllers.delete(controller);
 						this.sseSessions.delete(controller);
-						this.sseLegacyWho.delete(controller);
 						try {
 							controller.close();
 						} catch {
@@ -985,7 +976,6 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 				if (activeController) {
 					this.sseControllers.delete(activeController);
 					this.sseSessions.delete(activeController);
-					this.sseLegacyWho.delete(activeController);
 				}
 			},
 		});
@@ -1011,19 +1001,8 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 	private async endCode(
 		sessionId: string | undefined,
 		accountId?: string,
-		sessionless?: { userId?: string },
 	): Promise<4401 | 4403> {
-		if (!sessionId) {
-			if (!sessionless?.userId || !accountId) return 4401;
-			try {
-				return await this.adminStore.legacyEndCode(
-					sessionless.userId,
-					accountId,
-				);
-			} catch {
-				return 4401;
-			}
-		}
+		if (!sessionId) return 4401;
 		try {
 			return (await this.adminStore.sessionRefusalReason(sessionId, accountId))
 				? 4403
@@ -1045,27 +1024,7 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 	private async liveCaller(
 		attached: CallerMeta,
 	): Promise<CallerMeta | undefined> {
-		if (!attached.sessionId) {
-			// Master secret and legacy member token sockets have no session: re-check
-			// the credential (token row, membership, user, account) on every message.
-			// Fail closed: every sessionless principal the edge builds names its
-			// credential, so one that does not (e.g. a socket attached before this
-			// check existed) is ended rather than trusted.
-			if (!attached.credential || !attached.userId || !attached.accountId) {
-				return undefined;
-			}
-			const live = await this.adminStore.resolveLegacyCredential(
-				attached.credential,
-				attached.userId,
-				attached.accountId,
-			);
-			if (!live) return undefined;
-			return {
-				...attached,
-				role: live.role,
-				...(live.grants ? { grants: live.grants } : {}),
-			};
-		}
+		if (!attached.sessionId) return undefined;
 		const identity = await this.adminStore.resolveSession(
 			attached.sessionId,
 			attached.accountId,
@@ -1076,7 +1035,6 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 			userId: identity.userId,
 			accountId: identity.accountId,
 			role: identity.role,
-			grants: identity.grants,
 			elevatedUntil: identity.elevatedUntil,
 			...(identity.provisional ? { provisional: true } : {}),
 		};
@@ -1091,16 +1049,7 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 	 * Validation errors propagate: callers must not deliver on an unverified
 	 * state.
 	 */
-	private async sweepAuthority(
-		force = false,
-		/**
-		 * Sessionless sockets (master, legacy token) are re-read from D1 here.
-		 * The per-event delivery sweep skips that so event delivery is not held
-		 * behind extra D1 reads for them; the alarm sweep, command-triggered
-		 * sweeps and each message still cover them.
-		 */
-		checkSessionless = true,
-	): Promise<Set<string>> {
+	private async sweepAuthority(force = false): Promise<Set<string>> {
 		const now = Date.now();
 		if (!force && now - this.lastAuthSweepAt < 1_000) return new Set();
 		this.lastAuthSweepAt = now;
@@ -1121,9 +1070,7 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 				sessionId,
 				accountId,
 			);
-			const grants = identity
-				? (identity.grants ?? grantsForRole(identity.role))
-				: [];
+			const grants = identity ? grantsForRole(identity.role) : [];
 			const code = !identity
 				? await this.endCode(sessionId, accountId)
 				: grants.includes("chat.use")
@@ -1138,36 +1085,11 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 			}
 			return code;
 		};
-		// Sessionless sockets (master secret, legacy member token) carry the
-		// credential the edge named at mint; re-check it like a session.
-		const legacyVerdict = async (meta: CallerMeta): Promise<number> => {
-			if (!meta.credential || !meta.userId || !meta.accountId) return 4401;
-			const key = `legacy\u0000${meta.credential}\u0000${meta.userId}\u0000${meta.accountId}`;
-			const known = live.get(key);
-			if (known !== undefined) return known;
-			const identity = await this.adminStore.resolveLegacyCredential(
-				meta.credential,
-				meta.userId,
-				meta.accountId,
-			);
-			const grants = identity
-				? (identity.grants ?? grantsForRole(identity.role))
-				: [];
-			const code = !identity
-				? await this.endCode(undefined, meta.accountId, meta)
-				: grants.includes("chat.use")
-					? 0
-					: 4403;
-			live.set(key, code);
-			return code;
-		};
 		for (const ws of this.ctx.getWebSockets()) {
 			const attached = callerMetaFromAttachment(ws.deserializeAttachment());
 			const code = attached.sessionId
 				? await verdict(attached.sessionId, attached.accountId)
-				: checkSessionless
-					? await legacyVerdict(attached)
-					: 0;
+				: 4401;
 			if (code !== 0) {
 				try {
 					ws.close(code, "session ended");
@@ -1180,18 +1102,6 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 			if ((await verdict(who.sessionId, who.accountId)) !== 0) {
 				this.sseControllers.delete(controller);
 				this.sseSessions.delete(controller);
-				this.sseLegacyWho.delete(controller);
-				try {
-					controller.close();
-				} catch {
-					// already closed
-				}
-			}
-		}
-		for (const [controller, who] of this.sseLegacyWho) {
-			if (checkSessionless && (await legacyVerdict(who)) !== 0) {
-				this.sseControllers.delete(controller);
-				this.sseLegacyWho.delete(controller);
 				try {
 					controller.close();
 				} catch {
@@ -1232,14 +1142,8 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 		}
 		this.sseControllers.clear();
 		this.sseSessions.clear();
-		this.sseLegacyWho.clear();
 	}
 
-	/** Credential behind each sessionless SSE stream (re-checked by the sweep). */
-	private sseLegacyWho = new Map<
-		ReadableStreamDefaultController<Uint8Array>,
-		CallerMeta
-	>();
 	private pendingEvents: ServerFrame[] = [];
 	private flushing = false;
 
@@ -1259,7 +1163,7 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 					this.pendingEvents = [];
 					let toolsReaders: Set<string>;
 					try {
-						toolsReaders = await this.sweepAuthority(true, false);
+						toolsReaders = await this.sweepAuthority(true);
 					} catch {
 						this.closeAllStreams();
 						continue;
@@ -1276,35 +1180,27 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 		const text = this.shim.encodeFrame(event);
 		// account.toolsEnv.event needs toolsEnv.read and account.credentials.oauth.event
 		// needs credentials.manage. Session principals come from the sweep that
-		// ran for this batch. A socket with no session id is the master secret,
-		// a legacy member token, or a cad_pat_ / cad_svc_ bearer ticket: it
-		// receives the event only when the role and grants resolved at connect
-		// include the one the event needs. An SSE stream must be mapped to a
-		// session or recorded as legacy; an unmapped stream is denied.
+		// ran for this batch. A socket with no session is closed and receives nothing.
 		const oauthEvent = event.type === "account.credentials.oauth.event";
 		const gated = event.type === "account.toolsEnv.event" || oauthEvent;
 		const prefix = oauthEvent ? OAUTH_MANAGER_PREFIX : "";
-		const neededGrant = oauthEvent ? "credentials.manage" : "toolsEnv.read";
-		const sessionlessHolds = (meta: CallerMeta | undefined): boolean =>
-			!!meta && callerGrants(meta).includes(neededGrant);
 		const wsMayReceive = (attached: CallerMeta): boolean =>
 			!gated ||
-			(!attached.sessionId
-				? sessionlessHolds(attached)
-				: toolsReaders.has(
-						`${prefix}${principalKey(attached.sessionId, attached.accountId)}`,
-					));
+			(!!attached.sessionId &&
+				toolsReaders.has(
+					`${prefix}${principalKey(attached.sessionId, attached.accountId)}`,
+				));
 		const sseMayReceive = (
 			controller: ReadableStreamDefaultController<Uint8Array>,
 		): boolean => {
 			if (!gated) return true;
 			const who = this.sseSessions.get(controller);
-			if (who) {
-				return toolsReaders.has(
+			return (
+				!!who &&
+				toolsReaders.has(
 					`${prefix}${principalKey(who.sessionId, who.accountId)}`,
-				);
-			}
-			return sessionlessHolds(this.sseLegacyWho.get(controller));
+				)
+			);
 		};
 
 		for (const ws of this.ctx.getWebSockets()) {
@@ -1384,7 +1280,6 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 		command: ClientCommand,
 		caller: CallerMeta,
 	): Promise<RpcResult<CommandType>> {
-		await requireLiveApiTokenUse(this.adminStore, caller, command.type);
 		const grant = authorize(caller, command.type);
 		return withElevatedAudit({
 			adminStore: this.adminStore,
@@ -1687,7 +1582,6 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 				}
 				return {
 					updated: result.changed,
-					tokensRevoked: result.tokensRevoked,
 				};
 			},
 			"account.members.remove": async (command) => {
@@ -1701,7 +1595,6 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 				}
 				return {
 					removed: result.changed,
-					tokensRevoked: result.tokensRevoked,
 					sessionsRevoked: result.sessionsRevoked,
 				};
 			},
@@ -1849,25 +1742,7 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 			},
 			"auth.ticket": async (command) => {
 				await this.requireAuthBudget("auth.ticket", caller);
-				// A scoped token session may open its own event socket; only global
-				// human session management is barred for it.
-				const sessionId = caller.sessionId;
-				if (!sessionId) {
-					// The master secret and legacy member tokens have no session.
-					// They mint a ticket over this header-authenticated call.
-					if (!caller.userId || !caller.accountId) {
-						throw new ProtocolValidationError(
-							"This command needs a signed-in session",
-							"forbidden",
-						);
-					}
-					return this.adminStore.createLegacyTicket(
-						caller.userId,
-						caller.accountId,
-						command.payload.target,
-						caller.credential,
-					);
-				}
+				const sessionId = requireSession(caller);
 				return this.adminStore.createTicket(
 					sessionId,
 					command.payload.target,
@@ -1984,7 +1859,6 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 				}
 				return {
 					updated: result.changed,
-					tokensRevoked: result.tokensRevoked,
 				};
 			},
 			"system.members.remove": async (command) => {
@@ -2000,7 +1874,6 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 				}
 				return {
 					removed: result.changed,
-					tokensRevoked: result.tokensRevoked,
 					sessionsRevoked: result.sessionsRevoked,
 				};
 			},
@@ -2078,12 +1951,6 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 					"unsupported_command",
 				);
 			},
-			"auth.login.token": async () => {
-				throw new ProtocolValidationError(
-					"Public login commands run on /api",
-					"unsupported_command",
-				);
-			},
 			"auth.login.google.start": async () => {
 				throw new ProtocolValidationError(
 					"Public login commands run on /api",
@@ -2131,120 +1998,6 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 				);
 				return { revoked };
 			},
-			"auth.tokens.list": async (command) => {
-				const userId = caller.userId;
-				if (!userId) throw tokenUserRequired();
-				const held = callerGrants(caller);
-				const all = command.payload?.all === true;
-				if (all && !held.includes("tokens.manage")) {
-					throw new ProtocolValidationError(
-						"Listing all tokens needs tokens.manage",
-						"forbidden",
-					);
-				}
-				if (all) requireElevationFor("tokens.manage", caller, command.type);
-				const run = async () => ({
-					tokens: await this.adminStore.listTokens(meta.accountId, userId, all),
-				});
-				// Listing the whole account is tokens.manage. The command grant is
-				// tokens.self, so the dispatch audit does not see this use.
-				if (!all) return run();
-				return withElevatedAudit({
-					adminStore: this.adminStore,
-					caller,
-					grant: "tokens.manage",
-					commandType: command.type,
-					familyId: meta.familyId,
-					warn: (message, fields) => this.log().warn(message, fields),
-					run,
-				});
-			},
-			"auth.tokens.create": async (command) => {
-				const userId = caller.userId;
-				if (!userId) throw tokenUserRequired();
-				// A token must not mint tokens: that would let a short-lived token
-				// create a non-expiring one and escape its lifetime and revocation.
-				if (caller.grants) {
-					throw new ProtocolValidationError(
-						"API tokens cannot create tokens",
-						"forbidden",
-					);
-				}
-				const held = callerGrants(caller);
-				const service = command.payload.kind === "service";
-				if (service && !held.includes("tokens.manage")) {
-					throw new ProtocolValidationError(
-						"Service tokens need tokens.manage",
-						"forbidden",
-					);
-				}
-				if (service) {
-					requireElevationFor("tokens.manage", caller, command.type);
-				}
-				const run = async () => {
-					const result = await this.adminStore.createToken({
-						accountId: meta.accountId,
-						creatorUserId: userId,
-						creatorRole: caller.role ?? "user",
-						creatorGrants: held,
-						...(isElevated(caller) && caller.sessionId
-							? { elevatedBySessionId: caller.sessionId }
-							: {}),
-						kind: command.payload.kind,
-						label: command.payload.label,
-						grants: command.payload.grants,
-						ttlMs:
-							command.payload.ttlDays === undefined
-								? undefined
-								: command.payload.ttlDays * 86_400_000,
-					});
-					if (!result.ok) {
-						throw new ProtocolValidationError(result.message, result.code);
-					}
-					return { token: result.token, summary: result.summary };
-				};
-				// A service token is a tokens.manage use. The command grant is
-				// tokens.self, so the dispatch audit does not see it.
-				if (!service) return run();
-				return withElevatedAudit({
-					adminStore: this.adminStore,
-					caller,
-					grant: "tokens.manage",
-					commandType: command.type,
-					familyId: meta.familyId,
-					warn: (message, fields) => this.log().warn(message, fields),
-					run,
-				});
-			},
-			"auth.tokens.revoke": async (command) => {
-				const userId = caller.userId;
-				if (!userId) throw tokenUserRequired();
-				// Revoking another member's token is a tokens.manage use, so it needs
-				// admin mode. Without it the caller can still revoke their own tokens.
-				const manageOthers =
-					callerGrants(caller).includes("tokens.manage") &&
-					(!needsElevation("tokens.manage", caller) || isElevated(caller));
-				// Own-token revoke is tokens.self and stays unaudited. Managing other
-				// members' tokens leaves the override unset, so isElevatedUse records
-				// both an admin-mode user session and an elevated token session.
-				return withElevatedAudit({
-					adminStore: this.adminStore,
-					caller,
-					grant: "tokens.manage",
-					elevated: manageOthers ? undefined : false,
-					commandType: command.type,
-					familyId: this.getFamilyMeta().familyId,
-					warn: (message, fields) => this.log().warn(message, fields),
-					run: async () => ({
-						revoked: await this.adminStore.revokeTokenById({
-							accountId: meta.accountId,
-							userId,
-							tokenId: command.payload.tokenId,
-							all: manageOthers,
-						}),
-					}),
-				});
-			},
 			"auth.memberships.list": async (_command) => {
 				requireSession(caller);
 				return {
@@ -2265,14 +2018,13 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 					: undefined;
 				return {
 					principal: {
-						kind: caller.kind ?? "token",
+						kind: caller.kind ?? "user",
 						...(caller.userId ? { userId: caller.userId } : {}),
 						...(profile?.name ? { name: profile.name } : {}),
 						...(profile?.email ? { email: profile.email } : {}),
 						accountId: caller.accountId ?? meta.accountId,
 						role: caller.role ?? "user",
 						...(caller.provisional ? { provisional: true } : {}),
-						...(caller.grants ? { viaToken: true } : {}),
 						...(isElevated(caller) && caller.elevatedUntil
 							? { elevatedUntil: caller.elevatedUntil }
 							: {}),

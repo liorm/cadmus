@@ -130,8 +130,12 @@ describe("wrangler preview config", () => {
 			class_name: "CadmusAuthLimiterDO",
 		});
 		expect(config.migrations.at(-1)).toEqual({
-			tag: "v5",
-			new_sqlite_classes: ["CadmusAuthLimiterDO"],
+			tag: "v7",
+			new_sqlite_classes: [
+				"CadmusBotFamilyDO",
+				"CadmusEnvDO",
+				"CadmusAuthLimiterDO",
+			],
 		});
 	});
 });

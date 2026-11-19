@@ -98,10 +98,7 @@ export function SessionBoot({
 				return;
 			}
 			const remembered = selectedAccountId();
-			const knownNonToken = tokens.viaToken === false;
-			const membershipsPromise = knownNonToken
-				? readMemberships(tokens.accessToken)
-				: Promise.resolve<SessionMembership[] | null>(null);
+			const membershipsPromise = readMemberships(tokens.accessToken);
 			const principalPromise = readPrincipal(tokens.accessToken, remembered);
 
 			// When no remembered account override is active and refresh gave us the
@@ -160,12 +157,7 @@ export function SessionBoot({
 					memberships = await membershipsPromise;
 					if (cancelled) return;
 				}
-				if (
-					live &&
-					memberships === null &&
-					principal?.kind === "user" &&
-					!principal.viaToken
-				) {
+				if (live && memberships === null && principal?.kind === "user") {
 					memberships = await readMemberships(tokens.accessToken);
 					if (cancelled) return;
 				}
@@ -203,12 +195,7 @@ export function SessionBoot({
 				memberships = await membershipsPromise;
 				if (cancelled) return;
 			}
-			if (
-				live &&
-				memberships === null &&
-				principal?.kind === "user" &&
-				!principal.viaToken
-			) {
+			if (live && memberships === null && principal?.kind === "user") {
 				memberships = await readMemberships(tokens.accessToken);
 				if (cancelled) return;
 			}

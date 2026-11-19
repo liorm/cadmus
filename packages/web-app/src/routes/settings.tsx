@@ -27,7 +27,6 @@ export function SettingsPage() {
 	const session = useSession();
 	const superAdmin =
 		session.principal?.kind === "user" &&
-		!session.principal.viaToken &&
 		session.principal.role === "super-admin";
 	const [theme, setThemeState] = useState<ThemeName>(() => getTheme());
 	const [savingLeader, setSavingLeader] = useState(false);
@@ -155,11 +154,6 @@ export function SettingsPage() {
 					/>
 				</SettingsSection>
 				<SettingsSection title="Security">
-					<SettingsLink
-						to="/settings/tokens"
-						title="API tokens"
-						hint="Scoped tokens for agents and scripts"
-					/>
 					<SettingsLink
 						to="/settings/security"
 						title="Sign-in and sessions"

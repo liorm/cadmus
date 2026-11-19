@@ -1199,28 +1199,6 @@
 				"readOnly": true,
 				"description": "Configured Cadmus sign-in providers. No grant."
 			},
-			"AuthLoginTokenCommand": {
-				"type": "object",
-				"required": ["id", "type"],
-				"properties": {
-					"id": {
-						"type": "string",
-						"minLength": 1,
-						"description": "Request id."
-					},
-					"type": {
-						"type": "string",
-						"const": "auth.login.token",
-						"description": "Command type identifier."
-					},
-					"payload": {
-						"type": "object",
-						"properties": {},
-						"description": "Empty parameter payload. The secret is the Authorization bearer."
-					}
-				},
-				"description": "Exchange cad_pat_ or cad_svc_ for a session. Refresh token is a cookie."
-			},
 			"AuthMembershipsListCommand": {
 				"type": "object",
 				"required": ["id", "type"],
@@ -1457,123 +1435,6 @@
 				},
 				"grant": "chat.use",
 				"description": "Issue a single-use ticket (60 seconds) for opening the WebSocket or SSE events stream for this session."
-			},
-			"AuthTokensCreateCommand": {
-				"type": "object",
-				"required": ["id", "type", "payload"],
-				"properties": {
-					"id": {
-						"type": "string",
-						"minLength": 1,
-						"description": "Non-empty unique correlation identifier for this command request."
-					},
-					"type": {
-						"type": "string",
-						"const": "auth.tokens.create",
-						"description": "Command type identifier."
-					},
-					"payload": {
-						"type": "object",
-						"required": ["kind", "label", "grants"],
-						"properties": {
-							"kind": {
-								"anyOf": [
-									{
-										"type": "string",
-										"const": "pat"
-									},
-									{
-										"type": "string",
-										"const": "service"
-									}
-								],
-								"description": "pat is personal; service needs tokens.manage."
-							},
-							"label": {
-								"type": "string",
-								"minLength": 1,
-								"maxLength": 80
-							},
-							"grants": {
-								"type": "array",
-								"items": {
-									"type": "string",
-									"minLength": 1
-								},
-								"minItems": 1,
-								"description": "Explicit subset of the caller's grants."
-							},
-							"ttlDays": {
-								"type": "number",
-								"minimum": 0.01,
-								"maximum": 365,
-								"description": "Expiry in days. Required for a personal token that carries no elevated grant (max 365). An elevated personal token that omits it expires in 30 days (max 30). A service token defaults to 7 days and maxes out at 30."
-							}
-						},
-						"description": "Token to create."
-					}
-				},
-				"grant": "tokens.self",
-				"description": "Create a server-generated cad_pat_ or cad_svc_ token. The secret is returned once."
-			},
-			"AuthTokensListCommand": {
-				"type": "object",
-				"required": ["id", "type"],
-				"properties": {
-					"id": {
-						"type": "string",
-						"minLength": 1,
-						"description": "Non-empty unique correlation identifier for this command request."
-					},
-					"type": {
-						"type": "string",
-						"const": "auth.tokens.list",
-						"description": "Command type identifier."
-					},
-					"payload": {
-						"type": "object",
-						"properties": {
-							"all": {
-								"type": "boolean",
-								"description": "List every token in the account (needs tokens.manage). Default lists the caller's own."
-							}
-						},
-						"description": "List filter."
-					}
-				},
-				"readOnly": true,
-				"grant": "tokens.self",
-				"description": "List API tokens: the caller's own, or all in the account for admins."
-			},
-			"AuthTokensRevokeCommand": {
-				"type": "object",
-				"required": ["id", "type", "payload"],
-				"properties": {
-					"id": {
-						"type": "string",
-						"minLength": 1,
-						"description": "Non-empty unique correlation identifier for this command request."
-					},
-					"type": {
-						"type": "string",
-						"const": "auth.tokens.revoke",
-						"description": "Command type identifier."
-					},
-					"payload": {
-						"type": "object",
-						"required": ["tokenId"],
-						"properties": {
-							"tokenId": {
-								"type": "string",
-								"minLength": 1,
-								"description": "Token to revoke."
-							}
-						},
-						"description": "Token to revoke."
-					}
-				},
-				"grant": "tokens.self",
-				"description": "Revoke a token and every session started from it."
 			},
 			"AuthWhoamiCommand": {
 				"type": "object",
@@ -2716,15 +2577,6 @@
 						"$ref": "#/components/schemas/SystemUsersRevokeSessionsCommand"
 					},
 					{
-						"$ref": "#/components/schemas/AuthTokensListCommand"
-					},
-					{
-						"$ref": "#/components/schemas/AuthTokensCreateCommand"
-					},
-					{
-						"$ref": "#/components/schemas/AuthTokensRevokeCommand"
-					},
-					{
 						"$ref": "#/components/schemas/AuthMethodsListCommand"
 					},
 					{
@@ -2741,9 +2593,6 @@
 					},
 					{
 						"$ref": "#/components/schemas/AuthLoginDevPasswordCommand"
-					},
-					{
-						"$ref": "#/components/schemas/AuthLoginTokenCommand"
 					},
 					{
 						"$ref": "#/components/schemas/AuthLoginGoogleStartCommand"
