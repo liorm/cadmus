@@ -3,8 +3,8 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 const repoRoot = resolve(__dirname, "../..");
-const PRODUCTION_D1_ID = "1ae99680-9dab-4883-8449-4a7dd0f53212";
-const PREVIEW_D1_ID = "5c25c5bf-879d-4a5b-a31f-ba6d8a3c85a8";
+const PRODUCTION_D1_ID = "6149a8ca-f5f8-4040-bca9-c8f03a6fc402";
+const PREVIEW_D1_ID = "bd31fe4a-31f3-4a67-9f76-73907732557f";
 const PREVIEW_D1_NAME = "cadmus-admin-staging";
 
 function stripJsonComments(jsonString: string): string {

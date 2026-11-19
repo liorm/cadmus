@@ -40,14 +40,14 @@
 		{
 			"binding": "CADMUS_ADMIN_DB",
 			"database_name": "cadmus-admin",
-			"database_id": "1ae99680-9dab-4883-8449-4a7dd0f53212",
-			"preview_database_id": "5c25c5bf-879d-4a5b-a31f-ba6d8a3c85a8"
+			"database_id": "6149a8ca-f5f8-4040-bca9-c8f03a6fc402",
+			"preview_database_id": "bd31fe4a-31f3-4a67-9f76-73907732557f"
 		}
 	],
 	"kv_namespaces": [
 		{
 			"binding": "CADMUS_CACHE_KV",
-			"id": "d5fde8e98af64220a78c70cddd4eed16"
+			"id": "43a4a1a4ad7f40ffbceca9035c8cc4e1"
 		}
 	],
 	"ratelimits": [
@@ -87,6 +87,14 @@
 		{
 			"tag": "v5",
 			"new_sqlite_classes": ["CadmusAuthLimiterDO"]
+		},
+		{
+			"tag": "v6",
+			"deleted_classes": ["CadmusBotFamilyDO", "CadmusEnvDO", "CadmusAuthLimiterDO"]
+		},
+		{
+			"tag": "v7",
+			"new_sqlite_classes": ["CadmusBotFamilyDO", "CadmusEnvDO", "CadmusAuthLimiterDO"]
 		}
 	],
 	"vars": {
@@ -103,13 +111,13 @@
 			{
 				"binding": "CADMUS_ADMIN_DB",
 				"database_name": "cadmus-admin-staging",
-				"database_id": "5c25c5bf-879d-4a5b-a31f-ba6d8a3c85a8"
+				"database_id": "bd31fe4a-31f3-4a67-9f76-73907732557f"
 			}
 		],
 		"kv_namespaces": [
 			{
 				"binding": "CADMUS_CACHE_KV",
-				"id": "730ad07f537b4d4cb64f31587c9f0946"
+				"id": "04c09d21c0dc498db9cf1d9b661b7efd"
 			}
 		],
 		"durable_objects": {
