@@ -207,7 +207,10 @@ describe("authorization at each transport entry point (issue #3 L237)", () => {
 				`INSERT INTO cadmus_users (id, name, email, created_at) VALUES (?1, 'Root', NULL, ?2)`,
 			).bind(userId, now),
 			env.CADMUS_ADMIN_DB.prepare(
-				`INSERT INTO cadmus_account_members (account_id, user_id, role, created_at) VALUES ('system', ?1, 'super-admin', ?2)`,
+				`INSERT INTO cadmus_account_members (account_id, user_id, created_at) VALUES ('system', ?1, ?2)`,
+			).bind(userId, now),
+			env.CADMUS_ADMIN_DB.prepare(
+				`INSERT INTO cadmus_member_roles (account_id, user_id, role, created_at) VALUES ('system', ?1, 'super-admin', ?2)`,
 			).bind(userId, now),
 		]);
 		return { s, userId };
@@ -236,7 +239,7 @@ describe("authorization at each transport entry point (issue #3 L237)", () => {
 
 		// Positive control: the same user with an ordinary membership in the
 		// tenant succeeds on the command refused above.
-		await s.addMember({ accountId: tenant, userId, role: "user" });
+		await s.addMember({ accountId: tenant, userId, roles: ["user"] });
 		const inTenant = await s.createSession({ userId, accountId: tenant });
 		expect(await viaRpc(inTenant.accessToken, "bot.list")).toBe("ok");
 		expect(await viaApi(inTenant.accessToken, "bot/list", "GET")).toBe("ok");
@@ -272,11 +275,15 @@ describe("authorization at each transport entry point (issue #3 L237)", () => {
 			}),
 		).toBe("ok");
 		const sa = `usr_sa_${tenant}`;
-		await s.addMember({ accountId: tenant, userId: sa, role: "super-admin" });
+		await s.addMember({
+			accountId: tenant,
+			userId: sa,
+			roles: ["super-admin"],
+		});
 		const saTok = (await s.createSession({ userId: sa, accountId: tenant }))
 			.accessToken;
 		const plain = `usr_u_${tenant}`;
-		await s.addMember({ accountId: tenant, userId: plain, role: "user" });
+		await s.addMember({ accountId: tenant, userId: plain, roles: ["user"] });
 		const userTok = (
 			await s.createSession({ userId: plain, accountId: tenant })
 		).accessToken;
@@ -309,7 +316,7 @@ describe("authorization at each transport entry point (issue #3 L237)", () => {
 			userId: `usr_${a2}`,
 			role: "account-admin",
 		});
-		await s.addMember({ accountId: a2, userId, role: "user" });
+		await s.addMember({ accountId: a2, userId, roles: ["user"] });
 		const t1 = (await s.createSession({ userId, accountId: a1 })).accessToken;
 		const t2 = (await s.createSession({ userId, accountId: a2 })).accessToken;
 		expect(await viaRpc(t1, "auth.elevate")).toBe("ok");
@@ -330,8 +337,8 @@ describe("authorization at each transport entry point (issue #3 L237)", () => {
 		expect(await viaWs(t2, [["account.members.invite", p("w2")]])).toEqual([
 			"forbidden",
 		]);
-		// The role comes from the selected account: the same session, with
-		// account 2 selected, holds that account's "user" role.
+		// The session hat does not follow a different stored role. Account 2
+		// has only user, so this account-admin session cannot select it.
 		const audit = (tok: string, hdr: Record<string, string>) =>
 			SELF.fetch(`${ORIGIN}/rpc`, {
 				method: "POST",
@@ -347,7 +354,7 @@ describe("authorization at each transport entry point (issue #3 L237)", () => {
 				}),
 			}).then(async (r) => outcome((await r.json()) as Frame));
 		expect(await audit(t1, {})).toBe("ok");
-		expect(await audit(t1, { "x-account-id": a2 })).toBe("forbidden");
+		expect(await audit(t1, { "x-account-id": a2 })).not.toBe("ok");
 		const invited = async (account: string) =>
 			(
 				await env.CADMUS_ADMIN_DB.prepare(
@@ -415,7 +422,7 @@ describe("authorization at each transport entry point (issue #3 L237)", () => {
 					role: "account-admin",
 				});
 			}
-			await s.addMember({ accountId: b, userId, role: "account-admin" });
+			await s.addMember({ accountId: b, userId, roles: ["account-admin"] });
 			const grants = ["chat.use", "bot.read", "bot.write"] as const;
 			let token: string;
 			if (credential === "session") {
@@ -681,7 +688,11 @@ describe("authorization at each transport entry point (issue #3 L237)", () => {
 		expect(found.result?.results?.length).toBe(1);
 		// The super-admin role in the same account is refused on every knowledge command.
 		const sa = `usr_sa_${tenant}`;
-		await s.addMember({ accountId: tenant, userId: sa, role: "super-admin" });
+		await s.addMember({
+			accountId: tenant,
+			userId: sa,
+			roles: ["super-admin"],
+		});
 		const saTok = (await s.createSession({ userId: sa, accountId: tenant }))
 			.accessToken;
 		for (const [type, payload] of [

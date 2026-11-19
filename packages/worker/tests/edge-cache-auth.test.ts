@@ -36,7 +36,7 @@ describe("Edge Caching for Tokens and Family DO Routing (Issue #19)", () => {
 		const addRes = await addLegacyMember({
 			userId: "cached-user-1",
 			name: "Cached User",
-			role: "member",
+			role: "user",
 			accountId: accountId,
 			token: customToken,
 		});
@@ -106,7 +106,7 @@ describe("Edge Caching for Tokens and Family DO Routing (Issue #19)", () => {
 		await addLegacyMember({
 			userId: "revokable-user",
 			name: "Revokable User",
-			role: "member",
+			role: "user",
 			accountId: accountId,
 			token: customToken,
 		});
@@ -268,7 +268,7 @@ describe("Edge Caching for Tokens and Family DO Routing (Issue #19)", () => {
 		await addLegacyMember({
 			userId: "ws-user-1",
 			name: "WS User",
-			role: "member",
+			role: "user",
 			accountId: accountId,
 			token: customToken,
 		});
@@ -301,7 +301,7 @@ describe("Edge Caching for Tokens and Family DO Routing (Issue #19)", () => {
 		await addLegacyMember({
 			userId: "sse-user-1",
 			name: "SSE User",
-			role: "member",
+			role: "user",
 			accountId: accountId,
 			token: customToken,
 		});
@@ -333,7 +333,7 @@ describe("Edge Caching for Tokens and Family DO Routing (Issue #19)", () => {
 		await addLegacyMember({
 			userId: "user-a",
 			name: "User A",
-			role: "member",
+			role: "user",
 			accountId: accountA,
 			token: tokenA,
 		});
@@ -341,7 +341,7 @@ describe("Edge Caching for Tokens and Family DO Routing (Issue #19)", () => {
 		await addLegacyMember({
 			userId: "user-b",
 			name: "User B",
-			role: "member",
+			role: "user",
 			accountId: accountB,
 			token: tokenB,
 		});
@@ -593,7 +593,7 @@ describe("Edge Caching for Tokens and Family DO Routing (Issue #19)", () => {
 			{
 				userId: "token-pusher",
 				name: "Token Pusher",
-				role: "member",
+				role: "user",
 				token: crypto.randomUUID(),
 			} as never,
 			{ accountId, userId: "owner-1" },
@@ -606,7 +606,7 @@ describe("Edge Caching for Tokens and Family DO Routing (Issue #19)", () => {
 		// member exists, still with no token row.
 		const accepted = await sendRpc(
 			"account.members.add",
-			{ userId: "token-free", name: "Token Free", role: "member" },
+			{ userId: "token-free", name: "Token Free", role: "user" },
 			{ accountId, userId: "owner-1" },
 		);
 		expect(accepted.frame.ok).toBe(true);

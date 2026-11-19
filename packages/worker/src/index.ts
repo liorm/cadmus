@@ -114,6 +114,7 @@ const routes = {
 			defaultHarvestDelayMs,
 			edgeCache,
 			bootstrapEmail: env.CADMUS_BOOTSTRAP_SUPER_ADMIN_EMAIL,
+			deployEnv: env.CADMUS_DEPLOY_ENV,
 		});
 		await adminStore.initialize();
 
@@ -599,6 +600,7 @@ function principalFromScope(scope: ResolvedRequestScope): Principal {
 		...(scope.sessionId ? { sessionId: scope.sessionId } : {}),
 		...(scope.grants ? { grants: scope.grants } : {}),
 		...(scope.elevatedUntil ? { elevatedUntil: scope.elevatedUntil } : {}),
+		...(scope.provisional ? { provisional: true } : {}),
 		...(!scope.sessionId && scope.credential
 			? { credential: scope.credential }
 			: {}),

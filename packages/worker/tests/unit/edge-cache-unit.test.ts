@@ -286,14 +286,14 @@ describe("EdgeCache Pure Unit Helpers & L1 LRU Cache", () => {
 			await cache.setToken(tokenHash, {
 				userId: "user-alice",
 				accountId,
-				role: "member",
+				role: "user",
 			});
 
 			const cached = await cache.getToken(tokenHash);
 			expect(cached).toEqual({
 				userId: "user-alice",
 				accountId,
-				role: "member",
+				role: "user",
 			});
 			expect(cache.getMetrics().tokenL1Hits).toBe(1);
 
@@ -362,7 +362,7 @@ describe("EdgeCache Pure Unit Helpers & L1 LRU Cache", () => {
 			await cache.setToken(tokenHash, {
 				userId: "bob",
 				accountId,
-				role: "owner",
+				role: "account-admin",
 			});
 			const expectedKey = makeTokenCacheKey(tokenHash, {});
 			expect(kvStore.has(expectedKey)).toBe(true);
@@ -399,7 +399,7 @@ describe("EdgeCache Pure Unit Helpers & L1 LRU Cache", () => {
 			await cache1.setToken(tokenHash, {
 				userId: "user-1",
 				accountId: accountA,
-				role: "member",
+				role: "user",
 			});
 
 			// cache1 has the token in L1

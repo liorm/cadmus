@@ -12,6 +12,7 @@ import {
 	apiTokenHashFromCredential,
 } from "./api-token-credential.js";
 import { randomId, randomToken } from "./random-id.js";
+import { clampTokenGrantsToRoles, parseStoredRoles } from "./roles.js";
 
 /**
  * API tokens (`cad_pat_`, `cad_svc_`) are stored under a domain-separated hash.
@@ -26,11 +27,7 @@ export function apiTokenHash(raw: string): Promise<string> {
 	return sha256Hex(`${API_TOKEN_HASH_DOMAIN}${raw}`);
 }
 
-import {
-	clampTokenGrants,
-	createSession,
-	type SessionTokens,
-} from "./d1-sessions.js";
+import { createSession, type SessionTokens } from "./d1-sessions.js";
 
 /** Issue #3 phase 4: server-generated API tokens (cad_pat_ / cad_svc_). */
 export const PAT_PREFIX = "cad_pat_";
@@ -97,9 +94,7 @@ function parseGrants(raw: string | null): Grant[] {
 function roleNamesHolding(grants: readonly Grant[]): string[] {
 	const names: Array<[string, Role]> = [
 		["user", "user"],
-		["member", "user"],
 		["account-admin", "account-admin"],
-		["owner", "account-admin"],
 		["super-admin", "super-admin"],
 	];
 	return names
@@ -210,7 +205,7 @@ export async function createToken(
 				`INSERT INTO cadmus_auth_tokens
            (token_hash, user_id, account_id, label, created_at, id, kind, grants, created_by, elevated, expires_at)
          SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?2, ${carriesElevated ? 1 : 0}, ?9
-          WHERE EXISTS (SELECT 1 FROM cadmus_account_members
+          WHERE EXISTS (SELECT 1 FROM cadmus_member_roles
                          WHERE account_id = ?3 AND user_id = ?2 AND role IN (${marks || "''"}))
             AND (${carriesElevated ? "0" : "1"} = 1 OR EXISTS (
                   SELECT 1 FROM cadmus_sessions
@@ -405,7 +400,12 @@ export async function tokenLogin(
 	}
 	const row = await db
 		.prepare(
-			`SELECT t.id, t.user_id, t.account_id, t.expires_at, m.role, u.disabled_at
+			`SELECT t.id, t.user_id, t.account_id, t.expires_at,
+                (SELECT r.role FROM cadmus_member_roles r
+                  WHERE r.account_id = t.account_id AND r.user_id = t.user_id
+                  ORDER BY CASE r.role WHEN 'super-admin' THEN 2 WHEN 'account-admin' THEN 1 ELSE 0 END DESC
+                  LIMIT 1) AS role,
+                u.disabled_at
          FROM cadmus_auth_tokens t
          JOIN cadmus_account_members m
            ON m.account_id = t.account_id AND m.user_id = t.user_id
@@ -423,33 +423,49 @@ export async function tokenLogin(
 			role: string;
 			disabled_at: number | null;
 		}>();
-	if (!row || row.disabled_at || !normalizeRole(row.role)) return { ok: false };
+	if (!row || row.disabled_at) return { ok: false };
+	const hat = normalizeRole(row.role);
+	if (!hat) return { ok: false };
 	const tokens = await createSession(db, {
 		userId: row.user_id,
 		accountId: row.account_id,
+		activeRole: hat,
 		tokenId: row.id,
 		userAgent: meta.userAgent,
 		ipCountry: meta.ipCountry,
 		now,
 	});
-	await db.batch([
-		db
-			.prepare(`UPDATE cadmus_auth_tokens SET last_used_at = ?2 WHERE id = ?1`)
-			.bind(row.id, now),
-		db
-			.prepare(
-				`INSERT INTO cadmus_audit (id, account_id, actor_user_id, actor_kind, action, target_account_id, target, data, at)
+	try {
+		await db.batch([
+			db
+				.prepare(
+					`UPDATE cadmus_auth_tokens SET last_used_at = ?2 WHERE id = ?1`,
+				)
+				.bind(row.id, now),
+			db
+				.prepare(
+					`INSERT INTO cadmus_audit (id, account_id, actor_user_id, actor_kind, action, target_account_id, target, data, at)
          VALUES (?1, ?2, ?3, 'token', 'token.login', ?2, ?4, ?5, ?6)`,
+				)
+				.bind(
+					`aud_${tokens.sessionId.slice(4)}_l`,
+					row.account_id,
+					row.user_id,
+					row.id,
+					JSON.stringify({ sessionId: tokens.sessionId }),
+					now,
+				),
+		]);
+	} catch {
+		await db
+			.prepare(
+				`UPDATE cadmus_sessions SET revoked_at = ?2 WHERE id = ?1 AND revoked_at IS NULL`,
 			)
-			.bind(
-				`aud_${tokens.sessionId.slice(4)}_l`,
-				row.account_id,
-				row.user_id,
-				row.id,
-				JSON.stringify({ sessionId: tokens.sessionId }),
-				now,
-			),
-	]);
+			.bind(tokens.sessionId, now)
+			.run()
+			.catch(() => undefined);
+		return { ok: false };
+	}
 	return { ok: true, tokens, accountId: row.account_id, userId: row.user_id };
 }
 
@@ -482,7 +498,9 @@ export async function resolveApiToken(
 	const hash = await apiTokenHash(rawToken);
 	const row = await db
 		.prepare(
-			`SELECT t.user_id, t.account_id, t.grants, m.role
+			`SELECT t.user_id, t.account_id, t.grants,
+                (SELECT json_group_array(r.role) FROM cadmus_member_roles r
+                  WHERE r.account_id = t.account_id AND r.user_id = t.user_id) AS roles
          FROM cadmus_auth_tokens t
          JOIN cadmus_account_members m
            ON m.account_id = t.account_id AND m.user_id = t.user_id
@@ -496,16 +514,17 @@ export async function resolveApiToken(
 			user_id: string;
 			account_id: string;
 			grants: string | null;
-			role: string;
+			roles: string;
 		}>();
 	if (!row) return undefined;
-	const role = normalizeRole(row.role);
+	const roles = parseStoredRoles(row.roles);
+	const role = roles.at(-1);
 	if (!role) return undefined;
 	return {
 		userId: row.user_id,
 		accountId: row.account_id,
 		role,
-		grants: clampTokenGrants(row.grants, role),
+		grants: clampTokenGrantsToRoles(row.grants, roles),
 		credential: apiTokenCredential(hash),
 	};
 }

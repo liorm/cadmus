@@ -5,6 +5,7 @@ import { LoadGate } from "@/components/Skeleton";
 import { useCadmus } from "@/context/CadmusContext";
 import { formatRemaining, useElevation } from "@/context/ElevationContext";
 import { useSession } from "@/context/SessionContext";
+import { useMemberships } from "@/hooks/useMemberships";
 import { useScopedResource } from "@/hooks/useScopedResource";
 import { isoTime, signOut } from "@/lib/session";
 
@@ -27,6 +28,80 @@ interface MethodRow {
 }
 
 const buttonClass = "min-h-tap rounded-md border border-border px-3";
+
+function AssumeRole() {
+	const session = useSession();
+	const memberships = useMemberships();
+	const hat = session.principal?.role;
+	const accountId = session.principal?.accountId;
+	const others = memberships.flatMap((membership) =>
+		membership.roles
+			.filter((role) => !(role === hat && membership.accountId === accountId))
+			.map((role) => ({
+				role,
+				accountId: membership.accountId,
+				label: `${role} in ${membership.name}`,
+			})),
+	);
+	const [error, setError] = useState<string | null>(null);
+	if (!session.tokens || others.length === 0) return null;
+	return (
+		<SettingsSection title="Sign in as a different role">
+			<div className="flex flex-col gap-2 px-4 py-3">
+				<p className="text-[length:var(--fs-sm)] text-text-muted">
+					This starts a new sign-in. The current session ends.
+				</p>
+				{error ? (
+					<p role="alert" className="text-destructive">
+						{error}
+					</p>
+				) : null}
+				{others.map((choice) => (
+					<button
+						key={`${choice.accountId}:${choice.role}`}
+						type="button"
+						className={buttonClass}
+						onClick={() => {
+							setError(null);
+							void fetch("/api/auth/assumeRole", {
+								method: "POST",
+								credentials: "same-origin",
+								headers: {
+									"Content-Type": "application/json",
+									Authorization: `Bearer ${session.tokens?.accessToken ?? ""}`,
+									Origin: window.location.origin,
+								},
+								body: JSON.stringify({
+									id: "assume-role",
+									type: "auth.assumeRole",
+									payload: {
+										role: choice.role,
+										accountId: choice.accountId,
+									},
+								}),
+							}).then(async (res) => {
+								if (!res.ok) {
+									const body = (await res.json().catch(() => null)) as {
+										error?: { code?: string };
+									} | null;
+									setError(
+										body?.error?.code === "role_unchanged"
+											? "That is already your role."
+											: "Could not sign in as that role.",
+									);
+									return;
+								}
+								window.location.assign("/");
+							});
+						}}
+					>
+						{choice.label}
+					</button>
+				))}
+			</div>
+		</SettingsSection>
+	);
+}
 
 /** Email first, then a name that is not just the email, then the user id. */
 function signedInLabel(principal: {
@@ -229,6 +304,11 @@ function SignedIn() {
 					</button>
 				</div>
 			</SettingsSection>
+			{!principalPending &&
+			principal?.kind === "user" &&
+			!principal.viaToken ? (
+				<AssumeRole />
+			) : null}
 			{!principalPending &&
 			principal?.kind === "user" &&
 			!principal.viaToken &&

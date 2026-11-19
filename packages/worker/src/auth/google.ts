@@ -59,6 +59,8 @@ export interface LoginTransaction {
 	exp: number;
 	/** A fresh sign-in: the ID token must carry a recent auth_time. */
 	fresh?: boolean;
+	/** Role choice requested. Stays in this cookie, never in the redirect URL. */
+	chooseRole?: boolean;
 	/** Link flow: the callback attaches the verified identity to this user. */
 	linkUserId?: string;
 	/** The session that started the link; it must still be live at the callback. */
@@ -199,6 +201,7 @@ export async function startGoogleLogin(
 	now = Date.now(),
 	options: {
 		fresh?: boolean;
+		chooseRole?: boolean;
 		linkUserId?: string;
 		linkSessionId?: string;
 	} = {},
@@ -209,6 +212,7 @@ export async function startGoogleLogin(
 		verifier: randomB64url(48),
 		exp: now + TXN_TTL_MS,
 		...(options.fresh ? { fresh: true } : {}),
+		...(options.chooseRole ? { chooseRole: true } : {}),
 		...(options.linkUserId && options.linkSessionId
 			? {
 					linkUserId: options.linkUserId,

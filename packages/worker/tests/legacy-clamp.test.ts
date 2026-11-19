@@ -29,7 +29,7 @@ async function seed(role: "user" | "account-admin" = "account-admin") {
 	const userId = `usr_${accountId}`;
 	const raw = `legacy-clamp-${accountId}`;
 	await s.ensureAccountAndUser({ accountId, userId, role });
-	await s.addMember({ accountId, userId, role, rawToken: raw });
+	await s.addMember({ accountId, userId, roles: [role], rawToken: raw });
 	return { s, accountId, userId, raw };
 }
 
@@ -123,11 +123,16 @@ describe("legacy member tokens are clamped to the user grant set (issue #3 L102,
 
 	it("a demoted user's token is no wider", async () => {
 		const { raw, s, accountId, userId } = await seed();
-		await env.CADMUS_ADMIN_DB.prepare(
-			"UPDATE cadmus_account_members SET role = 'user' WHERE account_id = ?1 AND user_id = ?2",
-		)
-			.bind(accountId, userId)
-			.run();
+		await env.CADMUS_ADMIN_DB.batch([
+			env.CADMUS_ADMIN_DB.prepare(
+				`INSERT OR IGNORE INTO cadmus_member_roles (account_id, user_id, role, created_at)
+         SELECT account_id, user_id, 'user', created_at FROM cadmus_account_members
+          WHERE account_id = ?1 AND user_id = ?2`,
+			).bind(accountId, userId),
+			env.CADMUS_ADMIN_DB.prepare(
+				`DELETE FROM cadmus_member_roles WHERE account_id = ?1 AND user_id = ?2 AND role = 'account-admin'`,
+			).bind(accountId, userId),
+		]);
 		void s;
 		expect((await rpc(raw, "auth.ticket", { target: "ws" })).ok).toBe(true);
 		for (const [type, payload] of ADMIN_COMMANDS) {
@@ -362,6 +367,7 @@ describe("authority changes drop the cached legacy token scope in this isolate (
 				await s.updateMemberRole({
 					accountId,
 					userId,
+					op: "grant",
 					role: "account-admin",
 					actor: userId,
 				});
@@ -599,6 +605,7 @@ describe("resolve in flight across an authority change", () => {
 		await s.updateMemberRole({
 			accountId,
 			userId,
+			op: "grant",
 			role: "user",
 			actor: userId,
 		});

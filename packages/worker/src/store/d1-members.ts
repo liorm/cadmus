@@ -4,6 +4,7 @@ import {
 	type Role,
 } from "@cadmus/contract/grants";
 import { randomId } from "./random-id.js";
+import { parseStoredRoles } from "./roles.js";
 import {
 	deleteUnclaimedPreloginUser,
 	insertPrimaryUserStatements,
@@ -17,7 +18,7 @@ export const INVITE_DEFAULT_TTL_MS = 14 * 24 * 60 * 60 * 1000;
 export interface InviteSummary {
 	id: string;
 	email: string;
-	role: string;
+	roles: Role[];
 	invitedBy: string | null;
 	createdAt: number;
 	expiresAt: number;
@@ -58,7 +59,7 @@ export async function inviteMember(
 		accountId: string;
 		invitedBy: string;
 		email: string;
-		role: Role;
+		roles?: Role[];
 		ttlMs?: number;
 		now?: number;
 		actorKind?: "user" | "super-admin";
@@ -69,7 +70,13 @@ export async function inviteMember(
 	if (!isLoginEmail(email)) {
 		return { ok: false, code: "invalid", message: "email is not valid" };
 	}
-	if (input.role === "super-admin") {
+	const roles = (input.roles?.length ? input.roles : ["user"]).filter(
+		(role): role is Role => role === "user" || role === "account-admin",
+	);
+	if (
+		roles.length === 0 ||
+		input.roles?.some((role) => role === "super-admin")
+	) {
 		return {
 			ok: false,
 			code: "invalid",
@@ -105,14 +112,14 @@ export async function inviteMember(
 		...user.statements,
 		db
 			.prepare(
-				`INSERT INTO cadmus_invites (id, account_id, email, role, invited_by, created_at, expires_at)
+				`INSERT INTO cadmus_invites (id, account_id, email, roles, invited_by, created_at, expires_at)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`,
 			)
 			.bind(
 				id,
 				input.accountId,
 				email,
-				input.role,
+				JSON.stringify(roles),
 				input.invitedBy,
 				now,
 				expiresAt,
@@ -125,7 +132,7 @@ export async function inviteMember(
 			id,
 			{
 				email,
-				role: input.role,
+				roles,
 			},
 			now,
 			undefined,
@@ -137,7 +144,7 @@ export async function inviteMember(
 		invite: {
 			id,
 			email,
-			role: input.role,
+			roles,
 			invitedBy: input.invitedBy,
 			createdAt: now,
 			expiresAt,
@@ -153,14 +160,14 @@ export async function listInvites(
 ): Promise<InviteSummary[]> {
 	const res = await db
 		.prepare(
-			`SELECT id, email, role, invited_by, created_at, expires_at, accepted_at, revoked_at
+			`SELECT id, email, roles, invited_by, created_at, expires_at, accepted_at, revoked_at
          FROM cadmus_invites WHERE account_id = ?1 ORDER BY created_at DESC LIMIT 200`,
 		)
 		.bind(accountId)
 		.all<{
 			id: string;
 			email: string;
-			role: string;
+			roles: string;
 			invited_by: string | null;
 			created_at: number;
 			expires_at: number;
@@ -170,7 +177,7 @@ export async function listInvites(
 	return (res.results ?? []).map((r) => ({
 		id: r.id,
 		email: r.email,
-		role: r.role,
+		roles: parseStoredRoles(r.roles),
 		invitedBy: r.invited_by,
 		createdAt: r.created_at,
 		expiresAt: r.expires_at,
@@ -276,39 +283,65 @@ function clampServiceTokens(
 		.bind(accountId, userId, ...allowed);
 }
 
+const OTHER_ADMIN = `EXISTS (SELECT 1 FROM cadmus_member_roles r
+            JOIN cadmus_users u ON u.id = r.user_id
+           WHERE r.account_id = ?1 AND r.user_id <> ?2
+             AND r.role = 'account-admin' AND u.disabled_at IS NULL)`;
+
 export async function updateMemberRole(
 	db: D1Database,
 	input: {
 		accountId: string;
 		userId: string;
+		op: "grant" | "revoke";
 		role: Role;
 		actor: string;
 		actorKind?: "user" | "super-admin";
 	},
 	now = Date.now(),
 ): Promise<MemberChangeResult> {
-	if (input.role === "super-admin" || input.accountId === "system") {
+	if (
+		input.role === "super-admin" ||
+		input.accountId === "system" ||
+		(input.role !== "user" && input.role !== "account-admin")
+	) {
 		return {
 			ok: false,
 			code: "invalid",
-			message: "super-admin roles are managed with system.members.*",
+			message: "only user and account-admin can be granted on a tenant",
 		};
 	}
-	const current = await db
+	const member = await db
 		.prepare(
-			`SELECT role FROM cadmus_account_members WHERE account_id = ?1 AND user_id = ?2`,
+			`SELECT 1 AS x FROM cadmus_account_members WHERE account_id = ?1 AND user_id = ?2`,
 		)
 		.bind(input.accountId, input.userId)
-		.first<{ role: string }>();
-	const from = normalizeRole(current?.role);
-	if (!from) {
+		.first<{ x: number }>();
+	if (!member) {
 		return { ok: false, code: "not_found", message: "member not found" };
 	}
-	if (from === input.role) {
+	const held = await db
+		.prepare(
+			`SELECT role FROM cadmus_member_roles WHERE account_id = ?1 AND user_id = ?2`,
+		)
+		.bind(input.accountId, input.userId)
+		.all<{ role: string }>();
+	const roles = held.results
+		.map((row) => normalizeRole(row.role))
+		.filter((role): role is Role => role !== undefined);
+	const has = roles.includes(input.role);
+	if (input.op === "grant" ? has : !has) {
 		return { ok: true, changed: false, tokensRevoked: 0, sessionsRevoked: 0 };
 	}
-	const demoting = from === "account-admin" && input.role === "user";
-	const before = demoting
+	if (input.op === "revoke" && roles.length <= 1) {
+		return {
+			ok: false,
+			code: "conflict",
+			message: "last_role: a member's last role cannot be revoked",
+		};
+	}
+	const droppingAdmin = input.op === "revoke" && input.role === "account-admin";
+	const before = droppingAdmin
 		? await db
 				.prepare(
 					`SELECT COUNT(*) AS n FROM cadmus_auth_tokens
@@ -317,85 +350,99 @@ export async function updateMemberRole(
 				.bind(input.accountId, input.userId)
 				.first<{ n: number }>()
 		: null;
-	// The last-admin guard lives in the UPDATE itself so two concurrent demotions
-	// (even from different family DOs) cannot both pass a stale count. Every
-	// dependent statement is conditional on the role change having applied.
+	const sessionsBefore = droppingAdmin
+		? await db
+				.prepare(
+					`SELECT COUNT(*) AS n FROM cadmus_sessions
+            WHERE account_id = ?1 AND user_id = ?2 AND active_role = 'account-admin'
+              AND revoked_at IS NULL`,
+				)
+				.bind(input.accountId, input.userId)
+				.first<{ n: number }>()
+		: null;
 	const opId = randomId("aud_");
 	const mine = `EXISTS (SELECT 1 FROM cadmus_audit WHERE id = '${opId}')`;
-	const clampRole = clampServiceTokens(
-		db,
-		input.accountId,
-		input.userId,
-		input.role,
-		mine,
-	);
+	const remaining = droppingAdmin
+		? roles.filter((role) => role !== "account-admin")
+		: roles;
+	const clampTo = remaining.includes("account-admin")
+		? "account-admin"
+		: "user";
+	const write =
+		input.op === "grant"
+			? db
+					.prepare(
+						`INSERT OR IGNORE INTO cadmus_member_roles (account_id, user_id, role, created_at)
+             VALUES (?1, ?2, ?3, ?4)`,
+					)
+					.bind(input.accountId, input.userId, input.role, now)
+			: db
+					.prepare(
+						`DELETE FROM cadmus_member_roles
+            WHERE account_id = ?1 AND user_id = ?2 AND role = ?3
+              AND (?4 = 0 OR ${OTHER_ADMIN})
+              AND (SELECT COUNT(*) FROM cadmus_member_roles
+                    WHERE account_id = ?1 AND user_id = ?2) > 1`,
+					)
+					.bind(
+						input.accountId,
+						input.userId,
+						input.role,
+						droppingAdmin ? 1 : 0,
+					);
 	const results = await db.batch([
-		db
-			.prepare(
-				`UPDATE cadmus_account_members SET role = ?3
-          WHERE account_id = ?1 AND user_id = ?2 AND role = ?4
-            AND (?5 = 0 OR EXISTS (SELECT 1 FROM cadmus_account_members m
-                                     JOIN cadmus_users u ON u.id = m.user_id
-                                    WHERE m.account_id = ?1 AND m.user_id <> ?2
-                                      AND m.role IN ('account-admin', 'owner')
-                                      AND u.disabled_at IS NULL))`,
-			)
-			.bind(
-				input.accountId,
-				input.userId,
-				input.role,
-				current?.role ?? "",
-				demoting ? 1 : 0,
-			),
-		// Directly after the UPDATE, so changes() is this operation's own result: a
-		// concurrent identical update that lost the race writes no audit row.
+		write,
 		audit(
 			db,
 			input.accountId,
 			input.actor,
-			"member.role",
+			input.op === "grant" ? "member.role.grant" : "member.role.revoke",
 			input.userId,
-			{
-				from,
-				to: input.role,
-			},
+			{ role: input.role },
 			now,
 			"changes() > 0",
 			input.actorKind,
 			opId,
 		),
-		clampRole,
-		...(demoting
-			? revokePersonalTokens(db, input.accountId, input.userId, now, mine)
+		...(droppingAdmin
+			? [
+					clampServiceTokens(db, input.accountId, input.userId, clampTo, mine),
+					...revokePersonalTokens(db, input.accountId, input.userId, now, mine),
+					db
+						.prepare(
+							`UPDATE cadmus_sessions SET revoked_at = ?3
+                WHERE account_id = ?1 AND user_id = ?2 AND active_role = 'account-admin'
+                  AND revoked_at IS NULL AND ${mine}`,
+						)
+						.bind(input.accountId, input.userId, now),
+				]
 			: []),
 	]);
 	if ((results[0]?.meta?.changes ?? 0) === 0) {
-		const now2 = await db
+		const still = await db
 			.prepare(
-				`SELECT role FROM cadmus_account_members WHERE account_id = ?1 AND user_id = ?2`,
+				`SELECT 1 AS x FROM cadmus_member_roles
+          WHERE account_id = ?1 AND user_id = ?2 AND role = ?3`,
 			)
-			.bind(input.accountId, input.userId)
-			.first<{ role: string }>();
-		if (!now2) {
-			return { ok: false, code: "not_found", message: "member not found" };
-		}
-		if (normalizeRole(now2.role) === input.role) {
-			// A concurrent identical update won; nothing more to do or audit.
+			.bind(input.accountId, input.userId, input.role)
+			.first<{ x: number }>();
+		if (!still) {
 			return { ok: true, changed: false, tokensRevoked: 0, sessionsRevoked: 0 };
 		}
-		return {
-			ok: false,
-			code: "conflict",
-			message: demoting
-				? "last_admin: the last account-admin cannot be demoted"
-				: "member role changed concurrently, retry",
-		};
+		if (droppingAdmin) {
+			return {
+				ok: false,
+				code: "conflict",
+				message: "last_admin: the last account-admin cannot be revoked",
+			};
+		}
+		return { ok: true, changed: false, tokensRevoked: 0, sessionsRevoked: 0 };
 	}
 	return {
 		ok: true,
 		changed: true,
 		tokensRevoked: before?.n ?? 0,
-		sessionsRevoked: 0,
+		sessionsRevoked: sessionsBefore?.n ?? 0,
 	};
 }
 
@@ -411,20 +458,19 @@ export async function removeMember(
 ): Promise<MemberChangeResult> {
 	const current = await db
 		.prepare(
-			`SELECT role FROM cadmus_account_members WHERE account_id = ?1 AND user_id = ?2`,
+			`SELECT 1 AS x FROM cadmus_account_members WHERE account_id = ?1 AND user_id = ?2`,
 		)
 		.bind(input.accountId, input.userId)
-		.first<{ role: string }>();
-	const role = normalizeRole(current?.role);
-	if (!role) {
+		.first<{ x: number }>();
+	if (!current) {
 		return { ok: false, code: "not_found", message: "member not found" };
 	}
-	const targetAdmin = `SELECT m.user_id FROM cadmus_account_members m
-                            JOIN cadmus_users u ON u.id = m.user_id
-                           WHERE m.account_id = ?1 AND m.user_id <> ?2
-                             AND m.role IN ('account-admin', 'owner')
+	const targetAdmin = `SELECT r.user_id FROM cadmus_member_roles r
+                            JOIN cadmus_users u ON u.id = r.user_id
+                           WHERE r.account_id = ?1 AND r.user_id <> ?2
+                             AND r.role = 'account-admin'
                              AND u.disabled_at IS NULL
-                           ORDER BY m.user_id LIMIT 1`;
+                           ORDER BY r.user_id LIMIT 1`;
 	const count = async (sql: string) =>
 		(
 			await db
@@ -452,11 +498,12 @@ export async function removeMember(
 			.prepare(
 				`DELETE FROM cadmus_account_members
           WHERE account_id = ?1 AND user_id = ?2
-            AND (role NOT IN ('account-admin', 'owner')
-                 OR EXISTS (SELECT 1 FROM cadmus_account_members m
-                              JOIN cadmus_users u ON u.id = m.user_id
-                             WHERE m.account_id = ?1 AND m.user_id <> ?2
-                               AND m.role IN ('account-admin', 'owner')
+            AND (NOT EXISTS (SELECT 1 FROM cadmus_member_roles
+                              WHERE account_id = ?1 AND user_id = ?2 AND role = 'account-admin')
+                 OR EXISTS (SELECT 1 FROM cadmus_member_roles r
+                              JOIN cadmus_users u ON u.id = r.user_id
+                             WHERE r.account_id = ?1 AND r.user_id <> ?2
+                               AND r.role = 'account-admin'
                                AND u.disabled_at IS NULL))`,
 			)
 			.bind(input.accountId, input.userId),
@@ -467,13 +514,19 @@ export async function removeMember(
 			"member.remove",
 			input.userId,
 			{
-				role,
+				roles: "removed",
 			},
 			now,
 			"changes() > 0",
 			input.actorKind,
 			opId,
 		),
+		db
+			.prepare(
+				`DELETE FROM cadmus_member_roles
+          WHERE account_id = ?1 AND user_id = ?2 AND ${gone} AND ${mine}`,
+			)
+			.bind(input.accountId, input.userId),
 		...revokePersonalTokens(
 			db,
 			input.accountId,

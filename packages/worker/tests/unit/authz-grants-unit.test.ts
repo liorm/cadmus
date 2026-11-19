@@ -64,9 +64,10 @@ describe("authorization matrix", () => {
 		expect(() => authorize({ accountId: "a" }, "bot.list")).toThrow();
 	});
 
-	it("maps legacy role names", () => {
-		expect(normalizeRole("owner")).toBe("account-admin");
-		expect(normalizeRole("member")).toBe("user");
+	it("rejects names that are not a stored role", () => {
+		expect(normalizeRole("owner")).toBeUndefined();
+		expect(normalizeRole("member")).toBeUndefined();
+		expect(normalizeRole("user")).toBe("user");
 		expect(normalizeRole("root")).toBeUndefined();
 	});
 });

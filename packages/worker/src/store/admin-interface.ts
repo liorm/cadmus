@@ -1,4 +1,4 @@
-import type { Grant, Role, RoleInput } from "@cadmus/contract/grants";
+import type { Grant, Role } from "@cadmus/contract/grants";
 import type { Credential } from "@earendil-works/pi-ai";
 import type { LoginIdentity } from "../auth/google.js";
 import type {
@@ -54,6 +54,7 @@ export interface AuthenticatedIdentity {
 	grants?: Grant[];
 	/** User sessions only: epoch ms when admin mode ends, while it is on. */
 	elevatedUntil?: number;
+	provisional?: boolean;
 	/**
 	 * Sessionless credentials only, set by the edge: "master" for the master
 	 * secret, "member-token:<sha256>" for a legacy member token,
@@ -99,7 +100,7 @@ export interface AdminStore {
 		accountId: string;
 		invitedBy: string;
 		email: string;
-		role: Role;
+		roles?: Role[];
 		ttlMs?: number;
 		actorKind?: "user" | "super-admin";
 	}): Promise<InviteResult>;
@@ -112,6 +113,7 @@ export interface AdminStore {
 	updateMemberRole(input: {
 		accountId: string;
 		userId: string;
+		op: "grant" | "revoke";
 		role: Role;
 		actor: string;
 		actorKind?: "user" | "super-admin";
@@ -214,10 +216,20 @@ export interface AdminStore {
 			userAgent?: string;
 			ipCountry?: string;
 			freshGoogleAt?: number;
+			chooseRole?: boolean;
 		},
 	): Promise<LoginResult>;
 	// Sessions (issue #3 phase 3)
 	createSession(input: CreateSessionInput): Promise<SessionTokens>;
+	assumeRole(input: {
+		rawAccess: string;
+		role: Role;
+		accountId: string;
+		userAgent?: string;
+	}): Promise<
+		| { ok: true; tokens: SessionTokens }
+		| { ok: false; code: "unauthorized" | "forbidden" | "role_unchanged" }
+	>;
 	resolveAccessToken(
 		rawToken: string,
 		selectedAccountId?: string,
@@ -298,7 +310,7 @@ export interface AdminStore {
 		userId: string;
 		accountName?: string;
 		userName?: string;
-		role?: RoleInput;
+		role?: Role;
 		timezone?: string;
 	}): Promise<AccountRecord>;
 	getAccount(accountId: string): Promise<AccountRecord | undefined>;
@@ -316,7 +328,7 @@ export interface AdminStore {
 		userId: string;
 		name?: string;
 		email?: string;
-		role?: RoleInput;
+		roles?: Role[];
 		rawToken?: string;
 	}): Promise<AccountMember>;
 

@@ -137,8 +137,7 @@ export function ToolsSettingsPage() {
 	const principalPending = session.signedIn && principal === null;
 	const canManage = !session.signedIn
 		? true
-		: principal !== null &&
-			(principal.role === "account-admin" || principal.role === "owner");
+		: principal !== null && principal.role === "account-admin";
 	const [phase, setPhase] = useState<LoadPhase>("loading");
 	const [attempt, setAttempt] = useState(0);
 
@@ -188,7 +187,10 @@ export function ToolsSettingsPage() {
 		return {
 			envs: listed.result?.envs ?? [],
 			defaultId: listed.result?.default?.envId ?? "",
-			canDeregister: me?.role === "account-admin" || me?.role === "super-admin",
+			canDeregister:
+				me?.roles.includes("account-admin") ||
+				me?.roles.includes("super-admin") ||
+				false,
 		};
 	}, [client]);
 

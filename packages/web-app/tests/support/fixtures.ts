@@ -69,6 +69,7 @@ export const USER_ROLE_GRANTS = [
 	"credentials.read",
 	"toolsEnv.read",
 	"tokens.self",
+	"session.assume",
 ];
 
 type ConfigState =

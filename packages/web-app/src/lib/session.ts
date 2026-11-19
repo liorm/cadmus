@@ -24,6 +24,8 @@ export interface SessionPrincipal {
 	email?: string;
 	accountId: string;
 	role: string;
+	/** Short role-choice session. The app stays on the sign-in dialog. */
+	provisional?: boolean;
 	/** Epoch ms when admin mode ends. Absent when it is off. */
 	elevatedUntil?: number;
 }
@@ -434,8 +436,7 @@ export async function fetchPrincipal(
 export interface SessionMembership {
 	accountId: string;
 	name: string;
-	role: string;
-	status: string;
+	roles: string[];
 }
 
 export async function readMemberships(

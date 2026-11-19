@@ -286,6 +286,12 @@ export const API_ROUTES = {
 		allow: "GET, HEAD",
 		readOnly: true,
 	},
+	"auth.assumeRole": {
+		method: "POST",
+		path: "/api/auth/assumeRole",
+		allow: "POST",
+		readOnly: false,
+	},
 	"auth.login.devPassword": {
 		method: "POST",
 		path: "/api/auth/login/devPassword",

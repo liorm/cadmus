@@ -31,6 +31,7 @@ const USER = [
 	"credentials.read",
 	"toolsEnv.read",
 	"tokens.self",
+	"session.assume",
 ] as const;
 
 const ACCOUNT_ADMIN = [
@@ -54,6 +55,7 @@ const SUPER_ADMIN = [
 	"system.users.manage",
 	"system.audit.read",
 	"admin.elevate",
+	"session.assume",
 ] as const;
 
 const ELEVATION = new Set([
@@ -263,7 +265,7 @@ async function sweep(
 		([, code]) => code === "elevation_required",
 	).length;
 	const forbidden = denied.filter(([, code]) => code === "forbidden").length;
-	expect(commandTypes().length).toBe(94);
+	expect(commandTypes().length).toBe(95);
 	expect(denied.length, caller.name).toBe(caller.denied);
 	expect(elevationRequired, caller.name).toBe(caller.elevationRequired);
 	expect(forbidden, caller.name).toBe(caller.forbidden);
@@ -378,7 +380,7 @@ describe("authorization matrix over /api, /rpc, and /ws", () => {
 		const email = `user-${crypto.randomUUID()}@example.com`;
 		const invite = await sendRpc(
 			"system.members.invite",
-			{ accountId: admin.accountId, email, role: "user" },
+			{ accountId: admin.accountId, email, roles: ["user"] },
 			{ token: boss.accessToken },
 		);
 		expect(invite.frame.ok, JSON.stringify(invite.frame)).toBe(true);
@@ -497,9 +499,9 @@ describe("authorization matrix over /api, /rpc, and /ws", () => {
 				held: new Set(["chat.use", "tokens.self"]),
 				elevated: false,
 				tokenCaller: true,
-				denied: 59,
+				denied: 60,
 				elevationRequired: 0,
-				forbidden: 59,
+				forbidden: 60,
 				ws: true,
 			},
 			() => tenantSnapshot(tenant.elevatedToken),

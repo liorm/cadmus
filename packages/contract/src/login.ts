@@ -68,6 +68,12 @@ export const AuthLoginDevPasswordCommandSchema = Type.Object(
 		payload: Type.Object(
 			{
 				password: Type.String({ minLength: 1, description: "Local password." }),
+				chooseRole: Type.Optional(
+					Type.Literal(true, {
+						description:
+							"Open a 15-minute session on the lowest role when the user holds more than one, so they can assume a role.",
+					}),
+				),
 				email: Type.Optional(
 					Type.String({
 						description:
@@ -151,6 +157,12 @@ export const AuthLoginSessionResultSchema = Type.Object(
 				"Session access token. The refresh token is only in the cookie.",
 		}),
 		expiresAt: Type.Number({ description: "Access token expiry, epoch ms." }),
+		provisional: Type.Optional(
+			Type.Boolean({
+				description:
+					"True when this is the short role-choice session. Call auth.assumeRole to open a full session.",
+			}),
+		),
 		sessionId: Type.Optional(Type.String()),
 		accountId: Type.Optional(Type.String()),
 		userId: Type.Optional(Type.String()),
@@ -205,6 +217,38 @@ export const AuthSessionLogoutCommandSchema = Type.Object(
 export type AuthSessionLogoutCommand = Static<
 	typeof AuthSessionLogoutCommandSchema
 >;
+
+export const AuthAssumeRoleCommandSchema = Type.Object(
+	{
+		id: idField,
+		type: Type.Literal("auth.assumeRole", {
+			description: "Command type identifier.",
+		}),
+		payload: Type.Object(
+			{
+				role: Type.Union(
+					[
+						Type.Literal("user"),
+						Type.Literal("account-admin"),
+						Type.Literal("super-admin"),
+					],
+					{ description: "Stored role to open a new session as." },
+				),
+				accountId: Type.String({
+					minLength: 1,
+					description: "Account that role is stored on.",
+				}),
+			},
+			{ description: "Hat to assume." },
+		),
+	},
+	{
+		grant: "session.assume",
+		description:
+			"Open a new session as a stored role. Refresh token is a cookie. Same hat on a finished session is role_unchanged.",
+	},
+);
+export type AuthAssumeRoleCommand = Static<typeof AuthAssumeRoleCommandSchema>;
 
 export const AuthSessionLogoutResultSchema = Type.Object(
 	{

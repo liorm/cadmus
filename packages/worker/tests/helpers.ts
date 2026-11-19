@@ -26,7 +26,7 @@ export async function addLegacyMember(input: {
 	userId: string;
 	name?: string;
 	email?: string;
-	role?: "user" | "account-admin" | "member" | "owner";
+	role?: "user" | "account-admin";
 	token: string;
 }): Promise<AccountMember> {
 	const store = new D1AdminStore({
@@ -44,7 +44,7 @@ export async function addLegacyMember(input: {
 		userId: input.userId,
 		name: input.name,
 		email: input.email,
-		role: input.role,
+		roles: [input.role === "account-admin" ? "account-admin" : "user"],
 		rawToken: input.token,
 	});
 }

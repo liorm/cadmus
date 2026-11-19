@@ -1,6 +1,8 @@
+import type { Role } from "@cadmus/contract/grants";
 import type { LoginIdentity } from "../auth/google.js";
 import { createSession, type SessionTokens } from "./d1-sessions.js";
 import { randomId } from "./random-id.js";
+import { parseStoredRoles, ROLE_RANK_SQL } from "./roles.js";
 import { normalizeLoginEmail } from "./user-emails.js";
 
 /** Login rows use 12 random bytes. Other stores use the 8-byte default. */
@@ -16,31 +18,41 @@ const LOGIN_ID_BYTES = 12;
  */
 export function acceptInvite(
 	db: D1Database,
-	invite: { id: string; account_id: string; role: string },
+	invite: { id: string; account_id: string; roles: string },
 	userId: string,
 	now: number,
 ): D1PreparedStatement[] {
-	const pending = `EXISTS (SELECT 1 FROM cadmus_invites WHERE id = ?1 AND accepted_at IS NULL AND revoked_at IS NULL AND expires_at > ?5)`;
+	const pendingAt = (at: string) =>
+		`EXISTS (SELECT 1 FROM cadmus_invites WHERE id = ?1 AND accepted_at IS NULL AND revoked_at IS NULL AND expires_at > ${at})`;
+	const roles = parseStoredRoles(invite.roles);
+	const stored = roles.length > 0 ? roles : (["user"] as Role[]);
 	return [
 		db
 			.prepare(
-				`INSERT OR IGNORE INTO cadmus_account_members (account_id, user_id, role, created_at)
-         SELECT ?2, ?3, ?4, ?5 WHERE ${pending}`,
+				`INSERT OR IGNORE INTO cadmus_account_members (account_id, user_id, created_at)
+         SELECT ?2, ?3, ?4 WHERE ${pendingAt("?4")}`,
 			)
-			.bind(invite.id, invite.account_id, userId, invite.role, now),
+			.bind(invite.id, invite.account_id, userId, now),
+		...stored.map((role) =>
+			db
+				.prepare(
+					`INSERT OR IGNORE INTO cadmus_member_roles (account_id, user_id, role, created_at)
+           SELECT ?2, ?3, ?4, ?5 WHERE ${pendingAt("?5")}`,
+				)
+				.bind(invite.id, invite.account_id, userId, role, now),
+		),
 		db
 			.prepare(
 				`INSERT INTO cadmus_audit (id, account_id, actor_user_id, actor_kind, action, target_account_id, target, data, at)
-         SELECT ?6, ?2, ?3, 'user', 'invite.accept', ?2, ?3, ?7, ?5 WHERE ${pending}`,
+         SELECT ?5, ?2, ?3, 'user', 'invite.accept', ?2, ?3, ?6, ?4 WHERE ${pendingAt("?4")}`,
 			)
 			.bind(
 				invite.id,
 				invite.account_id,
 				userId,
-				invite.role,
 				now,
 				randomId("aud_", LOGIN_ID_BYTES),
-				JSON.stringify({ inviteId: invite.id }),
+				JSON.stringify({ inviteId: invite.id, roles: stored }),
 			),
 		db
 			.prepare(
@@ -52,7 +64,13 @@ export function acceptInvite(
 }
 
 export type LoginResult =
-	| { ok: true; tokens: SessionTokens; userId: string; accountId: string }
+	| {
+			ok: true;
+			tokens: SessionTokens;
+			userId: string;
+			accountId: string;
+			provisional?: boolean;
+	  }
 	| {
 			ok: false;
 			code:
@@ -67,6 +85,7 @@ export type LoginResult =
 interface MembershipRow {
 	account_id: string;
 	status: string;
+	role: string;
 }
 
 async function acceptPendingInvites(
@@ -78,12 +97,12 @@ async function acceptPendingInvites(
 ): Promise<void> {
 	const pending = await db
 		.prepare(
-			`SELECT id, account_id, role FROM cadmus_invites
+			`SELECT id, account_id, roles FROM cadmus_invites
        WHERE email = ?1 AND accepted_at IS NULL AND revoked_at IS NULL
          AND expires_at > ?2`,
 		)
 		.bind(email, now)
-		.all<{ id: string; account_id: string; role: string }>();
+		.all<{ id: string; account_id: string; roles: string }>();
 	const accept = pending.results.flatMap((invite) =>
 		acceptInvite(db, invite, userId, now),
 	);
@@ -100,19 +119,22 @@ async function pickAccount(
 	return (
 		(await db
 			.prepare(
-				`SELECT m.account_id, a.status
+				`SELECT m.account_id, a.status, r.role
          FROM cadmus_account_members m
          JOIN cadmus_accounts a ON a.id = m.account_id
+         JOIN cadmus_member_roles r ON r.account_id = m.account_id AND r.user_id = m.user_id
          LEFT JOIN (
            SELECT account_id, MAX(last_used_at) AS last_used
            FROM cadmus_sessions WHERE user_id = ?1 GROUP BY account_id
          ) s ON s.account_id = m.account_id
          WHERE m.user_id = ?1 AND a.status = 'active'
-         ORDER BY MAX(COALESCE(m.last_used_at, 0), COALESCE(s.last_used, 0)) DESC, m.created_at ASC
+         ORDER BY ${ROLE_RANK_SQL.replaceAll("role", "r.role")} ASC,
+                  MAX(COALESCE(m.last_used_at, 0), COALESCE(s.last_used, 0)) DESC,
+                  m.created_at ASC
          LIMIT 1`,
 			)
 			.bind(userId)
-			.first<MembershipRow>()) ?? undefined
+			.first<MembershipRow & { role: string }>()) ?? undefined
 	);
 }
 
@@ -134,6 +156,7 @@ export async function completeLogin(
 		ipCountry?: string;
 		/** Verified Google auth_time (epoch ms) from a fresh sign-in flow. */
 		freshGoogleAt?: number;
+		chooseRole?: boolean;
 		now?: number;
 		/** Test seam: runs between reading pending invites and writing the batch. */
 		beforeWrite?: () => Promise<void>;
@@ -201,12 +224,12 @@ export async function completeLogin(
 		methodId = randomId("lm_", LOGIN_ID_BYTES);
 		const invites = await db
 			.prepare(
-				`SELECT id, account_id, role FROM cadmus_invites
+				`SELECT id, account_id, roles FROM cadmus_invites
          WHERE email = ?1 AND accepted_at IS NULL AND revoked_at IS NULL
            AND expires_at > ?2`,
 			)
 			.bind(email, now)
-			.all<{ id: string; account_id: string; role: string }>();
+			.all<{ id: string; account_id: string; roles: string }>();
 		const statements: D1PreparedStatement[] = [
 			db
 				.prepare(
@@ -288,14 +311,31 @@ export async function completeLogin(
 
 	const account = await pickAccount(db, userId);
 	if (!account) return { ok: false, code: "account_suspended" };
+	const hats = await db
+		.prepare(
+			`SELECT COUNT(*) AS n FROM cadmus_member_roles r
+         JOIN cadmus_accounts a ON a.id = r.account_id AND a.status = 'active'
+        WHERE r.user_id = ?1`,
+		)
+		.bind(userId)
+		.first<{ n: number }>();
+	const provisional = options.chooseRole === true && (hats?.n ?? 0) > 1;
 	const tokens = await createSession(db, {
 		userId,
 		accountId: account.account_id,
+		activeRole: parseStoredRoles(JSON.stringify([account.role]))[0],
 		loginMethodId: methodId,
 		freshGoogleAt: options.freshGoogleAt,
 		userAgent: options.userAgent,
 		ipCountry: options.ipCountry,
+		provisional,
 		now,
 	});
-	return { ok: true, tokens, userId, accountId: account.account_id };
+	return {
+		ok: true,
+		tokens,
+		userId,
+		accountId: account.account_id,
+		...(provisional ? { provisional: true } : {}),
+	};
 }

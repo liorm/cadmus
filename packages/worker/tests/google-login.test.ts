@@ -198,13 +198,13 @@ async function invite(email: string, role = "user"): Promise<string> {
 	await env.CADMUS_ADMIN_DB.batch([
 		...created.statements,
 		env.CADMUS_ADMIN_DB.prepare(
-			`INSERT INTO cadmus_invites (id, account_id, email, role, invited_by, created_at, expires_at)
+			`INSERT INTO cadmus_invites (id, account_id, email, roles, invited_by, created_at, expires_at)
        VALUES (?1, ?2, ?3, ?4, 'seed', ?5, ?6)`,
 		).bind(
 			`inv_${crypto.randomUUID()}`,
 			accountId,
 			email,
-			role,
+			JSON.stringify([role]),
 			now,
 			now + 86_400_000,
 		),
@@ -283,7 +283,7 @@ describe("Google sign-in (issue #3 phase 3b, mocked Google)", () => {
 			await count(
 				`SELECT COUNT(*) AS n FROM cadmus_account_members m
          JOIN cadmus_login_methods l ON l.user_id = m.user_id
-         WHERE l.subject = ?1 AND m.account_id = 'system' AND m.role = 'super-admin'`,
+         WHERE l.subject = ?1 AND m.account_id = 'system' AND EXISTS (SELECT 1 FROM cadmus_member_roles r WHERE r.account_id = m.account_id AND r.user_id = m.user_id AND r.role = 'super-admin')`,
 				sub,
 			),
 		).toBe(1);
@@ -336,7 +336,7 @@ describe("Google sign-in (issue #3 phase 3b, mocked Google)", () => {
 			await count(
 				`SELECT COUNT(*) AS n FROM cadmus_account_members m
          JOIN cadmus_login_methods l ON l.user_id = m.user_id
-         WHERE l.subject = ?1 AND m.account_id = ?2 AND m.role = 'account-admin'`,
+         WHERE l.subject = ?1 AND m.account_id = ?2 AND EXISTS (SELECT 1 FROM cadmus_member_roles r WHERE r.account_id = m.account_id AND r.user_id = m.user_id AND r.role = 'account-admin')`,
 				sub,
 				accountId,
 			),
@@ -501,10 +501,10 @@ describe("invite acceptance claims (issue #3)", () => {
 	const pendingInvite = async (accountId: string) => {
 		const row = await db()
 			.prepare(
-				`SELECT id, account_id, role FROM cadmus_invites WHERE account_id = ?1`,
+				`SELECT id, account_id, roles FROM cadmus_invites WHERE account_id = ?1`,
 			)
 			.bind(accountId)
-			.first<{ id: string; account_id: string; role: string }>();
+			.first<{ id: string; account_id: string; roles: string }>();
 		if (!row) throw new Error(`missing pending invite for ${accountId}`);
 		return row;
 	};
@@ -608,8 +608,8 @@ describe("invite acceptance claims (issue #3)", () => {
 						.run();
 					await db()
 						.prepare(
-							`INSERT INTO cadmus_invites (id, account_id, email, role, invited_by, created_at, expires_at)
-               VALUES ('inv_replacement_' || ?1, ?2, ?3, 'account-admin', 'seed', ?4, ?5)`,
+							`INSERT INTO cadmus_invites (id, account_id, email, roles, invited_by, created_at, expires_at)
+               VALUES ('inv_replacement_' || ?1, ?2, ?3, '["account-admin"]', 'seed', ?4, ?5)`,
 						)
 						.bind(sub, accountId, email, Date.now(), Date.now() + 86_400_000)
 						.run();

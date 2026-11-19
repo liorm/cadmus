@@ -40,9 +40,7 @@ export function TokensSettingsPage() {
 	const canManageService = !session.signedIn
 		? true
 		: Boolean(
-				principal &&
-					!principal.viaToken &&
-					(principal.role === "account-admin" || principal.role === "owner"),
+				principal && !principal.viaToken && principal.role === "account-admin",
 			);
 	const [notice, setNotice] = useState<string | null>(null);
 	const [label, setLabel] = useState("");

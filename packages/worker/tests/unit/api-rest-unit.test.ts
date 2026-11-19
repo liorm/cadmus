@@ -59,6 +59,7 @@ const MUTATING = [
 	"account.members.invite",
 	"account.members.update",
 	"account.members.remove",
+	"auth.assumeRole",
 	"auth.login.devPassword",
 	"auth.login.google.start",
 	"auth.login.token",

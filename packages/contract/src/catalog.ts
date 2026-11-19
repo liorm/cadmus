@@ -85,6 +85,7 @@ import {
 	TurnSubmitCommandSchema,
 } from "./commands.js";
 import {
+	AuthAssumeRoleCommandSchema,
 	AuthLoginDevPasswordCommandSchema,
 	AuthLoginGoogleStartCommandSchema,
 	AuthLoginGoogleStartResultSchema,
@@ -375,6 +376,10 @@ export const commandCatalog = {
 	"auth.login.providers": {
 		command: AuthLoginProvidersCommandSchema,
 		result: AuthLoginProvidersResultSchema,
+	},
+	"auth.assumeRole": {
+		command: AuthAssumeRoleCommandSchema,
+		result: AuthLoginSessionResultSchema,
 	},
 	"auth.login.devPassword": {
 		command: AuthLoginDevPasswordCommandSchema,

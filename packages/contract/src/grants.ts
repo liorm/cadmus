@@ -31,6 +31,7 @@ export const GRANTS = {
 	"credentials.read": { elevation: false, scope: "account" },
 	"toolsEnv.read": { elevation: false, scope: "account" },
 	"tokens.self": { elevation: false, scope: "account" },
+	"session.assume": { elevation: false, scope: "account" },
 	"admin.elevate": { elevation: false, scope: "account" },
 	"bot.delete": { elevation: true, scope: "account" },
 	"family.manage": { elevation: true, scope: "account" },
@@ -55,8 +56,14 @@ export function isGrant(value: unknown): value is Grant {
 	return typeof value === "string" && Object.hasOwn(GRANTS, value);
 }
 
+/** Lowest rank first. Not a grant lattice: super-admin has no tenant grants. */
 export const ROLES = ["user", "account-admin", "super-admin"] as const;
 export type Role = (typeof ROLES)[number];
+
+/** Product rank. Lower is the default hat at login. */
+export function roleRank(role: Role): number {
+	return ROLES.indexOf(role);
+}
 
 /** Reserved id of the one built-in system account. */
 export const SYSTEM_ACCOUNT_ID = "system";
@@ -72,6 +79,7 @@ const USER_GRANTS: readonly Grant[] = [
 	"credentials.read",
 	"toolsEnv.read",
 	"tokens.self",
+	"session.assume",
 ];
 
 const ACCOUNT_ADMIN_GRANTS: readonly Grant[] = [
@@ -89,6 +97,7 @@ const ACCOUNT_ADMIN_GRANTS: readonly Grant[] = [
 
 const SUPER_ADMIN_GRANTS: readonly Grant[] = [
 	"tokens.self",
+	"session.assume",
 	"system.accounts.read",
 	"system.accounts.manage",
 	"system.members.manage",
@@ -103,22 +112,14 @@ export const ROLE_GRANTS: Record<Role, readonly Grant[]> = {
 	"super-admin": SUPER_ADMIN_GRANTS,
 };
 
-/** A role name as clients may still send it, including the pre-#3 names. */
-export type RoleInput = Role | "owner" | "member";
-
 export function isRole(value: unknown): value is Role {
 	return (
 		typeof value === "string" && (ROLES as readonly string[]).includes(value)
 	);
 }
 
-/**
- * Maps a stored or client-sent role to the current role set. `owner` and
- * `member` are the pre-#3 names and stay readable for old rows and old clients.
- */
+/** A stored or client-sent role, or undefined when it is not one of `ROLES`. */
 export function normalizeRole(value: unknown): Role | undefined {
-	if (value === "owner") return "account-admin";
-	if (value === "member") return "user";
 	return isRole(value) ? value : undefined;
 }
 

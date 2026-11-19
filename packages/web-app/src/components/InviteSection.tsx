@@ -27,7 +27,8 @@ export function InviteSection({
 }) {
 	const { client } = useCadmus();
 	const [email, setEmail] = useState("");
-	const [role, setRole] = useState<"user" | "account-admin">("user");
+	const [asUser, setAsUser] = useState(true);
+	const [asAdmin, setAsAdmin] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [busy, setBusy] = useState(false);
 	const loaded = useScopedResource("invites", async () => {
@@ -161,7 +162,7 @@ export function InviteSection({
 						className="flex min-h-tap items-center gap-3 border-b border-border px-3 last:border-b-0"
 					>
 						<span className="min-w-0 flex-1 truncate">{invite.email}</span>
-						<span className="text-text-muted">{invite.role}</span>
+						<span className="text-text-muted">{invite.roles.join(", ")}</span>
 						{canManage ? (
 							<button
 								type="button"
@@ -192,7 +193,10 @@ export function InviteSection({
 							() =>
 								client.callRpc("account.members.invite", {
 									email: email.trim(),
-									role,
+									roles: [
+										...(asUser ? (["user"] as const) : []),
+										...(asAdmin ? (["account-admin"] as const) : []),
+									],
 								}),
 							() => setEmail(""),
 						);
@@ -209,24 +213,25 @@ export function InviteSection({
 							onChange={(event) => setEmail(event.target.value)}
 						/>
 					</label>
-					<label className="flex flex-col gap-1">
-						<span>Invite role</span>
-						<select
-							aria-label="Invite role"
-							className={fieldClass}
-							value={role}
+					<label className="flex items-center gap-2">
+						<input
+							type="checkbox"
+							aria-label="Invite as user"
+							checked={asUser}
 							disabled={off}
-							onChange={(event) =>
-								setRole(
-									event.target.value === "account-admin"
-										? "account-admin"
-										: "user",
-								)
-							}
-						>
-							<option value="user">user</option>
-							<option value="account-admin">account admin</option>
-						</select>
+							onChange={(event) => setAsUser(event.target.checked)}
+						/>
+						User
+					</label>
+					<label className="flex items-center gap-2">
+						<input
+							type="checkbox"
+							aria-label="Invite as account admin"
+							checked={asAdmin}
+							disabled={off}
+							onChange={(event) => setAsAdmin(event.target.checked)}
+						/>
+						Account admin
 					</label>
 					<button
 						type="submit"

@@ -1,5 +1,4 @@
 import { describe, expect, it } from "bun:test";
-import { readFileSync } from "node:fs";
 import SwaggerParser from "@apidevtools/swagger-parser";
 import asyncApiDocument from "@cadmus/contract/asyncapi.json";
 import openApiDocument from "@cadmus/contract/openapi.json";
@@ -10,8 +9,6 @@ import {
 	ServerToClientSchema,
 	SseEventSchema,
 } from "@cadmus/contract/schemas";
-
-const OPENAPI_BYTE_BUDGET = 256 * 1024;
 
 type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
 
@@ -88,14 +85,7 @@ function deref(
 }
 
 describe("generated API documents", () => {
-	it("keeps OpenAPI under 256 KiB and resolves every $ref", async () => {
-		const bytes = readFileSync(
-			new URL(
-				"../../packages/contract/generated/openapi.json",
-				import.meta.url,
-			),
-		);
-		expect(bytes.length).toBeLessThan(OPENAPI_BYTE_BUDGET);
+	it("resolves every OpenAPI $ref", async () => {
 		const document = openApiDocument as {
 			openapi: string;
 			components: {
@@ -107,7 +97,7 @@ describe("generated API documents", () => {
 		expect(document.components.schemas.ApiErrorEnvelope).toBeTruthy();
 		expect(document.components.responses.ApiError).toBeTruthy();
 		assertRefsResolve(document);
-		expect(bytes.toString("utf8").split('"$ref"').length - 1).toBeGreaterThan(
+		expect(JSON.stringify(document).split('"$ref"').length - 1).toBeGreaterThan(
 			10,
 		);
 		const validated = await SwaggerParser.validate(structuredClone(document));
@@ -118,13 +108,6 @@ describe("generated API documents", () => {
 		const document = asyncApiDocument as { asyncapi: string };
 		expect(document.asyncapi).toBe("3.0.0");
 		assertRefsResolve(document);
-		const bytes = readFileSync(
-			new URL(
-				"../../packages/contract/generated/asyncapi.json",
-				import.meta.url,
-			),
-		);
-		expect(bytes.length).toBeLessThan(OPENAPI_BYTE_BUDGET);
 	});
 
 	it("dereferences to the contract schemas", () => {

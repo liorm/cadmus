@@ -1,18 +1,56 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import type { SessionMembership } from "@/lib/session";
+
+const RANK = ["user", "account-admin", "super-admin"];
+
+interface HatChoice {
+	role: string;
+	accountId: string;
+	label: string;
+}
+
+function hatChoices(memberships: SessionMembership[]): HatChoice[] {
+	const choices: HatChoice[] = [];
+	for (const membership of memberships) {
+		for (const role of membership.roles) {
+			choices.push({
+				role,
+				accountId: membership.accountId,
+				label: `${role} in ${membership.name}`,
+			});
+		}
+	}
+	return choices.sort(
+		(a, b) =>
+			RANK.indexOf(a.role) - RANK.indexOf(b.role) ||
+			a.label.localeCompare(b.label),
+	);
+}
 
 /**
- * Blocks the app until a real session exists. Google is a full navigation.
- * Dev password is offered only when the server lists it, which it refuses
- * outside local development.
+ * Blocks the app until a full session exists. Google is a full navigation.
+ * Dev password is offered only when the server lists it. Role radios appear
+ * only after a provisional session exists.
  */
-export function LoginDialog({ providers }: { providers: string[] }) {
+export function LoginDialog({
+	providers,
+	accessToken,
+	memberships = [],
+}: {
+	providers: string[];
+	accessToken?: string;
+	memberships?: SessionMembership[];
+}) {
 	const google = providers.includes("google");
 	const devPassword = providers.includes("dev-password");
 	const [email, setEmail] = useState("");
 	const [password, setPassword] = useState("");
+	const [chooseRole, setChooseRole] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [busy, setBusy] = useState(false);
+	const hats = accessToken ? hatChoices(memberships) : [];
+	const [picked, setPicked] = useState(0);
 
 	const submitDev = async () => {
 		setBusy(true);
@@ -31,6 +69,7 @@ export function LoginDialog({ providers }: { providers: string[] }) {
 					payload: {
 						password,
 						...(email.trim() ? { email: email.trim() } : {}),
+						...(chooseRole ? { chooseRole: true } : {}),
 					},
 				}),
 			});
@@ -40,6 +79,13 @@ export function LoginDialog({ providers }: { providers: string[] }) {
 				} | null;
 				setError(body?.error?.message ?? "Login refused");
 				setBusy(false);
+				return;
+			}
+			const body = (await res.json().catch(() => null)) as {
+				provisional?: boolean;
+			} | null;
+			if (body?.provisional) {
+				window.location.assign("/");
 				return;
 			}
 			window.location.assign("/");
@@ -100,6 +146,14 @@ export function LoginDialog({ providers }: { providers: string[] }) {
 									className="min-h-tap rounded-md border border-border bg-bg px-3"
 								/>
 							</label>
+							<label className="flex items-center gap-2 text-[length:var(--fs-sm)]">
+								<input
+									type="checkbox"
+									checked={chooseRole}
+									onChange={(event) => setChooseRole(event.target.checked)}
+								/>
+								Choose a role
+							</label>
 							<label className="flex flex-col gap-1 text-[length:var(--fs-sm)]">
 								Password
 								<input
@@ -121,7 +175,78 @@ export function LoginDialog({ providers }: { providers: string[] }) {
 							</Button>
 						</form>
 					) : null}
-					{!google && !devPassword ? (
+					{hats.length > 0 && accessToken ? (
+						<form
+							className="flex flex-col gap-3"
+							onSubmit={(event) => {
+								event.preventDefault();
+								const hat = hats[picked] ?? hats[0];
+								if (!hat) return;
+								setBusy(true);
+								setError(null);
+								void fetch("/api/auth/assumeRole", {
+									method: "POST",
+									credentials: "same-origin",
+									headers: {
+										"Content-Type": "application/json",
+										Authorization: `Bearer ${accessToken}`,
+										Origin: window.location.origin,
+									},
+									body: JSON.stringify({
+										id: "assume-role",
+										type: "auth.assumeRole",
+										payload: { role: hat.role, accountId: hat.accountId },
+									}),
+								})
+									.then(async (res) => {
+										if (!res.ok) {
+											const failed = (await res.json().catch(() => null)) as {
+												error?: { code?: string; message?: string };
+											} | null;
+											setError(
+												failed?.error?.code === "role_unchanged"
+													? "That is already your role."
+													: (failed?.error?.message ?? "Could not change role"),
+											);
+											setBusy(false);
+											return;
+										}
+										window.location.assign("/");
+									})
+									.catch(() => {
+										setError("Could not reach the server");
+										setBusy(false);
+									});
+							}}
+						>
+							<fieldset className="flex flex-col gap-2">
+								<legend className="text-[length:var(--fs-sm)]">Role</legend>
+								{hats.map((hat, index) => (
+									<label
+										key={`${hat.accountId}:${hat.role}`}
+										className="flex items-center gap-2 text-[length:var(--fs-sm)]"
+									>
+										<input
+											type="radio"
+											name="hat"
+											checked={picked === index}
+											onChange={() => setPicked(index)}
+										/>
+										{hat.label}
+									</label>
+								))}
+							</fieldset>
+							{error ? (
+								<p role="alert" className="text-destructive">
+									{error}
+								</p>
+							) : null}
+							<Button type="submit" disabled={busy}>
+								{busy ? "Continuing..." : "Continue"}
+							</Button>
+						</form>
+					) : null}
+					{!google && !devPassword && hats.length === 0 ? (
 						<p
 							role="status"
 							className="text-[length:var(--fs-sm)] text-text-muted"

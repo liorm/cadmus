@@ -31,9 +31,27 @@ async function setup() {
 		role: "account-admin",
 	});
 	await s.ensureAccountAndUser({ accountId, userId: member, role: "user" });
+	await s.updateMemberRole({
+		accountId,
+		userId: admin,
+		op: "grant",
+		role: "user",
+		actor: admin,
+	});
+	await s.updateMemberRole({
+		accountId,
+		userId: second,
+		op: "grant",
+		role: "user",
+		actor: admin,
+	});
 	// Admin sessions are in admin mode, which members.manage needs.
 	const as = async (userId: string) => {
-		const session = await s.createSession({ userId, accountId });
+		const session = await s.createSession({
+			userId,
+			accountId,
+			activeRole: userId === member ? "user" : "account-admin",
+		});
 		if (userId !== member) await s.startElevation(session.sessionId);
 		return session.accessToken;
 	};
@@ -50,13 +68,14 @@ describe("last-admin and last-method guards are atomic (issue #3 review R8)", ()
 					: s.updateMemberRole({
 							accountId,
 							userId,
-							role: "user",
+							op: "revoke",
+							role: "account-admin",
 							actor: admin,
 						});
 			const results = await Promise.all([act(admin), act(second)]);
 			expect(results.filter((r) => r.ok).length).toBe(1);
 			const row = await env.CADMUS_ADMIN_DB.prepare(
-				`SELECT COUNT(*) AS n FROM cadmus_account_members
+				`SELECT COUNT(*) AS n FROM cadmus_member_roles
          WHERE account_id = ?1 AND role = 'account-admin'`,
 			)
 				.bind(accountId)
@@ -64,7 +83,7 @@ describe("last-admin and last-method guards are atomic (issue #3 review R8)", ()
 			expect(row?.n).toBe(1);
 			// The losing call wrote no audit row.
 			const audits = await env.CADMUS_ADMIN_DB.prepare(
-				`SELECT COUNT(*) AS n FROM cadmus_audit WHERE account_id = ?1 AND action IN ('member.remove','member.role')`,
+				`SELECT COUNT(*) AS n FROM cadmus_audit WHERE account_id = ?1 AND action IN ('member.remove','member.role.revoke')`,
 			)
 				.bind(accountId)
 				.first<{ n: number }>();
@@ -107,10 +126,10 @@ describe("members and invites (issue #3 phase 4)", () => {
 		const created = await rpc(adminToken, "account.members.invite", {
 			email: "New.Person@Example.com",
 		});
-		expect(created.ok).toBe(true);
+		expect(created.ok, JSON.stringify(created)).toBe(true);
 		expect(created.result?.invite).toMatchObject({
 			email: "new.person@example.com",
-			role: "user",
+			roles: ["user"],
 		});
 		const dup = await rpc(adminToken, "account.members.invite", {
 			email: "new.person@example.com",
@@ -150,9 +169,13 @@ describe("members and invites (issue #3 phase 4)", () => {
 
 		const res = await rpc(await as(admin), "account.members.update", {
 			userId: second,
-			role: "user",
+			op: "revoke",
+			role: "account-admin",
 		});
-		expect(res.result).toEqual({ updated: true, tokensRevoked: 1 });
+		expect(res.result, JSON.stringify(res)).toEqual({
+			updated: true,
+			tokensRevoked: 1,
+		});
 		expect((await rpc(accessToken, "auth.tokens.list")).ok).not.toBe(true);
 		expect(
 			(
@@ -163,7 +186,7 @@ describe("members and invites (issue #3 phase 4)", () => {
 			).status,
 		).toBe(401);
 		const members = await s.listMembers(accountId);
-		expect(members.find((m) => m.userId === second)?.role).toBe("user");
+		expect(members.find((m) => m.userId === second)?.roles).toEqual(["user"]);
 	});
 
 	it("keeps the last account-admin", async () => {
@@ -174,9 +197,10 @@ describe("members and invites (issue #3 phase 4)", () => {
 		).toBe(true);
 		const demote = await rpc(token, "account.members.update", {
 			userId: admin,
-			role: "user",
+			op: "revoke",
+			role: "account-admin",
 		});
-		expect(demote.ok).toBe(false);
+		expect(demote.ok, JSON.stringify(demote)).toBe(false);
 		expect(JSON.stringify(demote)).toContain("last_admin");
 		const remove = await rpc(token, "account.members.remove", {
 			userId: admin,
@@ -221,10 +245,18 @@ describe("members and invites (issue #3 phase 4)", () => {
 		expect(removedActive.ok ? "" : removedActive.message).toContain(
 			"last_admin",
 		);
+		await s.updateMemberRole({
+			accountId,
+			userId: admin,
+			op: "grant",
+			role: "user",
+			actor: admin,
+		});
 		const demotedActive = await s.updateMemberRole({
 			accountId,
 			userId: admin,
-			role: "user",
+			op: "revoke",
+			role: "account-admin",
 			actor: admin,
 		});
 		expect(demotedActive).toMatchObject({
@@ -339,6 +371,7 @@ describe("service-token grants only ever shrink (issue #3 decision 14)", () => {
 		await s.updateMemberRole({
 			accountId,
 			userId: member,
+			op: "grant",
 			role: "account-admin",
 			actor: admin,
 		});
@@ -366,13 +399,15 @@ describe("service-token grants only ever shrink (issue #3 decision 14)", () => {
 		await s.updateMemberRole({
 			accountId,
 			userId: member,
-			role: "user",
+			op: "revoke",
+			role: "account-admin",
 			actor: admin,
 		});
 		expect(await stored()).not.toContain("audit.read");
 		await s.updateMemberRole({
 			accountId,
 			userId: member,
+			op: "grant",
 			role: "account-admin",
 			actor: admin,
 		});
@@ -397,6 +432,7 @@ describe("credential minting cannot outrun a role change (issue #3 review C3)", 
 		await s.updateMemberRole({
 			accountId,
 			userId: member,
+			op: "grant",
 			role: "account-admin",
 			actor: admin,
 		});
@@ -414,7 +450,8 @@ describe("credential minting cannot outrun a role change (issue #3 review C3)", 
 		await s.updateMemberRole({
 			accountId,
 			userId: member,
-			role: "user",
+			op: "revoke",
+			role: "account-admin",
 			actor: admin,
 		});
 		// ...is clamped by the demotion itself, and a mint that still carries the
@@ -445,6 +482,7 @@ describe("credential minting cannot outrun a role change (issue #3 review C3)", 
 		await s.updateMemberRole({
 			accountId,
 			userId: member,
+			op: "grant",
 			role: "account-admin",
 			actor: admin,
 		});
@@ -550,6 +588,7 @@ describe("service-token transfers and disabled-admin orphan cleanup (review roun
 		await s.updateMemberRole({
 			accountId,
 			userId: member,
+			op: "grant",
 			role: "account-admin",
 			actor: admin,
 		});
@@ -576,7 +615,8 @@ describe("service-token transfers and disabled-admin orphan cleanup (review roun
 		await s.updateMemberRole({
 			accountId,
 			userId: member,
-			role: "user",
+			op: "revoke",
+			role: "account-admin",
 			actor: admin,
 		});
 		await env.CADMUS_ADMIN_DB.prepare(

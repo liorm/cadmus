@@ -1,5 +1,6 @@
 import { SYSTEM_ACCOUNT_ID } from "@cadmus/contract/grants";
 import { randomId } from "./random-id.js";
+import { parseStoredRoles } from "./roles.js";
 
 /**
  * Issue #3 phase 6b: the system console's account records and audit log.
@@ -312,7 +313,7 @@ export interface SystemMember {
 	userId: string;
 	name: string;
 	email?: string;
-	role: string;
+	roles: string[];
 	createdAt: number;
 	disabledAt?: number;
 }
@@ -330,7 +331,10 @@ export async function listAccountMembers(
 	}
 	const { results } = await db
 		.prepare(
-			`SELECT m.user_id, u.name, COALESCE(u.primary_email, u.email) AS email, m.role, m.created_at, u.disabled_at
+			`SELECT m.user_id, u.name, COALESCE(u.primary_email, u.email) AS email,
+              (SELECT json_group_array(r.role) FROM cadmus_member_roles r
+                WHERE r.account_id = m.account_id AND r.user_id = m.user_id) AS roles,
+              m.created_at, u.disabled_at
        FROM cadmus_account_members m JOIN cadmus_users u ON u.id = m.user_id
        WHERE m.account_id = ?1 ORDER BY m.created_at, m.user_id`,
 		)
@@ -339,7 +343,7 @@ export async function listAccountMembers(
 			user_id: string;
 			name: string;
 			email: string | null;
-			role: string;
+			roles: string;
 			created_at: number;
 			disabled_at: number | null;
 		}>();
@@ -349,7 +353,7 @@ export async function listAccountMembers(
 			userId: r.user_id,
 			name: r.name,
 			...(r.email ? { email: r.email } : {}),
-			role: r.role,
+			roles: parseStoredRoles(r.roles),
 			createdAt: r.created_at,
 			...(r.disabled_at !== null ? { disabledAt: r.disabled_at } : {}),
 		})),
@@ -374,7 +378,7 @@ function systemUserAudit(
 }
 
 /** Super-admins are managed apart from tenant users and are never disabled here. */
-const NOT_SUPER_ADMIN = `NOT EXISTS (SELECT 1 FROM cadmus_account_members WHERE user_id = ?4 AND role = 'super-admin')`;
+const NOT_SUPER_ADMIN = `NOT EXISTS (SELECT 1 FROM cadmus_member_roles WHERE user_id = ?4 AND role = 'super-admin')`;
 
 async function checkTargetUser(
 	db: D1Database,
@@ -395,7 +399,7 @@ async function checkTargetUser(
 	}
 	const superAdmin = await db
 		.prepare(
-			`SELECT 1 AS x FROM cadmus_account_members WHERE user_id = ?1 AND role = 'super-admin'`,
+			`SELECT 1 AS x FROM cadmus_member_roles WHERE user_id = ?1 AND role = 'super-admin'`,
 		)
 		.bind(userId)
 		.first();

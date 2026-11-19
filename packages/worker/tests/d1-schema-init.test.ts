@@ -544,6 +544,14 @@ describe("roles and accounts migration (issue #3 phase 2)", () => {
 	it("renames stored roles and parents existing tenants to system", async () => {
 		await restoreAdminSchema();
 		const acct = uniqueAccountId("legacy");
+		const cols = await env.CADMUS_ADMIN_DB.prepare(
+			`PRAGMA table_info(cadmus_account_members)`,
+		).all<{ name: string }>();
+		if (!cols.results.some((col) => col.name === "role")) {
+			await env.CADMUS_ADMIN_DB.prepare(
+				`ALTER TABLE cadmus_account_members ADD COLUMN role TEXT`,
+			).run();
+		}
 		await env.CADMUS_ADMIN_DB.batch([
 			env.CADMUS_ADMIN_DB.prepare(
 				`INSERT INTO cadmus_accounts (id, name, timezone, created_at) VALUES (?1, 'L', 'UTC', 1)`,
@@ -554,11 +562,18 @@ describe("roles and accounts migration (issue #3 phase 2)", () => {
 			env.CADMUS_ADMIN_DB.prepare(
 				`INSERT INTO cadmus_account_members (account_id, user_id, role, created_at) VALUES (?1, 'u1', 'owner', 1)`,
 			).bind(acct),
+			env.CADMUS_ADMIN_DB.prepare(
+				`DELETE FROM cadmus_member_roles WHERE account_id = ?1`,
+			).bind(acct),
+			env.CADMUS_ADMIN_DB.prepare(
+				`UPDATE cadmus_schema_meta SET value = '13' WHERE key = 'version'`,
+			),
 		]);
+		resetD1InitializationCache(env.CADMUS_ADMIN_DB);
 		await ensureD1Schema(env.CADMUS_ADMIN_DB, { force: true });
 		const row = await env.CADMUS_ADMIN_DB.prepare(
-			`SELECT m.role, a.parent_account_id FROM cadmus_account_members m
-       JOIN cadmus_accounts a ON a.id = m.account_id WHERE m.account_id = ?1`,
+			`SELECT r.role, a.parent_account_id FROM cadmus_member_roles r
+       JOIN cadmus_accounts a ON a.id = r.account_id WHERE r.account_id = ?1`,
 		)
 			.bind(acct)
 			.first<{ role: string; parent_account_id: string }>();

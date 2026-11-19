@@ -159,6 +159,7 @@ export function cookiePair(lines: string[], name: string): string {
  */
 export async function loginDevPassword(
 	email = BOOTSTRAP_EMAIL,
+	chooseRole = false,
 ): Promise<DevLogin> {
 	let last = "";
 	for (let attempt = 0; attempt < 6; attempt++) {
@@ -173,7 +174,11 @@ export async function loginDevPassword(
 				body: JSON.stringify({
 					id: "dev-password",
 					type: "auth.login.devPassword",
-					payload: { email, password: DEV_PASSWORD },
+					payload: {
+						email,
+						password: DEV_PASSWORD,
+						...(chooseRole ? { chooseRole: true } : {}),
+					},
 				}),
 			},
 		);
@@ -242,7 +247,7 @@ export async function provisionInvitedMember(input: {
 	).toLowerCase();
 	const invite = await sendRpc(
 		"system.members.invite",
-		{ accountId, email, role: input.role },
+		{ accountId, email, roles: [input.role] },
 		{ token: boss.accessToken },
 	);
 	if (!invite.frame.ok) {

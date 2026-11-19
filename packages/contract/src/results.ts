@@ -87,7 +87,7 @@ export const AccountMembersInviteResultSchema = Type.Object(
 			{
 				id: Type.String(),
 				email: Type.String(),
-				role: Type.String(),
+				roles: Type.Array(Type.String()),
 				invitedBy: Type.Union([Type.String(), Type.Null()]),
 				createdAt: Type.Number(),
 				expiresAt: Type.Number(),
@@ -130,7 +130,7 @@ export const AccountInvitesListResultSchema = Type.Object(
 				{
 					id: Type.String(),
 					email: Type.String(),
-					role: Type.String(),
+					roles: Type.Array(Type.String()),
 					invitedBy: Type.Union([Type.String(), Type.Null()]),
 					createdAt: Type.Number(),
 					expiresAt: Type.Number(),
@@ -284,12 +284,16 @@ export const AuthWhoamiResultSchema = Type.Object(
 						Type.Literal("user"),
 						Type.Literal("account-admin"),
 						Type.Literal("super-admin"),
-						Type.Literal("owner"),
-						Type.Literal("member"),
 					],
 					{
-						description: "Membership role in that account.",
+						description: "Session hat. Grants and the shell follow this role.",
 					},
+				),
+				provisional: Type.Optional(
+					Type.Boolean({
+						description:
+							"True when this sign-in is the short role-choice session. Assume a role to open a full session.",
+					}),
 				),
 			},
 			{ description: "Resolved principal." },
@@ -484,7 +488,9 @@ export const SystemMemberSchema = Type.Object(
 		userId: Type.String({ description: "User id." }),
 		name: Type.String({ description: "Display name." }),
 		email: Type.Optional(Type.String({ description: "Primary email." })),
-		role: Type.String({ description: "Role in this account." }),
+		roles: Type.Array(Type.String(), {
+			description: "Stored roles in this account, lowest rank first.",
+		}),
 		createdAt: Type.Number({ description: "Epoch ms the membership began." }),
 		disabledAt: Type.Optional(
 			Type.Number({ description: "Epoch ms the user was disabled." }),
@@ -643,7 +649,9 @@ export const AuthMembershipsListResultSchema = Type.Object(
 				{
 					accountId: Type.String(),
 					name: Type.String(),
-					role: Type.String(),
+					roles: Type.Array(Type.String(), {
+						description: "Stored roles, lowest rank first.",
+					}),
 				},
 				{ description: "One active account the caller belongs to." },
 			),

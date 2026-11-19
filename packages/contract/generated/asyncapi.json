@@ -383,30 +383,22 @@
 								"type": "string",
 								"description": "Optional email address for the user."
 							},
-							"role": {
-								"anyOf": [
-									{
-										"type": "string",
-										"const": "user"
-									},
-									{
-										"type": "string",
-										"const": "account-admin"
-									},
-									{
-										"type": "string",
-										"const": "super-admin"
-									},
-									{
-										"type": "string",
-										"const": "owner"
-									},
-									{
-										"type": "string",
-										"const": "member"
-									}
-								],
-								"description": "Access role: 'account-admin' (formerly 'owner'), 'user' (formerly 'member', the default) or 'super-admin'. Old names are still accepted."
+							"roles": {
+								"type": "array",
+								"items": {
+									"anyOf": [
+										{
+											"type": "string",
+											"const": "user"
+										},
+										{
+											"type": "string",
+											"const": "account-admin"
+										}
+									]
+								},
+								"minItems": 1,
+								"description": "Roles to store. Omitted means user only. super-admin cannot be added here."
 							}
 						},
 						"description": "Parameters for adding or inviting an account member."
@@ -438,18 +430,22 @@
 								"minLength": 3,
 								"maxLength": 254
 							},
-							"role": {
-								"anyOf": [
-									{
-										"type": "string",
-										"const": "user"
-									},
-									{
-										"type": "string",
-										"const": "account-admin"
-									}
-								],
-								"description": "Role to give: user or account-admin."
+							"roles": {
+								"type": "array",
+								"items": {
+									"anyOf": [
+										{
+											"type": "string",
+											"const": "user"
+										},
+										{
+											"type": "string",
+											"const": "account-admin"
+										}
+									]
+								},
+								"minItems": 1,
+								"description": "Roles to give. Omitted means user only. account-admin is management of this account."
 							},
 							"ttlDays": {
 								"type": "number",
@@ -532,11 +528,24 @@
 					},
 					"payload": {
 						"type": "object",
-						"required": ["userId", "role"],
+						"required": ["userId", "op", "role"],
 						"properties": {
 							"userId": {
 								"type": "string",
 								"minLength": 1
+							},
+							"op": {
+								"anyOf": [
+									{
+										"type": "string",
+										"const": "grant"
+									},
+									{
+										"type": "string",
+										"const": "revoke"
+									}
+								],
+								"description": "Add or remove this one role. Other roles stay."
 							},
 							"role": {
 								"anyOf": [
@@ -549,14 +558,14 @@
 										"const": "account-admin"
 									}
 								],
-								"description": "Role to give: user or account-admin."
+								"description": "Role to grant or revoke: user or account-admin."
 							}
 						},
-						"description": "Member and new role."
+						"description": "Member and the role to grant or revoke."
 					}
 				},
 				"grant": "members.manage",
-				"description": "Change a member's role. Demoting an account-admin revokes their personal tokens; the last account-admin cannot be demoted."
+				"description": "Grant or revoke one role. Revoking account-admin revokes their personal tokens. The last account-admin and the member's last role cannot be revoked."
 			},
 			"AccountModelsListCommand": {
 				"type": "object",
@@ -1069,6 +1078,53 @@
 				"grant": "account.manage",
 				"description": "Update account-level configuration including display name and default timezone."
 			},
+			"AuthAssumeRoleCommand": {
+				"type": "object",
+				"required": ["id", "type", "payload"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Request id."
+					},
+					"type": {
+						"type": "string",
+						"const": "auth.assumeRole",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"required": ["role", "accountId"],
+						"properties": {
+							"role": {
+								"anyOf": [
+									{
+										"type": "string",
+										"const": "user"
+									},
+									{
+										"type": "string",
+										"const": "account-admin"
+									},
+									{
+										"type": "string",
+										"const": "super-admin"
+									}
+								],
+								"description": "Stored role to open a new session as."
+							},
+							"accountId": {
+								"type": "string",
+								"minLength": 1,
+								"description": "Account that role is stored on."
+							}
+						},
+						"description": "Hat to assume."
+					}
+				},
+				"grant": "session.assume",
+				"description": "Open a new session as a stored role. Refresh token is a cookie. Same hat on a finished session is role_unchanged."
+			},
 			"AuthElevateCommand": {
 				"type": "object",
 				"required": ["id", "type"],
@@ -1137,6 +1193,11 @@
 								"type": "string",
 								"minLength": 1,
 								"description": "Local password."
+							},
+							"chooseRole": {
+								"type": "boolean",
+								"const": true,
+								"description": "Open a 15-minute session on the lowest role when the user holds more than one, so they can assume a role."
 							},
 							"email": {
 								"type": "string",
@@ -2734,6 +2795,9 @@
 						"$ref": "#/components/schemas/AuthLoginProvidersCommand"
 					},
 					{
+						"$ref": "#/components/schemas/AuthAssumeRoleCommand"
+					},
+					{
 						"$ref": "#/components/schemas/AuthLoginDevPasswordCommand"
 					},
 					{
@@ -4250,18 +4314,22 @@
 								"minLength": 3,
 								"maxLength": 254
 							},
-							"role": {
-								"anyOf": [
-									{
-										"type": "string",
-										"const": "user"
-									},
-									{
-										"type": "string",
-										"const": "account-admin"
-									}
-								],
-								"description": "Role to give: user or account-admin."
+							"roles": {
+								"type": "array",
+								"items": {
+									"anyOf": [
+										{
+											"type": "string",
+											"const": "user"
+										},
+										{
+											"type": "string",
+											"const": "account-admin"
+										}
+									]
+								},
+								"minItems": 1,
+								"description": "Roles to give. Omitted means user only."
 							},
 							"ttlDays": {
 								"type": "number",
@@ -4357,7 +4425,7 @@
 					},
 					"payload": {
 						"type": "object",
-						"required": ["accountId", "userId", "role"],
+						"required": ["accountId", "userId", "op", "role"],
 						"properties": {
 							"accountId": {
 								"type": "string",
@@ -4368,6 +4436,19 @@
 								"type": "string",
 								"minLength": 1,
 								"description": "Target user."
+							},
+							"op": {
+								"anyOf": [
+									{
+										"type": "string",
+										"const": "grant"
+									},
+									{
+										"type": "string",
+										"const": "revoke"
+									}
+								],
+								"description": "Add or remove this one role. Other roles stay."
 							},
 							"role": {
 								"anyOf": [
@@ -4380,14 +4461,14 @@
 										"const": "account-admin"
 									}
 								],
-								"description": "Role to give: user or account-admin."
+								"description": "Role to grant or revoke: user or account-admin."
 							}
 						},
 						"description": "Command parameters."
 					}
 				},
 				"grant": "system.members.manage",
-				"description": "Change a member's role in a tenant account. The last account-admin cannot be demoted. Needs admin mode."
+				"description": "Grant or revoke one tenant role. The last account-admin and the member's last role cannot be revoked. Needs admin mode."
 			},
 			"SystemUsersDisableCommand": {
 				"type": "object",

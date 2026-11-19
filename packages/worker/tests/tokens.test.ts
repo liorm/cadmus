@@ -176,7 +176,7 @@ describe("API tokens and token login (issue #3 phase 4)", () => {
 		await s.addMember({
 			accountId,
 			userId,
-			role: "account-admin",
+			roles: ["user"],
 			rawToken: raw,
 		});
 		const call = (token: string) =>
@@ -637,7 +637,7 @@ describe("API tokens and token login (issue #3 phase 4)", () => {
 			const { s, session, userId, accountId } = await seed();
 			await elevate(session.sessionId);
 			await env.CADMUS_ADMIN_DB.prepare(
-				`UPDATE cadmus_account_members SET role = 'user' WHERE account_id = ?1 AND user_id = ?2`,
+				`UPDATE cadmus_member_roles SET role = 'user' WHERE account_id = ?1 AND user_id = ?2 AND role = 'account-admin'`,
 			)
 				.bind(accountId, userId)
 				.run();
@@ -677,7 +677,7 @@ describe("API tokens and token login (issue #3 phase 4)", () => {
 			// Demotion (direct row change, so no handler revokes the token): the
 			// token's stored grants are clamped to what the role still holds.
 			await env.CADMUS_ADMIN_DB.prepare(
-				`UPDATE cadmus_account_members SET role = 'user' WHERE account_id = ?1 AND user_id = ?2`,
+				`UPDATE cadmus_member_roles SET role = 'user' WHERE account_id = ?1 AND user_id = ?2 AND role = 'account-admin'`,
 			)
 				.bind(accountId, userId)
 				.run();
@@ -863,7 +863,7 @@ describe("rollback safety of API token rows (issue #3 phase 4)", () => {
 	// The exact lookup the Worker before this change ran for every bearer
 	// (origin/main 7e98ae0, packages/worker/src/store/d1-admin.ts resolveToken,
 	// lines 868-876). It ignores revoked_at, expires_at, grants and kind.
-	const OLD_WORKER_LOOKUP = `SELECT t.user_id, t.account_id, m.role
+	const OLD_WORKER_LOOKUP = `SELECT t.user_id, t.account_id
          FROM cadmus_auth_tokens t
          JOIN cadmus_account_members m
            ON m.account_id = t.account_id AND m.user_id = t.user_id

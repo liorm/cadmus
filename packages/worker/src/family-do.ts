@@ -224,6 +224,7 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 				: 60_000,
 			edgeCache,
 			bootstrapEmail: env.CADMUS_BOOTSTRAP_SUPER_ADMIN_EMAIL,
+			deployEnv: env.CADMUS_DEPLOY_ENV,
 		});
 		this.credentialStore = new AccountCredentialStore(
 			this.adminStore,
@@ -1077,6 +1078,7 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 			role: identity.role,
 			grants: identity.grants,
 			elevatedUntil: identity.elevatedUntil,
+			...(identity.provisional ? { provisional: true } : {}),
 		};
 	}
 
@@ -1671,7 +1673,7 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 					userId: command.payload.userId,
 					name: command.payload.name,
 					email: command.payload.email,
-					role: command.payload.role,
+					roles: command.payload.roles,
 				});
 				return { member };
 			},
@@ -1680,7 +1682,7 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 					accountId: meta.accountId,
 					invitedBy: caller.userId ?? "unknown",
 					email: command.payload.email,
-					role: command.payload.role ?? "user",
+					roles: command.payload.roles,
 					ttlMs:
 						command.payload.ttlDays === undefined
 							? undefined
@@ -1695,6 +1697,7 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 				const result = await this.adminStore.updateMemberRole({
 					accountId: meta.accountId,
 					userId: command.payload.userId,
+					op: command.payload.op,
 					role: command.payload.role,
 					actor: caller.userId ?? "unknown",
 				});
@@ -1973,7 +1976,7 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 					accountId: command.payload.accountId,
 					invitedBy: caller.userId ?? "unknown",
 					email: command.payload.email,
-					role: command.payload.role ?? "user",
+					roles: command.payload.roles,
 					ttlMs:
 						command.payload.ttlDays === undefined
 							? undefined
@@ -1990,6 +1993,7 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 				const result = await this.adminStore.updateMemberRole({
 					accountId: command.payload.accountId,
 					userId: command.payload.userId,
+					op: command.payload.op,
 					role: command.payload.role,
 					actor: caller.userId ?? "unknown",
 					actorKind: "super-admin",
@@ -2082,6 +2086,12 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 				);
 			},
 			"auth.login.devPassword": async () => {
+				throw new ProtocolValidationError(
+					"Public login commands run on /api",
+					"unsupported_command",
+				);
+			},
+			"auth.assumeRole": async () => {
 				throw new ProtocolValidationError(
 					"Public login commands run on /api",
 					"unsupported_command",
@@ -2280,6 +2290,7 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 						...(profile?.email ? { email: profile.email } : {}),
 						accountId: caller.accountId ?? meta.accountId,
 						role: caller.role ?? "user",
+						...(caller.provisional ? { provisional: true } : {}),
 						...(caller.grants ? { viaToken: true } : {}),
 						...(isElevated(caller) && caller.elevatedUntil
 							? { elevatedUntil: caller.elevatedUntil }

@@ -27,6 +27,8 @@ export interface Principal {
 	grants?: Grant[];
 	/** User sessions: epoch ms when admin mode ends, while it is on. */
 	elevatedUntil?: number;
+	/** Short role-choice session. */
+	provisional?: boolean;
 	/** Sessionless credentials: which credential authenticated (edge-set). */
 	credential?: string;
 }
@@ -44,6 +46,7 @@ export interface CallerMeta {
 	sessionId?: string;
 	grants?: Grant[];
 	elevatedUntil?: number;
+	provisional?: boolean;
 	credential?: string;
 }
 
@@ -86,6 +89,7 @@ export function callerMetaFromPrincipal(value: unknown): CallerMeta {
 	if (typeof raw.elevatedUntil === "number" && raw.elevatedUntil > 0) {
 		meta.elevatedUntil = raw.elevatedUntil;
 	}
+	if (raw.provisional === true) meta.provisional = true;
 	if (Array.isArray(raw.grants)) {
 		meta.grants = raw.grants.filter(isGrant);
 	}

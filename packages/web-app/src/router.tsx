@@ -40,7 +40,9 @@ function RootComponent() {
 	return (
 		<SessionBoot>
 			{(session) =>
-				session.signedIn && session.tokens ? (
+				session.signedIn &&
+				session.tokens &&
+				!session.principal?.provisional ? (
 					<CadmusProvider
 						key="signed-in"
 						sessionMode
@@ -70,7 +72,15 @@ function RootComponent() {
 						</ElevationProvider>
 					</CadmusProvider>
 				) : (
-					<LoginDialog providers={session.providers} />
+					<LoginDialog
+						providers={session.providers}
+						accessToken={
+							session.principal?.provisional
+								? session.tokens?.accessToken
+								: undefined
+						}
+						memberships={session.memberships}
+					/>
 				)
 			}
 		</SessionBoot>

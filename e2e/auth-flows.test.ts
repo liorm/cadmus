@@ -368,7 +368,7 @@ describe("auth flows (google, invites, sessions, phase 6)", () => {
 		const accountId = created.frame.result?.account.id ?? "";
 		const invite = await sendRpc(
 			"system.members.invite",
-			{ accountId, email, role: "user" },
+			{ accountId, email, roles: ["user"] },
 			{ token: boss.accessToken },
 		);
 		expect(invite.frame.ok, JSON.stringify(invite.frame)).toBe(true);

@@ -457,7 +457,7 @@ function Members({
 							client.callRpc("system.members.invite", {
 								accountId,
 								email: value,
-								role,
+								roles: [role],
 							}),
 						() => setEmail(""),
 					);
@@ -502,7 +502,7 @@ function Members({
 								className="flex flex-col gap-1 rounded-md border border-border p-2"
 							>
 								<span className="break-all">
-									{label} · {member.role}
+									{label} · {(member.roles ?? []).join(", ")}
 									{member.disabledAt ? " · disabled" : ""}
 								</span>
 								{confirmDisable === member.userId ? (
@@ -544,29 +544,32 @@ function Members({
 									</fieldset>
 								) : null}
 								<div className="flex flex-wrap gap-2">
-									<button
-										type="button"
-										className={buttonClass}
-										disabled={busy}
-										onClick={() => {
-											void run(
-												() =>
-													client.callRpc("system.members.update", {
-														accountId,
-														userId: member.userId,
-														role:
-															member.role === "account-admin"
-																? "user"
-																: "account-admin",
-													}),
-												again,
-											);
-										}}
-									>
-										{member.role === "account-admin"
-											? "Make user"
-											: "Make account admin"}
-									</button>
+									{(["user", "account-admin"] as const).map((role) => {
+										const held = (member.roles ?? []).includes(role);
+										return (
+											<button
+												key={role}
+												type="button"
+												className={buttonClass}
+												disabled={busy}
+												onClick={() => {
+													void run(
+														() =>
+															client.callRpc("system.members.update", {
+																accountId,
+																userId: member.userId,
+																op: held ? "revoke" : "grant",
+																role,
+															}),
+														again,
+													);
+												}}
+											>
+												{held ? "Remove" : "Add"}{" "}
+												{role === "account-admin" ? "account admin" : "user"}
+											</button>
+										);
+									})}
 									{member.disabledAt ? (
 										<button
 											type="button"

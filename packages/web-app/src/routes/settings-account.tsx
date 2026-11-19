@@ -24,8 +24,7 @@ export function AccountSettingsPage() {
 	const principalPending = session.signedIn && principal === null;
 	const canManage = !session.signedIn
 		? true
-		: principal !== null &&
-			(principal.role === "account-admin" || principal.role === "owner");
+		: principal !== null && principal.role === "account-admin";
 	const [needsAdmin, setNeedsAdmin] = useState(false);
 	const [locked, setLocked] = useState(false);
 	const lockedData = useRef<unknown>(undefined);
@@ -85,7 +84,11 @@ export function AccountSettingsPage() {
 	}, [loaded.phase, loaded.error, loaded.data, locked]);
 	const changeMember = (
 		call: "account.members.update" | "account.members.remove",
-		payload: { userId: string; role?: "user" | "account-admin" },
+		payload: {
+			userId: string;
+			op?: "grant" | "revoke";
+			role?: "user" | "account-admin";
+		},
 		done: (result: Record<string, unknown>) => string,
 	) => {
 		if (memberActionsDisabled) return;
@@ -268,9 +271,10 @@ export function AccountSettingsPage() {
 							{loaded.phase === "ready" ? (
 								<ul className="overflow-hidden rounded-md border border-border bg-surface">
 									{members.map((member) => {
-										const isAdmin =
-											member.role === "account-admin" ||
-											member.role === "owner";
+										const roles = member.roles ?? [];
+										const adminCount = members.filter((row) =>
+											row.roles?.includes("account-admin"),
+										).length;
 										return (
 											<li
 												key={member.userId}
@@ -281,33 +285,53 @@ export function AccountSettingsPage() {
 													<span className="min-w-0 break-all">
 														{member.userId}
 													</span>
-													<span className="text-text-muted">{member.role}</span>
+													<span className="text-text-muted">
+														{roles.join(", ")}
+													</span>
 												</span>
 												{canManage ? (
 													<span className="flex flex-wrap gap-2">
-														<button
-															type="button"
-															className="min-h-tap rounded-md border border-border px-3 disabled:opacity-50"
-															disabled={memberActionsDisabled}
-															onClick={() =>
-																changeMember(
-																	"account.members.update",
-																	{
-																		userId: member.userId,
-																		role: isAdmin ? "user" : "account-admin",
-																	},
-																	(r) =>
-																		`Role changed to ${isAdmin ? "user" : "account admin"}${
-																			typeof r.tokensRevoked === "number" &&
-																			r.tokensRevoked > 0
-																				? `; ${r.tokensRevoked} personal tokens revoked`
-																				: ""
-																		}.`,
-																)
-															}
-														>
-															{isAdmin ? "Make user" : "Make account admin"}
-														</button>
+														{(["user", "account-admin"] as const).map(
+															(role) => {
+																const held = roles.includes(role);
+																const lastRole = held && roles.length <= 1;
+																const lastAdmin =
+																	held &&
+																	role === "account-admin" &&
+																	adminCount <= 1;
+																return (
+																	<button
+																		key={role}
+																		type="button"
+																		className="min-h-tap rounded-md border border-border px-3 disabled:opacity-50"
+																		disabled={
+																			memberActionsDisabled ||
+																			lastRole ||
+																			lastAdmin
+																		}
+																		onClick={() =>
+																			changeMember(
+																				"account.members.update",
+																				{
+																					userId: member.userId,
+																					op: held ? "revoke" : "grant",
+																					role,
+																				},
+																				() =>
+																					held
+																						? `Removed ${role}.`
+																						: `Added ${role}.`,
+																			)
+																		}
+																	>
+																		{held ? "Remove" : "Add"}{" "}
+																		{role === "account-admin"
+																			? "account admin"
+																			: "user"}
+																	</button>
+																);
+															},
+														)}
 														<button
 															type="button"
 															className="min-h-tap rounded-md border border-border px-3 text-destructive disabled:opacity-50"

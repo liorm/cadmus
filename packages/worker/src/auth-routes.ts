@@ -7,7 +7,7 @@ import {
 	verifyGoogleIdToken,
 	verifyTransaction,
 } from "./auth/google.js";
-import { bearerToken, readCookie } from "./auth.js";
+import { authenticateRequest, bearerToken, readCookie } from "./auth.js";
 import {
 	lockoutClear,
 	lockoutFail,
@@ -32,6 +32,7 @@ const SESSION_REFRESH_PATH = "/api/auth/session/refresh";
 const LOGOUT_PATH = "/api/auth/session/logout";
 const TOKEN_LOGIN_PATH = "/api/auth/login/token";
 const DEV_PASSWORD_PATH = "/api/auth/login/devPassword";
+const ASSUME_ROLE_PATH = "/api/auth/assumeRole";
 const PROVIDERS_PATH = "/api/auth/login/providers";
 const GOOGLE_LOGIN_PATH = "/api/auth/login/google/start";
 const GOOGLE_CALLBACK_PATH = "/api/auth/login/google/callback";
@@ -42,6 +43,7 @@ export function isAuthRoute(pathname: string): boolean {
 		pathname === LOGOUT_PATH ||
 		pathname === TOKEN_LOGIN_PATH ||
 		pathname === DEV_PASSWORD_PATH ||
+		pathname === ASSUME_ROLE_PATH ||
 		pathname === PROVIDERS_PATH ||
 		pathname === GOOGLE_LOGIN_PATH ||
 		pathname === GOOGLE_CALLBACK_PATH
@@ -63,6 +65,9 @@ export async function handleAuthRoute(
 	}
 	if (pathname === DEV_PASSWORD_PATH) {
 		return handleDevPassword(request, env, adminStore);
+	}
+	if (pathname === ASSUME_ROLE_PATH) {
+		return handleAssumeRole(request, env, adminStore);
 	}
 	if (pathname === PROVIDERS_PATH) return handleProviders(request, env);
 	if (pathname === GOOGLE_LOGIN_PATH) return handleGoogleLogin(request, env);
@@ -141,10 +146,23 @@ async function handleGoogleLogin(
 			noStore({ status: 405 }),
 		);
 	}
+	let chooseRole = false;
+	if (request.method === "POST") {
+		try {
+			const body = (await request.json()) as {
+				payload?: { chooseRole?: unknown };
+			};
+			chooseRole = body.payload?.chooseRole === true;
+		} catch {
+			chooseRole = false;
+		}
+	}
 	const started = await startGoogleLogin(
 		env,
 		config,
 		redirectUriFor(request, env),
+		undefined,
+		{ chooseRole },
 	);
 	if (request.method === "POST") {
 		return Response.json(
@@ -213,6 +231,7 @@ async function handleGoogleCallback(
 	const login = await adminStore.completeLogin(verified.identity, {
 		userAgent: request.headers.get("user-agent") ?? undefined,
 		ipCountry: request.headers.get("cf-ipcountry") ?? undefined,
+		chooseRole: txn.chooseRole === true,
 	});
 	if (!login.ok) {
 		await lockoutFail(env, "google-callback", googleEmail);
@@ -339,7 +358,9 @@ async function handleDevPassword(
 			noStore({ status: 403 }),
 		);
 	}
-	let body: { payload?: { email?: unknown; password?: unknown } } = {};
+	let body: {
+		payload?: { email?: unknown; password?: unknown; chooseRole?: unknown };
+	} = {};
 	try {
 		body = (await request.json()) as typeof body;
 	} catch {
@@ -383,6 +404,7 @@ async function handleDevPassword(
 		{
 			bootstrapEmail: env.CADMUS_BOOTSTRAP_SUPER_ADMIN_EMAIL,
 			userAgent: request.headers.get("user-agent") ?? undefined,
+			chooseRole: payload.chooseRole === true,
 		},
 	);
 	if (login.ok) await lockoutClear(env, "dev-password", email);
@@ -396,8 +418,93 @@ async function handleDevPassword(
 		{
 			accessToken: login.tokens.accessToken,
 			expiresAt: login.tokens.accessExpiresAt,
+			...(login.provisional ? { provisional: true } : {}),
 		},
 		noStore({ status: 200, cookie: refreshCookieHeader(login.tokens) }),
+	);
+}
+
+const ROLES = new Set(["user", "account-admin", "super-admin"]);
+
+async function handleAssumeRole(
+	request: Request,
+	env: Env,
+	adminStore: AdminStore,
+): Promise<Response> {
+	if (request.method !== "POST") {
+		return Response.json(
+			{ error: { code: "method_not_allowed", message: "Use POST" } },
+			noStore({ status: 405 }),
+		);
+	}
+	const token = bearerToken(request);
+	if (!token) {
+		return Response.json(
+			{ error: { code: "unauthorized", message: "Sign in required" } },
+			noStore({ status: 401 }),
+		);
+	}
+	const auth = await authenticateRequest(request, env, adminStore, undefined, {
+		allowQueryToken: false,
+		allowCookie: false,
+	});
+	if (!auth.ok) {
+		return Response.json(
+			{ error: { code: auth.code, message: auth.message } },
+			noStore({ status: auth.code === "unauthorized" ? 401 : 403 }),
+		);
+	}
+	if (!auth.scope.sessionId || auth.scope.grants) {
+		return Response.json(
+			{ error: { code: "forbidden", message: "Assume role refused" } },
+			noStore({ status: 403 }),
+		);
+	}
+	let body: { payload?: { role?: unknown; accountId?: unknown } } = {};
+	try {
+		body = (await request.json()) as typeof body;
+	} catch {
+		body = {};
+	}
+	const role = body.payload?.role;
+	const accountId = body.payload?.accountId;
+	if (typeof role !== "string" || !ROLES.has(role)) {
+		return Response.json(
+			{ error: { code: "invalid", message: "role is not a role" } },
+			noStore({ status: 400 }),
+		);
+	}
+	if (typeof accountId !== "string" || accountId.length === 0) {
+		return Response.json(
+			{ error: { code: "invalid", message: "accountId is required" } },
+			noStore({ status: 400 }),
+		);
+	}
+	const result = await adminStore.assumeRole({
+		rawAccess: token,
+		role: role as "user" | "account-admin" | "super-admin",
+		accountId,
+		userAgent: request.headers.get("user-agent") ?? undefined,
+	});
+	if (!result.ok) {
+		const status =
+			result.code === "unauthorized"
+				? 401
+				: result.code === "role_unchanged"
+					? 409
+					: 403;
+		return Response.json(
+			{ error: { code: result.code, message: "Assume role refused" } },
+			noStore({ status }),
+		);
+	}
+	return Response.json(
+		{
+			accessToken: result.tokens.accessToken,
+			expiresAt: result.tokens.accessExpiresAt,
+			sessionId: result.tokens.sessionId,
+		},
+		noStore({ status: 200, cookie: refreshCookieHeader(result.tokens) }),
 	);
 }
 
@@ -426,12 +533,23 @@ async function handleTokenLogin(
 			noStore({ status: 401 }),
 		);
 	}
-	const result = await adminStore.tokenLogin(raw, {
-		userAgent: request.headers.get("user-agent") ?? undefined,
-		ipCountry:
-			(request as Request & { cf?: { country?: string } }).cf?.country ??
-			undefined,
-	});
+	let result: Awaited<ReturnType<AdminStore["tokenLogin"]>>;
+	try {
+		result = await adminStore.tokenLogin(raw, {
+			userAgent: request.headers.get("user-agent") ?? undefined,
+			ipCountry:
+				(request as Request & { cf?: { country?: string } }).cf?.country ??
+				undefined,
+		});
+	} catch (error) {
+		getLogger().error("token login failed closed", {
+			error: error instanceof Error ? error.message : "unknown",
+		});
+		return Response.json(
+			{ error: { code: "internal", message: "Token login refused" } },
+			noStore({ status: 500 }),
+		);
+	}
 	if (!result.ok) {
 		return Response.json(
 			{ error: { code: "unauthorized", message: "Token login refused" } },

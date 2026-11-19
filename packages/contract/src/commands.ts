@@ -1,5 +1,6 @@
 import { type Static, Type } from "typebox";
 import {
+	AuthAssumeRoleCommandSchema,
 	AuthLoginDevPasswordCommandSchema,
 	AuthLoginGoogleStartCommandSchema,
 	AuthLoginProvidersCommandSchema,
@@ -140,10 +141,15 @@ export const AccountMembersInviteCommandSchema = Type.Object(
 		payload: Type.Object(
 			{
 				email: Type.String({ minLength: 3, maxLength: 254 }),
-				role: Type.Optional(
-					Type.Union([Type.Literal("user"), Type.Literal("account-admin")], {
-						description: "Role to give: user or account-admin.",
-					}),
+				roles: Type.Optional(
+					Type.Array(
+						Type.Union([Type.Literal("user"), Type.Literal("account-admin")]),
+						{
+							minItems: 1,
+							description:
+								"Roles to give. Omitted means user only. account-admin is management of this account.",
+						},
+					),
 				),
 				ttlDays: Type.Optional(Type.Number({ minimum: 0.01, maximum: 60 })),
 			},
@@ -173,20 +179,23 @@ export const AccountMembersUpdateCommandSchema = Type.Object(
 		payload: Type.Object(
 			{
 				userId: Type.String({ minLength: 1 }),
+				op: Type.Union([Type.Literal("grant"), Type.Literal("revoke")], {
+					description: "Add or remove this one role. Other roles stay.",
+				}),
 				role: Type.Union(
 					[Type.Literal("user"), Type.Literal("account-admin")],
 					{
-						description: "Role to give: user or account-admin.",
+						description: "Role to grant or revoke: user or account-admin.",
 					},
 				),
 			},
-			{ description: "Member and new role." },
+			{ description: "Member and the role to grant or revoke." },
 		),
 	},
 	{
 		grant: "members.manage",
 		description:
-			"Change a member's role. Demoting an account-admin revokes their personal tokens; the last account-admin cannot be demoted.",
+			"Grant or revoke one role. Revoking account-admin revokes their personal tokens. The last account-admin and the member's last role cannot be revoked.",
 	},
 );
 export type AccountMembersUpdateCommand = Static<
@@ -343,18 +352,13 @@ export const AccountMembersAddCommandSchema = Type.Object(
 						description: "Optional email address for the user.",
 					}),
 				),
-				role: Type.Optional(
-					Type.Union(
-						[
-							Type.Literal("user"),
-							Type.Literal("account-admin"),
-							Type.Literal("super-admin"),
-							Type.Literal("owner"),
-							Type.Literal("member"),
-						],
+				roles: Type.Optional(
+					Type.Array(
+						Type.Union([Type.Literal("user"), Type.Literal("account-admin")]),
 						{
+							minItems: 1,
 							description:
-								"Access role: 'account-admin' (formerly 'owner'), 'user' (formerly 'member', the default) or 'super-admin'. Old names are still accepted.",
+								"Roles to store. Omitted means user only. super-admin cannot be added here.",
 						},
 					),
 				),
@@ -2879,10 +2883,14 @@ export const SystemMembersInviteCommandSchema = Type.Object(
 					description: "Tenant account the change is about.",
 				}),
 				email: Type.String({ minLength: 3, maxLength: 254 }),
-				role: Type.Optional(
-					Type.Union([Type.Literal("user"), Type.Literal("account-admin")], {
-						description: "Role to give: user or account-admin.",
-					}),
+				roles: Type.Optional(
+					Type.Array(
+						Type.Union([Type.Literal("user"), Type.Literal("account-admin")]),
+						{
+							minItems: 1,
+							description: "Roles to give. Omitted means user only.",
+						},
+					),
 				),
 				ttlDays: Type.Optional(Type.Number({ minimum: 0.01, maximum: 60 })),
 			},
@@ -2916,10 +2924,13 @@ export const SystemMembersUpdateCommandSchema = Type.Object(
 					description: "Tenant account the change is about.",
 				}),
 				userId: Type.String({ minLength: 1, description: "Target user." }),
+				op: Type.Union([Type.Literal("grant"), Type.Literal("revoke")], {
+					description: "Add or remove this one role. Other roles stay.",
+				}),
 				role: Type.Union(
 					[Type.Literal("user"), Type.Literal("account-admin")],
 					{
-						description: "Role to give: user or account-admin.",
+						description: "Role to grant or revoke: user or account-admin.",
 					},
 				),
 			},
@@ -2929,7 +2940,7 @@ export const SystemMembersUpdateCommandSchema = Type.Object(
 	{
 		grant: "system.members.manage",
 		description:
-			"Change a member's role in a tenant account. The last account-admin cannot be demoted. Needs admin mode.",
+			"Grant or revoke one tenant role. The last account-admin and the member's last role cannot be revoked. Needs admin mode.",
 	},
 );
 export type SystemMembersUpdateCommand = Static<
@@ -3088,6 +3099,7 @@ export const ClientCommandSchema = Type.Union(
 		AuthMembershipsListCommandSchema,
 		AuthMethodsDeleteCommandSchema,
 		AuthLoginProvidersCommandSchema,
+		AuthAssumeRoleCommandSchema,
 		AuthLoginDevPasswordCommandSchema,
 		AuthLoginTokenCommandSchema,
 		AuthLoginGoogleStartCommandSchema,

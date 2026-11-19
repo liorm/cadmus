@@ -184,7 +184,7 @@ async function openWs(token: string, who: string) {
 describe("denial sweep over every registered command (issue #3 L237)", () => {
 	it("registry is non-empty and every command grant is in the grant table", () => {
 		const types = listCommandTypes();
-		expect(types.length).toBe(94);
+		expect(types.length).toBe(95);
 		for (const t of types) {
 			const grant = getCommandGrant(t);
 			if (t.startsWith("auth.login.") || t.startsWith("auth.session.")) {
@@ -252,16 +252,16 @@ describe("denial sweep over every registered command (issue #3 L237)", () => {
 	}
 
 	const expectedReport = [
-		"user: 44 denied of 94",
-		"account-admin (no admin mode): 41 denied of 94",
-		"chat.use-only token: 65 denied of 94",
+		"user: 44 denied of 95",
+		"account-admin (no admin mode): 41 denied of 95",
+		"chat.use-only token: 66 denied of 95",
 	];
 	// Independent literals: calls actually sent per transport, not derived
 	// from the denied list the loop iterates.
 	const expectedCalls = [
 		{ rpc: 44, ws: 44 },
 		{ rpc: 41, ws: 41 },
-		{ rpc: 65, ws: 65 },
+		{ rpc: 66, ws: 66 },
 	];
 
 	for (const [idx, label] of [

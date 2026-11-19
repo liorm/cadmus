@@ -181,12 +181,16 @@ describe("x-account-id selects among the caller's memberships (issue #3 L113)", 
 	async function twoAccounts() {
 		const { s, accountId, userId } = await seedUser("account-admin");
 		const second = uniqueAccountId("sel2");
-		await s.ensureAccountAndUser({ accountId: second, userId, role: "user" });
+		await s.ensureAccountAndUser({
+			accountId: second,
+			userId,
+			role: "account-admin",
+		});
 		const t = await s.createSession({ userId, accountId });
 		return { s, accountId, second, userId, t };
 	}
 
-	it("acts in the selected account with that membership's role, and defaults to the session's account", async () => {
+	it("acts in the selected account with the same hat, and defaults to the session's account", async () => {
 		const { accountId, second, t } = await twoAccounts();
 		const home = await whoamiAs(t.accessToken);
 		expect(home.principal).toMatchObject({ accountId, role: "account-admin" });
@@ -194,7 +198,10 @@ describe("x-account-id selects among the caller's memberships (issue #3 L113)", 
 		expect(same.principal).toMatchObject({ accountId, role: "account-admin" });
 		const picked = await whoamiAs(t.accessToken, second);
 		expect(picked.status).toBe(200);
-		expect(picked.principal).toMatchObject({ accountId: second, role: "user" });
+		expect(picked.principal).toMatchObject({
+			accountId: second,
+			role: "account-admin",
+		});
 	});
 
 	it("refuses a foreign, unknown, suspended or removed account the same way as a bad token", async () => {
@@ -383,7 +390,11 @@ describe("last-used account default (issue #3 L113)", () => {
 	async function setup() {
 		const { s, accountId, userId } = await seedUser("account-admin");
 		const second = uniqueAccountId("lu2");
-		await s.ensureAccountAndUser({ accountId: second, userId, role: "user" });
+		await s.ensureAccountAndUser({
+			accountId: second,
+			userId,
+			role: "account-admin",
+		});
 		const subject = `lu-${crypto.randomUUID()}`;
 		await DB()
 			.prepare(
@@ -489,7 +500,11 @@ describe("sockets opened for a selected account keep that account's authority (i
 	async function setup() {
 		const { s, accountId, userId } = await seedUser("account-admin");
 		const second = uniqueAccountId("ws2");
-		await s.ensureAccountAndUser({ accountId: second, userId, role: "user" });
+		await s.ensureAccountAndUser({
+			accountId: second,
+			userId,
+			role: "account-admin",
+		});
 		const t = await s.createSession({ userId, accountId });
 		return { s, accountId, second, userId, t };
 	}
@@ -556,13 +571,13 @@ describe("sockets opened for a selected account keep that account's authority (i
 		expect(who?.ok).toBe(true);
 		expect(who?.result?.principal).toMatchObject({
 			accountId: second,
-			role: "user",
+			role: "account-admin",
 		});
 		// A second command on the same socket is still B (liveCaller re-resolves).
 		const again = await sockB.ask("auth.whoami");
 		expect(again?.result?.principal).toMatchObject({
 			accountId: second,
-			role: "user",
+			role: "account-admin",
 		});
 		const sockHome = await open(t.accessToken);
 		const home = await sockHome.ask("auth.whoami");
@@ -596,7 +611,11 @@ describe("sockets opened for a selected account keep that account's authority (i
 			encryptionKey: env.CADMUS_ENCRYPTION_KEY,
 			edgeCache: getEdgeCache(env),
 		});
-		await s.ensureAccountAndUser({ accountId: third, userId, role: "user" });
+		await s.ensureAccountAndUser({
+			accountId: third,
+			userId,
+			role: "account-admin",
+		});
 		const sock3 = await open(t.accessToken, third);
 		expect((await sock3.ask("auth.whoami"))?.ok).toBe(true);
 		await env.CADMUS_ADMIN_DB.prepare(
@@ -734,7 +753,7 @@ describe("sockets opened for a selected account keep that account's authority (i
 		await sweepAndDeliver(second);
 		expect(sseB.st.done).toBe(false);
 		await env.CADMUS_ADMIN_DB.prepare(
-			"UPDATE cadmus_account_members SET role = 'super-admin' WHERE account_id = ?1 AND user_id = ?2",
+			"DELETE FROM cadmus_member_roles WHERE account_id = ?1 AND user_id = ?2 AND role = 'account-admin'",
 		)
 			.bind(second, userId)
 			.run();
@@ -760,7 +779,7 @@ describe("sockets opened for a selected account keep that account's authority (i
 			(await sockHome.ask("auth.whoami"))?.result?.principal?.elevatedUntil,
 		).toBeUndefined();
 		await env.CADMUS_ADMIN_DB.prepare(
-			"UPDATE cadmus_account_members SET role = 'account-admin' WHERE account_id = ?1 AND user_id = ?2",
+			"INSERT OR IGNORE INTO cadmus_member_roles (account_id, user_id, role, created_at) SELECT account_id, user_id, 'account-admin', created_at FROM cadmus_account_members WHERE account_id = ?1 AND user_id = ?2",
 		)
 			.bind(second, userId)
 			.run();
@@ -776,7 +795,11 @@ describe("tickets bind the selected account (issue #3 L132)", () => {
 	async function setup() {
 		const { s, accountId, userId } = await seedUser("account-admin");
 		const second = uniqueAccountId("tk2");
-		await s.ensureAccountAndUser({ accountId: second, userId, role: "user" });
+		await s.ensureAccountAndUser({
+			accountId: second,
+			userId,
+			role: "account-admin",
+		});
 		const t = await s.createSession({ userId, accountId });
 		return { s, accountId, second, userId, t };
 	}
@@ -785,7 +808,7 @@ describe("tickets bind the selected account (issue #3 L132)", () => {
 		const { s, accountId, second, t } = await setup();
 		const forSecond = await s.createTicket(t.sessionId, "events", second);
 		const picked = await s.consumeTicket(forSecond.ticket, "events");
-		expect(picked).toMatchObject({ accountId: second, role: "user" });
+		expect(picked).toMatchObject({ accountId: second, role: "account-admin" });
 		const dflt = await s.createTicket(t.sessionId, "events");
 		expect(await s.consumeTicket(dflt.ticket, "events")).toMatchObject({
 			accountId,
@@ -815,7 +838,7 @@ describe("tickets bind the selected account (issue #3 L132)", () => {
 			.run();
 		const ticket = await s.createTicket(t.sessionId, "events", second);
 		const picked = await s.consumeTicket(ticket.ticket, "events");
-		expect(picked).toMatchObject({ accountId: second, role: "user" });
+		expect(picked).toMatchObject({ accountId: second, role: "account-admin" });
 		expect(picked).not.toHaveProperty("elevatedUntil");
 	});
 
@@ -854,12 +877,12 @@ describe("session and login method commands (issue #3 phase 3c)", () => {
 		await s.ensureAccountAndUser({
 			accountId: second,
 			userId,
-			role: "user",
+			role: "account-admin",
 		});
 		await s.ensureAccountAndUser({
 			accountId: suspended,
 			userId,
-			role: "user",
+			role: "account-admin",
 		});
 		await env.CADMUS_ADMIN_DB.prepare(
 			"UPDATE cadmus_accounts SET status = 'suspended' WHERE id = ?1",
@@ -876,13 +899,13 @@ describe("session and login method commands (issue #3 phase 3c)", () => {
 				memberships: Array<{
 					accountId: string;
 					name: string;
-					role: string;
+					roles: string[];
 				}>;
 			}
 		).memberships;
 		const byId = new Map(memberships.map((m) => [m.accountId, m]));
-		expect(byId.get(accountId)?.role).toBe("account-admin");
-		expect(byId.get(second)?.role).toBe("user");
+		expect(byId.get(accountId)?.roles).toEqual(["account-admin"]);
+		expect(byId.get(second)?.roles).toEqual(["account-admin"]);
 		expect(byId.has(suspended)).toBe(false);
 		expect(byId.has(other.accountId)).toBe(false);
 		expect(memberships).toHaveLength(2);
@@ -1070,7 +1093,7 @@ describe("session and login method commands (issue #3 phase 3c)", () => {
 		await s.addMember({
 			accountId,
 			userId,
-			role: "account-admin",
+			roles: ["account-admin"],
 			rawToken: raw,
 		});
 		for (const tok of [raw, `${accountId}:${userId}:${TEST_TOKEN}`]) {
@@ -1116,7 +1139,7 @@ describe("session and login method commands (issue #3 phase 3c)", () => {
 			await s.addMember({
 				accountId,
 				userId: `${userId}-${label}`,
-				role: "user",
+				roles: ["user"],
 				rawToken: raw,
 			});
 			return raw;
@@ -1168,7 +1191,7 @@ describe("session and login method commands (issue #3 phase 3c)", () => {
 		await s.addMember({
 			accountId,
 			userId: `${userId}-spoof`,
-			role: "user",
+			roles: ["account-admin"],
 			rawToken: raw,
 		});
 		const forged = btoa(
@@ -1176,7 +1199,7 @@ describe("session and login method commands (issue #3 phase 3c)", () => {
 				kind: "token",
 				userId: `${userId}-spoof`,
 				accountId,
-				role: "user",
+				role: "account-admin",
 				credential: "master",
 			}),
 		);
@@ -1226,7 +1249,7 @@ describe("session and login method commands (issue #3 phase 3c)", () => {
 		await a.s.addMember({
 			accountId: a.accountId,
 			userId: `${a.userId}-m`,
-			role: "user",
+			roles: ["user"],
 			rawToken: raw,
 		});
 		const whoami = async (url: string) => {
@@ -1311,7 +1334,7 @@ describe("session and login method commands (issue #3 phase 3c)", () => {
 		await s.addMember({
 			accountId,
 			userId,
-			role: "account-admin",
+			roles: ["account-admin"],
 			rawToken: raw,
 		});
 		// A legacy member token is header-only on /events and /ws. ?token= and
@@ -1393,7 +1416,7 @@ describe("session and login method commands (issue #3 phase 3c)", () => {
 		await s.addMember({
 			accountId,
 			userId: `${userId}-doomed`,
-			role: "user",
+			roles: ["account-admin"],
 			rawToken: doomed,
 		});
 		const minted = await sendRpc<{ ticket: string }>(
@@ -1427,7 +1450,7 @@ describe("session and login method commands (issue #3 phase 3c)", () => {
 			await sub.s.addMember({
 				accountId: sub.accountId,
 				userId: `${sub.userId}-x`,
-				role: "user",
+				roles: ["user"],
 				rawToken: tok,
 			});
 			const ok = await sendRpc<{ ticket: string }>(

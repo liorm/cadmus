@@ -25,7 +25,10 @@ async function superAdmin() {
 			`INSERT INTO cadmus_users (id, name, email, created_at) VALUES (?1, 'Root', NULL, ?2)`,
 		).bind(userId, now),
 		env.CADMUS_ADMIN_DB.prepare(
-			`INSERT INTO cadmus_account_members (account_id, user_id, role, created_at) VALUES ('system', ?1, 'super-admin', ?2)`,
+			`INSERT INTO cadmus_account_members (account_id, user_id, created_at) VALUES ('system', ?1, ?2)`,
+		).bind(userId, now),
+		env.CADMUS_ADMIN_DB.prepare(
+			`INSERT INTO cadmus_member_roles (account_id, user_id, role, created_at) VALUES ('system', ?1, 'super-admin', ?2)`,
 		).bind(userId, now),
 	]);
 	const session = await s.createSession({ userId, accountId: "system" });
@@ -496,7 +499,7 @@ describe("system console members and users (issue #3 phase 6b)", () => {
 			["system.members.invite", { accountId, email: "a@example.com" }],
 			[
 				"system.members.update",
-				{ accountId, userId: user.userId, role: "account-admin" },
+				{ accountId, userId: user.userId, op: "grant", role: "account-admin" },
 			],
 			["system.members.remove", { accountId, userId: user.userId }],
 			["system.users.disable", { userId: user.userId }],
@@ -518,18 +521,18 @@ describe("system console members and users (issue #3 phase 6b)", () => {
 		const { t, accountId } = await tenant();
 		const user = await addMember(accountId, "user");
 		const listed = await rpc(t, "system.members.list", { accountId });
-		expect((listed.result?.members ?? []).map((m) => m.role).sort()).toEqual([
-			"account-admin",
-			"user",
-		]);
+		expect(
+			(listed.result?.members ?? []).map((m) => m.roles.join("+")).sort(),
+		).toEqual(["account-admin", "user"]);
 
 		const up = await rpc(t, "system.members.update", {
 			accountId,
 			userId: user.userId,
+			op: "grant",
 			role: "account-admin",
 		});
 		expect(up.result?.updated).toBe(true);
-		const rows = await audit("member.role", user.userId);
+		const rows = await audit("member.role.grant", user.userId);
 		expect(rows.at(-1)?.actor_kind).toBe("super-admin");
 		const events = await rpc(t, "system.audit.list", { accountId });
 		expect(
@@ -539,10 +542,10 @@ describe("system console members and users (issue #3 phase 6b)", () => {
 		const invited = await rpc(t, "system.members.invite", {
 			accountId,
 			email: "first@example.com",
-			role: "account-admin",
+			roles: ["account-admin"],
 		});
 		expect(invited.ok).toBe(true);
-		expect(invited.result?.invite.role).toBe("account-admin");
+		expect(invited.result?.invite.roles).toEqual(["account-admin"]);
 
 		for (const type of [
 			"system.members.list",
@@ -554,7 +557,8 @@ describe("system console members and users (issue #3 phase 6b)", () => {
 				accountId: "system",
 				userId: user.userId,
 				email: "x@example.com",
-				role: "user",
+				op: "revoke",
+				role: "account-admin",
 			});
 			expect(r.ok).toBe(false);
 			expect(r.error?.code).toBe("not_found");
@@ -565,7 +569,7 @@ describe("system console members and users (issue #3 phase 6b)", () => {
 		const { t, accountId } = await tenant();
 		const admin = await addMember(accountId, "account-admin");
 		const owners = await env.CADMUS_ADMIN_DB.prepare(
-			`SELECT user_id FROM cadmus_account_members WHERE account_id = ?1 AND role = 'account-admin' AND user_id != ?2`,
+			`SELECT user_id FROM cadmus_member_roles WHERE account_id = ?1 AND role = 'account-admin' AND user_id != ?2`,
 		)
 			.bind(accountId, admin.userId)
 			.all<{ user_id: string }>();
@@ -573,13 +577,27 @@ describe("system console members and users (issue #3 phase 6b)", () => {
 			await rpc(t, "system.members.update", {
 				accountId,
 				userId: row.user_id,
+				op: "grant",
 				role: "user",
 			});
+			await rpc(t, "system.members.update", {
+				accountId,
+				userId: row.user_id,
+				op: "revoke",
+				role: "account-admin",
+			});
 		}
+		await rpc(t, "system.members.update", {
+			accountId,
+			userId: admin.userId,
+			op: "grant",
+			role: "user",
+		});
 		const demote = await rpc(t, "system.members.update", {
 			accountId,
 			userId: admin.userId,
-			role: "user",
+			op: "revoke",
+			role: "account-admin",
 		});
 		expect(demote.ok).toBe(false);
 		const remove = await rpc(t, "system.members.remove", {
@@ -659,6 +677,7 @@ describe("system console members and users (issue #3 phase 6b)", () => {
 				s.updateMemberRole({
 					accountId,
 					userId: user.userId,
+					op: "grant",
 					role: "account-admin",
 					actor: `usr_actor${n}`,
 					actorKind: "super-admin",
@@ -667,13 +686,13 @@ describe("system console members and users (issue #3 phase 6b)", () => {
 		);
 		expect(results.every((r) => r.ok)).toBe(true);
 		expect(results.filter((r) => r.ok && r.changed).length).toBe(1);
-		expect((await audit("member.role", user.userId)).length).toBe(1);
+		expect((await audit("member.role.grant", user.userId)).length).toBe(1);
 
 		// Two admins demoted at once: at least one admin must remain.
 		// The account owner is already an admin. Demote that owner first so the
 		// race is only the two members this test added.
 		const owners = await env.CADMUS_ADMIN_DB.prepare(
-			`SELECT user_id FROM cadmus_account_members WHERE account_id = ?1 AND role = 'account-admin' AND user_id != ?2`,
+			`SELECT user_id FROM cadmus_member_roles WHERE account_id = ?1 AND role = 'account-admin' AND user_id != ?2`,
 		)
 			.bind(accountId, user.userId)
 			.all<{ user_id: string }>();
@@ -681,18 +700,44 @@ describe("system console members and users (issue #3 phase 6b)", () => {
 			await s.updateMemberRole({
 				accountId,
 				userId: row.user_id,
+				op: "grant",
 				role: "user",
+				actor: "usr_actor",
+				actorKind: "super-admin",
+			});
+			await s.updateMemberRole({
+				accountId,
+				userId: row.user_id,
+				op: "revoke",
+				role: "account-admin",
 				actor: "usr_actor",
 				actorKind: "super-admin",
 			});
 		}
 		const second = await addMember(accountId, "account-admin");
+		await s.updateMemberRole({
+			accountId,
+			userId: user.userId,
+			op: "grant",
+			role: "user",
+			actor: "usr_actor",
+			actorKind: "super-admin",
+		});
+		await s.updateMemberRole({
+			accountId,
+			userId: second.userId,
+			op: "grant",
+			role: "user",
+			actor: "usr_actor",
+			actorKind: "super-admin",
+		});
 		const demotes = await Promise.all(
 			[user.userId, second.userId].map((userId) =>
 				s.updateMemberRole({
 					accountId,
 					userId,
-					role: "user",
+					op: "revoke",
+					role: "account-admin",
 					actor: "usr_actor",
 					actorKind: "super-admin",
 				}),
@@ -700,7 +745,7 @@ describe("system console members and users (issue #3 phase 6b)", () => {
 		);
 		expect(demotes.filter((r) => r.ok && r.changed).length).toBe(1);
 		const admins = await env.CADMUS_ADMIN_DB.prepare(
-			`SELECT COUNT(*) AS n FROM cadmus_account_members WHERE account_id = ?1 AND role = 'account-admin'`,
+			`SELECT COUNT(*) AS n FROM cadmus_member_roles WHERE account_id = ?1 AND role = 'account-admin'`,
 		)
 			.bind(accountId)
 			.first<{ n: number }>();
@@ -727,6 +772,13 @@ describe("system console members and users (issue #3 phase 6b)", () => {
 		const s = store();
 		const target = await addMember(accountId, "account-admin");
 		await addMember(accountId, "account-admin");
+		await s.updateMemberRole({
+			accountId,
+			userId: target.userId,
+			op: "grant",
+			role: "user",
+			actor: "usr_setup",
+		});
 		const db = env.CADMUS_ADMIN_DB;
 		let injected = false;
 		const racing = new Proxy(db, {
@@ -739,10 +791,14 @@ describe("system console members and users (issue #3 phase 6b)", () => {
 							const win = await updateMemberRole(db, {
 								accountId,
 								userId: target.userId,
-								role: "user",
+								op: "revoke",
+								role: "account-admin",
 								actor: "usr_winner",
 							});
-							expect(win.ok && win.changed).toBe(true);
+							expect(win, JSON.stringify(win)).toMatchObject({
+								ok: true,
+								changed: true,
+							});
 							const made = await s.createToken({
 								accountId,
 								creatorUserId: target.userId,
@@ -765,7 +821,8 @@ describe("system console members and users (issue #3 phase 6b)", () => {
 		const loser = await updateMemberRole(racing, {
 			accountId,
 			userId: target.userId,
-			role: "user",
+			op: "revoke",
+			role: "account-admin",
 			actor: "usr_loser",
 		});
 		expect(loser).toMatchObject({ ok: true, changed: false });
@@ -776,6 +833,6 @@ describe("system console members and users (issue #3 phase 6b)", () => {
 			.bind(accountId, target.userId)
 			.first<{ n: number }>();
 		expect(live?.n).toBe(1);
-		expect((await audit("member.role", target.userId)).length).toBe(1);
+		expect((await audit("member.role.revoke", target.userId)).length).toBe(1);
 	});
 });

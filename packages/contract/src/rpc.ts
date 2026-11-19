@@ -86,6 +86,7 @@ import type {
 } from "./commands.js";
 import type { CommandResultFrame } from "./frames.js";
 import type {
+	AuthAssumeRoleCommand,
 	AuthLoginDevPasswordCommand,
 	AuthLoginGoogleStartCommand,
 	AuthLoginGoogleStartResult,
@@ -409,6 +410,10 @@ export type AuthLoginProvidersRpc = Rpc<
 	AuthLoginProvidersCommand,
 	AuthLoginProvidersResult
 >;
+export type AuthAssumeRoleRpc = Rpc<
+	AuthAssumeRoleCommand,
+	AuthLoginSessionResult
+>;
 export type AuthLoginDevPasswordRpc = Rpc<
 	AuthLoginDevPasswordCommand,
 	AuthLoginSessionResult
@@ -620,6 +625,7 @@ export interface RpcMap {
 	"auth.methods.list": AuthMethodsListRpc;
 	"auth.methods.delete": AuthMethodsDeleteRpc;
 	"auth.login.providers": AuthLoginProvidersRpc;
+	"auth.assumeRole": AuthAssumeRoleRpc;
 	"auth.login.devPassword": AuthLoginDevPasswordRpc;
 	"auth.login.token": AuthLoginTokenRpc;
 	"auth.login.google.start": AuthLoginGoogleStartRpc;

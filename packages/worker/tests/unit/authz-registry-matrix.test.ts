@@ -180,6 +180,7 @@ const GOLDEN_ROLE_GRANTS: Record<string, string[]> = {
 		"credentials.read",
 		"toolsEnv.read",
 		"tokens.self",
+		"session.assume",
 	],
 	"account-admin": [
 		"chat.use",
@@ -201,6 +202,7 @@ const GOLDEN_ROLE_GRANTS: Record<string, string[]> = {
 		"account.manage",
 		"audit.read",
 		"admin.elevate",
+		"session.assume",
 	],
 	"super-admin": [
 		"tokens.self",
@@ -210,6 +212,7 @@ const GOLDEN_ROLE_GRANTS: Record<string, string[]> = {
 		"system.users.manage",
 		"system.audit.read",
 		"admin.elevate",
+		"session.assume",
 	],
 };
 
@@ -239,6 +242,7 @@ const GOLDEN_COMMAND_GRANTS: Record<string, string> = {
 	"account.toolsEnvs.pair": "toolsEnv.manage",
 	"account.toolsEnvs.update": "toolsEnv.manage",
 	"account.update": "account.manage",
+	"auth.assumeRole": "session.assume",
 	"auth.elevate": "admin.elevate",
 	"auth.elevation.end": "admin.elevate",
 	"auth.memberships.list": "tokens.self",

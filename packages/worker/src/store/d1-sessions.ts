@@ -11,6 +11,12 @@ import {
 	apiTokenHashFromCredential,
 } from "./api-token-credential.js";
 import { randomId, randomToken } from "./random-id.js";
+import {
+	clampTokenGrantsToRoles,
+	parseStoredRoles,
+	ROLE_CHOICE_SESSION_MS,
+	ROLE_RANK_SQL,
+} from "./roles.js";
 
 /**
  * Token-backed sessions (token login) store their access and refresh hashes
@@ -54,6 +60,8 @@ export interface SessionIdentity {
 	grants?: Grant[];
 	/** Epoch ms when admin mode on this session ends. Only set while it is on. */
 	elevatedUntil?: number;
+	/** Short role-choice session. */
+	provisional?: boolean;
 }
 
 /** Token grants clamped to what the role still holds (demotion clamps). */
@@ -129,6 +137,12 @@ export interface CreateSessionInput {
 	userAgent?: string;
 	ipCountry?: string;
 	now?: number;
+	/** Hat for this session. Omitted: the lowest stored role on the account. */
+	activeRole?: Role;
+	/** Short role-choice session. Caps access, idle, and absolute expiry. */
+	provisional?: boolean;
+	/** Statements committed in the same batch as the session insert. */
+	extra?: D1PreparedStatement[];
 }
 
 /** Creates a session with a fresh access and refresh token pair. */
@@ -140,6 +154,18 @@ export async function createSession(
 	const sessionId = randomId("ses_", 12);
 	const accessToken = randomToken(ACCESS_PREFIX);
 	const refreshToken = randomToken(REFRESH_PREFIX);
+	const storedHat = await db
+		.prepare(
+			`SELECT role FROM cadmus_member_roles
+        WHERE account_id = ?1 AND user_id = ?2
+        ORDER BY ${ROLE_RANK_SQL} ASC LIMIT 1`,
+		)
+		.bind(input.accountId, input.userId)
+		.first<{ role: string }>();
+	const activeRole = input.activeRole ?? normalizeRole(storedHat?.role);
+	if (!activeRole) {
+		throw new Error("session has no stored role on this account");
+	}
 	// A token-backed session never outlives its token.
 	let cap = Number.POSITIVE_INFINITY;
 	if (input.tokenId) {
@@ -149,13 +175,11 @@ export async function createSession(
 			.first<{ expires_at: number | null }>();
 		if (token?.expires_at != null) cap = token.expires_at;
 	}
-	const accessExpiresAt = Math.min(now + ACCESS_TTL_MS, cap);
-	const refreshExpiresAt = Math.min(
-		now + REFRESH_IDLE_MS,
-		now + SESSION_ABSOLUTE_MS,
-		cap,
-	);
-	const absoluteExpiresAt = Math.min(now + SESSION_ABSOLUTE_MS, cap);
+	const life = input.provisional ? ROLE_CHOICE_SESSION_MS : SESSION_ABSOLUTE_MS;
+	const idle = input.provisional ? ROLE_CHOICE_SESSION_MS : REFRESH_IDLE_MS;
+	const accessExpiresAt = Math.min(now + ACCESS_TTL_MS, now + life, cap);
+	const absoluteExpiresAt = Math.min(now + life, cap);
+	const refreshExpiresAt = Math.min(now + idle, absoluteExpiresAt, cap);
 	await db.batch([
 		db
 			.prepare(
@@ -163,8 +187,8 @@ export async function createSession(
          (id, session_family_id, user_id, account_id, login_method_id, token_id,
           refresh_hash, previous_refresh_hash, access_hash, access_expires_at,
           user_agent, ip_country, created_at, last_used_at, idle_expires_at, absolute_expires_at,
-          fresh_google_at)
-       VALUES (?1, ?1, ?2, ?3, ?4, ?5, ?6, NULL, ?7, ?8, ?9, ?10, ?11, ?11, ?12, ?13, ?14)`,
+          fresh_google_at, active_role, provisional)
+       VALUES (?1, ?1, ?2, ?3, ?4, ?5, ?6, NULL, ?7, ?8, ?9, ?10, ?11, ?11, ?12, ?13, ?14, ?15, ?16)`,
 			)
 			.bind(
 				sessionId,
@@ -181,7 +205,10 @@ export async function createSession(
 				refreshExpiresAt,
 				absoluteExpiresAt,
 				input.freshGoogleAt ?? null,
+				activeRole,
+				input.provisional ? 1 : 0,
 			),
+		...(input.extra ?? []),
 		db
 			.prepare(
 				`${AUDIT_COLUMNS} VALUES (?1, ?2, ?3, 'user', 'session.create', ?2, ?4, ?5, ?6)`,
@@ -207,6 +234,86 @@ export async function createSession(
 	};
 }
 
+export type AssumeRoleResult =
+	| { ok: true; tokens: SessionTokens }
+	| { ok: false; code: "forbidden" | "role_unchanged" };
+
+/**
+ * Mints a full session for a stored hat and revokes the caller in the same
+ * batch. Same hat on a finished session is `role_unchanged` and writes nothing.
+ * Confirming that hat on a provisional session promotes it.
+ */
+export async function assumeStoredRole(
+	db: D1Database,
+	input: {
+		sessionId: string;
+		userId: string;
+		fromAccountId: string;
+		fromRole: Role;
+		provisional: boolean;
+		accountId: string;
+		role: Role;
+		userAgent?: string;
+		ipCountry?: string;
+		now?: number;
+	},
+): Promise<AssumeRoleResult> {
+	const now = input.now ?? Date.now();
+	const account = await db
+		.prepare(
+			`SELECT a.status FROM cadmus_accounts a
+        WHERE a.id = ?1 AND a.status = 'active'`,
+		)
+		.bind(input.accountId)
+		.first<{ status: string }>();
+	const held = await db
+		.prepare(
+			`SELECT 1 AS x FROM cadmus_member_roles
+        WHERE account_id = ?1 AND user_id = ?2 AND role = ?3`,
+		)
+		.bind(input.accountId, input.userId, input.role)
+		.first<{ x: number }>();
+	if (!account || !held) return { ok: false, code: "forbidden" };
+	const same =
+		input.role === input.fromRole && input.accountId === input.fromAccountId;
+	if (same && !input.provisional) return { ok: false, code: "role_unchanged" };
+	const tokens = await createSession(db, {
+		userId: input.userId,
+		accountId: input.accountId,
+		activeRole: input.role,
+		userAgent: input.userAgent,
+		ipCountry: input.ipCountry,
+		now,
+		extra: [
+			db
+				.prepare(
+					`UPDATE cadmus_sessions SET revoked_at = ?2
+            WHERE id = ?1 AND revoked_at IS NULL`,
+				)
+				.bind(input.sessionId, now),
+			db
+				.prepare(
+					`${AUDIT_COLUMNS} VALUES (?1, ?2, ?3, 'user', 'session.assume', ?4, ?5, ?6, ?7)`,
+				)
+				.bind(
+					randomId("aud_"),
+					input.accountId,
+					input.userId,
+					input.fromAccountId,
+					input.sessionId,
+					JSON.stringify({
+						fromRole: input.fromRole,
+						toRole: input.role,
+						fromAccountId: input.fromAccountId,
+						toAccountId: input.accountId,
+					}),
+					now,
+				),
+		],
+	});
+	return { ok: true, tokens };
+}
+
 type SessionRow = TokenJoin & {
 	id: string;
 	user_id: string;
@@ -222,6 +329,8 @@ type SessionRow = TokenJoin & {
 	status: string;
 	elevated_until: number | null;
 	elevated_account_id: string | null;
+	provisional: number;
+	stored_roles: string | null;
 };
 
 function sessionSelect(selected: boolean): string {
@@ -229,11 +338,15 @@ function sessionSelect(selected: boolean): string {
 	// that account; without one, from the session's own account.
 	const acct = selected ? "?2" : "s.account_id";
 	return `SELECT s.token_id AS token_id, t.grants AS token_grants,
-              t.revoked_at AS token_revoked_at, t.expires_at AS token_expires_at, s.id, s.user_id, a.id AS account_id, s.account_id AS home_account_id, m.role, s.access_expires_at,
-              s.absolute_expires_at, s.idle_expires_at, s.revoked_at, s.elevated_until, s.elevated_account_id, u.disabled_at, a.status
+              t.revoked_at AS token_revoked_at, t.expires_at AS token_expires_at, s.id, s.user_id, a.id AS account_id, s.account_id AS home_account_id, r.role, s.access_expires_at,
+              s.absolute_expires_at, s.idle_expires_at, s.revoked_at, s.elevated_until, s.elevated_account_id, s.provisional, u.disabled_at, a.status,
+              (SELECT json_group_array(mr.role) FROM cadmus_member_roles mr
+                WHERE mr.account_id = ${acct} AND mr.user_id = s.user_id) AS stored_roles
        FROM cadmus_sessions s
        JOIN cadmus_account_members m
          ON m.account_id = ${acct} AND m.user_id = s.user_id
+       JOIN cadmus_member_roles r
+         ON r.account_id = ${acct} AND r.user_id = s.user_id AND r.role = s.active_role
        JOIN cadmus_users u ON u.id = s.user_id
        JOIN cadmus_accounts a ON a.id = ${acct}
        LEFT JOIN cadmus_auth_tokens t ON t.id = s.token_id`;
@@ -263,12 +376,18 @@ function identityFromRow(
 		accountId: row.account_id,
 		role,
 		...(row.token_id
-			? { grants: clampTokenGrants(row.token_grants, role) }
+			? {
+					grants: clampTokenGrantsToRoles(
+						row.token_grants,
+						parseStoredRoles(row.stored_roles),
+					),
+				}
 			: row.elevated_until !== null &&
 					row.elevated_until > now &&
 					row.account_id === (row.elevated_account_id ?? row.home_account_id)
 				? { elevatedUntil: row.elevated_until }
 				: {}),
+		...(row.provisional ? { provisional: true } : {}),
 	};
 }
 
@@ -622,9 +741,14 @@ export async function rotateRefreshToken(
 	const cap = state?.token_expires_at ?? Number.POSITIVE_INFINITY;
 	const accessToken = randomToken(ACCESS_PREFIX);
 	const refreshToken = randomToken(REFRESH_PREFIX);
-	const accessExpiresAt = Math.min(now + ACCESS_TTL_MS, cap);
+	const provisional = (state?.provisional ?? 0) !== 0;
+	const accessExpiresAt = Math.min(
+		now + (provisional ? ROLE_CHOICE_SESSION_MS : ACCESS_TTL_MS),
+		row.absolute_expires_at,
+		cap,
+	);
 	const refreshExpiresAt = Math.min(
-		now + REFRESH_IDLE_MS,
+		now + (provisional ? ROLE_CHOICE_SESSION_MS : REFRESH_IDLE_MS),
 		row.absolute_expires_at,
 		cap,
 	);
@@ -807,7 +931,7 @@ export async function listLoginMethods(
 export interface MembershipSummary {
 	accountId: string;
 	name: string;
-	role: string;
+	roles: Role[];
 }
 
 /**
@@ -820,18 +944,20 @@ export async function listMemberships(
 ): Promise<MembershipSummary[]> {
 	const { results } = await db
 		.prepare(
-			`SELECT m.account_id, a.name, m.role
+			`SELECT m.account_id, a.name,
+              (SELECT json_group_array(r.role) FROM cadmus_member_roles r
+                WHERE r.account_id = m.account_id AND r.user_id = m.user_id) AS roles
        FROM cadmus_account_members m
        JOIN cadmus_accounts a ON a.id = m.account_id
        WHERE m.user_id = ?1 AND a.status = 'active'
        ORDER BY m.created_at ASC, m.account_id ASC`,
 		)
 		.bind(userId)
-		.all<{ account_id: string; name: string; role: string }>();
+		.all<{ account_id: string; name: string; roles: string }>();
 	return results.map((r) => ({
 		accountId: r.account_id,
 		name: r.name,
-		role: r.role,
+		roles: parseStoredRoles(r.roles),
 	}));
 }
 
@@ -991,7 +1117,9 @@ export async function resolveLegacyCredential(
 	if (apiHash) {
 		const row = await db
 			.prepare(
-				`SELECT t.grants, m.role
+				`SELECT t.grants,
+                (SELECT json_group_array(r.role) FROM cadmus_member_roles r
+                  WHERE r.account_id = t.account_id AND r.user_id = t.user_id) AS roles
          FROM cadmus_auth_tokens t
          JOIN cadmus_account_members m
            ON m.account_id = t.account_id AND m.user_id = t.user_id
@@ -1001,11 +1129,12 @@ export async function resolveLegacyCredential(
            AND t.revoked_at IS NULL AND (t.expires_at IS NULL OR t.expires_at > ?4)`,
 			)
 			.bind(apiHash, userId, accountId, now)
-			.first<{ grants: string | null; role: string }>();
+			.first<{ grants: string | null; roles: string }>();
 		if (!row) return undefined;
-		const role = normalizeRole(row.role);
+		const roles = parseStoredRoles(row.roles);
+		const role = roles.at(-1);
 		if (!role) return undefined;
-		return { role, grants: clampTokenGrants(row.grants, role) };
+		return { role, grants: clampTokenGrantsToRoles(row.grants, roles) };
 	}
 	if (credential?.startsWith(API_TOKEN_CREDENTIAL_PREFIX)) return undefined;
 	let clampToUser = false;
@@ -1025,18 +1154,24 @@ export async function resolveLegacyCredential(
 	}
 	const member = await db
 		.prepare(
-			`SELECT m.role, u.disabled_at, a.status
+			`SELECT (SELECT json_group_array(r.role) FROM cadmus_member_roles r
+                 WHERE r.account_id = m.account_id AND r.user_id = m.user_id) AS roles,
+              u.disabled_at, a.status
          FROM cadmus_account_members m
          JOIN cadmus_users u ON u.id = m.user_id
          JOIN cadmus_accounts a ON a.id = m.account_id
          WHERE m.account_id = ?1 AND m.user_id = ?2`,
 		)
 		.bind(accountId, userId)
-		.first<{ role: string; disabled_at: number | null; status: string }>();
+		.first<{
+			roles: string;
+			disabled_at: number | null;
+			status: string;
+		}>();
 	if (!member || member.disabled_at !== null || member.status !== "active") {
 		return undefined;
 	}
-	const role = normalizeRole(member.role);
+	const role = parseStoredRoles(member.roles).at(-1);
 	if (!role) return undefined;
 	// Master callers map to account-admin (issue phase 2), on /rpc and on a
 	// socket alike, whatever the membership row says; the row only has to exist.

@@ -298,17 +298,15 @@ export const AccountMemberSchema = Type.Object(
 		userId: Type.String({
 			description: "Identifier of the user member.",
 		}),
-		role: Type.Union(
-			[
+		roles: Type.Array(
+			Type.Union([
 				Type.Literal("user"),
 				Type.Literal("account-admin"),
 				Type.Literal("super-admin"),
-				Type.Literal("owner"),
-				Type.Literal("member"),
-			],
+			]),
 			{
 				description:
-					"Access role: 'account-admin' (formerly 'owner') administers the account; 'user' (formerly 'member') has standard access; 'super-admin' operates the system account only.",
+					"Stored roles on this account, lowest rank first. The session hat is one of these.",
 			},
 		),
 		createdAt: Type.Number({

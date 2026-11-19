@@ -1,8 +1,8 @@
 import {
+	isRole,
 	normalizeRole,
 	ROLE_GRANTS,
 	type Role,
-	type RoleInput,
 	SYSTEM_ACCOUNT_ID,
 } from "@cadmus/contract/grants";
 import type { Credential } from "@earendil-works/pi-ai";
@@ -33,6 +33,7 @@ import {
 	updateMemberRole,
 } from "./d1-members.js";
 import {
+	assumeStoredRole,
 	auditElevatedCommand,
 	type CreateSessionInput,
 	consumeTicket,
@@ -86,6 +87,7 @@ import {
 	revokeTokenById,
 	tokenLogin,
 } from "./d1-tokens.js";
+import { parseStoredRoles } from "./roles.js";
 import {
 	insertPrimaryUserStatements,
 	normalizeLoginEmail,
@@ -109,8 +111,8 @@ export async function seedBootstrapSuperAdmin(
 		...user.statements,
 		db
 			.prepare(
-				`INSERT INTO cadmus_account_members (account_id, user_id, role, created_at)
-         SELECT '${SYSTEM_ACCOUNT_ID}', e.user_id, 'super-admin', ?2
+				`INSERT INTO cadmus_account_members (account_id, user_id, created_at)
+         SELECT '${SYSTEM_ACCOUNT_ID}', e.user_id, ?2
          FROM cadmus_user_emails e
          WHERE e.email = ?1
            AND NOT EXISTS (
@@ -121,10 +123,56 @@ export async function seedBootstrapSuperAdmin(
 			.bind(email, now),
 		db
 			.prepare(
+				`INSERT OR IGNORE INTO cadmus_member_roles (account_id, user_id, role, created_at)
+         SELECT '${SYSTEM_ACCOUNT_ID}', e.user_id, 'super-admin', ?2
+         FROM cadmus_user_emails e WHERE e.email = ?1`,
+			)
+			.bind(email, now),
+		db
+			.prepare(
 				`INSERT INTO cadmus_bootstrap (id, claimed_at, user_id)
          SELECT 1, ?2, e.user_id FROM cadmus_user_emails e
          WHERE e.email = ?1
            AND NOT EXISTS (SELECT 1 FROM cadmus_bootstrap WHERE id = 1)`,
+			)
+			.bind(email, now),
+	]);
+}
+
+/**
+ * Development only. The bootstrap user also holds user and account-admin on
+ * tenant `dev`, so local login can choose a hat. Idempotent after bootstrap.
+ */
+export async function seedDevTenantRoles(
+	db: D1Database,
+	rawEmail: string | undefined,
+): Promise<void> {
+	const email = rawEmail ? normalizeLoginEmail(rawEmail) : "";
+	if (!email) return;
+	const now = Date.now();
+	await db.batch([
+		db
+			.prepare(
+				`INSERT OR IGNORE INTO cadmus_accounts (id, name, timezone, created_at, parent_account_id, status)
+         VALUES ('dev', 'Dev', 'UTC', ?1, '${SYSTEM_ACCOUNT_ID}', 'active')`,
+			)
+			.bind(now),
+		db
+			.prepare(
+				`INSERT OR IGNORE INTO cadmus_account_members (account_id, user_id, created_at)
+         SELECT 'dev', e.user_id, ?2 FROM cadmus_user_emails e WHERE e.email = ?1`,
+			)
+			.bind(email, now),
+		db
+			.prepare(
+				`INSERT OR IGNORE INTO cadmus_member_roles (account_id, user_id, role, created_at)
+         SELECT 'dev', e.user_id, 'user', ?2 FROM cadmus_user_emails e WHERE e.email = ?1`,
+			)
+			.bind(email, now),
+		db
+			.prepare(
+				`INSERT OR IGNORE INTO cadmus_member_roles (account_id, user_id, role, created_at)
+         SELECT 'dev', e.user_id, 'account-admin', ?2 FROM cadmus_user_emails e WHERE e.email = ?1`,
 			)
 			.bind(email, now),
 	]);
@@ -267,7 +315,7 @@ function slugifyId(text: string): string {
 	);
 }
 
-export const CADMUS_SCHEMA_VERSION = 13;
+export const CADMUS_SCHEMA_VERSION = 14;
 
 export function isMissingSchemaError(error: unknown): boolean {
 	if (!error) return false;
@@ -493,6 +541,7 @@ export async function runD1SchemaMigrations(db: D1Database): Promise<void> {
 
 	await migrateRolesAndAccounts(db);
 	await migrateSessionsSchema(db);
+	await migrateMemberRoles(db);
 	// Phase 7: verified Google auth_time (epoch ms) for a fresh-sign-in session.
 	await addColumnIfNotExists(
 		db,
@@ -533,6 +582,10 @@ async function migrateRolesAndAccounts(db: D1Database): Promise<void> {
 		"TEXT NOT NULL DEFAULT 'active'",
 	);
 	await addColumnIfNotExists(db, "cadmus_accounts", "suspended_at", "INTEGER");
+	const memberCols = await db
+		.prepare(`PRAGMA table_info(cadmus_account_members)`)
+		.all<{ name: string }>();
+	const hasRole = memberCols.results.some((c) => c.name === "role");
 	await db.batch([
 		db
 			.prepare(
@@ -541,12 +594,16 @@ async function migrateRolesAndAccounts(db: D1Database): Promise<void> {
          VALUES (?1, 'System', 'UTC', ?2, NULL, 'active')`,
 			)
 			.bind(SYSTEM_ACCOUNT_ID, Date.now()),
-		db.prepare(
-			`UPDATE cadmus_account_members SET role = 'account-admin' WHERE role = 'owner'`,
-		),
-		db.prepare(
-			`UPDATE cadmus_account_members SET role = 'user' WHERE role = 'member'`,
-		),
+		...(hasRole
+			? [
+					db.prepare(
+						`UPDATE cadmus_account_members SET role = 'account-admin' WHERE role = 'owner'`,
+					),
+					db.prepare(
+						`UPDATE cadmus_account_members SET role = 'user' WHERE role = 'member'`,
+					),
+				]
+			: []),
 		db.prepare(`
         CREATE TABLE IF NOT EXISTS cadmus_audit (
           id TEXT PRIMARY KEY,
@@ -730,6 +787,84 @@ async function migrateSessionsSchema(db: D1Database): Promise<void> {
 		await db
 			.prepare(`ALTER TABLE cadmus_users DROP COLUMN passkey_handle`)
 			.run();
+	}
+}
+
+/**
+ * One role set per membership. `cadmus_account_members.role` and
+ * `cadmus_invites.role` are copied once and then dropped.
+ */
+async function migrateMemberRoles(db: D1Database): Promise<void> {
+	await db
+		.prepare(
+			`CREATE TABLE IF NOT EXISTS cadmus_member_roles (
+         account_id TEXT NOT NULL,
+         user_id TEXT NOT NULL,
+         role TEXT NOT NULL,
+         created_at INTEGER NOT NULL,
+         PRIMARY KEY (account_id, user_id, role)
+       )`,
+		)
+		.run();
+	const memberCols = await db
+		.prepare(`PRAGMA table_info(cadmus_account_members)`)
+		.all<{ name: string }>();
+	if (memberCols.results.some((c) => c.name === "role")) {
+		await db
+			.prepare(
+				`INSERT OR IGNORE INTO cadmus_member_roles (account_id, user_id, role, created_at)
+         SELECT account_id, user_id,
+                CASE role WHEN 'owner' THEN 'account-admin' WHEN 'member' THEN 'user' ELSE role END,
+                created_at
+         FROM cadmus_account_members`,
+			)
+			.run();
+		await db
+			.prepare(`ALTER TABLE cadmus_account_members DROP COLUMN role`)
+			.run();
+	}
+	await addColumnIfNotExists(db, "cadmus_sessions", "active_role", "TEXT");
+	await addColumnIfNotExists(
+		db,
+		"cadmus_sessions",
+		"provisional",
+		"INTEGER NOT NULL DEFAULT 0",
+	);
+	await db
+		.prepare(
+			`UPDATE cadmus_sessions
+         SET active_role = (
+           SELECT r.role FROM cadmus_member_roles r
+           WHERE r.account_id = cadmus_sessions.account_id
+             AND r.user_id = cadmus_sessions.user_id
+           ORDER BY CASE r.role
+             WHEN 'user' THEN 0
+             WHEN 'account-admin' THEN 1
+             ELSE 2 END
+           LIMIT 1
+         )
+       WHERE active_role IS NULL`,
+		)
+		.run();
+	const inviteCols = await db
+		.prepare(`PRAGMA table_info(cadmus_invites)`)
+		.all<{ name: string }>();
+	const inviteNames = new Set(inviteCols.results.map((c) => c.name));
+	if (!inviteNames.has("roles")) {
+		await addColumnIfNotExists(db, "cadmus_invites", "roles", "TEXT");
+	}
+	if (inviteNames.has("role")) {
+		await db
+			.prepare(
+				`UPDATE cadmus_invites
+           SET roles = json_array(CASE role
+             WHEN 'owner' THEN 'account-admin'
+             WHEN 'member' THEN 'user'
+             ELSE role END)
+         WHERE roles IS NULL`,
+			)
+			.run();
+		await db.prepare(`ALTER TABLE cadmus_invites DROP COLUMN role`).run();
 	}
 }
 
@@ -961,6 +1096,7 @@ export interface D1AdminStoreOptions {
 	defaultHarvestDelayMs?: number;
 	edgeCache?: EdgeCache;
 	bootstrapEmail?: string;
+	deployEnv?: string;
 }
 
 export class D1AdminStore implements AdminStore {
@@ -971,6 +1107,7 @@ export class D1AdminStore implements AdminStore {
 	readonly #defaultHarvestDelayMs: number;
 	readonly #edgeCache?: EdgeCache;
 	readonly #bootstrapEmail?: string;
+	readonly #deployEnv?: string;
 	#initialized = false;
 
 	constructor(options: D1AdminStoreOptions) {
@@ -989,6 +1126,7 @@ export class D1AdminStore implements AdminStore {
 		this.#defaultHarvestDelayMs = options.defaultHarvestDelayMs ?? 60_000;
 		this.#edgeCache = options.edgeCache;
 		this.#bootstrapEmail = options.bootstrapEmail;
+		this.#deployEnv = options.deployEnv;
 	}
 
 	async initialize(options: { force?: boolean } = {}): Promise<void> {
@@ -998,10 +1136,16 @@ export class D1AdminStore implements AdminStore {
 		} else if (this.#initialized || isD1DatabaseInitialized(this.#rawDb)) {
 			this.#initialized = true;
 			await seedBootstrapSuperAdmin(this.#rawDb, this.#bootstrapEmail);
+			if (this.#deployEnv === "development") {
+				await seedDevTenantRoles(this.#rawDb, this.#bootstrapEmail);
+			}
 			return;
 		}
 		await ensureD1Schema(this.#rawDb, options);
 		await seedBootstrapSuperAdmin(this.#rawDb, this.#bootstrapEmail);
+		if (this.#deployEnv === "development") {
+			await seedDevTenantRoles(this.#rawDb, this.#bootstrapEmail);
+		}
 		this.#initialized = true;
 	}
 
@@ -1016,6 +1160,7 @@ export class D1AdminStore implements AdminStore {
 			userAgent?: string;
 			ipCountry?: string;
 			freshGoogleAt?: number;
+			chooseRole?: boolean;
 		} = {},
 	): Promise<LoginResult> {
 		await this.initialize();
@@ -1060,7 +1205,7 @@ export class D1AdminStore implements AdminStore {
 		accountId: string;
 		invitedBy: string;
 		email: string;
-		role: Role;
+		roles?: Role[];
 		ttlMs?: number;
 		actorKind?: "user" | "super-admin";
 	}) {
@@ -1085,6 +1230,7 @@ export class D1AdminStore implements AdminStore {
 	async updateMemberRole(input: {
 		accountId: string;
 		userId: string;
+		op: "grant" | "revoke";
 		role: Role;
 		actor: string;
 		actorKind?: "user" | "super-admin";
@@ -1191,6 +1337,29 @@ export class D1AdminStore implements AdminStore {
 	async revokeLoginMethod(userId: string, methodId: string) {
 		await this.initialize();
 		return revokeLoginMethod(this.#db, userId, methodId);
+	}
+
+	async assumeRole(input: {
+		rawAccess: string;
+		role: Role;
+		accountId: string;
+		userAgent?: string;
+	}) {
+		await this.initialize();
+		const caller = await resolveAccessToken(this.#db, input.rawAccess);
+		if (!caller) return { ok: false as const, code: "unauthorized" as const };
+		if (caller.grants)
+			return { ok: false as const, code: "forbidden" as const };
+		return assumeStoredRole(this.#db, {
+			sessionId: caller.sessionId,
+			userId: caller.userId,
+			fromAccountId: caller.accountId,
+			fromRole: caller.role,
+			provisional: caller.provisional === true,
+			accountId: input.accountId,
+			role: input.role,
+			userAgent: input.userAgent,
+		});
 	}
 
 	async createSession(input: CreateSessionInput): Promise<SessionTokens> {
@@ -1304,7 +1473,14 @@ export class D1AdminStore implements AdminStore {
 				),
 			this.#db
 				.prepare(
-					`INSERT INTO cadmus_account_members (account_id, user_id, role, created_at)
+					`INSERT INTO cadmus_account_members (account_id, user_id, created_at)
+           SELECT ?1, e.user_id, ?3
+           FROM cadmus_user_emails e WHERE e.email = ?2`,
+				)
+				.bind(accountId, ownerEmail, now),
+			this.#db
+				.prepare(
+					`INSERT OR IGNORE INTO cadmus_member_roles (account_id, user_id, role, created_at)
            SELECT ?1, e.user_id, 'account-admin', ?3
            FROM cadmus_user_emails e WHERE e.email = ?2`,
 				)
@@ -1407,7 +1583,11 @@ export class D1AdminStore implements AdminStore {
 		const tokenHash = await sha256Hex(rawToken);
 		const row = await this.#db
 			.prepare(
-				`SELECT t.user_id, t.account_id, m.role
+				`SELECT t.user_id, t.account_id,
+                (SELECT r.role FROM cadmus_member_roles r
+                  WHERE r.account_id = t.account_id AND r.user_id = t.user_id
+                  ORDER BY CASE r.role WHEN 'super-admin' THEN 2 WHEN 'account-admin' THEN 1 ELSE 0 END DESC
+                  LIMIT 1) AS role
          FROM cadmus_auth_tokens t
          JOIN cadmus_account_members m
            ON m.account_id = t.account_id AND m.user_id = t.user_id
@@ -1519,7 +1699,7 @@ export class D1AdminStore implements AdminStore {
 		userId: string;
 		accountName?: string;
 		userName?: string;
-		role?: RoleInput;
+		role?: Role;
 		timezone?: string;
 	}): Promise<AccountRecord> {
 		await this.initialize();
@@ -1546,7 +1726,12 @@ export class D1AdminStore implements AdminStore {
 				.bind(input.userId, userName, now),
 			this.#db
 				.prepare(
-					`INSERT OR IGNORE INTO cadmus_account_members (account_id, user_id, role, created_at) VALUES (?1, ?2, ?3, ?4)`,
+					`INSERT OR IGNORE INTO cadmus_account_members (account_id, user_id, created_at) VALUES (?1, ?2, ?3)`,
+				)
+				.bind(input.accountId, input.userId, now),
+			this.#db
+				.prepare(
+					`INSERT OR IGNORE INTO cadmus_member_roles (account_id, user_id, role, created_at) VALUES (?1, ?2, ?3, ?4)`,
 				)
 				.bind(input.accountId, input.userId, role, now),
 		]);
@@ -1663,22 +1848,24 @@ export class D1AdminStore implements AdminStore {
 		await this.initialize();
 		const { results } = await this.#db
 			.prepare(
-				`SELECT account_id, user_id, role, created_at
-         FROM cadmus_account_members
-         WHERE account_id = ?1
-         ORDER BY created_at ASC, user_id ASC`,
+				`SELECT m.account_id, m.user_id, m.created_at,
+                (SELECT json_group_array(r.role) FROM cadmus_member_roles r
+                  WHERE r.account_id = m.account_id AND r.user_id = m.user_id) AS roles
+         FROM cadmus_account_members m
+         WHERE m.account_id = ?1
+         ORDER BY m.created_at ASC, m.user_id ASC`,
 			)
 			.bind(accountId)
 			.all<{
 				account_id: string;
 				user_id: string;
-				role: string;
+				roles: string;
 				created_at: number;
 			}>();
 		return results.map((r) => ({
 			accountId: r.account_id,
 			userId: r.user_id,
-			role: normalizeRole(r.role) ?? "user",
+			roles: parseStoredRoles(r.roles),
 			createdAt: r.created_at,
 		}));
 	}
@@ -1688,12 +1875,13 @@ export class D1AdminStore implements AdminStore {
 		userId: string;
 		name?: string;
 		email?: string;
-		role?: RoleInput;
+		roles?: Role[];
 		rawToken?: string;
 	}): Promise<AccountMember> {
 		await this.initialize();
 		const now = Date.now();
-		const role = normalizeRole(input.role) ?? "user";
+		const roles = (input.roles?.length ? input.roles : ["user"]).filter(isRole);
+		const stored = roles.length > 0 ? roles : (["user"] as const);
 		const statements = [
 			this.#db
 				.prepare(
@@ -1709,11 +1897,19 @@ export class D1AdminStore implements AdminStore {
 				),
 			this.#db
 				.prepare(
-					`INSERT INTO cadmus_account_members (account_id, user_id, role, created_at)
-           VALUES (?1, ?2, ?3, ?4)
-           ON CONFLICT(account_id, user_id) DO UPDATE SET role = excluded.role`,
+					`INSERT INTO cadmus_account_members (account_id, user_id, created_at)
+           VALUES (?1, ?2, ?3)
+           ON CONFLICT(account_id, user_id) DO NOTHING`,
 				)
-				.bind(input.accountId, input.userId, role, now),
+				.bind(input.accountId, input.userId, now),
+			...stored.map((role) =>
+				this.#db
+					.prepare(
+						`INSERT OR IGNORE INTO cadmus_member_roles (account_id, user_id, role, created_at)
+             VALUES (?1, ?2, ?3, ?4)`,
+					)
+					.bind(input.accountId, input.userId, role, now),
+			),
 		];
 
 		let tokenHash: string | undefined;
@@ -1737,7 +1933,7 @@ export class D1AdminStore implements AdminStore {
 		return {
 			accountId: input.accountId,
 			userId: input.userId,
-			role,
+			roles: [...stored],
 			createdAt: now,
 		};
 	}

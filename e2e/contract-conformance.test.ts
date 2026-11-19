@@ -26,6 +26,7 @@ const MAY_FAIL_OFFLINE = new Set<CommandType>([
 	"auth.sessions.list",
 	"auth.sessions.revoke",
 	"auth.sessions.revokeOthers",
+	"auth.assumeRole",
 	"auth.elevate",
 	"auth.elevation.end",
 	// System console: the master secret maps to account-admin, so these answer forbidden.
@@ -169,7 +170,7 @@ describe("contract conformance", () => {
 		await call("account.members.list");
 		await call("account.members.add", {
 			userId: `member-${suffix}`,
-			role: "member",
+			roles: ["user"],
 		});
 		await call("account.members.invite", {
 			email: `invitee-${suffix}@example.com`,
@@ -179,7 +180,8 @@ describe("contract conformance", () => {
 		await call("account.invites.revoke", { inviteId: "inv_missing" });
 		await call("account.members.update", {
 			userId: `member-${suffix}`,
-			role: "user",
+			op: "grant",
+			role: "account-admin",
 		});
 		await call("account.members.remove", { userId: `member-${suffix}` });
 		await call("account.credentials.list");
@@ -229,6 +231,10 @@ describe("contract conformance", () => {
 		await call("auth.sessions.list");
 		await call("auth.sessions.revoke", { sessionId: "ses_missing" });
 		await call("auth.sessions.revokeOthers");
+		await call("auth.assumeRole", {
+			role: "user",
+			accountId: "acc_missing",
+		});
 		await call("auth.elevate");
 		await call("auth.elevation.end");
 		await call("system.accounts.list");
@@ -251,6 +257,7 @@ describe("contract conformance", () => {
 		await call("system.members.update", {
 			accountId: "acc_missing",
 			userId: "usr_missing",
+			op: "grant",
 			role: "user",
 		});
 		await call("system.members.remove", {

@@ -484,6 +484,7 @@ export async function authenticateRequest(
 				...(session.elevatedUntil
 					? { elevatedUntil: session.elevatedUntil }
 					: {}),
+				...(session.provisional ? { provisional: true } : {}),
 				familyId: requestedFamilyId,
 			},
 		};

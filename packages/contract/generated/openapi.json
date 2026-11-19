@@ -155,12 +155,16 @@
 										"minLength": 3,
 										"maxLength": 254
 									},
-									"role": {
-										"anyOf": [
-											{ "type": "string", "const": "user" },
-											{ "type": "string", "const": "account-admin" }
-										],
-										"description": "Role to give: user or account-admin."
+									"roles": {
+										"type": "array",
+										"items": {
+											"anyOf": [
+												{ "type": "string", "const": "user" },
+												{ "type": "string", "const": "account-admin" }
+											]
+										},
+										"minItems": 1,
+										"description": "Roles to give. Omitted means user only. account-admin is management of this account."
 									},
 									"ttlDays": {
 										"type": "number",
@@ -197,25 +201,32 @@
 			"post": {
 				"operationId": "account.members.update",
 				"x-cadmus-grant": "members.manage",
-				"summary": "Change a member's role. Demoting an account-admin revokes their personal tokens; the last account-admin cannot be demoted.",
+				"summary": "Grant or revoke one role. Revoking account-admin revokes their personal tokens. The last account-admin and the member's last role cannot be revoked.",
 				"requestBody": {
 					"required": true,
 					"content": {
 						"application/json": {
 							"schema": {
 								"type": "object",
-								"required": ["userId", "role"],
+								"required": ["userId", "op", "role"],
 								"properties": {
 									"userId": { "type": "string", "minLength": 1 },
+									"op": {
+										"anyOf": [
+											{ "type": "string", "const": "grant" },
+											{ "type": "string", "const": "revoke" }
+										],
+										"description": "Add or remove this one role. Other roles stay."
+									},
 									"role": {
 										"anyOf": [
 											{ "type": "string", "const": "user" },
 											{ "type": "string", "const": "account-admin" }
 										],
-										"description": "Role to give: user or account-admin."
+										"description": "Role to grant or revoke: user or account-admin."
 									}
 								},
-								"description": "Member and new role."
+								"description": "Member and the role to grant or revoke."
 							}
 						}
 					}
@@ -385,15 +396,16 @@
 										"type": "string",
 										"description": "Optional email address for the user."
 									},
-									"role": {
-										"anyOf": [
-											{ "type": "string", "const": "user" },
-											{ "type": "string", "const": "account-admin" },
-											{ "type": "string", "const": "super-admin" },
-											{ "type": "string", "const": "owner" },
-											{ "type": "string", "const": "member" }
-										],
-										"description": "Access role: 'account-admin' (formerly 'owner'), 'user' (formerly 'member', the default) or 'super-admin'. Old names are still accepted."
+									"roles": {
+										"type": "array",
+										"items": {
+											"anyOf": [
+												{ "type": "string", "const": "user" },
+												{ "type": "string", "const": "account-admin" }
+											]
+										},
+										"minItems": 1,
+										"description": "Roles to store. Omitted means user only. super-admin cannot be added here."
 									}
 								},
 								"description": "Parameters for adding or inviting an account member."
@@ -1623,12 +1635,16 @@
 										"minLength": 3,
 										"maxLength": 254
 									},
-									"role": {
-										"anyOf": [
-											{ "type": "string", "const": "user" },
-											{ "type": "string", "const": "account-admin" }
-										],
-										"description": "Role to give: user or account-admin."
+									"roles": {
+										"type": "array",
+										"items": {
+											"anyOf": [
+												{ "type": "string", "const": "user" },
+												{ "type": "string", "const": "account-admin" }
+											]
+										},
+										"minItems": 1,
+										"description": "Roles to give. Omitted means user only."
 									},
 									"ttlDays": {
 										"type": "number",
@@ -1665,14 +1681,14 @@
 			"post": {
 				"operationId": "system.members.update",
 				"x-cadmus-grant": "system.members.manage",
-				"summary": "Change a member's role in a tenant account. The last account-admin cannot be demoted. Needs admin mode.",
+				"summary": "Grant or revoke one tenant role. The last account-admin and the member's last role cannot be revoked. Needs admin mode.",
 				"requestBody": {
 					"required": true,
 					"content": {
 						"application/json": {
 							"schema": {
 								"type": "object",
-								"required": ["accountId", "userId", "role"],
+								"required": ["accountId", "userId", "op", "role"],
 								"properties": {
 									"accountId": {
 										"type": "string",
@@ -1684,12 +1700,19 @@
 										"minLength": 1,
 										"description": "Target user."
 									},
+									"op": {
+										"anyOf": [
+											{ "type": "string", "const": "grant" },
+											{ "type": "string", "const": "revoke" }
+										],
+										"description": "Add or remove this one role. Other roles stay."
+									},
 									"role": {
 										"anyOf": [
 											{ "type": "string", "const": "user" },
 											{ "type": "string", "const": "account-admin" }
 										],
-										"description": "Role to give: user or account-admin."
+										"description": "Role to grant or revoke: user or account-admin."
 									}
 								},
 								"description": "Command parameters."
@@ -2297,6 +2320,58 @@
 				}
 			}
 		},
+		"/api/auth/assumeRole": {
+			"post": {
+				"operationId": "auth.assumeRole",
+				"x-cadmus-grant": "session.assume",
+				"summary": "Open a new session as a stored role. Refresh token is a cookie. Same hat on a finished session is role_unchanged.",
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"required": ["role", "accountId"],
+								"properties": {
+									"role": {
+										"anyOf": [
+											{ "type": "string", "const": "user" },
+											{ "type": "string", "const": "account-admin" },
+											{ "type": "string", "const": "super-admin" }
+										],
+										"description": "Stored role to open a new session as."
+									},
+									"accountId": {
+										"type": "string",
+										"minLength": 1,
+										"description": "Account that role is stored on."
+									}
+								},
+								"description": "Hat to assume."
+							}
+						}
+					}
+				},
+				"responses": {
+					"200": {
+						"description": "Command result",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/AuthLoginSessionResult"
+								}
+							}
+						}
+					},
+					"400": { "$ref": "#/components/responses/ApiError" },
+					"401": { "$ref": "#/components/responses/ApiError" },
+					"404": { "$ref": "#/components/responses/ApiError" },
+					"405": { "$ref": "#/components/responses/ApiError" },
+					"409": { "$ref": "#/components/responses/ApiError" },
+					"500": { "$ref": "#/components/responses/ApiError" }
+				}
+			}
+		},
 		"/api/auth/login/devPassword": {
 			"post": {
 				"operationId": "auth.login.devPassword",
@@ -2313,6 +2388,11 @@
 										"type": "string",
 										"minLength": 1,
 										"description": "Local password."
+									},
+									"chooseRole": {
+										"type": "boolean",
+										"const": true,
+										"description": "Open a 15-minute session on the lowest role when the user holds more than one, so they can assume a role."
 									},
 									"email": {
 										"type": "string",
@@ -5162,7 +5242,7 @@
 							"required": [
 								"id",
 								"email",
-								"role",
+								"roles",
 								"invitedBy",
 								"createdAt",
 								"expiresAt",
@@ -5172,7 +5252,7 @@
 							"properties": {
 								"id": { "type": "string" },
 								"email": { "type": "string" },
-								"role": { "type": "string" },
+								"roles": { "type": "array", "items": { "type": "string" } },
 								"invitedBy": {
 									"anyOf": [{ "type": "string" }, { "type": "null" }]
 								},
@@ -5199,7 +5279,7 @@
 			},
 			"AccountMember": {
 				"type": "object",
-				"required": ["accountId", "userId", "role", "createdAt"],
+				"required": ["accountId", "userId", "roles", "createdAt"],
 				"properties": {
 					"accountId": {
 						"type": "string",
@@ -5209,15 +5289,16 @@
 						"type": "string",
 						"description": "Identifier of the user member."
 					},
-					"role": {
-						"anyOf": [
-							{ "type": "string", "const": "user" },
-							{ "type": "string", "const": "account-admin" },
-							{ "type": "string", "const": "super-admin" },
-							{ "type": "string", "const": "owner" },
-							{ "type": "string", "const": "member" }
-						],
-						"description": "Access role: 'account-admin' (formerly 'owner') administers the account; 'user' (formerly 'member') has standard access; 'super-admin' operates the system account only."
+					"roles": {
+						"type": "array",
+						"items": {
+							"anyOf": [
+								{ "type": "string", "const": "user" },
+								{ "type": "string", "const": "account-admin" },
+								{ "type": "string", "const": "super-admin" }
+							]
+						},
+						"description": "Stored roles on this account, lowest rank first. The session hat is one of these."
 					},
 					"createdAt": {
 						"type": "number",
@@ -5243,7 +5324,7 @@
 						"required": [
 							"id",
 							"email",
-							"role",
+							"roles",
 							"invitedBy",
 							"createdAt",
 							"expiresAt",
@@ -5253,7 +5334,7 @@
 						"properties": {
 							"id": { "type": "string" },
 							"email": { "type": "string" },
-							"role": { "type": "string" },
+							"roles": { "type": "array", "items": { "type": "string" } },
 							"invitedBy": {
 								"anyOf": [{ "type": "string" }, { "type": "null" }]
 							},
@@ -5552,6 +5633,10 @@
 						"type": "number",
 						"description": "Access token expiry, epoch ms."
 					},
+					"provisional": {
+						"type": "boolean",
+						"description": "True when this is the short role-choice session. Call auth.assumeRole to open a full session."
+					},
 					"sessionId": { "type": "string" },
 					"accountId": { "type": "string" },
 					"userId": { "type": "string" },
@@ -5567,11 +5652,15 @@
 						"type": "array",
 						"items": {
 							"type": "object",
-							"required": ["accountId", "name", "role"],
+							"required": ["accountId", "name", "roles"],
 							"properties": {
 								"accountId": { "type": "string" },
 								"name": { "type": "string" },
-								"role": { "type": "string" }
+								"roles": {
+									"type": "array",
+									"items": { "type": "string" },
+									"description": "Stored roles, lowest rank first."
+								}
 							},
 							"description": "One active account the caller belongs to."
 						}
@@ -5852,11 +5941,13 @@
 								"anyOf": [
 									{ "type": "string", "const": "user" },
 									{ "type": "string", "const": "account-admin" },
-									{ "type": "string", "const": "super-admin" },
-									{ "type": "string", "const": "owner" },
-									{ "type": "string", "const": "member" }
+									{ "type": "string", "const": "super-admin" }
 								],
-								"description": "Membership role in that account."
+								"description": "Session hat. Grants and the shell follow this role."
+							},
+							"provisional": {
+								"type": "boolean",
+								"description": "True when this sign-in is the short role-choice session. Assume a role to open a full session."
 							}
 						},
 						"description": "Resolved principal."
@@ -6624,6 +6715,7 @@
 					{ "type": "string", "const": "family_not_found" },
 					{ "type": "string", "const": "cas_conflict" },
 					{ "type": "string", "const": "conflict" },
+					{ "type": "string", "const": "role_unchanged" },
 					{ "type": "string", "const": "command_failed" },
 					{ "type": "string", "const": "invalid_command" },
 					{ "type": "string", "const": "invalid_json" },
@@ -7589,12 +7681,16 @@
 			},
 			"SystemMember": {
 				"type": "object",
-				"required": ["userId", "name", "role", "createdAt"],
+				"required": ["userId", "name", "roles", "createdAt"],
 				"properties": {
 					"userId": { "type": "string", "description": "User id." },
 					"name": { "type": "string", "description": "Display name." },
 					"email": { "type": "string", "description": "Primary email." },
-					"role": { "type": "string", "description": "Role in this account." },
+					"roles": {
+						"type": "array",
+						"items": { "type": "string" },
+						"description": "Stored roles in this account, lowest rank first."
+					},
 					"createdAt": {
 						"type": "number",
 						"description": "Epoch ms the membership began."
@@ -8168,6 +8264,7 @@
 		"family_not_found": 404,
 		"cas_conflict": 409,
 		"conflict": 409,
+		"role_unchanged": 409,
 		"command_failed": 500
 	}
 }

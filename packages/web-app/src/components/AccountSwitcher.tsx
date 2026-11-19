@@ -12,7 +12,11 @@ import { selectAccount } from "@/lib/session";
 export function AccountSwitcher() {
 	const session = useSession();
 	const memberships = useMemberships();
-	if (memberships.length < 2) return null;
+	const hat = session.principal?.role;
+	const sameHat = memberships.filter(
+		(membership) => hat && membership.roles.includes(hat),
+	);
+	if (sameHat.length < 2) return null;
 	const current = session.principal?.accountId ?? "";
 	return (
 		<section className="flex flex-col gap-2" aria-label="Switch account">
@@ -29,9 +33,9 @@ export function AccountSwitcher() {
 						window.location.reload();
 					}}
 				>
-					{memberships.map((m) => (
+					{sameHat.map((m) => (
 						<option key={m.accountId} value={m.accountId}>
-							{m.name} ({m.role})
+							{m.name}
 						</option>
 					))}
 				</select>

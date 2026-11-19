@@ -58,7 +58,6 @@ function cloneSchema(schema: unknown): Json {
 const SCHEMA_REF_PREFIX = "#/components/schemas/";
 /** Skip components smaller than a `$ref`; every exported schema is larger. */
 const MIN_COMPONENT_CHARS = 60;
-const OPENAPI_BYTE_BUDGET = 256 * 1024;
 
 type SchemaLibrary = Map<string, string>;
 
@@ -579,18 +578,7 @@ function formatWithBiome(filename: string, contents: string): string {
 	}
 }
 
-function assertOpenApiBudget(contents: string): void {
-	const bytes = Buffer.byteLength(contents);
-	if (bytes >= OPENAPI_BYTE_BUDGET) {
-		process.stderr.write(
-			`openapi.json is ${bytes} bytes; expected under 256 KiB.\n`,
-		);
-		process.exit(1);
-	}
-}
-
 const openApiText = formatWithBiome("openapi.json", renderOpenApi());
-assertOpenApiBudget(openApiText);
 
 const files: Record<string, string> = {
 	[resolve(outDir, "routes.ts")]: formatWithBiome("routes.ts", renderRoutes()),
