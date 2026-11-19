@@ -7,7 +7,6 @@ import {
 	AccountGetCommandSchema,
 	AccountInvitesListCommandSchema,
 	AccountInvitesRevokeCommandSchema,
-	AccountMembersAddCommandSchema,
 	AccountMembersInviteCommandSchema,
 	AccountMembersListCommandSchema,
 	AccountMembersRemoveCommandSchema,
@@ -117,7 +116,6 @@ import {
 	AccountGetResultSchema,
 	AccountInvitesListResultSchema,
 	AccountInvitesRevokeResultSchema,
-	AccountMembersAddResultSchema,
 	AccountMembersInviteResultSchema,
 	AccountMembersListResultSchema,
 	AccountMembersRemoveResultSchema,
@@ -224,10 +222,6 @@ export const commandCatalog = {
 	"account.invites.revoke": {
 		command: AccountInvitesRevokeCommandSchema,
 		result: AccountInvitesRevokeResultSchema,
-	},
-	"account.members.add": {
-		command: AccountMembersAddCommandSchema,
-		result: AccountMembersAddResultSchema,
 	},
 	"account.credentials.list": {
 		command: AccountCredentialsListCommandSchema,

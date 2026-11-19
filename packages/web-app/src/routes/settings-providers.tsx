@@ -7,6 +7,7 @@ import type {
 } from "@cadmus/contract/types";
 import { useEffect, useState } from "react";
 import { AppShell } from "@/components/AppShell";
+import { ElevationHelp } from "@/components/ElevationHelp";
 import { fieldClass } from "@/components/SettingsRows";
 import {
 	HintSkeleton,
@@ -35,6 +36,16 @@ export function ProvidersSettingsPage() {
 	const [error, setError] = useState<string | null>(null);
 	const [note, setNote] = useState<string | null>(null);
 	const [busy, setBusy] = useState(false);
+	const [needsAdmin, setNeedsAdmin] = useState(false);
+	const noteRefusal = (
+		res: { ok: boolean; error?: { code?: string; message?: string } },
+		fallback: string,
+	) => {
+		if (res.ok) return false;
+		if (res.error?.code === "elevation_required") setNeedsAdmin(true);
+		setError(res.error?.message ?? fallback);
+		return true;
+	};
 
 	const loaded = useScopedResource("providers", async () => {
 		const [creds, oauth, listed] = await Promise.all([
@@ -130,6 +141,10 @@ export function ProvidersSettingsPage() {
 					<SkeletonBlock label="Loading providers" />
 				) : null}
 				{error ? <p className="text-destructive">{error}</p> : null}
+				<ElevationHelp
+					needed={needsAdmin}
+					onEnabled={() => setNeedsAdmin(false)}
+				/>
 				{note ? <p className="text-[length:var(--fs-sm)]">{note}</p> : null}
 				<fieldset
 					disabled={loaded.phase !== "ready" || busy}
@@ -184,8 +199,9 @@ export function ProvidersSettingsPage() {
 												},
 											)
 											.then((res) => {
+												if (noteRefusal(res, "Submit failed")) return;
 												if (res.result?.flow) setFlow(res.result.flow);
-												else setError(res.error?.message ?? "Submit failed");
+												else setError("Submit failed");
 												setPrompt("");
 											})
 											.finally(() => setBusy(false));
@@ -217,7 +233,10 @@ export function ProvidersSettingsPage() {
 										.callRpc("account.credentials.oauth.cancel", {
 											flowId: flow.flowId,
 										})
-										.then(() => setFlow(null));
+										.then((res) => {
+											if (noteRefusal(res, "Could not cancel sign-in")) return;
+											setFlow(null);
+										});
 								}}
 							>
 								Cancel sign-in
@@ -261,10 +280,11 @@ export function ProvidersSettingsPage() {
 													},
 												)
 												.then((res) => {
-													if (!res.ok || !res.result?.flow) {
-														setError(
-															res.error?.message ?? "Could not start sign-in",
-														);
+													if (
+														noteRefusal(res, "Could not start sign-in") ||
+														!res.result?.flow
+													) {
+														if (res.ok) setError("Could not start sign-in");
 														return;
 													}
 													setFlow(res.result.flow);
@@ -303,12 +323,7 @@ export function ProvidersSettingsPage() {
 													credential: { type: "api_key", apiKey },
 												})
 												.then((res) => {
-													if (!res.ok) {
-														setError(
-															res.error?.message ?? "Could not save the key",
-														);
-														return;
-													}
+													if (noteRefusal(res, "Could not save the key")) return;
 													setKeys((prev) => ({ ...prev, [id]: "" }));
 													setNote(`API key saved for ${id}`);
 													return load();
@@ -332,13 +347,10 @@ export function ProvidersSettingsPage() {
 														providerId: id,
 													})
 													.then((res) => {
-														if (!res.ok) {
-															setError(
-																res.error?.message ??
-																	"Could not remove credentials",
-															);
+														if (
+															noteRefusal(res, "Could not remove credentials")
+														)
 															return;
-														}
 														setNote(`Credentials removed for ${id}`);
 														return load();
 													})

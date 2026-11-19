@@ -11,7 +11,7 @@ import {
 	resolveAuthRateLimitWindowMs,
 } from "../src/auth-limiter.js";
 import { getEdgeCache } from "../src/edge-cache.js";
-import { IP_LIMITED_AUTH_PATHS } from "../src/index.js";
+import { IP_LIMITED_AUTH_PATHS, refuseWorkersDev } from "../src/index.js";
 import { D1AdminStore } from "../src/store/d1-admin.js";
 import { sendRpc, uniqueAccountId } from "./helpers.js";
 
@@ -425,5 +425,26 @@ describe("lockout counter timing, driven with an explicit clock (issue #3 phase 
 		const d = counter();
 		for (let i = 0; i < LOCKOUT_MAX_FAILURES - 1; i++) await d.fail(T0);
 		expect((await d.fail(T0 + LOCKOUT_WINDOW_MS - 1)).locked).toBe(true);
+	});
+});
+
+describe("workers.dev is not a production entry (issue #99)", () => {
+	it("refuses a workers.dev host only for production, not for previews", () => {
+		const workers = new URL("https://cadmus.example.workers.dev/health");
+		const custom = new URL("https://cadmus.purelogicstudios.com/health");
+		const production = { CADMUS_DEPLOY_ENV: "production" };
+		expect(refuseWorkersDev(workers, production)?.status).toBe(404);
+		expect(refuseWorkersDev(custom, production)).toBeNull();
+		expect(
+			refuseWorkersDev(workers, {
+				CADMUS_DEPLOY_ENV: "production",
+				IS_PREVIEW: "true",
+			}),
+		).toBeNull();
+		expect(refuseWorkersDev(workers, { CADMUS_DEPLOY_ENV: "test" })).toBeNull();
+		expect(refuseWorkersDev(workers, {})).toBeNull();
+		expect(
+			refuseWorkersDev(new URL("https://workers.dev/"), production)?.status,
+		).toBe(404);
 	});
 });

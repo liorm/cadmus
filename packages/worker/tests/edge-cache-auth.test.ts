@@ -1,11 +1,6 @@
 import { env, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
-import {
-	clearEnsuredMasterUsers,
-	EdgeCache,
-	getEdgeCache,
-	sha256Hex,
-} from "../src/edge-cache.js";
+import { EdgeCache, getEdgeCache, sha256Hex } from "../src/edge-cache.js";
 import type {
 	AccountMember,
 	BotRecord,
@@ -13,17 +8,16 @@ import type {
 } from "../src/protocol.js";
 import { D1AdminStore } from "../src/store/d1-admin.js";
 import {
+	actingAdmin,
 	addLegacyMember,
 	connectTestWs,
 	sendRpc,
-	TEST_TOKEN,
 	uniqueAccountId,
 } from "./helpers.js";
 
 describe("Edge Caching for Tokens and Family DO Routing (Issue #19)", () => {
 	beforeEach(() => {
 		EdgeCache.clearAllMemory();
-		clearEnsuredMasterUsers();
 		const cache = getEdgeCache(env);
 		cache.resetMetrics();
 	});
@@ -140,62 +134,14 @@ describe("Edge Caching for Tokens and Family DO Routing (Issue #19)", () => {
 		expect(res2.frame.ok).toBe(false);
 	});
 
-	it("master secret fast-path avoids re-upserting account and user in the same isolate", async () => {
-		const accountId = uniqueAccountId("master-fastpath");
-		const userId = "master-user-1";
-		const edgeCache = getEdgeCache(env);
-
-		let accountUpsertQueries = 0;
-		const originalPrepare = env.CADMUS_ADMIN_DB.prepare.bind(
-			env.CADMUS_ADMIN_DB,
-		);
-		env.CADMUS_ADMIN_DB.prepare = ((query: string) => {
-			if (
-				query.includes("INSERT OR IGNORE INTO cadmus_accounts") ||
-				query.includes("INSERT OR IGNORE INTO cadmus_users")
-			) {
-				accountUpsertQueries++;
-			}
-			return originalPrepare(query);
-		}) as typeof env.CADMUS_ADMIN_DB.prepare;
-
-		try {
-			// First request with master secret: runs ensureAccountAndUser
-			const res1 = await sendRpc<{ bots: BotRecord[] }>(
-				"bot.list",
-				{},
-				{ accountId, userId },
-			);
-			expect(res1.status).toBe(200);
-			expect(res1.frame.ok).toBe(true);
-			const queriesAfterFirst = accountUpsertQueries;
-			expect(queriesAfterFirst).toBeGreaterThan(0);
-			expect(edgeCache.getMetrics().masterFastPathHits).toBe(1);
-
-			// Second request with master secret: isolate memoization skips ensureAccountAndUser
-			const res2 = await sendRpc<{ bots: BotRecord[] }>(
-				"bot.list",
-				{},
-				{ accountId, userId },
-			);
-			expect(res2.status).toBe(200);
-			expect(res2.frame.ok).toBe(true);
-			expect(accountUpsertQueries).toBe(queriesAfterFirst); // No new upserts!
-			expect(edgeCache.getMetrics().masterFastPathHits).toBe(2);
-
-			// Third request with scoped token format: <accountId>:<userId>:<masterSecret>
-			const scopedToken = `${accountId}:${userId}:${TEST_TOKEN}`;
-			const res3 = await sendRpc<{ bots: BotRecord[] }>(
-				"bot.list",
-				{},
-				{ token: scopedToken, accountId },
-			);
-			expect(res3.status).toBe(200);
-			expect(res3.frame.ok).toBe(true);
-			expect(accountUpsertQueries).toBe(queriesAfterFirst); // Still no new upserts!
-			expect(edgeCache.getMetrics().masterFastPathHits).toBe(3);
-		} finally {
-			env.CADMUS_ADMIN_DB.prepare = originalPrepare;
+	it("a raw shared secret and an account:user:secret bearer are 401", async () => {
+		const accountId = uniqueAccountId("not-a-secret");
+		const userId = "nobody";
+		const raw = `shared-${crypto.randomUUID()}`;
+		for (const token of [raw, `${accountId}:${userId}:${raw}`]) {
+			const res = await sendRpc("bot.list", {}, { token, accountId, userId });
+			expect(res.status).toBe(401);
+			expect(res.frame.ok).toBe(false);
 		}
 	});
 
@@ -237,11 +183,18 @@ describe("Edge Caching for Tokens and Family DO Routing (Issue #19)", () => {
 			expect(familySelectQueries).toBe(0);
 			expect(edgeCache.getMetrics().familyL1Hits).toBeGreaterThanOrEqual(1);
 
-			// Update family settings -> invalidates cached family routing
+			// family.update needs admin mode. The cache test's other calls do not.
 			const updateRes = await sendRpc<{ family: FamilyRecord }>(
 				"family.update",
 				{ name: "Updated Family Name" },
-				{ accountId },
+				{
+					accountId,
+					token: await actingAdmin({
+						accountId,
+						userId: `user:${accountId}`,
+						elevated: true,
+					}),
+				},
 			);
 			expect(updateRes.status).toBe(200);
 
@@ -576,40 +529,5 @@ describe("Edge Caching for Tokens and Family DO Routing (Issue #19)", () => {
 		// Resolving token via D1 now reflects the newly committed member
 		const resolved = await adminStore.resolveToken(rawToken);
 		expect(resolved?.userId).toBe("new-user");
-	});
-
-	it("account.members.add refuses a caller-chosen token and creates no token row (issue #3)", async () => {
-		const accountId = uniqueAccountId("no-token");
-		const tokenCount = async (): Promise<number> => {
-			const row = await env.CADMUS_ADMIN_DB.prepare(
-				"SELECT COUNT(*) AS n FROM cadmus_auth_tokens WHERE account_id = ?1",
-			)
-				.bind(accountId)
-				.first<{ n: number }>();
-			return row?.n ?? 0;
-		};
-		const refused = await sendRpc(
-			"account.members.add",
-			{
-				userId: "token-pusher",
-				name: "Token Pusher",
-				role: "user",
-				token: crypto.randomUUID(),
-			} as never,
-			{ accountId, userId: "owner-1" },
-		);
-		expect(refused.frame.ok).toBe(false);
-		expect(JSON.stringify(refused.frame)).toContain("token_not_accepted");
-		expect(await tokenCount()).toBe(0);
-
-		// Positive control: the same call without a token succeeds and the
-		// member exists, still with no token row.
-		const accepted = await sendRpc(
-			"account.members.add",
-			{ userId: "token-free", name: "Token Free", role: "user" },
-			{ accountId, userId: "owner-1" },
-		);
-		expect(accepted.frame.ok).toBe(true);
-		expect(await tokenCount()).toBe(0);
 	});
 });

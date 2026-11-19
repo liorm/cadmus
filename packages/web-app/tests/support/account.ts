@@ -1,6 +1,6 @@
 import http from "node:http";
 
-export const MASTER_TOKEN = "dev-cadmus-secret";
+export const MASTER_TOKEN = "parked-ui-token";
 
 export function uniqueAccountId(prefix = "ui"): string {
 	return `${prefix}-${crypto.randomUUID()}`;

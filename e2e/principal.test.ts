@@ -2,9 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
 	type ChatGetResult,
 	callApi,
+	elevateAccessToken,
+	loginDevPassword,
+	provisionInvitedMember,
 	sendRpc,
-	TEST_TOKEN,
-	uniqueAccountId,
 	useWorkerFixture,
 	WORKER_BASE_URL,
 	workerFetch,
@@ -39,27 +40,27 @@ describe("Principal plumbing (issue #3 phase 1)", () => {
 	useWorkerFixture();
 
 	it("auth.whoami returns the principal the edge resolved", async () => {
-		const accountId = uniqueAccountId("who");
+		const member = await provisionInvitedMember({ role: "account-admin" });
 		const frame = await callApi<WhoamiResult>(
 			"auth.whoami",
 			{},
-			{ accountId, userId: "alice" },
+			{ token: member.accessToken },
 		);
 		expect(frame.ok).toBe(true);
 		expect(frame.result?.principal).toMatchObject({
-			accountId,
-			userId: "alice",
+			accountId: member.accountId,
+			userId: member.userId,
 			role: "account-admin",
 		});
 	});
 
 	it("spoofed identity headers over /rpc never change the acting principal", async () => {
-		const accountId = uniqueAccountId("spoof-rpc");
+		const member = await provisionInvitedMember({ role: "account-admin" });
 		const res = await workerFetch(`${WORKER_BASE_URL}/rpc`, {
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",
-				Authorization: `Bearer ${accountId}:alice:${TEST_TOKEN}`,
+				Authorization: `Bearer ${member.accessToken}`,
 				"X-Cadmus-Family-Id": "default",
 				...SPOOF_HEADERS,
 				"x-user-id": "mallory",
@@ -70,22 +71,37 @@ describe("Principal plumbing (issue #3 phase 1)", () => {
 			result?: WhoamiResult;
 			ok: boolean;
 		};
-		expect(frame.ok).toBe(true);
-		// The token names account and user. The x-user-id / x-account-id
-		// headers are only a fallback for a bare master secret, so they must not
-		// reach the DO as an identity: the principal is exactly the token's.
-		expect(frame.result?.principal).toMatchObject({
-			accountId,
-			userId: "alice",
+		// A foreign x-account-id is not a switch to that account.
+		expect(res.status).toBe(401);
+		expect(frame.ok).not.toBe(true);
+		expect(JSON.stringify(frame)).not.toContain("mallory");
+		const { "x-account-id": _account, ...withoutAccount } = SPOOF_HEADERS;
+		void _account;
+		const kept = await workerFetch(`${WORKER_BASE_URL}/rpc`, {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				Authorization: `Bearer ${member.accessToken}`,
+				...withoutAccount,
+			},
+			body: JSON.stringify({ id: "w2", type: "auth.whoami" }),
+		});
+		const keptFrame = (await kept.json()) as {
+			result?: WhoamiResult;
+			ok: boolean;
+		};
+		expect(keptFrame.ok).toBe(true);
+		expect(keptFrame.result?.principal).toMatchObject({
+			accountId: member.accountId,
+			userId: member.userId,
 			role: "account-admin",
 		});
-		expect(JSON.stringify(frame)).not.toContain("someone-elses-account");
 	});
 
 	it("a client-sent X-Cadmus-Principal or Caller-Role header never reaches the DO via /api", async () => {
-		const accountId = uniqueAccountId("spoof-api");
+		const member = await provisionInvitedMember({ role: "account-admin" });
 		const headers: Record<string, string> = {
-			Authorization: `Bearer ${accountId}:alice:${TEST_TOKEN}`,
+			Authorization: `Bearer ${member.accessToken}`,
 			...SPOOF_HEADERS,
 		};
 		delete headers["x-user-id"];
@@ -95,17 +111,20 @@ describe("Principal plumbing (issue #3 phase 1)", () => {
 		});
 		const body = (await res.json()) as { result?: WhoamiResult } & WhoamiResult;
 		const principal = body.result?.principal ?? body.principal;
-		expect(principal).toMatchObject({ accountId, userId: "alice" });
+		expect(principal).toMatchObject({
+			accountId: member.accountId,
+			userId: member.userId,
+		});
 		expect(JSON.stringify(body)).not.toContain("mallory");
 	});
 
 	it("spoofed headers on a WebSocket upgrade never change the principal", async () => {
-		const accountId = uniqueAccountId("spoof-ws");
+		const member = await provisionInvitedMember({ role: "account-admin" });
 		const url = new URL(`${WORKER_BASE_URL}/ws`);
 		const issued = await sendRpc<{ ticket: string }>(
 			"auth.ticket",
 			{ target: "ws" },
-			{ token: `${accountId}:alice:${TEST_TOKEN}` },
+			{ token: member.accessToken },
 		);
 		url.searchParams.set("ticket", issued.frame.result?.ticket ?? "");
 		const res = await workerFetch(url.toString(), {
@@ -123,8 +142,8 @@ describe("Principal plumbing (issue #3 phase 1)", () => {
 				ws.send(JSON.stringify({ id: "ws1", type: "auth.whoami" }));
 			});
 			expect(reply.result?.principal).toMatchObject({
-				accountId,
-				userId: "alice",
+				accountId: member.accountId,
+				userId: member.userId,
 				role: "account-admin",
 			});
 		} finally {
@@ -133,20 +152,41 @@ describe("Principal plumbing (issue #3 phase 1)", () => {
 	});
 
 	it("records the authenticated author of a user message and returns it on re-read", async () => {
-		const accountId = uniqueAccountId("author");
-		const alice = { accountId, userId: "alice" };
-		const bob = { accountId, userId: "bob" };
+		const alice = await provisionInvitedMember({ role: "account-admin" });
+		const boss = await loginDevPassword();
+		await elevateAccessToken(boss.accessToken);
+		const email = `bob-${crypto.randomUUID()}@example.com`;
+		const invite = await sendRpc(
+			"system.members.invite",
+			{ accountId: alice.accountId, email, roles: ["user"] },
+			{ token: boss.accessToken },
+		);
+		expect(invite.frame.ok).toBe(true);
+		const bobLogin = await loginDevPassword(email);
+		const bobWho = await sendRpc<{ principal: { userId?: string } }>(
+			"auth.whoami",
+			{},
+			{ token: bobLogin.accessToken },
+		);
+		const bobId = bobWho.frame.result?.principal.userId;
+		expect(bobId).toBeTruthy();
+		const aliceOpts = { token: alice.accessToken };
+		const bobOpts = { token: bobLogin.accessToken };
 		await sendRpc(
 			"bot.create",
 			{ slug: "echo-bot", name: "Echo", model: "faux/echo" },
-			alice,
+			aliceOpts,
 		);
-		await sendRpc("chat.create", { botId: "echo-bot", key: "shared" }, alice);
+		await sendRpc(
+			"chat.create",
+			{ botId: "echo-bot", key: "shared" },
+			aliceOpts,
+		);
 
 		const first = await sendRpc(
 			"turn.submit",
 			{ chatKey: "shared", text: "from alice" },
-			alice,
+			aliceOpts,
 		);
 		expect(first.frame.ok).toBe(true);
 		const second = await sendRpc(
@@ -157,21 +197,34 @@ describe("Principal plumbing (issue #3 phase 1)", () => {
 				// A payload cannot name its own author.
 				authorUserId: "alice",
 			} as never,
-			bob,
+			bobOpts,
 		);
 		expect(second.frame.ok).toBe(true);
 
 		const reread = await sendRpc<ChatGetResult>(
 			"chat.get",
 			{ chatKey: "shared" },
-			alice,
+			aliceOpts,
 		);
 		const users = (reread.frame.result?.messages ?? []).filter(
 			(message) => message.role === "user",
 		);
 		expect(users.map((m) => [m.text, m.authorUserId])).toEqual([
-			["from alice", "alice"],
-			["from bob", "bob"],
+			["from alice", alice.userId],
+			["from bob", bobId],
 		]);
+	});
+
+	it("rejects a raw shared secret and an account:user:secret bearer", async () => {
+		const raw = `shared-${crypto.randomUUID()}`;
+		const shaped = `acct-${crypto.randomUUID()}:user:${raw}`;
+		for (const token of [raw, shaped]) {
+			const denied = await sendRpc("auth.whoami", {}, { token });
+			expect(denied.status).toBe(401);
+			expect(denied.frame.ok).toBe(false);
+		}
+		const session = await loginDevPassword();
+		const ok = await sendRpc("auth.whoami", {}, { token: session.accessToken });
+		expect(ok.frame.ok).toBe(true);
 	});
 });

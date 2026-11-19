@@ -53,7 +53,6 @@ const READONLY = [
 const MUTATING = [
 	"account.credentials.delete",
 	"account.credentials.set",
-	"account.members.add",
 	"account.credentials.oauth.cancel",
 	"account.invites.revoke",
 	"account.members.invite",

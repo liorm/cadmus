@@ -58,12 +58,6 @@ export const API_ROUTES = {
 		allow: "POST",
 		readOnly: false,
 	},
-	"account.members.add": {
-		method: "POST",
-		path: "/api/account/members/add",
-		allow: "POST",
-		readOnly: false,
-	},
 	"account.credentials.list": {
 		method: "GET",
 		path: "/api/account/credentials/list",

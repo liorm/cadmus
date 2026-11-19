@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
 	addMemberBearer,
+	adminScope,
 	connectTestWs,
 	ScriptedDaemon,
 	sendRpc,
-	uniqueAccountId,
 	useWorkerFixture,
 	workerFetch,
 } from "./helpers.js";
@@ -13,8 +13,7 @@ describe("tools env deregister", () => {
 	useWorkerFixture();
 
 	it("removes a just-bash env from the account and forbids members", async () => {
-		const accountId = uniqueAccountId("dereg-jb");
-		const options = { accountId, familyId: "default" };
+		const options = await adminScope("default");
 		await sendRpc("family.update", { harvestDelayMs: 0 }, options);
 		const created = await sendRpc<{
 			env: { envId: string; kind: string };
@@ -100,8 +99,7 @@ describe("tools env deregister", () => {
 	});
 
 	it("removes a paired connected daemon and closes its socket", async () => {
-		const accountId = uniqueAccountId("dereg-live");
-		const options = { accountId, familyId: "default" };
+		const options = await adminScope("default");
 		await sendRpc("family.update", { harvestDelayMs: 0 }, options);
 		const created = await sendRpc<{
 			env: { envId: string };
@@ -165,8 +163,7 @@ describe("tools env deregister", () => {
 	});
 
 	it("removes a never-connected daemon and forbids members", async () => {
-		const accountId = uniqueAccountId("dereg-idle");
-		const options = { accountId, familyId: "default" };
+		const options = await adminScope("default");
 		await sendRpc("family.update", { harvestDelayMs: 0 }, options);
 		const created = await sendRpc<{
 			env: { envId: string; connection?: { status?: string } };

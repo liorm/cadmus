@@ -3,16 +3,17 @@ import {
 	type AccountMember,
 	type AccountRecord,
 	addMemberBearer,
+	adminScope,
 	type BotRecord,
 	type CredentialSummary,
 	type FamilyRecord,
 	type ModelInfo,
 	sendRpc,
-	TEST_TOKEN,
-	uniqueAccountId,
 	useWorkerFixture,
 	workerFetch,
 } from "./helpers.js";
+
+const TEST_TOKEN = "rejected-bearer";
 
 describe("Authentication, Accounts, Encrypted BYOK Credentials & Multi-Family Catalog", () => {
 	useWorkerFixture();
@@ -48,14 +49,14 @@ describe("Authentication, Accounts, Encrypted BYOK Credentials & Multi-Family Ca
 		expect(bad.status).toBe(401);
 		expect(bad.frame.ok).toBe(false);
 
-		const accountId = uniqueAccountId("auth");
+		const { accountId, token } = await adminScope();
 		const userId = "owner-1";
 
 		// 3. Valid Bearer token accepted
 		const valid = await sendRpc<{ bots: BotRecord[] }>(
 			"bot.list",
 			{},
-			{ accountId, userId },
+			{ accountId, token },
 		);
 		expect(valid.status).toBe(200);
 		expect(valid.frame.ok).toBe(true);
@@ -76,8 +77,8 @@ describe("Authentication, Accounts, Encrypted BYOK Credentials & Multi-Family Ca
 			{},
 			{ token: `${accountId}:${userId}:${TEST_TOKEN}` },
 		);
-		expect(viaScopedHeader.status).toBe(200);
-		expect(viaScopedHeader.frame.ok).toBe(true);
+		expect(viaScopedHeader.status).toBe(401);
+		expect(viaScopedHeader.frame.ok).toBe(false);
 
 		// 5. Invite a member and authenticate with the cad_pat_ they mint.
 		const member = await addMemberBearer({ accountId });
@@ -96,21 +97,25 @@ describe("Authentication, Accounts, Encrypted BYOK Credentials & Multi-Family Ca
 			),
 		).toBe(true);
 
-		// 6. Master token with x-user-id: "dev" authenticates as user "dev"
+		// A client-chosen user id is not an identity. The session user is.
+		const dev = await adminScope();
 		const devRes = await sendRpc<{ members: AccountMember[] }>(
 			"account.get",
 			{},
-			{ accountId: uniqueAccountId("auth-dev"), userId: "dev" },
+			{ token: dev.token, accountId: dev.accountId, userId: "dev" },
 		);
 		expect(devRes.status).toBe(200);
 		expect(devRes.frame.ok).toBe(true);
+		expect(
+			devRes.frame.result?.members.some((m) => m.userId === dev.userId),
+		).toBe(true);
 		expect(devRes.frame.result?.members.some((m) => m.userId === "dev")).toBe(
-			true,
+			false,
 		);
 	});
 
 	it("manages account BYOK credentials without exposing raw keys in list responses", async () => {
-		const accountId = uniqueAccountId("byok");
+		const { accountId, token } = await adminScope();
 		const rawSecretKey = "xai-super-secret-key-do-not-leak-12345";
 
 		const setRes = await sendRpc<{ credential: CredentialSummary }>(
@@ -122,7 +127,7 @@ describe("Authentication, Accounts, Encrypted BYOK Credentials & Multi-Family Ca
 					apiKey: rawSecretKey,
 				},
 			},
-			{ accountId },
+			{ accountId, token },
 		);
 		expect(setRes.status).toBe(200);
 		expect(setRes.frame.result?.credential.providerId).toBe("xai");
@@ -132,7 +137,7 @@ describe("Authentication, Accounts, Encrypted BYOK Credentials & Multi-Family Ca
 		const listRes = await sendRpc<{ credentials: CredentialSummary[] }>(
 			"account.credentials.list",
 			{},
-			{ accountId },
+			{ accountId, token },
 		);
 		expect(listRes.status).toBe(200);
 		expect(listRes.frame.result?.credentials).toHaveLength(1);
@@ -142,20 +147,20 @@ describe("Authentication, Accounts, Encrypted BYOK Credentials & Multi-Family Ca
 		const delRes = await sendRpc<{ deleted: string }>(
 			"account.credentials.delete",
 			{ providerId: "xai" },
-			{ accountId },
+			{ accountId, token },
 		);
 		expect(delRes.status).toBe(200);
 		expect(delRes.frame.result?.deleted).toBe("xai");
 	});
 
 	it("lists supported models with authentication status via account.models.list", async () => {
-		const accountId = uniqueAccountId("models");
+		const { accountId, token } = await adminScope();
 
 		// 1. List all models: faux is authenticated/offline, anthropic is not
 		const allModelsRes = await sendRpc<{ models: ModelInfo[] }>(
 			"account.models.list",
 			{},
-			{ accountId },
+			{ accountId, token },
 		);
 		expect(allModelsRes.status).toBe(200);
 		expect(allModelsRes.frame.ok).toBe(true);
@@ -177,7 +182,7 @@ describe("Authentication, Accounts, Encrypted BYOK Credentials & Multi-Family Ca
 		const fauxOnlyRes = await sendRpc<{ models: ModelInfo[] }>(
 			"account.models.list",
 			{ provider: "faux" },
-			{ accountId },
+			{ accountId, token },
 		);
 		expect(
 			fauxOnlyRes.frame.result?.models.every((m) => m.provider === "faux"),
@@ -188,7 +193,7 @@ describe("Authentication, Accounts, Encrypted BYOK Credentials & Multi-Family Ca
 		const authOnlyRes = await sendRpc<{ models: ModelInfo[] }>(
 			"account.models.list",
 			{ onlyAuthenticated: true },
-			{ accountId },
+			{ accountId, token },
 		);
 		expect(authOnlyRes.frame.result?.models.every((m) => m.authenticated)).toBe(
 			true,
@@ -204,13 +209,13 @@ describe("Authentication, Accounts, Encrypted BYOK Credentials & Multi-Family Ca
 				providerId: "xai",
 				credential: { type: "api_key", apiKey: "xai-test-key-12345" },
 			},
-			{ accountId },
+			{ accountId, token },
 		);
 
 		const xaiModelsRes = await sendRpc<{ models: ModelInfo[] }>(
 			"account.models.list",
 			{ provider: "xai" },
-			{ accountId },
+			{ accountId, token },
 		);
 		const xaiModels = xaiModelsRes.frame.result?.models ?? [];
 		expect(xaiModels.length).toBeGreaterThan(0);
@@ -220,7 +225,7 @@ describe("Authentication, Accounts, Encrypted BYOK Credentials & Multi-Family Ca
 	});
 
 	it("isolates Bot Families in separate CadmusBotFamilyDO instances within the same account", async () => {
-		const accountId = uniqueAccountId("families");
+		const { accountId, token } = await adminScope();
 
 		const createAlpha = await sendRpc<{ family: FamilyRecord }>(
 			"family.create",
@@ -230,7 +235,7 @@ describe("Authentication, Accounts, Encrypted BYOK Credentials & Multi-Family Ca
 				timezone: "America/New_York",
 				harvestDelayMs: 30_000,
 			},
-			{ accountId },
+			{ accountId, token },
 		);
 		expect(createAlpha.status).toBe(200);
 		expect(createAlpha.frame.result?.family.doName).toBe(
@@ -245,7 +250,7 @@ describe("Authentication, Accounts, Encrypted BYOK Credentials & Multi-Family Ca
 				timezone: "Europe/London",
 				harvestDelayMs: 45_000,
 			},
-			{ accountId },
+			{ accountId, token },
 		);
 		expect(createBeta.status).toBe(200);
 		expect(createBeta.frame.result?.family.doName).toBe(
@@ -256,19 +261,19 @@ describe("Authentication, Accounts, Encrypted BYOK Credentials & Multi-Family Ca
 		await sendRpc(
 			"bot.create",
 			{ slug: "alpha-bot", name: "Alpha Bot" },
-			{ accountId, familyId: "alpha" },
+			{ accountId, token, familyId: "alpha" },
 		);
 
 		// Alpha has alpha-bot, Beta has 0 bots
 		const alphaBots = await sendRpc<{ bots: BotRecord[] }>(
 			"bot.list",
 			{},
-			{ accountId, familyId: "alpha" },
+			{ accountId, token, familyId: "alpha" },
 		);
 		const betaBots = await sendRpc<{ bots: BotRecord[] }>(
 			"bot.list",
 			{},
-			{ accountId, familyId: "beta" },
+			{ accountId, token, familyId: "beta" },
 		);
 		expect(alphaBots.frame.result?.bots.map((b) => b.id)).toEqual([
 			"alpha-bot",
@@ -277,8 +282,8 @@ describe("Authentication, Accounts, Encrypted BYOK Credentials & Multi-Family Ca
 	});
 
 	it("updates account timezone and display name, and new bots inherit account timezone", async () => {
-		const accountId = uniqueAccountId("tz");
-		const scope = { accountId, familyId: "default" };
+		const { accountId, token } = await adminScope();
+		const scope = { accountId, token, familyId: "default" };
 
 		// Initial account check (defaults to UTC)
 		const acctInitial = await sendRpc<{ account: AccountRecord }>(

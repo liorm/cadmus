@@ -433,6 +433,31 @@ describe("auth flows (google, invites, sessions, phase 6)", () => {
 		expect(bots.frame.error?.code).toBe("forbidden");
 	});
 
+	it("locks one presented bearer after five refused token logins", async () => {
+		const bad = `cad_pat_${crypto.randomUUID()}`;
+		const post = (token: string) =>
+			workerFetch(`${WORKER_BASE_URL}/api/auth/login/token`, {
+				method: "POST",
+				headers: { Authorization: `Bearer ${token}` },
+			});
+		for (let i = 1; i < 5; i++) {
+			const res = await post(bad);
+			expect(res.status, `refusal ${i}`).toBe(401);
+		}
+		const locked = await post(bad);
+		expect(locked.status).toBe(429);
+		const body = (await locked.json()) as { error?: { code?: string } };
+		expect(body.error?.code).toBe("locked_out");
+		const other = await post(`cad_pat_${crypto.randomUUID()}`);
+		expect(other.status).toBe(401);
+		const tenant = await provisionInvitedMember({ role: "user" });
+		const bearer = await addMemberBearer({ accountId: tenant.accountId });
+		const ok = await post(bearer.token);
+		expect(ok.status).toBe(200);
+		// The locked string stays locked after a different bearer succeeds.
+		expect((await post(bad)).status).toBe(429);
+	});
+
 	it("phase 6: an invited account-admin signs in to an empty tenant", async () => {
 		const admin = await provisionInvitedMember({ role: "account-admin" });
 		const read = async () => {

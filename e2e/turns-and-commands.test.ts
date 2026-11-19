@@ -1,21 +1,30 @@
 import { describe, expect, it } from "vitest";
 import {
+	adminScope,
 	type ChatGetResult,
 	type ChatRecord,
 	connectTestWs,
 	sendRpc,
-	TEST_TOKEN,
 	type TurnBlock,
-	uniqueAccountId,
 	useWorkerFixture,
 	workerFetch,
 } from "./helpers.js";
+
+async function untilType(
+	events: Array<{ type: string }>,
+	type: string,
+) {
+	const deadline = Date.now() + 2_000;
+	while (!events.some((event) => event.type === type) && Date.now() < deadline) {
+		await new Promise((resolve) => setTimeout(resolve, 20));
+	}
+}
 
 describe("Turns, Streaming Protocol Events & chat.status", () => {
 	useWorkerFixture();
 
 	it("streams turn.delta, turn.tool_call, turn.tool_result, chat.state, and turn.completed over WebSocket", async () => {
-		const scope = { accountId: uniqueAccountId("turns"), familyId: "default" };
+		const scope = await adminScope("default");
 		const wsClient = await connectTestWs(scope);
 
 		try {
@@ -40,6 +49,7 @@ describe("Turns, Streaming Protocol Events & chat.status", () => {
 			expect(turnRes.ok).toBe(true);
 			expect(turnRes.result?.reply).toContain("echo(1):");
 			expect(turnRes.result?.reply).toContain('"exists":false');
+			await untilType(wsClient.events, "turn.completed");
 
 			const eventTypes = wsClient.events.map((e) => e.type);
 			expect(eventTypes).toContain("chat.state");
@@ -53,7 +63,7 @@ describe("Turns, Streaming Protocol Events & chat.status", () => {
 	});
 
 	it("returns chat.status without polluting conversation history or calling the LLM", async () => {
-		const scope = { accountId: uniqueAccountId("status"), familyId: "default" };
+		const scope = await adminScope("default");
 
 		await sendRpc(
 			"bot.create",
@@ -115,10 +125,7 @@ describe("Turns, Streaming Protocol Events & chat.status", () => {
 	});
 
 	it("recreates 'what can you do?' conversation: complete streaming deltas and no duplicate output", async () => {
-		const scope = {
-			accountId: uniqueAccountId("what-can-you-do"),
-			familyId: "default",
-		};
+		const scope = await adminScope("default");
 		const wsClient = await connectTestWs(scope);
 
 		try {
@@ -142,6 +149,7 @@ describe("Turns, Streaming Protocol Events & chat.status", () => {
 			});
 			expect(turnRes.ok).toBe(true);
 			expect(turnRes.result?.reply).toContain("What do you want to do?");
+			await untilType(wsClient.events, "turn.completed");
 
 			// Verify server events
 			const deltaEvents = wsClient.events.filter(
@@ -169,7 +177,7 @@ describe("Turns, Streaming Protocol Events & chat.status", () => {
 	});
 
 	it("broadcasts blocks in turn.completed, returns blocks in turn.submit, and renders TUI chips for thinking and tools", async () => {
-		const scope = { accountId: uniqueAccountId("chips"), familyId: "default" };
+		const scope = await adminScope("default");
 		const wsClient = await connectTestWs(scope);
 
 		try {
@@ -194,6 +202,7 @@ describe("Turns, Streaming Protocol Events & chat.status", () => {
 			});
 
 			expect(turnRes.ok).toBe(true);
+			await untilType(wsClient.events, "turn.completed");
 			expect(turnRes.result?.blocks).toBeDefined();
 			const resultBlocks = turnRes.result?.blocks ?? [];
 			expect(resultBlocks.some((b) => b.type === "thinking")).toBe(true);
@@ -226,10 +235,7 @@ describe("Turns, Streaming Protocol Events & chat.status", () => {
 	});
 
 	it("enriches transcript messages and entries with server-side binding over synchronous RPC", async () => {
-		const scope = {
-			accountId: uniqueAccountId("transcript-enrich"),
-			familyId: "default",
-		};
+		const scope = await adminScope("default");
 
 		// 1. Calling POST /rpc via sendRpc acts as a synchronous request-response where the server binds the response
 		const customReqId = "req-custom-sync-check-42";
@@ -237,7 +243,7 @@ describe("Turns, Streaming Protocol Events & chat.status", () => {
 			method: "POST",
 			headers: {
 				"Content-Type": "application/json",
-				Authorization: `Bearer ${TEST_TOKEN}`,
+				Authorization: `Bearer ${scope.token}`,
 				"x-account-id": scope.accountId,
 			},
 			body: JSON.stringify({

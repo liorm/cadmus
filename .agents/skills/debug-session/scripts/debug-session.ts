@@ -228,7 +228,7 @@ function parseCliArgs(): CliOptions {
 	if (!options.remoteUrl && !options.dbPath && process.env.CADMUS_URL) {
 		options.remoteUrl = process.env.CADMUS_URL;
 	}
-	options.token ??= process.env.CADMUS_TOKEN ?? "dev-cadmus-secret";
+	options.token ??= process.env.CADMUS_TOKEN ?? "";
 	options.accountId ??= process.env.CADMUS_ACCOUNT_ID ?? "default-account";
 	options.familyId ??= process.env.CADMUS_FAMILY_ID ?? "default";
 	options.cfClientId ??= process.env.CF_ACCESS_CLIENT_ID;
@@ -266,7 +266,7 @@ OPTIONS:
   --url <url>           Target explicit Cadmus HTTP/RPC URL
   --local               Force local SQLite DO mode
   --db <path>           Explicit path to local DO SQLite database
-  --token <token>       Bearer token (default: CADMUS_TOKEN or 'dev-cadmus-secret')
+  --token <token>       Bearer token (default: CADMUS_TOKEN; there is no default secret)
   --account <id>        Account ID header (default: CADMUS_ACCOUNT_ID or 'default-account')
   --family <id>         Family ID header (default: CADMUS_FAMILY_ID or 'default')
   --cf-client-id <id>   Cloudflare Access Service Token Client ID

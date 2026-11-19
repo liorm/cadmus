@@ -78,6 +78,25 @@ export function refuseCrossOrigin(request: Request, url: URL): Response | null {
 	);
 }
 
+/**
+ * Production is served on the custom domain. A `*.workers.dev` host is not a
+ * second entry, even if the route is turned back on. Preview version URLs are
+ * also `*.workers.dev` (`IS_PREVIEW`), and local tests are not production.
+ */
+export function refuseWorkersDev(
+	url: URL,
+	env: { CADMUS_DEPLOY_ENV?: string; IS_PREVIEW?: string },
+): Response | null {
+	if (env.IS_PREVIEW === "true") return null;
+	if (env.CADMUS_DEPLOY_ENV !== "production") return null;
+	const host = url.hostname.toLowerCase();
+	if (host !== "workers.dev" && !host.endsWith(".workers.dev")) return null;
+	return new Response(null, {
+		status: 404,
+		headers: { "cache-control": "no-store" },
+	});
+}
+
 const routes = {
 	async fetch(
 		request: Request,
@@ -87,6 +106,8 @@ const routes = {
 		ensureLogger(env.CADMUS_LOG_LEVEL ?? env.LOG_LEVEL);
 		const log = getLogger();
 		const url = new URL(request.url);
+		const workersDev = refuseWorkersDev(url, env);
+		if (workersDev) return workersDev;
 
 		if (url.pathname === "/health" && request.method === "GET") {
 			return Response.json({
@@ -141,8 +162,8 @@ const routes = {
 
 		const apiRequest = isApiPath(url.pathname);
 		// Every credential is Authorization: Bearer. /api, /rpc, /ws and /events
-		// refuse the cookie and ?token=, including the master secret. Streams
-		// open with a ticket from auth.ticket. /api rejects those forms up front.
+		// refuse the cookie and ?token=. Streams open with a ticket from
+		// auth.ticket. /api rejects those forms up front.
 		const auth = await authenticateRequest(
 			request,
 			env,

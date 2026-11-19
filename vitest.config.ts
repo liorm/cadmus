@@ -53,7 +53,6 @@ export default defineConfig({
 				bindings: {
 					CADMUS_LOG_LEVEL: "silent",
 					CADMUS_PUBLIC_URL: "https://example.com",
-					CADMUS_AUTH_SECRET: "test-cadmus-secret",
 					CADMUS_ENCRYPTION_KEY: "test-cadmus-encryption-key-32bytes!",
 					CADMUS_DEFAULT_TIMEZONE: "UTC",
 					CADMUS_HARVEST_DELAY_MS: "200",

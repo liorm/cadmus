@@ -107,25 +107,12 @@ function resolveConnection(parsed: ParsedArgv): Connection {
 
 function requireToken(connection: Connection): number | undefined {
 	if (connection.token.length > 0) return undefined;
-	const local = isLocalUrl(connection.url);
-	const hint = local
-		? "Set --token or CADMUS_TOKEN."
-		: "Set --token or CADMUS_TOKEN. Non-localhost URLs have no default secret.";
-	return fail(EXIT_TRANSPORT, "unauthorized", hint, connection.pretty);
-}
-
-function isLocalUrl(url: string): boolean {
-	try {
-		const host = new URL(url).hostname;
-		return (
-			host === "localhost" ||
-			host === "127.0.0.1" ||
-			host === "[::1]" ||
-			host === "::1"
-		);
-	} catch {
-		return false;
-	}
+	return fail(
+		EXIT_TRANSPORT,
+		"unauthorized",
+		"Set --token or CADMUS_TOKEN.",
+		connection.pretty,
+	);
 }
 
 async function buildPayload(

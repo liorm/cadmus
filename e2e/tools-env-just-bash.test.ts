@@ -1,21 +1,27 @@
 import { describe, expect, it } from "vitest";
 import {
+	adminScope,
 	connectTestWs,
 	DEFAULT_CADMUS_TOOL_NAMES,
 	type RpcOptions,
 	type ServerEvent,
 	sendRpc,
-	uniqueAccountId,
 	useWorkerFixture,
 } from "./helpers.js";
 
 const CODING_TOOLS = ["bash", "read", "write", "edit"];
 
-function scope(
-	label: string,
-): RpcOptions & { accountId: string; familyId: string } {
-	const accountId = uniqueAccountId(`env-${label}`);
-	return { accountId, familyId: "default" };
+async function scope(
+	_label: string,
+): Promise<RpcOptions & { accountId: string; familyId: string }> {
+	return adminScope("default");
+}
+
+async function untilToolResult(events: ServerEvent[]) {
+	const deadline = Date.now() + 2_000;
+	while (toolResults(events).length === 0 && Date.now() < deadline) {
+		await new Promise((resolve) => setTimeout(resolve, 20));
+	}
 }
 
 function toolResults(events: ServerEvent[]) {
@@ -46,7 +52,7 @@ describe("just-bash tools env through the bot", () => {
 	useWorkerFixture();
 
 	it("runs bash end to end on the shared bot namespace", async () => {
-		const options = scope("bash");
+		const options = await scope("bash");
 		await sendRpc("family.update", { harvestDelayMs: 0 }, options);
 		const ws = await connectTestWs(options);
 		try {
@@ -110,7 +116,7 @@ describe("just-bash tools env through the bot", () => {
 	});
 
 	it("runs write end to end when the body contains a closing brace", async () => {
-		const options = scope("write");
+		const options = await scope("write");
 		await sendRpc("family.update", { harvestDelayMs: 0 }, options);
 		const ws = await connectTestWs(options);
 		try {
@@ -139,7 +145,7 @@ describe("just-bash tools env through the bot", () => {
 	});
 
 	it("runs read end to end against a file another inheriting chat wrote", async () => {
-		const options = scope("read");
+		const options = await scope("read");
 		await sendRpc("family.update", { harvestDelayMs: 0 }, options);
 		const ws = await connectTestWs(options);
 		try {
@@ -174,7 +180,7 @@ describe("just-bash tools env through the bot", () => {
 	});
 
 	it("runs edit end to end and the next read sees the replacement", async () => {
-		const options = scope("edit");
+		const options = await scope("edit");
 		await sendRpc("family.update", { harvestDelayMs: 0 }, options);
 		const ws = await connectTestWs(options);
 		try {
@@ -213,7 +219,7 @@ describe("just-bash tools env through the bot", () => {
 	});
 
 	it("executes multi-tool round with mutating tools sequentially so write followed by bash succeeds in one turn", async () => {
-		const options = scope("seq-tools");
+		const options = await scope("seq-tools");
 		await sendRpc("family.update", { harvestDelayMs: 0 }, options);
 		const ws = await connectTestWs(options);
 		try {
@@ -250,7 +256,7 @@ describe("just-bash tools env through the bot", () => {
 	});
 
 	it("shares the bot namespace across inheriting and explicitly bound chats on the same env, and isolates across envs", async () => {
-		const options = scope("pin");
+		const options = await scope("pin");
 		await sendRpc("family.update", { harvestDelayMs: 0 }, options);
 		const created = await sendRpc<{
 			env: {
@@ -343,7 +349,7 @@ describe("just-bash tools env through the bot", () => {
 	});
 
 	it("stays connected after a non-zero command and does not arm a recovery alarm", async () => {
-		const options = scope("nonzero");
+		const options = await scope("nonzero");
 		await sendRpc("family.update", { harvestDelayMs: 0 }, options);
 		await sendRpc(
 			"bot.create",
@@ -384,7 +390,7 @@ describe("just-bash tools env through the bot", () => {
 	});
 
 	it("gates bash when the default is cleared, tools omit coding tools, or the bot is off", async () => {
-		const options = scope("gate");
+		const options = await scope("gate");
 		await sendRpc("family.update", { harvestDelayMs: 0 }, options);
 		const cleared = await sendRpc(
 			"account.update",
@@ -497,6 +503,7 @@ describe("just-bash tools env through the bot", () => {
 					chatKey,
 					text: '[tool:bash {"command":"echo no"}]',
 				});
+				await untilToolResult(ws.events);
 				const payload = toolResults(ws.events)[0]?.payload as {
 					isError?: boolean;
 					content?: string;
@@ -512,7 +519,7 @@ describe("just-bash tools env through the bot", () => {
 	});
 
 	it("offers coding tools on a chat pin when the bot is off, and not on a sibling that is off", async () => {
-		const options = scope("tri");
+		const options = await scope("tri");
 		await sendRpc("family.update", { harvestDelayMs: 0 }, options);
 		await sendRpc(
 			"bot.create",
@@ -555,6 +562,7 @@ describe("just-bash tools env through the bot", () => {
 				chatKey: "inherit-off",
 				text: '[tool:bash {"command":"echo no"}]',
 			});
+			await untilToolResult(ws.events);
 			expect(toolIsError(ws.events)).toBe(true);
 		} finally {
 			ws.close();
@@ -586,7 +594,7 @@ describe("just-bash tools env through the bot", () => {
 	});
 
 	it("retains a file across off and on, and the next turn drops coding tools", async () => {
-		const options = scope("toggle");
+		const options = await scope("toggle");
 		await sendRpc("family.update", { harvestDelayMs: 0 }, options);
 		await sendRpc(
 			"bot.create",
@@ -648,6 +656,7 @@ describe("just-bash tools env through the bot", () => {
 				chatKey: "main",
 				text: '[tool:bash {"command":"echo later"}]',
 			});
+			await untilToolResult(ws.events);
 			expect(toolIsError(ws.events)).toBe(true);
 
 			ws.events.length = 0;
@@ -695,7 +704,7 @@ describe("just-bash tools env through the bot", () => {
 	});
 
 	it("rejects bad env writes and extra binding fields", async () => {
-		const options = scope("reject");
+		const options = await scope("reject");
 		const confined = await sendRpc(
 			"account.toolsEnvs.create",
 			{ kind: "just-bash", confineToWorkspace: false },
@@ -750,8 +759,8 @@ describe("just-bash tools env through the bot", () => {
 	});
 
 	it("isolates families until sharedWorkspace is set", async () => {
-		const accountId = uniqueAccountId("env-share");
-		const alpha = { accountId, familyId: "default" };
+		const alpha = await adminScope("default");
+		const { accountId, token } = alpha;
 		await sendRpc("family.update", { harvestDelayMs: 0 }, alpha);
 		const createdFamily = await sendRpc(
 			"family.create",
@@ -759,7 +768,7 @@ describe("just-bash tools env through the bot", () => {
 			alpha,
 		);
 		expect(createdFamily.frame.ok).toBe(true);
-		const beta = { accountId, familyId: "beta" };
+		const beta = { accountId, token, familyId: "beta" };
 		await sendRpc("family.update", { harvestDelayMs: 0 }, beta);
 
 		for (const options of [alpha, beta]) {
@@ -862,7 +871,7 @@ describe("just-bash tools env through the bot", () => {
 	}, 60_000);
 
 	it("pins tools env from create_bot and clears a chat pin back to the bot namespace", async () => {
-		const options = scope("create-bot");
+		const options = await scope("create-bot");
 		await sendRpc("family.update", { harvestDelayMs: 0 }, options);
 		await sendRpc(
 			"bot.create",
@@ -959,7 +968,7 @@ describe("just-bash tools env through the bot", () => {
 	});
 
 	it("clears bot.tools on null, leaves them unchanged when omitted, and replaces them with a list or []", async () => {
-		const options = scope("tools-update");
+		const options = await scope("tools-update");
 		const allowlist = ["memory_read", "memory_update", ...CODING_TOOLS];
 		await sendRpc("family.update", { harvestDelayMs: 0 }, options);
 		await sendRpc(
@@ -1106,7 +1115,7 @@ describe("just-bash tools env through the bot", () => {
 	});
 
 	it("blocks coding tools from writing, editing, or reading virtual files like memory.md", async () => {
-		const options = scope("virtual-block");
+		const options = await scope("virtual-block");
 		await sendRpc("family.update", { harvestDelayMs: 0 }, options);
 		await sendRpc(
 			"account.toolsEnvs.update",

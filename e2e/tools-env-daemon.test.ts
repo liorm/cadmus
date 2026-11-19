@@ -1,25 +1,21 @@
 import { describe, expect, it } from "vitest";
 import {
+	adminScope,
 	connectTestWs,
 	type RpcOptions,
 	type ServerEvent,
 	sendRpc,
-	uniqueAccountId,
 	useWorkerFixture,
 	workerFetch,
 } from "./helpers.js";
 
 const CODING_TOOLS = ["bash", "read", "write", "edit"];
 
-function scope(
-	label: string,
+async function scope(
+	_label: string,
 	familyId = "default",
-): RpcOptions & {
-	accountId: string;
-	familyId: string;
-} {
-	const accountId = uniqueAccountId(`daemon-${label}`);
-	return { accountId, familyId };
+): Promise<RpcOptions & { accountId: string; familyId: string }> {
+	return adminScope(familyId);
 }
 
 function toolResults(events: ServerEvent[]) {
@@ -38,6 +34,10 @@ async function bashResult(
 			chatKey,
 			text: `[tool:bash ${JSON.stringify({ command })}]`,
 		});
+		const deadline = Date.now() + 2_000;
+		while (toolResults(ws.events).length === 0 && Date.now() < deadline) {
+			await new Promise((resolve) => setTimeout(resolve, 20));
+		}
 		const payload = toolResults(ws.events)[0]?.payload as
 			| { toolName?: string; isError?: boolean; content?: string }
 			| undefined;
@@ -78,7 +78,7 @@ describe("local-daemon tools env through the bot", () => {
 	useWorkerFixture();
 
 	it("creates daemon envs, redeems pairing token, and deregisters one env", async () => {
-		const options = scope("pair-row");
+		const options = await scope("pair-row");
 		await sendRpc("family.update", { harvestDelayMs: 0 }, options);
 
 		const supplied = await sendRpc(
@@ -205,15 +205,15 @@ describe("local-daemon tools env through the bot", () => {
 	});
 
 	it("fans a default change to a second family without arming an alarm or rewriting bot rows", async () => {
-		const accountId = uniqueAccountId("daemon-fan");
-		const alpha = { accountId, familyId: "alpha" };
-		const beta = { accountId, familyId: "beta" };
+		const alpha = await adminScope("alpha");
+		const { accountId, token } = alpha;
+		const beta = { ...alpha, familyId: "beta" };
 		expect(
 			(
 				await sendRpc(
 					"family.create",
 					{ familyId: "alpha", name: "Alpha", timezone: "UTC" },
-					{ accountId },
+					{ accountId, token },
 				)
 			).frame.ok,
 		).toBe(true);
@@ -222,7 +222,7 @@ describe("local-daemon tools env through the bot", () => {
 				await sendRpc(
 					"family.create",
 					{ familyId: "beta", name: "Beta", timezone: "UTC" },
-					{ accountId },
+					{ accountId, token },
 				)
 			).frame.ok,
 		).toBe(true);
@@ -329,7 +329,7 @@ describe("local-daemon tools env through the bot", () => {
 	});
 
 	it("does not offer coding tools when the bot is off and uses the account env when the bot is on without a binding", async () => {
-		const options = scope("inherit");
+		const options = await scope("inherit");
 		await sendRpc("family.update", { harvestDelayMs: 0 }, options);
 		const created = await createDaemon(options, {
 			confineToWorkspace: true,
@@ -392,7 +392,7 @@ describe("local-daemon tools env through the bot", () => {
 	});
 
 	it("reports chat.get sources for chat, bot, account, and unbound", async () => {
-		const options = scope("sources");
+		const options = await scope("sources");
 		await sendRpc("family.update", { harvestDelayMs: 0 }, options);
 		const created = await createDaemon(options, {
 			label: "Laptop",
@@ -523,7 +523,7 @@ describe("local-daemon tools env through the bot", () => {
 	});
 
 	it("drops a daemon chat pin without a namespace RPC and inherits just-bash", async () => {
-		const options = scope("unpin");
+		const options = await scope("unpin");
 		await sendRpc("family.update", { harvestDelayMs: 0 }, options);
 		const created = await createDaemon(options, {
 			confineToWorkspace: true,
@@ -577,7 +577,7 @@ describe("local-daemon tools env through the bot", () => {
 	});
 
 	it("rejects binding fields other than envId", async () => {
-		const options = scope("bind");
+		const options = await scope("bind");
 		await sendRpc("family.update", { harvestDelayMs: 0 }, options);
 		await sendRpc(
 			"bot.create",
@@ -634,7 +634,7 @@ describe("local-daemon tools env through the bot", () => {
 	});
 
 	it("pins a daemon env from create_bot and rejects an inline token", async () => {
-		const options = scope("create-bot");
+		const options = await scope("create-bot");
 		await sendRpc("family.update", { harvestDelayMs: 0 }, options);
 		const created = await createDaemon(options, {
 			confineToWorkspace: true,

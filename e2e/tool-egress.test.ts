@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+	adminScope,
 	type ModelInfo,
 	sendRpc,
-	uniqueAccountId,
 	useWorkerFixture,
 } from "./helpers.js";
 
@@ -14,8 +14,8 @@ import {
 
 type Scope = { accountId: string; familyId: string };
 
-function scope(label: string): Scope {
-	return { accountId: uniqueAccountId(label), familyId: "default" };
+async function scope(_label: string): Promise<Scope> {
+	return adminScope("default");
 }
 
 async function tool(
@@ -44,7 +44,7 @@ describe("egress and knowledge tools on a turn", () => {
 	useWorkerFixture();
 
 	it("fetches public pages and reports provider tools as unavailable on faux", async () => {
-		const account = scope("egress");
+		const account = await scope("egress");
 		const originalFetch = globalThis.fetch;
 		globalThis.fetch = async (input, init) => {
 			const url =
@@ -143,7 +143,7 @@ describe("egress and knowledge tools on a turn", () => {
 	}, 60_000);
 
 	it("reads, updates, and deletes the bot's own knowledge and memory", async () => {
-		const account = scope("knowledge-tools");
+		const account = await scope("knowledge-tools");
 		await sendRpc(
 			"bot.create",
 			{ slug: "scribe", name: "Scribe", model: "faux/echo" },
@@ -269,7 +269,7 @@ describe("egress and knowledge tools on a turn", () => {
 	}, 60_000);
 
 	it("rejects unknown models and accepts a provider once a key is stored", async () => {
-		const account = scope("model-check");
+		const account = await scope("model-check");
 		const models = await sendRpc<{ models: ModelInfo[] }>(
 			"account.models.list",
 			{},

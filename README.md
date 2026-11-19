@@ -67,8 +67,8 @@ In a second terminal, drive the local Worker with `cadmus`. Flags override `CADM
 ```bash
 bun run cli --help
 bun run cli --version
-bun run cli commands --token dev-cadmus-secret
-bun run cli bot.list --token dev-cadmus-secret --account default-account
+bun run cli commands --token "$CADMUS_TOKEN"
+bun run cli bot.list --token "$CADMUS_TOKEN" --account "$CADMUS_ACCOUNT_ID"
 ```
 
 `cadmus --skill` prints a contract-generated SKILL.md. `cadmus send <chatKey> <text>` waits for the turn. Build targets are in [`packages/cli/README.md`](packages/cli/README.md).
@@ -88,7 +88,7 @@ bun run deploy
 Cadmus includes an edge caching layer (`packages/worker/src/edge-cache.ts`) for token resolution and Bot Family DO routing info:
 - **L1 (In-Memory)**: Always enabled, zero latency, 60s TTL, bounded LRU cache per isolate.
 - **L2 (Workers KV)**: Optional distributed cache via `CADMUS_CACHE_KV` binding.
-- **Master Secret Fast-Path**: Constant-time comparison on raw token; skips repeat D1 `ensureAccountAndUser` upserts within the isolate.
+- There is no shared-secret bearer. A request authenticates with a Cadmus session, an API token, or a legacy member token.
 
 To enable L2 distributed KV caching across isolates:
 ```bash
@@ -141,7 +141,6 @@ docker run -d \
   --name cadmus \
   -p 8787:8787 \
   -v cadmus-data:/data \
-  -e CADMUS_AUTH_SECRET="your-secure-auth-secret" \
   -e CADMUS_ENCRYPTION_KEY="your-32-byte-encryption-key-here!" \
   -e ANTHROPIC_API_KEY="sk-ant-..." \
   -e OPENAI_API_KEY="sk-..." \
@@ -161,13 +160,13 @@ curl http://localhost:8787/health
 From your host machine:
 
 ```bash
-bun run cli bot.list --url http://localhost:8787 --token your-secure-auth-secret
+bun run cli bot.list --url http://localhost:8787 --token "$CADMUS_TOKEN"
 ```
 
 Or run the CLI directly inside the running container:
 
 ```bash
-docker exec -it cadmus bun run cli bot.list --url http://localhost:8787 --token your-secure-auth-secret
+docker exec -it cadmus bun run cli bot.list --url http://localhost:8787 --token "$CADMUS_TOKEN"
 ```
 
 ### Configuration Environment Variables
@@ -176,7 +175,6 @@ docker exec -it cadmus bun run cli bot.list --url http://localhost:8787 --token 
 | :--- | :--- | :--- |
 | `PORT` | `8787` | HTTP/WebSocket listener port |
 | `HOST` | `0.0.0.0` | Network interface to bind |
-| `CADMUS_AUTH_SECRET` | `dev-cadmus-secret` | Master admin bearer token for edge authentication |
 | `CADMUS_ENCRYPTION_KEY` | `dev-cadmus-encryption-key-32bytes!` | Master key for AES-GCM 256-bit BYOK credential encryption |
 | `CADMUS_DEFAULT_TIMEZONE` | `UTC` | Default timezone for scheduled cron expressions |
 | `CADMUS_HARVEST_DELAY_MS` | `60000` | Inactivity threshold before idle conversation harvest runs |

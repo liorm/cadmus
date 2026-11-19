@@ -18,13 +18,13 @@ export function AccountSettingsPage() {
 	// Callers whose role cannot manage members do not get the controls. whoami
 	// does not report a token's persisted grants, so a token session with an
 	// account-admin role keeps them and the worker decides (decision 13 allows
-	// elevated tokens). No session means the legacy master secret, which acts
-	// as account-admin.
+	// elevated tokens). Signed out is not an admin.
 	const principal = session.principal;
 	const principalPending = session.signedIn && principal === null;
-	const canManage = !session.signedIn
-		? true
-		: principal !== null && principal.role === "account-admin";
+	const canManage =
+		session.signedIn &&
+		principal !== null &&
+		principal.role === "account-admin";
 	const [needsAdmin, setNeedsAdmin] = useState(false);
 	const [locked, setLocked] = useState(false);
 	const lockedData = useRef<unknown>(undefined);
@@ -32,8 +32,6 @@ export function AccountSettingsPage() {
 	const [notice, setNotice] = useState<string | null>(null);
 	const [name, setName] = useState("");
 	const [timezone, setTimezone] = useState("UTC");
-	const [userId, setUserId] = useState("");
-	const [role, setRole] = useState<"user" | "account-admin">("user");
 	const [error, setError] = useState<string | null>(null);
 	const [busy, setBusy] = useState(false);
 
@@ -388,77 +386,6 @@ export function AccountSettingsPage() {
 										);
 									})}
 								</ul>
-							) : null}
-							{canManage ? (
-								<form
-									className="flex flex-col gap-2"
-									onSubmit={(event) => {
-										event.preventDefault();
-										if (!userId.trim() || memberActionsDisabled) return;
-										setBusy(true);
-										setError(null);
-										void client
-											.callRpc("account.members.add", {
-												userId: userId.trim(),
-												role,
-											})
-											.then((res) => {
-												if (!res.ok) {
-													if (res.error?.code === "elevation_required")
-														setNeedsAdmin(true);
-													setError(
-														res.error?.message ?? "Could not add the member",
-													);
-													return;
-												}
-												setUserId("");
-												reloadMembers();
-											})
-											.catch((err: unknown) => {
-												setError(
-													err instanceof Error ? err.message : "Network error",
-												);
-											})
-											.finally(() => setBusy(false));
-									}}
-								>
-									<label className="flex flex-col gap-1">
-										<span>User ID</span>
-										<input
-											aria-label="Member user ID"
-											className={fieldClass}
-											value={userId}
-											disabled={memberActionsDisabled}
-											onChange={(event) => setUserId(event.target.value)}
-										/>
-									</label>
-									<label className="flex flex-col gap-1">
-										<span>Role</span>
-										<select
-											aria-label="Member role"
-											className={fieldClass}
-											value={role}
-											disabled={memberActionsDisabled}
-											onChange={(event) =>
-												setRole(
-													event.target.value === "account-admin"
-														? "account-admin"
-														: "user",
-												)
-											}
-										>
-											<option value="user">user</option>
-											<option value="account-admin">account admin</option>
-										</select>
-									</label>
-									<button
-										type="submit"
-										className="min-h-tap rounded-md border border-border disabled:opacity-50"
-										disabled={memberActionsDisabled || !userId.trim()}
-									>
-										Add member
-									</button>
-								</form>
 							) : null}
 						</section>
 						<AccountSwitcher />

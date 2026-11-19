@@ -29,7 +29,6 @@ declare global {
 			CADMUS_AUTH_REFRESH_RATELIMIT: RateLimit;
 			CADMUS_AUTH_RPC_RATELIMIT: RateLimit;
 			CADMUS_ADMIN_DB: D1Database;
-			CADMUS_AUTH_SECRET?: string;
 			CADMUS_ENCRYPTION_KEY?: string;
 			CADMUS_DEFAULT_TIMEZONE?: string;
 			CADMUS_HARVEST_DELAY_MS?: string;

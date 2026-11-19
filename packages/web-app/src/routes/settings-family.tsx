@@ -1,6 +1,7 @@
 import type { FamilyRecord } from "@cadmus/contract/types";
 import { useEffect, useRef, useState } from "react";
 import { AppShell } from "@/components/AppShell";
+import { ElevationHelp } from "@/components/ElevationHelp";
 import { fieldClass } from "@/components/SettingsRows";
 import { LoadGate } from "@/components/Skeleton";
 import { TimezoneCombobox } from "@/components/TimezoneCombobox";
@@ -16,6 +17,15 @@ export function FamilySettingsPage() {
 	const [newId, setNewId] = useState("");
 	const [error, setError] = useState<string | null>(null);
 	const [busy, setBusy] = useState(false);
+	const [needsAdmin, setNeedsAdmin] = useState(false);
+	const noteRefusal = (res: {
+		ok: boolean;
+		error?: { code?: string; message?: string };
+	}) => {
+		if (res.ok) return false;
+		if (res.error?.code === "elevation_required") setNeedsAdmin(true);
+		return true;
+	};
 
 	const loaded = useScopedResource(familyId, async () => {
 		const res = await client.callRpc<{ families?: FamilyRecord[] }>(
@@ -69,6 +79,10 @@ export function FamilySettingsPage() {
 					</LoadGate>
 				) : null}
 				{error ? <p className="text-destructive">{error}</p> : null}
+				<ElevationHelp
+					needed={needsAdmin}
+					onEnabled={() => setNeedsAdmin(false)}
+				/>
 				{loaded.phase === "ready" ? (
 					<ul className="overflow-hidden rounded-md border border-border bg-surface">
 						{families.map((family) => {
@@ -118,7 +132,7 @@ export function FamilySettingsPage() {
 									Number.isFinite(delay) && delay > 0 ? delay : undefined,
 							})
 							.then((res) => {
-								if (!res.ok) {
+								if (noteRefusal(res) || !res.ok) {
 									setError(res.error?.message ?? "Could not update the family");
 									return;
 								}
@@ -192,7 +206,7 @@ export function FamilySettingsPage() {
 							void client
 								.callRpc("family.delete", { familyId })
 								.then(async (res) => {
-									if (!res.ok) {
+									if (noteRefusal(res) || !res.ok) {
 										setError(
 											res.error?.message ?? "Could not delete the family",
 										);
@@ -230,7 +244,7 @@ export function FamilySettingsPage() {
 								timezone: timezone || undefined,
 							})
 							.then(async (res) => {
-								if (!res.ok || !res.result?.family) {
+								if (noteRefusal(res) || !res.ok || !res.result?.family) {
 									setError(res.error?.message ?? "Could not create the family");
 									return;
 								}

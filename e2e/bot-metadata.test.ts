@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+	adminScope,
 	BOT_METADATA_MAX_KEYS,
 	BOT_METADATA_MAX_VALUE_LENGTH,
 	type BotRecord,
 	type ScheduleRecord,
 	sendRpc,
-	uniqueAccountId,
 	useWorkerFixture,
 } from "./helpers.js";
 
@@ -13,10 +13,7 @@ describe("Bot metadata and timezone", () => {
 	useWorkerFixture();
 
 	it("creates a bot with metadata and returns it from bot.get and bot.list", async () => {
-		const scope = {
-			accountId: uniqueAccountId("bot-meta-create"),
-			familyId: "default",
-		};
+		const scope = await adminScope("default");
 		const created = await sendRpc<{ bot: BotRecord }>(
 			"bot.create",
 			{
@@ -53,10 +50,7 @@ describe("Bot metadata and timezone", () => {
 	});
 
 	it("patches metadata: set, overwrite, delete, and leave other keys", async () => {
-		const scope = {
-			accountId: uniqueAccountId("bot-meta-patch"),
-			familyId: "default",
-		};
+		const scope = await adminScope("default");
 		await sendRpc(
 			"bot.create",
 			{
@@ -95,10 +89,7 @@ describe("Bot metadata and timezone", () => {
 	});
 
 	it("rejects metadata limit violations using exported constants", async () => {
-		const scope = {
-			accountId: uniqueAccountId("bot-meta-limits"),
-			familyId: "default",
-		};
+		const scope = await adminScope("default");
 		await sendRpc("bot.create", { slug: "limited", name: "Limited" }, scope);
 
 		const tooMany: Record<string, string> = {};
@@ -171,14 +162,14 @@ describe("Bot metadata and timezone", () => {
 	});
 
 	it("isolates metadata across bots and families", async () => {
-		const accountId = uniqueAccountId("bot-meta-iso");
-		const defaultScope = { accountId, familyId: "default" };
+		const { accountId, token } = await adminScope();
+		const defaultScope = { accountId, token, familyId: "default" };
 		await sendRpc(
 			"family.create",
 			{ familyId: "other", name: "Other" },
 			defaultScope,
 		);
-		const otherScope = { accountId, familyId: "other" };
+		const otherScope = { accountId, token, familyId: "other" };
 
 		await sendRpc(
 			"bot.create",
@@ -229,8 +220,8 @@ describe("Bot metadata and timezone", () => {
 	});
 
 	it("sets timezone on create and update, defaults omitted create to family timezone, and rejects invalid IANA values", async () => {
-		const accountId = uniqueAccountId("bot-tz");
-		const scope = { accountId, familyId: "default" };
+		const { accountId, token } = await adminScope();
+		const scope = { accountId, token, familyId: "default" };
 
 		await sendRpc("family.update", { timezone: "America/Los_Angeles" }, scope);
 
@@ -291,10 +282,7 @@ describe("Bot metadata and timezone", () => {
 	});
 
 	it("uses the updated bot timezone for cron schedules", async () => {
-		const scope = {
-			accountId: uniqueAccountId("bot-tz-sched"),
-			familyId: "default",
-		};
+		const scope = await adminScope("default");
 		await sendRpc(
 			"bot.create",
 			{

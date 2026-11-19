@@ -1,10 +1,10 @@
 import { env, SELF } from "cloudflare:test";
 import { API_ROUTES } from "@cadmus/contract/routes";
 import { describe, expect, it } from "vitest";
-import {
-	TEST_TOKEN,
-	uniqueAccountId,
-} from "../../packages/worker/tests/helpers.js";
+import { uniqueAccountId } from "../../packages/worker/tests/helpers.js";
+
+const FIXTURE_TOKEN = "cli-fixture-token";
+
 import { DAEMON_BRIDGE_HOST } from "../daemon/daemon-bridge-port.js";
 
 interface Job {
@@ -189,7 +189,7 @@ function baseArgs(accountId: string): string[] {
 		"--url",
 		bridgeBase(),
 		"--token",
-		TEST_TOKEN,
+		FIXTURE_TOKEN,
 		"--account",
 		accountId,
 		"--family",

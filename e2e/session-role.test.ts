@@ -395,7 +395,7 @@ describe("session hats", () => {
 		);
 	});
 
-	it("SR-14 missing bearer, master secret, and token session", async () => {
+	it("SR-14 missing bearer, rejected bearer, and token session", async () => {
 		const missing = await workerFetch(`${ORIGIN}/api/auth/assumeRole`, {
 			method: "POST",
 			headers: { Origin: ORIGIN, "Content-Type": "application/json" },
@@ -406,18 +406,13 @@ describe("session hats", () => {
 			}),
 		});
 		expect(missing.status).toBe(401);
-		const masterBefore = await whoami("test-cadmus-secret");
-		const master = await assume(
-			"test-cadmus-secret",
+		const rejected = await assume(
+			"rejected-bearer",
 			"user",
 			"default-account",
 		);
-		expect(master.body.error?.code).toBe("forbidden");
-		const masterAfter = await whoami("test-cadmus-secret");
-		expect(masterAfter.frame.result?.principal.role).toBe(
-			masterBefore.frame.result?.principal.role,
-		);
-		expect(masterAfter.frame.result?.principal.sessionId).toBeUndefined();
+		expect(rejected.res.status).toBe(401);
+		expect(rejected.body.error?.code).toBe("unauthorized");
 		const member = await provisionInvitedMember({ role: "user" });
 		const session = await devLogin(member.email);
 		const minted = await sendRpc<{ token: string }>(

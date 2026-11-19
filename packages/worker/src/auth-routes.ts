@@ -14,6 +14,7 @@ import {
 	lockoutStatus,
 	tooManyRequests,
 } from "./auth-limiter.js";
+import { sha256Hex } from "./edge-cache.js";
 import { resolveClampedTestInt } from "./env-overrides.js";
 import { getLogger } from "./log.js";
 import type { AdminStore } from "./store/admin-interface.js";
@@ -61,7 +62,7 @@ export async function handleAuthRoute(
 		return handleRefresh(request, adminStore);
 	if (pathname === LOGOUT_PATH) return handleLogout(request, adminStore);
 	if (pathname === TOKEN_LOGIN_PATH) {
-		return handleTokenLogin(request, adminStore);
+		return handleTokenLogin(request, env, adminStore);
 	}
 	if (pathname === DEV_PASSWORD_PATH) {
 		return handleDevPassword(request, env, adminStore);
@@ -513,9 +514,14 @@ async function handleAssumeRole(
  * (header only, never a query parameter) for a normal session bound to the
  * token's account, and sets the refresh cookie. The session's grants are
  * clamped to the token's. Failures are uniform 401 so a probe learns nothing.
+ * The same bearer string shares one Durable Object lockout counter (the
+ * identity is the hash of the secret, so the secret is not a DO name). A
+ * different string, including a valid token, has its own counter. The per-IP
+ * budget still caps guessing across many strings.
  */
 async function handleTokenLogin(
 	request: Request,
+	env: Env,
 	adminStore: AdminStore,
 ): Promise<Response> {
 	if (request.method !== "POST") {
@@ -533,6 +539,11 @@ async function handleTokenLogin(
 			noStore({ status: 401 }),
 		);
 	}
+	// Hash first so the lockout key is case-sensitive. The limiter lowercases
+	// identities, which is right for emails and wrong for token secrets.
+	const identity = await sha256Hex(raw);
+	const lock = await lockoutStatus(env, "token-login", identity);
+	if (lock.locked) return tooManyRequests(lock.retryAfterSec, "locked_out");
 	let result: Awaited<ReturnType<AdminStore["tokenLogin"]>>;
 	try {
 		result = await adminStore.tokenLogin(raw, {
@@ -551,11 +562,15 @@ async function handleTokenLogin(
 		);
 	}
 	if (!result.ok) {
+		const failed = await lockoutFail(env, "token-login", identity);
+		if (failed.locked)
+			return tooManyRequests(failed.retryAfterSec, "locked_out");
 		return Response.json(
 			{ error: { code: "unauthorized", message: "Token login refused" } },
 			noStore({ status: 401 }),
 		);
 	}
+	await lockoutClear(env, "token-login", identity);
 	return Response.json(
 		{
 			accessToken: result.tokens.accessToken,

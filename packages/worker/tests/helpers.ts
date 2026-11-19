@@ -14,12 +14,53 @@ import { D1AdminStore } from "../src/store/d1-admin.js";
 
 setupLogger({ type: "silent" });
 
-export const TEST_TOKEN = "test-cadmus-secret";
+const actingAdminTokens = new Map<string, string>();
+
+/**
+ * Account-admin session for a test's own account and user. Returns the
+ * `cad_at_` access token. Pass `elevated` to turn admin mode on the same way
+ * `startElevation` does in production.
+ */
+export async function actingAdmin(input: {
+	accountId: string;
+	userId: string;
+	elevated?: boolean;
+}): Promise<string> {
+	const key = `${input.accountId}\0${input.userId}\0${input.elevated ? "1" : "0"}`;
+	const cached = actingAdminTokens.get(key);
+	if (cached) return cached;
+	const store = new D1AdminStore({
+		db: env.CADMUS_ADMIN_DB,
+		encryptionKey: env.CADMUS_ENCRYPTION_KEY,
+		edgeCache: getEdgeCache(env),
+	});
+	await store.ensureAccountAndUser({
+		accountId: input.accountId,
+		userId: input.userId,
+		role: "account-admin",
+	});
+	const session = await store.createSession({
+		accountId: input.accountId,
+		userId: input.userId,
+		activeRole: "account-admin",
+	});
+	if (input.elevated) {
+		const until = await store.startElevation(
+			session.sessionId,
+			input.accountId,
+		);
+		if (until === undefined) {
+			throw new Error("startElevation failed for the acting admin session");
+		}
+	}
+	actingAdminTokens.set(key, session.accessToken);
+	return session.accessToken;
+}
 
 /**
  * Test fixture: a member with a caller-chosen legacy bearer token, written
- * through the store. `account.members.add` no longer accepts a token over RPC
- * (issue #3), so legacy-token tests seed the row here instead.
+ * through the store. Membership over RPC is invite-by-email only, so
+ * legacy-token tests seed the row here instead.
  */
 export async function addLegacyMember(input: {
 	accountId: string;
@@ -89,7 +130,9 @@ export async function sendRpc<T = unknown>(
 			headers.Authorization = `Bearer ${options.token}`;
 		}
 	} else if (!options.cookie) {
-		headers.Authorization = `Bearer ${TEST_TOKEN}`;
+		const accountId = options.accountId ?? "default-account";
+		const userId = options.userId ?? `user:${accountId}`;
+		headers.Authorization = `Bearer ${await actingAdmin({ accountId, userId })}`;
 	}
 	if (options.cookie) {
 		headers.Cookie = options.cookie;

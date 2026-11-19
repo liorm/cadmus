@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { getEdgeCache } from "../src/edge-cache.js";
 import { D1AdminStore } from "../src/store/d1-admin.js";
 import { ELEVATION_MS } from "../src/store/d1-sessions.js";
-import { sendRpc, TEST_TOKEN, uniqueAccountId } from "./helpers.js";
+import { sendRpc, uniqueAccountId } from "./helpers.js";
 
 const ORIGIN = "https://example.com";
 
@@ -370,12 +370,12 @@ describe("admin mode (issue #3 phase 6)", () => {
 		ws.close();
 	});
 
-	it("does not ask the legacy master secret to elevate", async () => {
+	it("a raw shared secret cannot run an elevated command", async () => {
 		const accountId = uniqueAccountId("elev-master");
 		const res = await SELF.fetch(`${ORIGIN}/rpc`, {
 			method: "POST",
 			headers: {
-				authorization: `Bearer ${TEST_TOKEN}`,
+				authorization: `Bearer raw-${crypto.randomUUID()}`,
 				"content-type": "application/json",
 				"x-account-id": accountId,
 			},
@@ -385,6 +385,7 @@ describe("admin mode (issue #3 phase 6)", () => {
 				payload: { familyId: "legacy", name: "legacy" },
 			}),
 		});
-		expect(((await res.json()) as Frame).ok).toBe(true);
+		expect(res.status).toBe(401);
+		expect(((await res.json()) as Frame).ok).toBe(false);
 	});
 });

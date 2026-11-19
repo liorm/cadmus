@@ -9,7 +9,7 @@ Cadmus is designed as a **headless, protocol-first runtime**. Any client (the `c
 All client-to-server commands and server-to-client responses/events are validated at runtime using **TypeBox** schemas in `packages/worker/src/protocol.ts`:
 
 ### Client Commands (`ClientCommand`)
-- **Account & Credentials**: `account.get`, `account.members.list`, `account.members.add`, `account.credentials.list`, `account.credentials.set`, `account.credentials.delete`
+- **Account & Credentials**: `account.get`, `account.members.list`, `account.members.invite`, `account.credentials.list`, `account.credentials.set`, `account.credentials.delete`
 - **Bot Families**: `family.list`, `family.create`, `family.delete`, `family.get`, `family.update`
 - **Bots**: `bot.list`, `bot.create`, `bot.get`, `bot.update`, `bot.delete`
 - **Chats & Turns**: `chat.list`, `chat.create`, `chat.get`, `chat.close`, `chat.status`, `turn.submit`, `turn.abort`

@@ -299,16 +299,24 @@ describe("member roles", () => {
 		expect(roles).toContain("user");
 	});
 
-	it("MR-08 add, repeat grant, revoke missing role", async () => {
+	it("MR-08 invite, repeat grant, revoke missing role", async () => {
 		const admin = await provisionInvitedMember({ role: "account-admin" });
 		await elevateAccessToken(admin.accessToken);
-		const userId = `usr_${crypto.randomUUID()}`;
-		const added = await sendRpc(
-			"account.members.add",
-			{ userId, roles: ["user", "account-admin"] },
+		const bothEmail = `both-${crypto.randomUUID()}@example.com`;
+		const invited = await sendRpc(
+			"account.members.invite",
+			{ email: bothEmail, roles: ["user", "account-admin"] },
 			{ token: admin.accessToken, accountId: admin.accountId },
 		);
-		expect(added.frame.ok).toBe(true);
+		expect(invited.frame.ok).toBe(true);
+		const both = await loginDevPassword(bothEmail);
+		const who = await sendRpc<{ principal: { userId?: string } }>(
+			"auth.whoami",
+			{},
+			{ token: both.accessToken },
+		);
+		const userId = who.frame.result?.principal.userId ?? "";
+		expect(userId).not.toBe("");
 		const again = await sendRpc(
 			"account.members.update",
 			{ userId, op: "grant", role: "user" },
@@ -326,16 +334,24 @@ describe("member roles", () => {
 			(member) => member.userId === userId,
 		);
 		expect(row?.roles).toEqual(["user", "account-admin"]);
-		const plainId = `usr_${crypto.randomUUID()}`;
+		const plainEmail = `plain-${crypto.randomUUID()}@example.com`;
 		expect(
 			(
 				await sendRpc(
-					"account.members.add",
-					{ userId: plainId, roles: ["user"] },
+					"account.members.invite",
+					{ email: plainEmail, roles: ["user"] },
 					{ token: admin.accessToken, accountId: admin.accountId },
 				)
 			).frame.ok,
 		).toBe(true);
+		const plain = await loginDevPassword(plainEmail);
+		const plainWho = await sendRpc<{ principal: { userId?: string } }>(
+			"auth.whoami",
+			{},
+			{ token: plain.accessToken },
+		);
+		const plainId = plainWho.frame.result?.principal.userId ?? "";
+		expect(plainId).not.toBe("");
 		const missing = await sendRpc(
 			"account.members.update",
 			{ userId: plainId, op: "revoke", role: "account-admin" },

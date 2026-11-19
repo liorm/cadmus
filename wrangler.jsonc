@@ -4,6 +4,9 @@
 	"main": "packages/worker/src/index.ts",
 	"compatibility_date": "2026-10-18",
 	"compatibility_flags": ["nodejs_compat"],
+	// Production is the custom domain only. Preview version URLs stay on
+	// (`preview_urls`); they are not the workers.dev subdomain.
+	"workers_dev": false,
 	"preview_urls": true,
 	"observability": {
 		"logs": {
@@ -106,11 +109,19 @@
 		},
 		{
 			"tag": "v6",
-			"deleted_classes": ["CadmusBotFamilyDO", "CadmusEnvDO", "CadmusAuthLimiterDO"]
+			"deleted_classes": [
+				"CadmusBotFamilyDO",
+				"CadmusEnvDO",
+				"CadmusAuthLimiterDO"
+			]
 		},
 		{
 			"tag": "v7",
-			"new_sqlite_classes": ["CadmusBotFamilyDO", "CadmusEnvDO", "CadmusAuthLimiterDO"]
+			"new_sqlite_classes": [
+				"CadmusBotFamilyDO",
+				"CadmusEnvDO",
+				"CadmusAuthLimiterDO"
+			]
 		}
 	],
 	"vars": {

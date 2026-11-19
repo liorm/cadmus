@@ -2,16 +2,12 @@ import { SELF } from "cloudflare:test";
 import { CadmusClient } from "@cadmus/contract/client";
 import { describe, expect, it } from "vitest";
 import {
+	actingAdmin,
 	sendRpc,
-	TEST_TOKEN,
 	uniqueAccountId,
 } from "../../packages/worker/tests/helpers.js";
 
-function webClient(
-	accountId: string,
-	familyId = "default",
-	token = TEST_TOKEN,
-) {
+function webClient(accountId: string, familyId = "default", token: string) {
 	return new CadmusClient({
 		baseUrl: "http://example.com",
 		token,
@@ -26,7 +22,12 @@ function webClient(
 describe("Web UI client over /api", () => {
 	it("round-trips readonly queries and mutations through CadmusClient", async () => {
 		const accountId = uniqueAccountId("web-client");
-		const client = webClient(accountId);
+		const token = await actingAdmin({
+			accountId,
+			userId: "web-user",
+			elevated: true,
+		});
+		const client = webClient(accountId, "default", token);
 
 		const created = await client.callRpc("family.create", {
 			familyId: "alpha",
@@ -41,7 +42,7 @@ describe("Web UI client over /api", () => {
 			harvestDelayMs: 1500,
 		});
 
-		const familyClient = webClient(accountId, "alpha");
+		const familyClient = webClient(accountId, "alpha", token);
 		const bot = await familyClient.callRpc("bot.create", {
 			slug: "scribe",
 			name: "Scribe",

@@ -1,7 +1,7 @@
 import { SELF } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import { type Logger, setupLogger } from "../src/log.js";
-import { TEST_TOKEN, uniqueAccountId } from "./helpers.js";
+import { actingAdmin, uniqueAccountId } from "./helpers.js";
 
 describe("REST /api logging redaction", () => {
 	it("rejects query tokens on /api without logging the token value", async () => {
@@ -9,7 +9,10 @@ describe("REST /api logging redaction", () => {
 		const queryAccountId = uniqueAccountId("api-query");
 		const querySecret = `qtok-${crypto.randomUUID()}`;
 		const headers = {
-			Authorization: `Bearer ${TEST_TOKEN}`,
+			Authorization: `Bearer ${await actingAdmin({
+				accountId,
+				userId: `user:${accountId}`,
+			})}`,
 			"x-account-id": accountId,
 		};
 		const captured: {

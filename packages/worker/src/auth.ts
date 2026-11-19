@@ -1,11 +1,4 @@
-import { SYSTEM_ACCOUNT_ID } from "@cadmus/contract/grants";
-import {
-	type EdgeCache,
-	getEdgeCache,
-	isMasterUserEnsured,
-	markMasterUserEnsured,
-	sha256Hex,
-} from "./edge-cache.js";
+import { type EdgeCache, getEdgeCache, sha256Hex } from "./edge-cache.js";
 import { getLogger } from "./log.js";
 import { ProtocolValidationError } from "./protocol/validate.js";
 import type {
@@ -28,9 +21,9 @@ export interface ResolvedRequestScope extends AuthenticatedIdentity {
  *
  * Transport parsing still sees the header, the `cadmus_session` cookie and
  * `?token=`. `authenticateRequest` then refuses the cookie and `?token=` for
- * every credential, the master secret included. `/ws` and `/events` open with
- * a single-use ticket from `auth.ticket`. `/api` rejects the cookie and query
- * forms up front (`query_token_not_allowed`, `header_required`).
+ * every credential. `/ws` and `/events` open with a single-use ticket from
+ * `auth.ticket`. `/api` rejects the cookie and query forms up front
+ * (`query_token_not_allowed`, `header_required`).
  */
 export interface AuthenticateRequestOptions {
 	allowQueryToken?: boolean;
@@ -157,68 +150,14 @@ export function extractRawToken(
 	return undefined;
 }
 
-export async function timingSafeEqualSha256(
-	a: string,
-	b: string,
-): Promise<boolean> {
-	const enc = new TextEncoder();
-	const [digestA, digestB] = await Promise.all([
-		crypto.subtle.digest("SHA-256", enc.encode(a)),
-		crypto.subtle.digest("SHA-256", enc.encode(b)),
-	]);
-	const viewA = new Uint8Array(digestA);
-	const viewB = new Uint8Array(digestB);
-	let diff = 0;
-	for (let i = 0; i < viewA.length; i++) {
-		diff |= viewA[i] ^ viewB[i];
-	}
-	return diff === 0;
-}
-
-export interface MasterSecretMatch {
-	matched: boolean;
-	accountId?: string;
-	userId?: string;
-}
-
-/**
- * Validates whether rawToken matches CADMUS_AUTH_SECRET in any accepted form:
- * 1. direct: <CADMUS_AUTH_SECRET>
- * 2. scoped account: <accountId>:<CADMUS_AUTH_SECRET>
- * 3. scoped account & user: <accountId>:<userId>:<CADMUS_AUTH_SECRET>
- *
- * Uses SHA-256 constant-time comparison to prevent timing/length side channels.
- */
-export async function matchMasterSecret(
-	rawToken: string,
-	masterSecret: string,
-): Promise<MasterSecretMatch> {
-	if (await timingSafeEqualSha256(rawToken, masterSecret)) {
-		return { matched: true };
-	}
-
-	const parts = rawToken.split(":");
-	if (parts.length === 2 && parts[0]) {
-		if (await timingSafeEqualSha256(parts[1], masterSecret)) {
-			return { matched: true, accountId: parts[0] };
-		}
-	} else if (parts.length === 3 && parts[0] && parts[1]) {
-		if (await timingSafeEqualSha256(parts[2], masterSecret)) {
-			return { matched: true, accountId: parts[0], userId: parts[1] };
-		}
-	}
-
-	return { matched: false };
-}
-
 /**
  * Authenticates every inbound HTTP / WebSocket request at the Worker Edge.
  * Anonymous and invalid credentials resolve as `{ ok: false, code: "unauthorized" }`
  * (401). `/api` may also deny with `query_token_not_allowed` or `header_required`.
  *
- * Supported token formats:
- * 1. Direct or scoped master secret (<CADMUS_AUTH_SECRET>) with constant-time check & isolate fast-path.
- * 2. Stored token in D1 `cadmus_auth_tokens` with L1 (memory) and optional L2 (KV) caching.
+ * A bearer is a Cadmus credential: a session access token (`cad_at_`), an API
+ * token (`cad_pat_` / `cad_svc_`), or a legacy member token row. Anything else
+ * is 401. There is no shared-secret bearer and no account:user:secret form.
  *
  * `options.allowQueryToken` / `options.allowCookie` default to true. `/api` sets
  * both to false: a `token` query parameter is rejected before it is read, and a
@@ -320,10 +259,9 @@ export async function authenticateRequest(
 		url.searchParams.get("familyId")?.trim() ||
 		"default";
 
-	// Credential transport. Issue #3 phases 3 and 8 retire `?token=` and the
-	// `cadmus_session` cookie as credentials: every credential, the master
-	// secret included, is accepted from the header only. Streams open with a
-	// ticket that a header-authenticated `auth.ticket` call minted.
+	// Credential transport. `?token=` and the `cadmus_session` cookie are not
+	// credentials. Every credential is accepted from the header only. Streams
+	// open with a ticket that a header-authenticated `auth.ticket` call minted.
 	const transport: "header" | "cookie" | "query" = bearerToken(request)
 		? "header"
 		: sessionCookieToken(request)
@@ -338,61 +276,7 @@ export async function authenticateRequest(
 		return { ok: false, code: "unauthorized", message: UNAUTHORIZED_MESSAGE };
 	};
 
-	// 1. Master Secret Fast-Path: check before D1 queries using constant-time comparison
-	const masterSecret = env.CADMUS_AUTH_SECRET?.trim() ?? "";
-	const masterMatch = masterSecret
-		? await matchMasterSecret(rawToken, masterSecret)
-		: { matched: false };
-
-	if (masterMatch.matched) {
-		if (transport !== "header") return rejectTransport();
-		const accountId =
-			masterMatch.accountId ||
-			request.headers.get("x-account-id")?.trim() ||
-			url.searchParams.get("accountId")?.trim() ||
-			"default-account";
-		const userId =
-			masterMatch.userId ||
-			request.headers.get("x-user-id")?.trim() ||
-			url.searchParams.get("userId")?.trim() ||
-			`user:${accountId}`;
-
-		if (accountId === SYSTEM_ACCOUNT_ID) {
-			return {
-				ok: false,
-				code: "unauthorized",
-				message: `Account id '${SYSTEM_ACCOUNT_ID}' is reserved`,
-			};
-		}
-
-		if (!isMasterUserEnsured(accountId, userId)) {
-			await adminStore.ensureAccountAndUser({
-				accountId,
-				userId,
-				role: "account-admin",
-			});
-			markMasterUserEnsured(accountId, userId);
-		}
-		edgeCache.recordMasterFastPath();
-		getLogger().debug("authenticated via master secret (fast-path)", {
-			account: accountId,
-			user: userId,
-			family: requestedFamilyId,
-		});
-		return {
-			ok: true,
-			scope: {
-				accountId,
-				userId,
-				role: "account-admin",
-				credential: "master",
-				familyId: requestedFamilyId,
-			},
-		};
-	}
-
-	// Every other credential (legacy member tokens, session tokens, API tokens)
-	// is header-only.
+	// Legacy member tokens, session tokens, and API tokens are header-only.
 	if (transport !== "header") return rejectTransport();
 
 	// `cad_pat_`, `cad_svc_` and `cad_at_` are bearers on /api and /rpc. Streams

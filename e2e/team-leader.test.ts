@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+	adminScope,
 	type BotRecord,
 	type FamilyRecord,
 	sendRpc,
-	uniqueAccountId,
 	useWorkerFixture,
 } from "./helpers.js";
 
@@ -11,10 +11,7 @@ describe("Family Team Leader", () => {
 	useWorkerFixture();
 
 	it("sets the Team Leader and family.get returns it", async () => {
-		const scope = {
-			accountId: uniqueAccountId("tl-set"),
-			familyId: "default",
-		};
+		const scope = await adminScope("default");
 		await sendRpc("bot.create", { slug: "lead", name: "Lead" }, scope);
 		const updated = await sendRpc<{ family: FamilyRecord }>(
 			"family.update",
@@ -45,10 +42,7 @@ describe("Family Team Leader", () => {
 	});
 
 	it("clears the Team Leader when family.update sends null", async () => {
-		const scope = {
-			accountId: uniqueAccountId("tl-clear"),
-			familyId: "default",
-		};
+		const scope = await adminScope("default");
 		await sendRpc("bot.create", { slug: "lead", name: "Lead" }, scope);
 		await sendRpc("family.update", { teamLeaderBotId: "lead" }, scope);
 		const cleared = await sendRpc<{ family: FamilyRecord }>(
@@ -68,10 +62,7 @@ describe("Family Team Leader", () => {
 	});
 
 	it("rejects an unknown bot id", async () => {
-		const scope = {
-			accountId: uniqueAccountId("tl-unknown"),
-			familyId: "default",
-		};
+		const scope = await adminScope("default");
 		const rejected = await sendRpc(
 			"family.update",
 			{ teamLeaderBotId: "missing-bot" },
@@ -83,26 +74,26 @@ describe("Family Team Leader", () => {
 	});
 
 	it("rejects a bot that belongs to another family", async () => {
-		const accountId = uniqueAccountId("tl-other-family");
+		const { accountId, token } = await adminScope();
 		await sendRpc(
 			"family.create",
 			{ familyId: "alpha", name: "Alpha" },
-			{ accountId },
+			{ accountId, token },
 		);
 		await sendRpc(
 			"family.create",
 			{ familyId: "beta", name: "Beta" },
-			{ accountId },
+			{ accountId, token },
 		);
 		await sendRpc(
 			"bot.create",
 			{ slug: "beta-lead", name: "Beta Lead" },
-			{ accountId, familyId: "beta" },
+			{ accountId, token, familyId: "beta" },
 		);
 		const rejected = await sendRpc(
 			"family.update",
 			{ teamLeaderBotId: "beta-lead" },
-			{ accountId, familyId: "alpha" },
+			{ accountId, token, familyId: "alpha" },
 		);
 		expect(rejected.status).toBe(400);
 		expect(rejected.frame.error?.code).toBe("not_found");
@@ -110,16 +101,13 @@ describe("Family Team Leader", () => {
 		const alpha = await sendRpc<{ family: FamilyRecord }>(
 			"family.get",
 			{},
-			{ accountId, familyId: "alpha" },
+			{ accountId, token, familyId: "alpha" },
 		);
 		expect(alpha.frame.result?.family.teamLeaderBotId).toBeUndefined();
 	});
 
 	it("clears the Team Leader when that bot is deleted", async () => {
-		const scope = {
-			accountId: uniqueAccountId("tl-delete"),
-			familyId: "default",
-		};
+		const scope = await adminScope("default");
 		await sendRpc("bot.create", { slug: "lead", name: "Lead" }, scope);
 		await sendRpc("bot.create", { slug: "other", name: "Other" }, scope);
 		await sendRpc("family.update", { teamLeaderBotId: "lead" }, scope);
@@ -144,47 +132,47 @@ describe("Family Team Leader", () => {
 	});
 
 	it("keeps a separate Team Leader on each family", async () => {
-		const accountId = uniqueAccountId("tl-two-families");
+		const { accountId, token } = await adminScope();
 		await sendRpc(
 			"family.create",
 			{ familyId: "alpha", name: "Alpha" },
-			{ accountId },
+			{ accountId, token },
 		);
 		await sendRpc(
 			"family.create",
 			{ familyId: "beta", name: "Beta" },
-			{ accountId },
+			{ accountId, token },
 		);
 		await sendRpc(
 			"bot.create",
 			{ slug: "alpha-lead", name: "Alpha Lead" },
-			{ accountId, familyId: "alpha" },
+			{ accountId, token, familyId: "alpha" },
 		);
 		await sendRpc(
 			"bot.create",
 			{ slug: "beta-lead", name: "Beta Lead" },
-			{ accountId, familyId: "beta" },
+			{ accountId, token, familyId: "beta" },
 		);
 		await sendRpc(
 			"family.update",
 			{ teamLeaderBotId: "alpha-lead" },
-			{ accountId, familyId: "alpha" },
+			{ accountId, token, familyId: "alpha" },
 		);
 		await sendRpc(
 			"family.update",
 			{ teamLeaderBotId: "beta-lead" },
-			{ accountId, familyId: "beta" },
+			{ accountId, token, familyId: "beta" },
 		);
 
 		const alpha = await sendRpc<{ family: FamilyRecord }>(
 			"family.get",
 			{},
-			{ accountId, familyId: "alpha" },
+			{ accountId, token, familyId: "alpha" },
 		);
 		const beta = await sendRpc<{ family: FamilyRecord }>(
 			"family.get",
 			{},
-			{ accountId, familyId: "beta" },
+			{ accountId, token, familyId: "beta" },
 		);
 		expect(alpha.frame.result?.family.teamLeaderBotId).toBe("alpha-lead");
 		expect(beta.frame.result?.family.teamLeaderBotId).toBe("beta-lead");
@@ -192,7 +180,7 @@ describe("Family Team Leader", () => {
 		const listed = await sendRpc<{ families: FamilyRecord[] }>(
 			"family.list",
 			{},
-			{ accountId, familyId: "alpha" },
+			{ accountId, token, familyId: "alpha" },
 		);
 		const byId = new Map(
 			(listed.frame.result?.families ?? []).map((family) => [

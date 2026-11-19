@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+	adminScope,
 	type ChatRecord,
 	type ScheduleRecord,
 	sendRpc,
-	uniqueAccountId,
 	useWorkerFixture,
 } from "./helpers.js";
 
@@ -11,9 +11,7 @@ describe("Unified ScheduleTask (Cron, Relative, Absolute & Idle Harvest Schedule
 	useWorkerFixture();
 
 	it("validates relative, absolute, and cron schedule creation, update, list, and delete over the contract", async () => {
-		const accountId = uniqueAccountId("sched");
-		const familyId = "default";
-		const scope = { accountId, familyId };
+		const scope = await adminScope("default");
 
 		await sendRpc("family.update", { harvestDelayMs: 0 }, scope);
 
@@ -142,9 +140,7 @@ describe("Unified ScheduleTask (Cron, Relative, Absolute & Idle Harvest Schedule
 	});
 
 	it("arms internal idle harvest schedule (`harvest:<chatKey>`) on user turn", async () => {
-		const accountId = uniqueAccountId("harvest");
-		const familyId = "default";
-		const scope = { accountId, familyId };
+		const scope = await adminScope("default");
 
 		await sendRpc("family.update", { harvestDelayMs: 5000 }, scope);
 
@@ -188,9 +184,7 @@ describe("Unified ScheduleTask (Cron, Relative, Absolute & Idle Harvest Schedule
 	});
 
 	it("cascade-deletes chats, harvest state, and schedules on bot.delete while keeping sibling bots intact over the contract", async () => {
-		const accountId = uniqueAccountId("cascade");
-		const familyId = "default";
-		const scope = { accountId, familyId };
+		const scope = await adminScope("default");
 
 		await sendRpc(
 			"bot.create",

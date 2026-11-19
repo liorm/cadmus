@@ -3,7 +3,6 @@ import {
 	elevateAccessToken,
 	loginDevPassword,
 	sendRpc,
-	TEST_TOKEN,
 	useWorkerFixture,
 	WORKER_BASE_URL,
 	workerFetch,
@@ -49,7 +48,7 @@ describe("login methods in the contract", () => {
 			const res = await sendRpc(type, {}, { token: boss.accessToken });
 			expect(res.frame.ok, type).toBe(false);
 		}
-		const headers = { Authorization: `Bearer ${TEST_TOKEN}` };
+		const headers = { Authorization: `Bearer ${boss.accessToken}` };
 		for (const path of [
 			"/auth/login/google",
 			"/auth/callback/google",

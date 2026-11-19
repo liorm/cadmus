@@ -99,7 +99,7 @@ describe("refresh cookie name and attributes (issue #3 phase 8)", () => {
 
 	it("cookies are never a credential on the live routes", async () => {
 		const t = await seed();
-		const master = env.CADMUS_AUTH_SECRET ?? "";
+		const rawSecret = `raw-${crypto.randomUUID()}`;
 		const whoami = JSON.stringify({
 			id: "c1",
 			type: "auth.whoami",
@@ -111,11 +111,13 @@ describe("refresh cookie name and attributes (issue #3 phase 8)", () => {
 				headers: { "content-type": "application/json", ...headers },
 				body: whoami,
 			});
-		// Positive controls: the same credentials work from the header.
+		// Positive control: a real session works from the header. A raw secret does not.
 		expect(
 			(await rpc({ authorization: `Bearer ${t.accessToken}` })).status,
 		).toBe(200);
-		expect((await rpc({ authorization: `Bearer ${master}` })).status).toBe(200);
+		expect((await rpc({ authorization: `Bearer ${rawSecret}` })).status).toBe(
+			401,
+		);
 		expect(
 			(
 				await SELF.fetch(`${ORIGIN}/api/auth/whoami`, {
@@ -126,7 +128,7 @@ describe("refresh cookie name and attributes (issue #3 phase 8)", () => {
 
 		const cookies = [
 			`cadmus_session=${t.accessToken}`,
-			`cadmus_session=${master}`,
+			`cadmus_session=${rawSecret}`,
 			`${REFRESH_COOKIE}=${t.refreshToken}`,
 			`${REFRESH_COOKIE}=${t.accessToken}`,
 		];

@@ -1,16 +1,12 @@
 import { beforeEach, describe, expect, it } from "bun:test";
-import { matchMasterSecret, timingSafeEqualSha256 } from "../../src/auth.js";
 import {
 	clearAllEdgeCaches,
-	clearEnsuredMasterUsers,
 	EdgeCache,
 	getEdgeCache,
 	getEnvTag,
-	isMasterUserEnsured,
 	LruCache,
 	makeFamilyCacheKey,
 	makeTokenCacheKey,
-	markMasterUserEnsured,
 	sha256Hex,
 } from "../../src/edge-cache.js";
 import { sha256Hex as d1Sha256Hex } from "../../src/store/d1-admin.js";
@@ -22,109 +18,6 @@ function uniqueAccountId(prefix = "acct"): string {
 describe("EdgeCache Pure Unit Helpers & L1 LRU Cache", () => {
 	beforeEach(() => {
 		EdgeCache.clearAllMemory();
-		clearEnsuredMasterUsers();
-	});
-
-	describe("timingSafeEqualSha256", () => {
-		it("returns true for identical strings", async () => {
-			expect(await timingSafeEqualSha256("secret123", "secret123")).toBe(true);
-			expect(await timingSafeEqualSha256("", "")).toBe(true);
-			expect(
-				await timingSafeEqualSha256(
-					"cadmus-token-abc-xyz",
-					"cadmus-token-abc-xyz",
-				),
-			).toBe(true);
-		});
-
-		it("returns false for different strings of same length", async () => {
-			expect(await timingSafeEqualSha256("secret123", "secret124")).toBe(false);
-			expect(await timingSafeEqualSha256("aaaa", "bbbb")).toBe(false);
-		});
-
-		it("returns false for strings of different length without short-circuiting", async () => {
-			expect(await timingSafeEqualSha256("short", "longer-string")).toBe(false);
-			expect(await timingSafeEqualSha256("longer-string", "short")).toBe(false);
-			expect(await timingSafeEqualSha256("", "non-empty")).toBe(false);
-			expect(await timingSafeEqualSha256("non-empty", "")).toBe(false);
-			expect(await timingSafeEqualSha256("token-abc", "token-abcd")).toBe(
-				false,
-			);
-			expect(await timingSafeEqualSha256("token-abcd", "token-abc")).toBe(
-				false,
-			);
-			expect(await timingSafeEqualSha256("a", "a".repeat(100))).toBe(false);
-			expect(await timingSafeEqualSha256("a".repeat(100), "a")).toBe(false);
-		});
-
-		it("handles multi-byte unicode strings safely", async () => {
-			expect(await timingSafeEqualSha256("🔑secret", "🔑secret")).toBe(true);
-			expect(await timingSafeEqualSha256("🔑secret", "🔒secret")).toBe(false);
-		});
-	});
-
-	describe("matchMasterSecret", () => {
-		const masterSecret = "test-master-secret-123";
-
-		it("matches direct secret without prefix", async () => {
-			const res = await matchMasterSecret(masterSecret, masterSecret);
-			expect(res).toEqual({ matched: true });
-		});
-
-		it("matches 2-part account-scoped secret", async () => {
-			const accountId = uniqueAccountId("acc");
-			const res = await matchMasterSecret(
-				`${accountId}:${masterSecret}`,
-				masterSecret,
-			);
-			expect(res).toEqual({ matched: true, accountId });
-		});
-
-		it("matches 3-part account-and-user-scoped secret", async () => {
-			const accountId = uniqueAccountId("acc");
-			const userId = uniqueAccountId("user");
-			const res = await matchMasterSecret(
-				`${accountId}:${userId}:${masterSecret}`,
-				masterSecret,
-			);
-			expect(res).toEqual({
-				matched: true,
-				accountId,
-				userId,
-			});
-		});
-
-		it("rejects mismatched secrets", async () => {
-			const accountId = uniqueAccountId("acc");
-			const userId = uniqueAccountId("user");
-			expect(await matchMasterSecret("wrong-secret", masterSecret)).toEqual({
-				matched: false,
-			});
-			expect(
-				await matchMasterSecret(`${accountId}:wrong`, masterSecret),
-			).toEqual({
-				matched: false,
-			});
-			expect(
-				await matchMasterSecret(`${accountId}:${userId}:wrong`, masterSecret),
-			).toEqual({ matched: false });
-		});
-
-		it("rejects empty parts and unsupported formats", async () => {
-			const accountId = uniqueAccountId("acc");
-			expect(await matchMasterSecret("", masterSecret)).toEqual({
-				matched: false,
-			});
-			expect(await matchMasterSecret(`:${masterSecret}`, masterSecret)).toEqual(
-				{ matched: false },
-			);
-			expect(
-				await matchMasterSecret(`${accountId}::${masterSecret}`, masterSecret),
-			).toEqual({ matched: false });
-			expect(
-				await matchMasterSecret(`a:b:c:${masterSecret}`, masterSecret),
-			).toEqual({ matched: false });
-		});
 	});
 
 	describe("sha256Hex", () => {
@@ -248,27 +141,6 @@ describe("EdgeCache Pure Unit Helpers & L1 LRU Cache", () => {
 			cache.clear();
 			expect(cache.size).toBe(0);
 			expect(cache.get("y")).toBeUndefined();
-		});
-	});
-
-	describe("Master user isolate memoization", () => {
-		it("remembers ensured master users and clears correctly", () => {
-			const accountA = uniqueAccountId("acct");
-			const accountB = uniqueAccountId("acct");
-			const userA = uniqueAccountId("user");
-			const userB = uniqueAccountId("user");
-			try {
-				expect(isMasterUserEnsured(accountA, userA)).toBe(false);
-				markMasterUserEnsured(accountA, userA);
-				expect(isMasterUserEnsured(accountA, userA)).toBe(true);
-				expect(isMasterUserEnsured(accountA, userB)).toBe(false);
-				expect(isMasterUserEnsured(accountB, userA)).toBe(false);
-
-				clearEnsuredMasterUsers();
-				expect(isMasterUserEnsured(accountA, userA)).toBe(false);
-			} finally {
-				clearEnsuredMasterUsers();
-			}
 		});
 	});
 

@@ -2,12 +2,12 @@ import { env, runInDurableObject, SELF } from "cloudflare:test";
 import { describe, expect, it, vi } from "vitest";
 import { EdgeCache, getEdgeCache, sha256Hex } from "../src/edge-cache.js";
 import { D1AdminStore } from "../src/store/d1-admin.js";
-import { rpc, TEST_TOKEN, uniqueAccountId } from "./helpers.js";
+import { actingAdmin, rpc, uniqueAccountId } from "./helpers.js";
 
 // Issue #3 data model L102: a legacy token is a `user` grant-set credential.
 // A member-token row never carries more than the user set, whatever the
-// member's live role, on /rpc, /ws and /events. The master secret is a
-// separate case (it stays account-admin until phase 9).
+// member's live role, on /rpc, /ws and /events. A shared secret is not a
+// credential. Account-admin checks use a real session.
 
 const ORIGIN = "https://example.com";
 const ADMIN_COMMANDS: [string, object][] = [
@@ -88,9 +88,8 @@ const sweep = (accountId: string) =>
 describe("legacy member tokens are clamped to the user grant set (issue #3 L102, L186)", () => {
 	it("an account-admin member's legacy token is forbidden on admin grants over /rpc, on a warm cache too, while chat.use works with the same token", async () => {
 		const { raw, accountId, userId } = await seed();
-		const master = `${accountId}:${userId}:${TEST_TOKEN}`;
-		// Positive control: the master secret (account-admin until phase 9).
-		const ok = await rpc(master, "account.members.invite", {
+		const admin = await actingAdmin({ accountId, userId, elevated: true });
+		const ok = await rpc(admin, "account.members.invite", {
 			email: "control@example.com",
 		});
 		expect(ok.ok).toBe(true);
@@ -188,9 +187,10 @@ describe("legacy member tokens are clamped to the user grant set (issue #3 L102,
 			],
 		] as const) {
 			const { raw, accountId, userId } = await seed();
-			const master = `${accountId}:${userId}:${TEST_TOKEN}`;
 			const legacy = await openWs(raw);
-			const mst = await openWs(master);
+			const mst = await openWs(
+				await actingAdmin({ accountId, userId: `${userId}-admin` }),
+			);
 			expect((await legacy.ask("auth.whoami"))?.ok).toBe(true);
 			expect((await mst.ask("auth.whoami"))?.ok).toBe(true);
 			await sweep(accountId);
@@ -308,19 +308,24 @@ describe("token cache bound (issue #3 R20: at most the 60 s L2 TTL from the writ
 	});
 });
 
-describe("master credential role (issue phase 2)", () => {
-	it("a master socket is account-admin even when the membership row says user; the legacy token for the same member is not", async () => {
+describe("shared-secret bearer is not an admin credential", () => {
+	it("an account:user:secret bearer cannot open a socket; the legacy token for the same member is not account-admin", async () => {
 		const { raw, accountId, userId } = await seed("user");
-		const master = `${accountId}:${userId}:${TEST_TOKEN}`;
-		const m = await openWs(master);
+		const shaped = `${accountId}:${userId}:not-a-credential`;
+		const denied = await SELF.fetch(`${ORIGIN}/rpc`, {
+			method: "POST",
+			headers: {
+				authorization: `Bearer ${shaped}`,
+				"content-type": "application/json",
+			},
+			body: JSON.stringify({ id: "no", type: "auth.whoami", payload: {} }),
+		});
+		expect(denied.status).toBe(401);
 		const l = await openWs(raw);
 		const [type, payload] = ADMIN_COMMANDS[1] as [string, object];
-		const asMaster = await m.ask(type, payload);
 		const asLegacy = await l.ask(type, payload);
 		expect(asLegacy?.ok).toBe(false);
 		expect(asLegacy?.error?.code).toBe("forbidden");
-		// Control: the master is let through to the command itself (unknown bot), not refused for grants.
-		expect(asMaster?.error?.code).toBe("not_found");
 	});
 });
 
@@ -421,11 +426,11 @@ describe("authority changes drop the cached legacy token scope in this isolate (
 });
 
 describe("resolver and sweep edge cases", () => {
-	it("an unknown or missing credential never resolves (positive control: master does)", async () => {
+	it("an unknown or missing credential never resolves", async () => {
 		const { s, accountId, userId } = await seed("user");
 		expect(
 			await s.resolveLegacyCredential("master", userId, accountId),
-		).toMatchObject({ role: "account-admin" });
+		).toBeUndefined();
 		expect(
 			await s.resolveLegacyCredential("bogus", userId, accountId),
 		).toBeUndefined();
@@ -437,7 +442,7 @@ describe("resolver and sweep edge cases", () => {
 	it("removing the membership row ends legacy and master sockets and stops resolution", async () => {
 		const { raw, s, accountId, userId } = await seed("user");
 		const legacy = await openWs(raw);
-		const mst = await openWs(`${accountId}:${userId}:${TEST_TOKEN}`);
+		const mst = await openWs(await actingAdmin({ accountId, userId }));
 		expect((await legacy.ask("bot.list"))?.ok).toBe(true);
 		expect((await mst.ask("bot.list"))?.ok).toBe(true);
 		await env.CADMUS_ADMIN_DB.prepare(

@@ -26,6 +26,7 @@ describe("wrangler preview config", () => {
 		expect(config.name).toBe("cadmus");
 		expect(config.env).toBeUndefined();
 		expect(config.preview_urls).toBe(true);
+		expect(config.workers_dev).toBe(false);
 		expect(config.keep_vars).toBe(true);
 		expect(config.d1_databases[0]).toEqual(
 			expect.objectContaining({

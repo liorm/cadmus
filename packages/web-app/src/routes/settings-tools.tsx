@@ -130,14 +130,15 @@ export function ToolsSettingsPage() {
 	// default env change is account.update and needs account.manage. Both are
 	// account-admin grants. whoami does not report a token's persisted grants,
 	// so a token session with an account-admin role keeps the controls and the
-	// worker's answer decides (decision 13 allows elevated tokens). No session
-	// means the legacy master secret, which acts as account-admin.
+	// worker's answer decides (decision 13 allows elevated tokens). Signed out
+	// is not an admin.
 	const session = useSession();
 	const principal = session.principal;
 	const principalPending = session.signedIn && principal === null;
-	const canManage = !session.signedIn
-		? true
-		: principal !== null && principal.role === "account-admin";
+	const canManage =
+		session.signedIn &&
+		principal !== null &&
+		principal.role === "account-admin";
 	const [phase, setPhase] = useState<LoadPhase>("loading");
 	const [attempt, setAttempt] = useState(0);
 

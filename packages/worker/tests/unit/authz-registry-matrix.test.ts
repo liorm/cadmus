@@ -224,7 +224,6 @@ const GOLDEN_COMMAND_GRANTS: Record<string, string> = {
 	"account.get": "members.read",
 	"account.invites.list": "members.manage",
 	"account.invites.revoke": "members.manage",
-	"account.members.add": "members.manage",
 	"account.members.invite": "members.manage",
 	"account.members.list": "members.read",
 	"account.members.remove": "members.manage",

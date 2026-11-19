@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+	adminScope,
 	CODING_TOOL_NAMES,
 	connectTestWs,
 	DEFAULT_CADMUS_TOOL_NAMES,
@@ -7,15 +8,13 @@ import {
 	type RpcOptions,
 	type ServerEvent,
 	sendRpc,
-	uniqueAccountId,
 	useWorkerFixture,
 } from "./helpers.js";
 
-function scope(
-	label: string,
-): RpcOptions & { accountId: string; familyId: string } {
-	const accountId = uniqueAccountId(`default-coding-${label}`);
-	return { accountId, familyId: "default" };
+async function scope(
+	_label: string,
+): Promise<RpcOptions & { accountId: string; familyId: string }> {
+	return adminScope("default");
 }
 
 const DEFAULT_PLUS_CODING = [
@@ -31,7 +30,7 @@ describe("default Cadmus tools plus coding tools", () => {
 	useWorkerFixture();
 
 	it("create, enable coding, then disable coding returns the default set", async () => {
-		const options = scope("round-trip");
+		const options = await scope("round-trip");
 		await sendRpc("family.update", { harvestDelayMs: 0 }, options);
 		const created = await sendRpc<{ bot: { tools?: string[] } }>(
 			"bot.create",
@@ -153,7 +152,7 @@ describe("default Cadmus tools plus coding tools", () => {
 	});
 
 	it("create_bot with only coding tools keeps the default Cadmus tools", async () => {
-		const options = scope("create-bot");
+		const options = await scope("create-bot");
 		await sendRpc("family.update", { harvestDelayMs: 0 }, options);
 		await sendRpc(
 			"bot.create",

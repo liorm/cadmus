@@ -1,21 +1,18 @@
 import { describe, expect, it } from "vitest";
 import {
+	adminScope,
 	type RpcOptions,
 	ScriptedDaemon,
 	sendRpc,
-	uniqueAccountId,
 	useWorkerFixture,
 	workerFetch,
 } from "./helpers.js";
 
-function scope(
-	label: string,
+async function scope(
+	_label: string,
 	familyId = "default",
-): RpcOptions & { accountId: string; familyId: string } {
-	return {
-		accountId: uniqueAccountId(`confine-${label}`),
-		familyId,
-	};
+): Promise<RpcOptions & { accountId: string; familyId: string }> {
+	return adminScope(familyId);
 }
 
 async function registerDaemonWithPolicy(
@@ -64,7 +61,7 @@ describe("tools-env confinement policy negotiation (E2E Contract)", () => {
 	useWorkerFixture();
 
 	it("enforces 'required' policy: rejects unconfined daemons with 409 and rich error body", async () => {
-		const options = scope("req");
+		const options = await scope("req");
 		const { envId, token } = await registerDaemonWithPolicy(options, {
 			confinementPolicy: "required",
 		});
@@ -122,7 +119,7 @@ describe("tools-env confinement policy negotiation (E2E Contract)", () => {
 	});
 
 	it("allows 'preferred' policy: accepts both confined and unconfined daemons and records effective state", async () => {
-		const options = scope("pref");
+		const options = await scope("pref");
 		const { envId, token } = await registerDaemonWithPolicy(options, {
 			confinementPolicy: "preferred",
 		});
@@ -175,7 +172,7 @@ describe("tools-env confinement policy negotiation (E2E Contract)", () => {
 	});
 
 	it("handles 'disabled' policy: connects unconfined without requirement", async () => {
-		const options = scope("dis");
+		const options = await scope("dis");
 		const { envId, token } = await registerDaemonWithPolicy(options, {
 			confinementPolicy: "disabled",
 		});
@@ -203,7 +200,7 @@ describe("tools-env confinement policy negotiation (E2E Contract)", () => {
 	});
 
 	it("preserves backward compatibility with confineToWorkspace boolean", async () => {
-		const options = scope("compat");
+		const options = await scope("compat");
 
 		// confineToWorkspace: true maps to required
 		const { envId: envTrue } = await registerDaemonWithPolicy(options, {

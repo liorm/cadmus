@@ -7,7 +7,6 @@ import {
 	connectTestWs,
 	rpc,
 	sendRpc,
-	TEST_TOKEN,
 	uniqueAccountId,
 } from "./helpers.js";
 
@@ -231,7 +230,7 @@ describe("account.credentials.oauth.event delivery is limited to credentials.man
 		const tokenAccess = ((await login.json()) as { accessToken: string })
 			.accessToken;
 
-		const master = await connectTestWs({ token: TEST_TOKEN, accountId });
+		const master = await connectTestWs({ token: owner.accessToken, accountId });
 		const admin = await connectTestWs({ token: legacyAdmin, accountId });
 		const user = await connectTestWs({ token: legacyUser, accountId });
 		const sseOf = async (token: string) => {
@@ -259,7 +258,7 @@ describe("account.credentials.oauth.event delivery is limited to credentials.man
 			})();
 			return { reader, chunks };
 		};
-		const masterSse = await sseOf(TEST_TOKEN);
+		const masterSse = await sseOf(owner.accessToken);
 		const userSse = await sseOf(legacyUser);
 		const adminTokenSse = await sseOf(legacyAdmin);
 		const tokenWs = await (async () => {
@@ -280,7 +279,7 @@ describe("account.credentials.oauth.event delivery is limited to credentials.man
 		const started = await sendRpc<{ flow: { flowId: string } }>(
 			"account.credentials.oauth.start",
 			{ providerId: "xai", redirectUri: "http://localhost/cb" },
-			{ token: TEST_TOKEN, accountId },
+			{ token: owner.accessToken, accountId },
 		);
 		expect(started.frame.ok).toBe(true);
 		const has = (events: { type?: string }[]) =>
@@ -313,7 +312,7 @@ describe("account.credentials.oauth.event delivery is limited to credentials.man
 		await sendRpc(
 			"account.credentials.oauth.cancel",
 			{ flowId: started.frame.result?.flow.flowId ?? "" },
-			{ token: TEST_TOKEN, accountId },
+			{ token: owner.accessToken, accountId },
 		);
 		for (const c of [master, admin, user]) c.close();
 		tokenWs.ws.close();

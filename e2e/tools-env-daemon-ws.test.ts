@@ -1,16 +1,17 @@
 import { describe, expect, it } from "vitest";
 import {
+	adminScope,
 	connectTestWs,
 	type DaemonRequest,
 	type RpcOptions,
 	ScriptedDaemon,
 	type ServerEvent,
 	sendRpc,
-	TEST_TOKEN,
-	uniqueAccountId,
 	useWorkerFixture,
 	workerFetch,
 } from "./helpers.js";
+
+const TEST_TOKEN = "rejected-bearer";
 
 const CODING_TOOLS = [
 	"bash",
@@ -22,14 +23,11 @@ const CODING_TOOLS = [
 ];
 const WORKSPACE = "/home/dev/workspace";
 
-function scope(
-	label: string,
+async function scope(
+	_label: string,
 	familyId = "default",
-): RpcOptions & { accountId: string; familyId: string } {
-	return {
-		accountId: uniqueAccountId(`ws-${label}`),
-		familyId,
-	};
+): Promise<RpcOptions & { accountId: string; familyId: string }> {
+	return adminScope(familyId);
 }
 
 function toolResults(events: ServerEvent[]) {
@@ -70,14 +68,14 @@ async function registerDaemon(
 }
 
 async function ensureFamily(
-	accountId: string,
+	base: RpcOptions,
 	familyId: string,
 	name: string,
 ): Promise<void> {
 	const created = await sendRpc(
 		"family.create",
 		{ familyId, name, timezone: "UTC" },
-		{ accountId },
+		{ token: base.token, accountId: base.accountId },
 	);
 	expect(created.frame.ok).toBe(true);
 }
@@ -95,6 +93,10 @@ async function toolTurn(
 			chatKey,
 			text: `[tool:${tool} ${JSON.stringify(args)}]`,
 		});
+		const deadline = Date.now() + 2_000;
+		while (toolResults(ws.events).length === 0 && Date.now() < deadline) {
+			await new Promise((resolve) => setTimeout(resolve, 20));
+		}
 		const payload = toolResults(ws.events)[0]?.payload as
 			| { toolName?: string; isError?: boolean; content?: string }
 			| undefined;
@@ -104,7 +106,7 @@ async function toolTurn(
 	}
 }
 
-async function connection(accountId: string, envId: string) {
+async function connection(options: RpcOptions, envId: string) {
 	const listed = await sendRpc<{
 		envs: Array<{
 			envId: string;
@@ -115,7 +117,7 @@ async function connection(accountId: string, envId: string) {
 				workspacePath?: string;
 			};
 		}>;
-	}>("account.toolsEnvs.list", {}, { accountId });
+	}>("account.toolsEnvs.list", {}, options);
 	const env = listed.frame.result?.envs.find((item) => item.envId === envId);
 	return env?.connection ?? { status: "disconnected" };
 }
@@ -136,7 +138,7 @@ describe("daemon websocket tools env", () => {
 	useWorkerFixture();
 
 	it("serves bash, read, write, and edit through one scripted peer", async () => {
-		const options = scope("tools");
+		const options = await scope("tools");
 		await sendRpc("family.update", { harvestDelayMs: 0 }, options);
 		const secret = await registerDaemon(options);
 		const envId = secret.envId;
@@ -221,13 +223,13 @@ describe("daemon websocket tools env", () => {
 		expect(edit.payload?.isError).toBe(false);
 		expect(edit.payload?.content ?? "").toContain("Successfully replaced");
 
-		const snap = await connection(options.accountId, envId);
+		const snap = await connection(options, envId);
 		expect(snap.status).toBe("connected");
 		peer.close();
 	});
 
 	it("rejects daemon upgrades before generic auth", async () => {
-		const options = scope("auth");
+		const options = await scope("auth");
 		await sendRpc("family.update", { harvestDelayMs: 0 }, options);
 		const other = await registerDaemon(options, {
 			confineToWorkspace: false,
@@ -288,10 +290,10 @@ describe("daemon websocket tools env", () => {
 	});
 
 	it("shares one socket across two families and keeps another account out", async () => {
-		const alpha = scope("share", "alpha");
+		const alpha = await scope("share", "alpha");
 		const beta = { ...alpha, familyId: "beta" };
-		await ensureFamily(alpha.accountId, "alpha", "Alpha");
-		await ensureFamily(alpha.accountId, "beta", "Beta");
+		await ensureFamily(alpha, "alpha", "Alpha");
+		await ensureFamily(alpha, "beta", "Beta");
 		await sendRpc("family.update", { harvestDelayMs: 0 }, alpha);
 		await sendRpc("family.update", { harvestDelayMs: 0 }, beta);
 		const secret = await registerDaemon(alpha);
@@ -343,11 +345,11 @@ describe("daemon websocket tools env", () => {
 		expect(right.payload?.content ?? "").toContain(
 			"tools-env transport: env disconnected",
 		);
-		const snap = await connection(alpha.accountId, envId);
+		const snap = await connection(alpha, envId);
 		expect(snap.status).toBe("disconnected");
 		expect(snap.lastError).toBe("socket_closed");
 
-		const other = scope("outsider");
+		const other = await scope("outsider");
 		await sendRpc("family.update", { harvestDelayMs: 0 }, other);
 		const foreign = await sendRpc(
 			"bot.create",
@@ -370,7 +372,7 @@ describe("daemon websocket tools env", () => {
 	});
 
 	it("does not run a protocol command from the daemon socket", async () => {
-		const options = scope("cmd");
+		const options = await scope("cmd");
 		await sendRpc("family.update", { harvestDelayMs: 0 }, options);
 		const secret = await registerDaemon(options);
 		const envId = secret.envId;
@@ -403,7 +405,7 @@ describe("daemon websocket tools env", () => {
 	});
 
 	it("deregisters only the targeted daemon", async () => {
-		const options = scope("revoke");
+		const options = await scope("revoke");
 		await sendRpc("family.update", { harvestDelayMs: 0 }, options);
 		const target = await registerDaemon(options);
 		const envId = target.envId;
@@ -462,9 +464,7 @@ describe("daemon websocket tools env", () => {
 		expect(
 			peer.requests.filter((request) => request.method === "exec").length,
 		).toBe(1);
-		expect((await connection(options.accountId, keptId)).status).toBe(
-			"connected",
-		);
+		expect((await connection(options, keptId)).status).toBe("connected");
 		const listed = await sendRpc<{
 			envs: Array<{ envId: string; connection?: { status?: string } }>;
 		}>("account.toolsEnvs.list", {}, options);
@@ -478,7 +478,7 @@ describe("daemon websocket tools env", () => {
 	});
 
 	it("keeps a non-zero exit connected and fails fast while disconnected", async () => {
-		const options = scope("exit");
+		const options = await scope("exit");
 		await sendRpc("family.update", { harvestDelayMs: 0 }, options);
 		const secret = await registerDaemon(options);
 		const envId = secret.envId;
@@ -525,9 +525,7 @@ describe("daemon websocket tools env", () => {
 		});
 		expect(failed.payload?.isError).toBe(true);
 		expect(failed.payload?.content ?? "").toContain("nope");
-		expect((await connection(options.accountId, envId)).status).toBe(
-			"connected",
-		);
+		expect((await connection(options, envId)).status).toBe("connected");
 		const plan = await toolTurn(options, "plan", "bash", {
 			command: "echo plan",
 		});
@@ -536,8 +534,7 @@ describe("daemon websocket tools env", () => {
 		expect(
 			await waitFor(
 				async () =>
-					(await connection(options.accountId, envId)).status ===
-					"disconnected",
+					(await connection(options, envId)).status === "disconnected",
 				5_000,
 			),
 		).toBe(true);
@@ -557,7 +554,7 @@ describe("daemon websocket tools env", () => {
 	}, 20_000);
 
 	it("closes an oversized daemon frame before parsing it", async () => {
-		const options = scope("size");
+		const options = await scope("size");
 		await sendRpc("family.update", { harvestDelayMs: 0 }, options);
 		const secret = await registerDaemon(options);
 		const envId = secret.envId;
@@ -573,10 +570,10 @@ describe("daemon websocket tools env", () => {
 	});
 
 	it("orders writes on one path and does not order bash", async () => {
-		const alpha = scope("queue", "alpha");
+		const alpha = await scope("queue", "alpha");
 		const beta = { ...alpha, familyId: "beta" };
-		await ensureFamily(alpha.accountId, "alpha", "Alpha");
-		await ensureFamily(alpha.accountId, "beta", "Beta");
+		await ensureFamily(alpha, "alpha", "Alpha");
+		await ensureFamily(alpha, "beta", "Beta");
 		await sendRpc("family.update", { harvestDelayMs: 0 }, alpha);
 		await sendRpc("family.update", { harvestDelayMs: 0 }, beta);
 		const secret = await registerDaemon(alpha);
@@ -640,7 +637,7 @@ describe("daemon websocket tools env", () => {
 	});
 
 	it("classifies peer errors separately from transport failures", async () => {
-		const options = scope("class");
+		const options = await scope("class");
 		await sendRpc("family.update", { harvestDelayMs: 0 }, options);
 		const secret = await registerDaemon(options);
 		const envId = secret.envId;
@@ -679,9 +676,7 @@ describe("daemon websocket tools env", () => {
 		};
 		const shell = await toolTurn(options, "main", "bash", { command: "true" });
 		expect(shell.payload?.content ?? "").not.toContain("tools-env transport:");
-		expect((await connection(options.accountId, envId)).status).toBe(
-			"connected",
-		);
+		expect((await connection(options, envId)).status).toBe("connected");
 		peer.onFrame = async (request) => {
 			if (request.method === "openBinaryReader") {
 				peer.send({
@@ -698,9 +693,7 @@ describe("daemon websocket tools env", () => {
 			return "default";
 		};
 		await toolTurn(options, "main", "read", { path: "missing.txt" });
-		expect((await connection(options.accountId, envId)).status).toBe(
-			"connected",
-		);
+		expect((await connection(options, envId)).status).toBe("connected");
 		peer.onFrame = async (request) => {
 			if (request.method === "openBinaryReader") {
 				peer.send({
@@ -713,9 +706,7 @@ describe("daemon websocket tools env", () => {
 			return "default";
 		};
 		await toolTurn(options, "main", "read", { path: "gone.txt" });
-		expect((await connection(options.accountId, envId)).status).toBe(
-			"connected",
-		);
+		expect((await connection(options, envId)).status).toBe("connected");
 		peer.onFrame = async (request) => {
 			if (request.method === "exec") {
 				peer.send({
@@ -728,24 +719,22 @@ describe("daemon websocket tools env", () => {
 			return "default";
 		};
 		await toolTurn(options, "main", "bash", { command: "sleep 1" });
-		expect((await connection(options.accountId, envId)).status).toBe(
-			"connected",
-		);
+		expect((await connection(options, envId)).status).toBe("connected");
 		peer.onFrame = async () => "manual";
 		const timed = await toolTurn(options, "main", "read", { path: "slow.txt" });
 		expect(timed.payload?.content ?? "").toContain(
 			"tools-env transport: env disconnected",
 		);
-		const after = await connection(options.accountId, envId);
+		const after = await connection(options, envId);
 		expect(after.status).toBe("disconnected");
 		expect(after.lastError).toBe("socket_closed");
 	});
 
 	it("leaves the socket up when a bot or chat turns tools off", async () => {
-		const alpha = scope("off", "alpha");
+		const alpha = await scope("off", "alpha");
 		const beta = { ...alpha, familyId: "beta" };
-		await ensureFamily(alpha.accountId, "alpha", "Alpha");
-		await ensureFamily(alpha.accountId, "beta", "Beta");
+		await ensureFamily(alpha, "alpha", "Alpha");
+		await ensureFamily(alpha, "beta", "Beta");
 		await sendRpc("family.update", { harvestDelayMs: 0 }, alpha);
 		await sendRpc("family.update", { harvestDelayMs: 0 }, beta);
 		const secret = await registerDaemon(alpha);
@@ -801,7 +790,7 @@ describe("daemon websocket tools env", () => {
 		expect(later.payload?.content ?? "").toContain(
 			"Tool bash is not available",
 		);
-		expect((await connection(alpha.accountId, envId)).status).toBe("connected");
+		expect((await connection(alpha, envId)).status).toBe("connected");
 		const sibling = await toolTurn(beta, "main", "bash", {
 			command: "echo sib",
 		});
@@ -850,12 +839,12 @@ describe("daemon websocket tools env", () => {
 			command: "echo inherited",
 		});
 		expect(inherited.payload?.content ?? "").toContain("inherited");
-		expect((await connection(alpha.accountId, envId)).status).toBe("connected");
+		expect((await connection(alpha, envId)).status).toBe("connected");
 		peer.close();
 	}, 20_000);
 
 	it("sends cleanup when the env is deleted or persist flips, not when one bot unbinds", async () => {
-		const options = scope("clean");
+		const options = await scope("clean");
 		await sendRpc("family.update", { harvestDelayMs: 0 }, options);
 		const secret = await registerDaemon(options, { persist: false });
 		const envId = secret.envId;
@@ -891,9 +880,7 @@ describe("daemon websocket tools env", () => {
 		expect(peer.requests.some((request) => request.method === "cleanup")).toBe(
 			false,
 		);
-		expect((await connection(options.accountId, envId)).status).toBe(
-			"connected",
-		);
+		expect((await connection(options, envId)).status).toBe("connected");
 		await sendRpc(
 			"account.toolsEnvs.update",
 			{ envId, persist: true },
@@ -928,7 +915,7 @@ describe("daemon websocket tools env", () => {
 	});
 
 	it("enforces confinement on the upgrade and on escaped paths", async () => {
-		const options = scope("jail");
+		const options = await scope("jail");
 		await sendRpc("family.update", { harvestDelayMs: 0 }, options);
 		const secret = await registerDaemon(options, { confineToWorkspace: true });
 		const envId = secret.envId;
@@ -937,7 +924,7 @@ describe("daemon websocket tools env", () => {
 			envId,
 		});
 		expect(blocked.status).toBe(409);
-		const first = await connection(options.accountId, envId);
+		const first = await connection(options, envId);
 		expect(first.status).toBe("disconnected");
 		expect(first.lastError).toBe("confinement_unavailable");
 		const again = await ScriptedDaemon.upgrade({ token: secret.token, envId });
@@ -957,7 +944,7 @@ describe("daemon websocket tools env", () => {
 			envId,
 		});
 		expect(whileUp.status).toBe(409);
-		const live = await connection(options.accountId, envId);
+		const live = await connection(options, envId);
 		expect(live.status).toBe("connected");
 		await sendRpc(
 			"bot.create",
@@ -994,14 +981,12 @@ describe("daemon websocket tools env", () => {
 			.find((request) => request.method === "exec");
 		expect(exec?.args.cwd).toBe(WORKSPACE);
 		expect(cwd).toBeUndefined();
-		expect((await connection(options.accountId, envId)).status).toBe(
-			"connected",
-		);
+		expect((await connection(options, envId)).status).toBe("connected");
 		peer.close();
 	});
 
 	it("lists daemon connection fields from account.toolsEnvs.list and chat.status", async () => {
-		const options = scope("list");
+		const options = await scope("list");
 		await sendRpc("family.update", { harvestDelayMs: 0 }, options);
 		const secret = await registerDaemon(options);
 		const envId = secret.envId;

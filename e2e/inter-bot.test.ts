@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+	adminScope,
 	type BotRecord,
 	connectTestWs,
 	sendRpc,
-	uniqueAccountId,
 	useWorkerFixture,
 } from "./helpers.js";
 
@@ -11,10 +11,7 @@ describe("Inter-Bot Co-Location Tools (create_bot, search_bot, message_bot)", ()
 	useWorkerFixture();
 
 	it("creates peer bots via create_bot, discovers them with search_bot, and messages them in-memory with message_bot", async () => {
-		const scope = {
-			accountId: uniqueAccountId("interbot"),
-			familyId: "default",
-		};
+		const scope = await adminScope("default");
 		const wsClient = await connectTestWs(scope);
 
 		try {
@@ -195,10 +192,7 @@ describe("Inter-Bot Co-Location Tools (create_bot, search_bot, message_bot)", ()
 	}
 
 	it("caps a ping-pong at 10 turns", async () => {
-		const scope = {
-			accountId: uniqueAccountId("group-cap"),
-			familyId: "default",
-		};
+		const scope = await adminScope("default");
 		await bots(["a", "b"], scope);
 		const turn = await sendRpc<{ reply: string }>(
 			"turn.submit",
@@ -227,10 +221,7 @@ describe("Inter-Bot Co-Location Tools (create_bot, search_bot, message_bot)", ()
 	// Three scenarios, each with its own scope and five bots, so each gets its
 	// own default test timeout. They used to share one scope and one 5 s cap.
 	const limitsScope = async () => {
-		const scope = {
-			accountId: uniqueAccountId("group-limits"),
-			familyId: "default",
-		};
+		const scope = await adminScope("default");
 		await bots(["a", "b", "c", "d", "e"], scope);
 		return scope;
 	};
@@ -291,10 +282,7 @@ describe("Inter-Bot Co-Location Tools (create_bot, search_bot, message_bot)", ()
 	});
 
 	it("filters chats by kind and defaults chat.list to direct chats", async () => {
-		const scope = {
-			accountId: uniqueAccountId("chat-kinds"),
-			familyId: "default",
-		};
+		const scope = await adminScope("default");
 		await bots(["a", "b"], scope);
 		await sendRpc(
 			"chat.create",
@@ -365,10 +353,7 @@ describe("Inter-Bot Co-Location Tools (create_bot, search_bot, message_bot)", ()
 	});
 
 	it("drops an armed harvest schedule when harvest is turned off", async () => {
-		const scope = {
-			accountId: uniqueAccountId("harvest-off"),
-			familyId: "default",
-		};
+		const scope = await adminScope("default");
 		await bots(["a"], scope);
 		await sendRpc("turn.submit", { chatKey: "root", text: "hello" }, scope);
 		const armed = await sendRpc<{ schedules: { id: string }[] }>(

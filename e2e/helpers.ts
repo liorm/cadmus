@@ -119,8 +119,6 @@ export {
 	SseEventSchema,
 };
 
-export const TEST_TOKEN = "test-cadmus-secret";
-
 /** Password for the vitest worker's CADMUS_DEV_PASSWORD_HASH (`dev-pass`). */
 export const DEV_PASSWORD = "dev-pass";
 /** Bootstrap super-admin email on the vitest worker. */
@@ -268,6 +266,30 @@ export async function provisionInvitedMember(input: {
 		email,
 		accessToken: session.accessToken,
 		userId: who.frame.result.principal.userId,
+	};
+}
+
+/**
+ * Elevated account-admin session. Replaces the removed shared-secret bearer
+ * for tests that used to pass only an account id.
+ */
+export async function adminScope(familyId = "default"): Promise<
+	RpcOptions & {
+		token: string;
+		accountId: string;
+		userId: string;
+		familyId: string;
+		accessToken: string;
+	}
+> {
+	const admin = await provisionInvitedMember({ role: "account-admin" });
+	await elevateAccessToken(admin.accessToken);
+	return {
+		token: admin.accessToken,
+		accessToken: admin.accessToken,
+		accountId: admin.accountId,
+		userId: admin.userId,
+		familyId,
 	};
 }
 
@@ -424,7 +446,7 @@ export interface RpcOptions {
 export function createContractClient(options: RpcOptions = {}): ProtocolClient {
 	return new ProtocolClient({
 		baseUrl: WORKER_BASE_URL,
-		token: options.token ?? TEST_TOKEN,
+		token: options.token ?? "",
 		accountId: options.accountId,
 		userId: options.userId,
 		familyId: options.familyId,
@@ -474,8 +496,6 @@ export async function sendRpc<T = unknown>(
 		if (options.token !== "") {
 			headers.Authorization = `Bearer ${options.token}`;
 		}
-	} else if (!options.cookie) {
-		headers.Authorization = `Bearer ${TEST_TOKEN}`;
 	}
 	if (options.cookie) {
 		headers.Cookie = options.cookie;

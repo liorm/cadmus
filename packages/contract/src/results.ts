@@ -78,9 +78,6 @@ export type AccountMembersListResult = Static<
 	typeof AccountMembersListResultSchema
 >;
 
-/**
- * Result returned by account.members.add containing the newly added or updated member record.
- */
 export const AccountMembersInviteResultSchema = Type.Object(
 	{
 		invite: Type.Object(
@@ -153,19 +150,6 @@ export const AccountInvitesRevokeResultSchema = Type.Object(
 );
 export type AccountInvitesRevokeResult = Static<
 	typeof AccountInvitesRevokeResultSchema
->;
-
-export const AccountMembersAddResultSchema = Type.Object(
-	{
-		member: AccountMemberSchema,
-	},
-	{
-		description:
-			"Result payload returned by account.members.add containing the created or updated membership.",
-	},
-);
-export type AccountMembersAddResult = Static<
-	typeof AccountMembersAddResultSchema
 >;
 
 /**

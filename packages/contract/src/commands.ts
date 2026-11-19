@@ -324,59 +324,6 @@ export type AccountInvitesRevokeCommand = Static<
 >;
 
 /**
- * Command to add or invite a user to the account with a specified access role.
- */
-export const AccountMembersAddCommandSchema = Type.Object(
-	{
-		id: Type.String({
-			minLength: 1,
-			description:
-				"Non-empty unique correlation identifier for this command request.",
-		}),
-		type: Type.Literal("account.members.add", {
-			description: "Command type identifier.",
-		}),
-		payload: Type.Object(
-			{
-				userId: Type.String({
-					minLength: 1,
-					description: "Unique identifier of the user to grant access to.",
-				}),
-				name: Type.Optional(
-					Type.String({
-						description: "Optional display name for the user.",
-					}),
-				),
-				email: Type.Optional(
-					Type.String({
-						description: "Optional email address for the user.",
-					}),
-				),
-				roles: Type.Optional(
-					Type.Array(
-						Type.Union([Type.Literal("user"), Type.Literal("account-admin")]),
-						{
-							minItems: 1,
-							description:
-								"Roles to store. Omitted means user only. super-admin cannot be added here.",
-						},
-					),
-				),
-			},
-			{ description: "Parameters for adding or inviting an account member." },
-		),
-	},
-	{
-		grant: "members.manage",
-		description:
-			"Add or invite a user to the account with a specified access role. A caller-chosen token is not accepted; API tokens are server-generated (auth.tokens.create).",
-	},
-);
-export type AccountMembersAddCommand = Static<
-	typeof AccountMembersAddCommandSchema
->;
-
-/**
  * Command to list configured AI provider credentials (excluding confidential secret values).
  */
 export const AccountCredentialsListCommandSchema = Type.Object(
@@ -3056,7 +3003,6 @@ export const ClientCommandSchema = Type.Union(
 		AccountGetCommandSchema,
 		AccountUpdateCommandSchema,
 		AccountMembersListCommandSchema,
-		AccountMembersAddCommandSchema,
 		AccountMembersInviteCommandSchema,
 		AccountMembersUpdateCommandSchema,
 		AccountMembersRemoveCommandSchema,

@@ -1,11 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+	adminScope,
 	CadmusClient,
 	isAuthError,
 	newCommandId,
 	ProtocolClient,
-	TEST_TOKEN,
-	uniqueAccountId,
 	useWorkerFixture,
 	workerFetch,
 } from "./helpers.js";
@@ -103,7 +102,7 @@ class WorkerBoundSocket {
 	}
 }
 
-function clientFor(accountId: string, token = TEST_TOKEN) {
+function clientFor(accountId: string, token: string) {
 	return new CadmusClient({
 		baseUrl: "http://example.com",
 		token,
@@ -128,16 +127,16 @@ describe("CadmusClient against the worker", () => {
 	useWorkerFixture();
 
 	it("calls REST, reports auth errors, and updates config without a socket", async () => {
-		const accountId = uniqueAccountId("client-rest");
-		const client = clientFor(accountId);
+		const { accountId, token } = await adminScope();
+		const client = clientFor(accountId, token);
 		expect(client.getBaseUrl()).toBe("http://example.com");
-		expect(client.getToken()).toBe(TEST_TOKEN);
+		expect(client.getToken()).toBe(token);
 		expect(client.getUserId()).toBe("web-user");
 		expect(client.getAccountId()).toBe(accountId);
 		expect(client.getFamilyId()).toBe("default");
 		expect(client.getStatus()).toBe("disconnected");
 
-		client.setToken(TEST_TOKEN);
+		client.setToken(token);
 		client.setBaseUrl("http://example.com");
 		client.setUserId("web-user");
 		client.setAccountId(accountId);
@@ -166,7 +165,7 @@ describe("CadmusClient against the worker", () => {
 
 		const protocol = new ProtocolClient({
 			baseUrl: "http://example.com",
-			token: TEST_TOKEN,
+			token: token,
 			accountId,
 			familyId: "default",
 			timeoutMs: 15_000,
@@ -198,7 +197,7 @@ describe("CadmusClient against the worker", () => {
 		});
 		client.updateConfig({
 			baseUrl: "http://example.com",
-			token: TEST_TOKEN,
+			token: token,
 			userId: "web-user",
 			accountId,
 			familyId: "default",
@@ -206,7 +205,7 @@ describe("CadmusClient against the worker", () => {
 		});
 		client.setToken("cadmus-next-token", { reconnect: false });
 		expect(client.getToken()).toBe("cadmus-next-token");
-		client.setToken(TEST_TOKEN, { reconnect: false });
+		client.setToken(token, { reconnect: false });
 		client.close();
 		expect(client.getStatus()).toBe("disconnected");
 		stopStatus();
@@ -214,9 +213,9 @@ describe("CadmusClient against the worker", () => {
 	});
 
 	it("opens /ws, receives events, and covers socket failure paths", async () => {
-		const accountId = uniqueAccountId("client-ws");
+		const { accountId, token } = await adminScope();
 		sockets.length = 0;
-		const client = clientFor(accountId);
+		const client = clientFor(accountId, token);
 		await client.call("bot.create", {
 			slug: "speaker",
 			name: "Speaker",
@@ -246,7 +245,7 @@ describe("CadmusClient against the worker", () => {
 
 		const protocol = new ProtocolClient({
 			baseUrl: "http://example.com",
-			token: TEST_TOKEN,
+			token: token,
 			userId: "web-user",
 			accountId,
 			familyId: "default",
@@ -302,14 +301,14 @@ describe("CadmusClient against the worker", () => {
 		);
 
 		client.setBaseUrl("http://example.com");
-		client.setToken(TEST_TOKEN);
+		client.setToken(token);
 		client.setUserId("other-user");
 		expect(client.getUserId()).toBe("other-user");
 		client.setAccountId(accountId);
 		client.setFamilyId("default");
 		client.updateConfig({
 			userId: "web-user",
-			token: TEST_TOKEN,
+			token: token,
 			baseUrl: "http://example.com",
 			accountId,
 			familyId: "default",
@@ -345,7 +344,7 @@ describe("CadmusClient against the worker", () => {
 		}
 		const relative = new ProtocolClient({
 			baseUrl: "/cadmus",
-			token: TEST_TOKEN,
+			token: token,
 			accountId,
 			useTickets: false,
 			fetchImpl: workerFetch,
@@ -356,7 +355,7 @@ describe("CadmusClient against the worker", () => {
 
 		const empty = new ProtocolClient({
 			baseUrl: "",
-			token: TEST_TOKEN,
+			token: token,
 			accountId,
 			useTickets: false,
 			fetchImpl: workerFetch,
@@ -367,7 +366,7 @@ describe("CadmusClient against the worker", () => {
 
 		const https = new ProtocolClient({
 			baseUrl: "https://example.com",
-			token: TEST_TOKEN,
+			token: token,
 			accountId,
 			useTickets: false,
 			fetchImpl: workerFetch,
@@ -378,7 +377,7 @@ describe("CadmusClient against the worker", () => {
 
 		const racing = new ProtocolClient({
 			baseUrl: "http://example.com",
-			token: TEST_TOKEN,
+			token: token,
 			accountId,
 			familyId: "default",
 			fetchImpl: workerFetch,
@@ -401,7 +400,7 @@ describe("CadmusClient against the worker", () => {
 		try {
 			const rooted = new ProtocolClient({
 				baseUrl: "/cadmus",
-				token: TEST_TOKEN,
+				token: token,
 				accountId,
 				familyId: "default",
 				useTickets: false,
@@ -417,7 +416,7 @@ describe("CadmusClient against the worker", () => {
 			});
 			const nullOrigin = new ProtocolClient({
 				baseUrl: "",
-				token: TEST_TOKEN,
+				token: token,
 				accountId,
 				useTickets: false,
 				fetchImpl: workerFetch,

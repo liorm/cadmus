@@ -38,13 +38,13 @@ describe("authorization matrix", () => {
 
 	it("lets a user chat but not manage members", () => {
 		expect(authorize(caller("user"), "bot.list")).toBeDefined();
-		expect(() => authorize(caller("user"), "account.members.add")).toThrow(
+		expect(() => authorize(caller("user"), "account.members.invite")).toThrow(
 			/forbidden|does not hold/,
 		);
 	});
 
 	it("lets an account admin manage members", () => {
-		expect(authorize(caller("account-admin"), "account.members.add")).toBe(
+		expect(authorize(caller("account-admin"), "account.members.invite")).toBe(
 			"members.manage",
 		);
 	});

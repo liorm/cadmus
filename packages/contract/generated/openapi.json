@@ -370,69 +370,6 @@
 				}
 			}
 		},
-		"/api/account/members/add": {
-			"post": {
-				"operationId": "account.members.add",
-				"x-cadmus-grant": "members.manage",
-				"summary": "Add or invite a user to the account with a specified access role. A caller-chosen token is not accepted; API tokens are server-generated (auth.tokens.create).",
-				"requestBody": {
-					"required": true,
-					"content": {
-						"application/json": {
-							"schema": {
-								"type": "object",
-								"required": ["userId"],
-								"properties": {
-									"userId": {
-										"type": "string",
-										"minLength": 1,
-										"description": "Unique identifier of the user to grant access to."
-									},
-									"name": {
-										"type": "string",
-										"description": "Optional display name for the user."
-									},
-									"email": {
-										"type": "string",
-										"description": "Optional email address for the user."
-									},
-									"roles": {
-										"type": "array",
-										"items": {
-											"anyOf": [
-												{ "type": "string", "const": "user" },
-												{ "type": "string", "const": "account-admin" }
-											]
-										},
-										"minItems": 1,
-										"description": "Roles to store. Omitted means user only. super-admin cannot be added here."
-									}
-								},
-								"description": "Parameters for adding or inviting an account member."
-							}
-						}
-					}
-				},
-				"responses": {
-					"200": {
-						"description": "Command result",
-						"content": {
-							"application/json": {
-								"schema": {
-									"$ref": "#/components/schemas/AccountMembersAddResult"
-								}
-							}
-						}
-					},
-					"400": { "$ref": "#/components/responses/ApiError" },
-					"401": { "$ref": "#/components/responses/ApiError" },
-					"404": { "$ref": "#/components/responses/ApiError" },
-					"405": { "$ref": "#/components/responses/ApiError" },
-					"409": { "$ref": "#/components/responses/ApiError" },
-					"500": { "$ref": "#/components/responses/ApiError" }
-				}
-			}
-		},
 		"/api/account/credentials/list": {
 			"get": {
 				"operationId": "account.credentials.list",
@@ -5306,14 +5243,6 @@
 					}
 				},
 				"description": "Membership relation linking a user identity to a tenant account with an access role."
-			},
-			"AccountMembersAddResult": {
-				"type": "object",
-				"required": ["member"],
-				"properties": {
-					"member": { "$ref": "#/components/schemas/AccountMember" }
-				},
-				"description": "Result payload returned by account.members.add containing the created or updated membership."
 			},
 			"AccountMembersInviteResult": {
 				"type": "object",

@@ -6,7 +6,6 @@ import type {
 	AccountGetCommand,
 	AccountInvitesListCommand,
 	AccountInvitesRevokeCommand,
-	AccountMembersAddCommand,
 	AccountMembersInviteCommand,
 	AccountMembersListCommand,
 	AccountMembersRemoveCommand,
@@ -118,7 +117,6 @@ import type {
 	AccountGetResult,
 	AccountInvitesListResult,
 	AccountInvitesRevokeResult,
-	AccountMembersAddResult,
 	AccountMembersInviteResult,
 	AccountMembersListResult,
 	AccountMembersRemoveResult,
@@ -226,7 +224,6 @@ export type AccountMembersListRpc = Rpc<
 	AccountMembersListResult
 >;
 
-/** RPC contract for `account.members.add`: adds or invites a user to the account. */
 export type AccountMembersInviteRpc = Rpc<
 	AccountMembersInviteCommand,
 	AccountMembersInviteResult
@@ -251,11 +248,6 @@ export type AccountInvitesRevokeRpc = Rpc<
 	AccountInvitesRevokeCommand,
 	AccountInvitesRevokeResult
 >;
-export type AccountMembersAddRpc = Rpc<
-	AccountMembersAddCommand,
-	AccountMembersAddResult
->;
-
 /** RPC contract for `account.credentials.list`: lists sanitized AI provider credential summaries. */
 export type AccountCredentialsListRpc = Rpc<
 	AccountCredentialsListCommand,
@@ -588,7 +580,6 @@ export interface RpcMap {
 	"account.invites.list": AccountInvitesListRpc;
 	"account.audit.list": AccountAuditListRpc;
 	"account.invites.revoke": AccountInvitesRevokeRpc;
-	"account.members.add": AccountMembersAddRpc;
 	"account.credentials.list": AccountCredentialsListRpc;
 	"account.credentials.set": AccountCredentialsSetRpc;
 	"account.credentials.delete": AccountCredentialsDeleteRpc;

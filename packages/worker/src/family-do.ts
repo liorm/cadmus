@@ -1658,25 +1658,6 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 				const members = await this.adminStore.listMembers(meta.accountId);
 				return { members };
 			},
-			"account.members.add": async (command) => {
-				// Issue #3: a caller-chosen token is gone from this command. The
-				// schema allows extra properties, so refuse it explicitly rather than
-				// ignore it silently.
-				if ("token" in (command.payload as Record<string, unknown>)) {
-					throw new ProtocolValidationError(
-						"account.members.add no longer accepts a token; create one with auth.tokens.create",
-						"token_not_accepted",
-					);
-				}
-				const member = await this.adminStore.addMember({
-					accountId: meta.accountId,
-					userId: command.payload.userId,
-					name: command.payload.name,
-					email: command.payload.email,
-					roles: command.payload.roles,
-				});
-				return { member };
-			},
 			"account.members.invite": async (command) => {
 				const result = await this.adminStore.inviteMember({
 					accountId: meta.accountId,

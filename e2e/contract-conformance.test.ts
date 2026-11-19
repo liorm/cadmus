@@ -2,16 +2,18 @@ import { describe, expect, it } from "vitest";
 import {
 	API_ROUTES,
 	ApiErrorEnvelopeSchema,
+	adminScope,
 	assertMatchesSchema,
 	type CommandType,
+	callApi,
 	commandCatalog,
 	connectTestWs,
 	ERROR_CODES,
 	encodePayloadQuery,
+	loginDevPassword,
 	ServerToClientSchema,
 	SseEventSchema,
-	TEST_TOKEN,
-	uniqueAccountId,
+	sendRpc,
 	useWorkerFixture,
 	workerFetch,
 } from "./helpers.js";
@@ -84,10 +86,11 @@ async function callContractApi(
 	familyId: string,
 	command: CommandType,
 	payload: Payload,
+	token: string,
 ): Promise<unknown> {
 	const route = API_ROUTES[command];
 	const headers: Record<string, string> = {
-		Authorization: `Bearer ${TEST_TOKEN}`,
+		Authorization: `Bearer ${token}`,
 		"x-account-id": accountId,
 		"X-Cadmus-Family-Id": familyId,
 	};
@@ -145,14 +148,14 @@ describe("contract conformance", () => {
 
 	it("drives every command through /api and checks the contract schema", async () => {
 		const suffix = crypto.randomUUID();
-		const accountId = uniqueAccountId("contract");
+		const { accountId, token } = await adminScope();
 		const familyId = `fam-${suffix}`;
 		const extraFamilyId = `extra-${suffix}`;
 		const covered = new Set<string>();
 
 		const call = async (command: CommandType, payload: Payload = {}) => {
 			covered.add(command);
-			return callContractApi(accountId, familyId, command, payload);
+			return callContractApi(accountId, familyId, command, payload, token);
 		};
 
 		const createdFamily = await call("family.create", {
@@ -168,22 +171,29 @@ describe("contract conformance", () => {
 			timezone: "UTC",
 		});
 		await call("account.members.list");
-		await call("account.members.add", {
-			userId: `member-${suffix}`,
-			roles: ["user"],
-		});
+		const memberEmail = `invitee-${suffix}@example.com`;
 		await call("account.members.invite", {
-			email: `invitee-${suffix}@example.com`,
+			email: memberEmail,
 		});
 		await call("account.invites.list");
 		await call("account.audit.list", { limit: 5 });
 		await call("account.invites.revoke", { inviteId: "inv_missing" });
+		const joined = await loginDevPassword(memberEmail);
+		const who = await callApi<{ principal: { userId?: string } }>(
+			"auth.whoami",
+			{},
+			{ token: joined.accessToken },
+		);
+		const memberUserId = who.result?.principal.userId;
+		if (!memberUserId) {
+			throw new Error("invited member has no user id");
+		}
 		await call("account.members.update", {
-			userId: `member-${suffix}`,
+			userId: memberUserId,
 			op: "grant",
 			role: "account-admin",
 		});
-		await call("account.members.remove", { userId: `member-${suffix}` });
+		await call("account.members.remove", { userId: memberUserId });
 		await call("account.credentials.list");
 		await call("account.credentials.set", {
 			providerId: "faux",
@@ -232,8 +242,8 @@ describe("contract conformance", () => {
 		await call("auth.sessions.revoke", { sessionId: "ses_missing" });
 		await call("auth.sessions.revokeOthers");
 		await call("auth.assumeRole", {
-			role: "user",
-			accountId: "acc_missing",
+			role: "super-admin",
+			accountId: "system",
 		});
 		await call("auth.elevate");
 		await call("auth.elevation.end");
@@ -385,13 +395,19 @@ describe("contract conformance", () => {
 
 	it("validates a WebSocket command result and an invalid frame", async () => {
 		const suffix = crypto.randomUUID();
-		const accountId = uniqueAccountId("ws-contract");
+		const { accountId, token } = await adminScope();
 		const familyId = `fam-ws-${suffix}`;
-		await callContractApi(accountId, familyId, "family.create", {
+		await callContractApi(
+			accountId,
 			familyId,
-			name: "WS",
-		});
-		const client = await connectTestWs({ accountId, familyId });
+			"family.create",
+			{
+				familyId,
+				name: "WS",
+			},
+			token,
+		);
+		const client = await connectTestWs({ token, accountId, familyId });
 		try {
 			const frame = await client.send("account.get", {});
 			assertMatchesSchema(ServerToClientSchema, frame, "ws command.result");
@@ -424,29 +440,49 @@ describe("contract conformance", () => {
 
 	it("validates an SSE data frame as a server event", async () => {
 		const suffix = crypto.randomUUID();
-		const accountId = uniqueAccountId("sse-contract");
+		const { accountId, token } = await adminScope();
 		const familyId = `fam-sse-${suffix}`;
-		await callContractApi(accountId, familyId, "family.create", {
+		await callContractApi(
+			accountId,
 			familyId,
-			name: "SSE",
-		});
-		await callContractApi(accountId, familyId, "bot.create", {
-			slug: "echo",
-			name: "Echo",
-			model: "faux/echo",
-		});
-		await callContractApi(accountId, familyId, "chat.create", {
-			botId: "echo",
-			key: "live",
-		});
-
-		const response = await workerFetch("http://example.com/events", {
-			headers: {
-				Authorization: `Bearer ${TEST_TOKEN}`,
-				"x-account-id": accountId,
-				"X-Cadmus-Family-Id": familyId,
+			"family.create",
+			{
+				familyId,
+				name: "SSE",
 			},
-		});
+			token,
+		);
+		await callContractApi(
+			accountId,
+			familyId,
+			"bot.create",
+			{
+				slug: "echo",
+				name: "Echo",
+				model: "faux/echo",
+			},
+			token,
+		);
+		await callContractApi(
+			accountId,
+			familyId,
+			"chat.create",
+			{
+				botId: "echo",
+				key: "live",
+			},
+			token,
+		);
+
+		const ticket = await sendRpc<{ ticket: string }>(
+			"auth.ticket",
+			{ target: "events" },
+			{ token, accountId, familyId },
+		);
+		expect(ticket.frame.ok).toBe(true);
+		const response = await workerFetch(
+			`http://example.com/events?ticket=${encodeURIComponent(ticket.frame.result?.ticket ?? "")}`,
+		);
 		expect(response.status).toBe(200);
 		expect(response.headers.get("content-type")).toContain("text/event-stream");
 		const reader = response.body?.getReader();
@@ -465,10 +501,16 @@ describe("contract conformance", () => {
 			throw new Error(`SSE produced no data frame: ${buffer.slice(0, 200)}`);
 		})();
 
-		await callContractApi(accountId, familyId, "turn.submit", {
-			chatKey: "live",
-			text: "Hello",
-		});
+		await callContractApi(
+			accountId,
+			familyId,
+			"turn.submit",
+			{
+				chatKey: "live",
+				text: "Hello",
+			},
+			token,
+		);
 		try {
 			const event = await readData;
 			assertMatchesSchema(SseEventSchema, event, "sse data");
@@ -476,5 +518,5 @@ describe("contract conformance", () => {
 		} finally {
 			await reader.cancel().catch(() => undefined);
 		}
-	});
+	}, 20_000);
 });

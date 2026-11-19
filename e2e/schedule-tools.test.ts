@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+	adminScope,
 	type ScheduleRecord,
 	sendRpc,
-	uniqueAccountId,
 	useWorkerFixture,
 } from "./helpers.js";
 
@@ -14,8 +14,8 @@ import {
 
 type Scope = { accountId: string; familyId: string };
 
-function scope(label: string): Scope {
-	return { accountId: uniqueAccountId(label), familyId: "default" };
+async function scope(_label: string): Promise<Scope> {
+	return adminScope("default");
 }
 
 async function tool(
@@ -56,7 +56,7 @@ describe("schedule tools over a bot turn", () => {
 	useWorkerFixture();
 
 	it("creates, lists, updates, and deletes schedules from the bot", async () => {
-		const account = scope("sched-tools");
+		const account = await scope("sched-tools");
 		await sendRpc("family.update", { harvestDelayMs: 60_000 }, account);
 		await sendRpc(
 			"bot.create",
@@ -222,7 +222,7 @@ describe("schedule tools over a bot turn", () => {
 	}, 60_000);
 
 	it("rejects bad timing, foreign chats, and internal schedules", async () => {
-		const account = scope("sched-tools-err");
+		const account = await scope("sched-tools-err");
 		await sendRpc("family.update", { harvestDelayMs: 60_000 }, account);
 		await sendRpc(
 			"bot.create",

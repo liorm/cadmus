@@ -9,7 +9,7 @@ import {
 	MEMBER_USE_THROTTLE_MS,
 	resolveAccessToken,
 } from "../src/store/d1-sessions.js";
-import { sendRpc, TEST_TOKEN, uniqueAccountId } from "./helpers.js";
+import { sendRpc, uniqueAccountId } from "./helpers.js";
 
 const ORIGIN = "https://example.com";
 
@@ -1004,9 +1004,10 @@ describe("session and login method commands (issue #3 phase 3c)", () => {
 			ok.webSocket?.accept();
 			ok.webSocket?.close();
 		}
-		// The master secret is refused on ?token= too; its ticket is the control.
+		// A raw shared secret is refused on ?token= as well.
+		const rawSecret = `not-a-credential-${accountId}`;
 		const master = await SELF.fetch(
-			`${ORIGIN}/events?token=${TEST_TOKEN}&accountId=${accountId}`,
+			`${ORIGIN}/events?token=${rawSecret}&accountId=${accountId}`,
 		);
 		expect(master.status).toBe(401);
 	});
@@ -1086,9 +1087,8 @@ describe("session and login method commands (issue #3 phase 3c)", () => {
 				expect(res.status, `${kind} ${form}`).toBe(401);
 			}
 		}
-		// Legacy credentials (master secret and a legacy member token) are
-		// header-only on /rpc: the cookie and ?token= are retired (issue #3
-		// phases 3 and 8). The header form of the same credential is the control.
+		// A legacy member token is header-only on /rpc. A bearer shaped
+		// account:user:secret is not a credential on any transport.
 		const raw = `legacy-member-rpc-${accountId}`;
 		await s.addMember({
 			accountId,
@@ -1096,9 +1096,18 @@ describe("session and login method commands (issue #3 phase 3c)", () => {
 			roles: ["account-admin"],
 			rawToken: raw,
 		});
-		for (const tok of [raw, `${accountId}:${userId}:${TEST_TOKEN}`]) {
+		const shaped = `${accountId}:${userId}:not-a-credential`;
+		for (const [tok, headerStatus] of [
+			[raw, 200],
+			[shaped, 401],
+		] as const) {
 			for (const [form, url, headers, want] of [
-				["header", `${ORIGIN}/rpc`, { authorization: `Bearer ${tok}` }, 200],
+				[
+					"header",
+					`${ORIGIN}/rpc`,
+					{ authorization: `Bearer ${tok}` },
+					headerStatus,
+				],
 				[
 					"cookie",
 					`${ORIGIN}/rpc`,
@@ -1171,8 +1180,14 @@ describe("session and login method commands (issue #3 phase 3c)", () => {
 			.bind(Date.now(), `${userId}-flagged`)
 			.run();
 		expect(await open(t3), "revoked_at set after mint").toBe(401);
-		// The master secret has no credential row to re-check and keeps working.
-		expect(await open(await mint(TEST_TOKEN, userId))).toBe(200);
+		// A shared secret is not a credential, so it cannot mint a ticket.
+		const denied = await sendRpc(
+			"auth.ticket",
+			{ target: "events" },
+			{ token: `not-a-credential-${accountId}`, accountId, userId },
+		);
+		expect(denied.frame.ok).toBe(false);
+		expect(denied.status).toBe(401);
 		// A ticket whose mint named no credential is refused.
 		const { createLegacyTicket } = await import("../src/store/d1-sessions.js");
 		const bare = await createLegacyTicket(
@@ -1302,7 +1317,7 @@ describe("session and login method commands (issue #3 phase 3c)", () => {
 			userId: `${a.userId}-m`,
 		});
 		f.ws.close();
-		// Master secret: the ticket yields the same account-admin identity the
+		// An account-admin session: the ticket yields the same identity the
 		// header form gets (positive control: whoami over the header).
 		const viaHeader = await sendRpc<{ principal?: unknown }>(
 			"auth.whoami",
@@ -1365,25 +1380,30 @@ describe("session and login method commands (issue #3 phase 3c)", () => {
 			ok.webSocket?.accept();
 			ok.webSocket?.close();
 		}
-		// The master secret is refused on ?token= and in the cookie for streams.
+		// A shared secret is refused on ?token= and in the cookie for streams,
+		// and it cannot mint a ticket either.
+		const shared = `not-a-credential-${accountId}`;
 		for (const path of ["events", "ws"] as const) {
 			const upgrade: Record<string, string> =
 				path === "ws" ? { upgrade: "websocket" } : {};
 			const q = await SELF.fetch(
-				`${ORIGIN}/${path}?token=${TEST_TOKEN}&accountId=${accountId}`,
+				`${ORIGIN}/${path}?token=${shared}&accountId=${accountId}`,
 				{ headers: upgrade },
 			);
-			expect(q.status, `master ${path} query`).toBe(401);
+			expect(q.status, `shared ${path} query`).toBe(401);
 			const c = await SELF.fetch(`${ORIGIN}/${path}?accountId=${accountId}`, {
-				headers: { ...upgrade, cookie: `cadmus_session=${TEST_TOKEN}` },
+				headers: { ...upgrade, cookie: `cadmus_session=${shared}` },
 			});
-			expect(c.status, `master ${path} cookie`).toBe(401);
+			expect(c.status, `shared ${path} cookie`).toBe(401);
+			const mintedShared = await sendRpc(
+				"auth.ticket",
+				{ target: path },
+				{ token: shared, accountId, userId },
+			);
+			expect(mintedShared.status, `shared ${path} mint`).toBe(401);
 		}
-		// Legacy credentials open streams with a ticket minted over the header.
-		for (const [who, token] of [
-			["legacy member", raw],
-			["master", TEST_TOKEN],
-		] as const) {
+		// A legacy member token opens streams with a ticket minted over the header.
+		for (const [who, token] of [["legacy member", raw]] as const) {
 			for (const path of ["events", "ws"] as const) {
 				const upgrade: Record<string, string> =
 					path === "ws" ? { upgrade: "websocket" } : {};

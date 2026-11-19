@@ -80,7 +80,7 @@ bun .agents/skills/debug-session/scripts/debug-session.ts list --url https://cad
 ```
 
 #### Authentication & Access Flags
-- `--token <token>`: Bearer token (default: `CADMUS_TOKEN` env or `dev-cadmus-secret`).
+- `--token <token>`: Bearer token (default: `CADMUS_TOKEN`). There is no default secret.
 - `--account <id>`: Account ID header (default: `CADMUS_ACCOUNT_ID` or `default-account`).
 - `--family <id>`: Family ID header (default: `CADMUS_FAMILY_ID` or `default`).
 - **Cloudflare Access**: If the remote domain is behind Cloudflare Access:

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+	adminScope,
 	callApi,
 	connectTestWs,
 	elevateAccessToken,
@@ -21,7 +22,7 @@ describe("API token bearer", () => {
 	useWorkerFixture();
 
 	it("authenticates cad_pat_ and cad_svc_ bearers, audits service uses, and revokes immediately", async () => {
-		const accountId = uniqueAccountId("api-bearer");
+		const { accountId, token, userId } = await adminScope();
 		const minted = await sendRpc<{
 			token: string;
 			summary: { id: string; kind: string };
@@ -33,7 +34,7 @@ describe("API token bearer", () => {
 				grants: ["bot.read", "chat.use", "tokens.self"],
 				ttlDays: 7,
 			},
-			{ accountId },
+			{ accountId, token },
 		);
 		expect(minted.frame.ok, JSON.stringify(minted.frame)).toBe(true);
 		const service = minted.frame.result?.token ?? "";
@@ -51,14 +52,14 @@ describe("API token bearer", () => {
 				grants: ["bot.read", "tokens.self"],
 				ttlDays: 7,
 			},
-			{ accountId },
+			{ accountId, token },
 		);
 		expect(patMint.frame.ok, JSON.stringify(patMint.frame)).toBe(true);
 		const pat = patMint.frame.result?.token ?? "";
 		const patId = patMint.frame.result?.summary.id ?? "";
 		expect(pat.startsWith("cad_pat_")).toBe(true);
 
-		const owner = `user:${accountId}`;
+		const owner = userId;
 		const who = await callApi<{
 			principal: { userId?: string; viaToken?: boolean; role?: string };
 		}>(
@@ -96,7 +97,7 @@ describe("API token bearer", () => {
 		const families = await callApi<{ families: Array<{ familyId: string }> }>(
 			"family.list",
 			{},
-			{ accountId },
+			{ accountId, token },
 		);
 		expect(families.ok).toBe(true);
 		expect(
@@ -137,7 +138,7 @@ describe("API token bearer", () => {
 				target?: string;
 				data?: { use?: string };
 			}>;
-		}>("account.audit.list", { limit: 100 }, { accountId });
+		}>("account.audit.list", { limit: 100 }, { accountId, token });
 		expect(audit.ok, JSON.stringify(audit)).toBe(true);
 		const serviceUses = (audit.result?.events ?? []).filter(
 			(event) => event.action === "token.use" && event.target === serviceId,
@@ -156,7 +157,7 @@ describe("API token bearer", () => {
 
 		const tokens = await callApi<{
 			tokens: Array<{ id: string; lastUsedAt: number | null }>;
-		}>("auth.tokens.list", {}, { accountId });
+		}>("auth.tokens.list", {}, { accountId, token });
 		expect(tokens.ok).toBe(true);
 		expect(
 			tokens.result?.tokens.find((token) => token.id === patId)?.lastUsedAt,
@@ -168,7 +169,7 @@ describe("API token bearer", () => {
 		const revoked = await sendRpc<{ revoked: boolean }>(
 			"auth.tokens.revoke",
 			{ tokenId: serviceId },
-			{ accountId },
+			{ accountId, token },
 		);
 		expect(revoked.frame.ok).toBe(true);
 		expect(revoked.frame.result?.revoked).toBe(true);

@@ -352,61 +352,6 @@
 				"grant": "members.manage",
 				"description": "Revoke a pending invite."
 			},
-			"AccountMembersAddCommand": {
-				"type": "object",
-				"required": ["id", "type", "payload"],
-				"properties": {
-					"id": {
-						"type": "string",
-						"minLength": 1,
-						"description": "Non-empty unique correlation identifier for this command request."
-					},
-					"type": {
-						"type": "string",
-						"const": "account.members.add",
-						"description": "Command type identifier."
-					},
-					"payload": {
-						"type": "object",
-						"required": ["userId"],
-						"properties": {
-							"userId": {
-								"type": "string",
-								"minLength": 1,
-								"description": "Unique identifier of the user to grant access to."
-							},
-							"name": {
-								"type": "string",
-								"description": "Optional display name for the user."
-							},
-							"email": {
-								"type": "string",
-								"description": "Optional email address for the user."
-							},
-							"roles": {
-								"type": "array",
-								"items": {
-									"anyOf": [
-										{
-											"type": "string",
-											"const": "user"
-										},
-										{
-											"type": "string",
-											"const": "account-admin"
-										}
-									]
-								},
-								"minItems": 1,
-								"description": "Roles to store. Omitted means user only. super-admin cannot be added here."
-							}
-						},
-						"description": "Parameters for adding or inviting an account member."
-					}
-				},
-				"grant": "members.manage",
-				"description": "Add or invite a user to the account with a specified access role. A caller-chosen token is not accepted; API tokens are server-generated (auth.tokens.create)."
-			},
 			"AccountMembersInviteCommand": {
 				"type": "object",
 				"required": ["id", "type", "payload"],
@@ -2664,9 +2609,6 @@
 					},
 					{
 						"$ref": "#/components/schemas/AccountMembersListCommand"
-					},
-					{
-						"$ref": "#/components/schemas/AccountMembersAddCommand"
 					},
 					{
 						"$ref": "#/components/schemas/AccountMembersInviteCommand"

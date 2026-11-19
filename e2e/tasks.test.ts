@@ -1,14 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+	adminScope,
 	connectTestWs,
 	sendRpc,
-	TEST_TOKEN,
-	uniqueAccountId,
 	useWorkerFixture,
 	workerFetch,
 } from "./helpers.js";
 
-type Scope = { accountId: string; familyId: string };
+type Scope = { token: string; accountId: string; familyId: string };
 
 async function waitFor(check: () => Promise<boolean>, ms = 15_000) {
 	const deadline = Date.now() + ms;
@@ -51,10 +50,7 @@ describe("chat tasks", () => {
 	useWorkerFixture();
 
 	it("round-trips add/list/get/finish/remove and never reuses indexes", async () => {
-		const scope = {
-			accountId: uniqueAccountId("tasks-crud"),
-			familyId: "default",
-		};
+		const scope = await adminScope("default");
 		await setupBot(scope);
 		const add = await sendRpc<{ reply: string }>(
 			"turn.submit",
@@ -126,10 +122,7 @@ describe("chat tasks", () => {
 	}, 30_000);
 
 	it("auto-continues after the user turn returns and stops when empty", async () => {
-		const scope = {
-			accountId: uniqueAccountId("tasks-loop"),
-			familyId: "default",
-		};
+		const scope = await adminScope("default");
 		await setupBot(scope);
 		const started = Date.now();
 		const turn = await sendRpc<{ reply: string }>(
@@ -157,10 +150,7 @@ describe("chat tasks", () => {
 	}, 30_000);
 
 	it("pauses on abort and resumes on the next user message", async () => {
-		const scope = {
-			accountId: uniqueAccountId("tasks-abort"),
-			familyId: "default",
-		};
+		const scope = await adminScope("default");
 		await setupBot(scope);
 		await sendRpc("turn.submit", { chatKey: "main", text: addTools(2) }, scope);
 		await waitFor(async () => {
@@ -191,10 +181,7 @@ describe("chat tasks", () => {
 	}, 30_000);
 
 	it("runs a queued user message before the next continue", async () => {
-		const scope = {
-			accountId: uniqueAccountId("tasks-queue"),
-			familyId: "default",
-		};
+		const scope = await adminScope("default");
 		await setupBot(scope);
 		const first = sendRpc(
 			"turn.submit",
@@ -222,10 +209,7 @@ describe("chat tasks", () => {
 	}, 30_000);
 
 	it("omits task tools in group-member consults and with an explicit allowlist", async () => {
-		const groupScope = {
-			accountId: uniqueAccountId("tasks-group"),
-			familyId: "default",
-		};
+		const groupScope = await adminScope("default");
 		await sendRpc(
 			"bot.create",
 			{ slug: "a", name: "a", model: "faux/echo" },
@@ -260,10 +244,7 @@ describe("chat tasks", () => {
 		);
 		expect(listed.frame.result?.tasks ?? []).toEqual([]);
 
-		const explicit = {
-			accountId: uniqueAccountId("tasks-explicit"),
-			familyId: "default",
-		};
+		const explicit = await adminScope("default");
 		await setupBot(explicit, { tools: ["memory_read"] });
 		await sendRpc(
 			"turn.submit",
@@ -282,10 +263,7 @@ describe("chat tasks", () => {
 	}, 30_000);
 
 	it("exposes chat.tasks over WS and REST and clears on reset", async () => {
-		const scope = {
-			accountId: uniqueAccountId("tasks-proto"),
-			familyId: "default",
-		};
+		const scope = await adminScope("default");
 		await setupBot(scope);
 		const ws = await connectTestWs(scope);
 		try {
@@ -306,7 +284,7 @@ describe("chat tasks", () => {
 			"http://example.com/api/chat/tasks/list?chatKey=main",
 			{
 				headers: {
-					Authorization: `Bearer ${TEST_TOKEN}`,
+					Authorization: `Bearer ${scope.token}`,
 					"x-account-id": scope.accountId,
 					"X-Cadmus-Family-Id": scope.familyId,
 				},
@@ -325,10 +303,7 @@ describe("chat tasks", () => {
 	}, 30_000);
 
 	it("validates deadlines merge, null reset, group defaults, and 24h rejection over the contract", async () => {
-		const scope = {
-			accountId: uniqueAccountId("tasks-deadlines"),
-			familyId: "default",
-		};
+		const scope = await adminScope("default");
 		await setupBot(scope);
 		const tooBig = await sendRpc(
 			"chat.update",
@@ -404,10 +379,7 @@ describe("chat tasks", () => {
 	}, 40_000);
 
 	it("caps the loop at the round limit and keeps the remaining task", async () => {
-		const scope = {
-			accountId: uniqueAccountId("tasks-rounds"),
-			familyId: "default",
-		};
+		const scope = await adminScope("default");
 		await setupBot(scope);
 		await sendRpc("turn.submit", { chatKey: "main", text: addTools(3) }, scope);
 		await waitFor(async () => {

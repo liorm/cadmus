@@ -133,7 +133,7 @@ bun run check:all
    - Restore global stubs before the test returns: `globalThis.fetch`, `env.CADMUS_ADMIN_DB.prepare` / `batch`, and `setupLogger` (back to `{ type: "silent" }`). `afterEach` alone is not enough when a test replaces the stub mid-body.
    - Auth tokens stored in D1 are unique by hash for the whole database. Generate the token (`crypto.randomUUID()`). Do not reuse a literal member token.
    - Tests that drop D1 tables or rewrite `cadmus_schema_meta` restore the schema before the test returns. The version row is database-global.
-   - `clearEnsuredMasterUsers`, `EdgeCache.clearAllMemory`, and `clearAllEdgeCaches` wipe isolate-wide caches. Call them only around the assertion that needs a cold cache, and clear again in `finally` if the test marked entries.
+   - `EdgeCache.clearAllMemory` and `clearAllEdgeCaches` wipe isolate-wide caches. Call them only around the assertion that needs a cold cache, and clear again in `finally` if the test marked entries.
    - Do not install fake timers. Do not bind a fixed port. Egress stays on the in-worker mocks; there is no live network.
 4. Use the deterministic offline model `faux/echo`:
    - Standard user text `"Hello"` replies with `"echo(<visibleUserMessages>): Hello"`.

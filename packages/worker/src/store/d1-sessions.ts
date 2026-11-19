@@ -1061,8 +1061,8 @@ export type TicketIdentity = Omit<SessionIdentity, "sessionId"> & {
 };
 
 /**
- * A ticket for a credential with no session: the master secret or a legacy
- * member token. It is minted over the header-authenticated RPC, so the
+ * A ticket for a credential with no session: a legacy member token or an API
+ * token. It is minted over the header-authenticated RPC, so the
  * credential never goes in a URL. Consuming it re-reads the live membership.
  */
 export async function createLegacyTicket(
@@ -1094,17 +1094,16 @@ export async function createLegacyTicket(
 }
 
 /**
- * Live authority of a credential that has no session: the master secret, a
- * legacy member token, or an API token (`cad_pat_` / `cad_svc_`) presented as
- * a bearer. A legacy member token must still have a live `cadmus_auth_tokens`
- * row (not revoked, not expired) for this user and account, and its grants
- * are the `user` set (issue #3 data model: legacy rows are `pat` rows with the
- * `user` grant set). An API token's grants are the stored set clamped to the
- * member's live role. The grants are an intersection with that role
- * (callerGrants), so a demotion never widens them. The master secret has no
- * row, so it keeps the member's role (master callers map to account-admin
- * until phase 9). Either way the membership, user and account state are
- * re-read.
+ * Live authority of a credential that has no session: a legacy member token
+ * or an API token (`cad_pat_` / `cad_svc_`) presented as a bearer. A legacy
+ * member token must still have a live `cadmus_auth_tokens` row (not revoked,
+ * not expired) for this user and account, and its grants are the `user` set
+ * (issue #3 data model: legacy rows are `pat` rows with the `user` grant set).
+ * An API token's grants are the stored set clamped to the member's live role.
+ * The grants are an intersection with that role (callerGrants), so a demotion
+ * never widens them. A shared secret, including one shaped account:user:secret,
+ * is not a credential and does not resolve. Membership, user and account state
+ * are re-read.
  */
 export async function resolveLegacyCredential(
 	db: D1Database,
@@ -1137,21 +1136,16 @@ export async function resolveLegacyCredential(
 		return { role, grants: clampTokenGrantsToRoles(row.grants, roles) };
 	}
 	if (credential?.startsWith(API_TOKEN_CREDENTIAL_PREFIX)) return undefined;
-	let clampToUser = false;
-	if (credential?.startsWith("member-token:")) {
-		const live = await db
-			.prepare(
-				`SELECT 1 AS ok FROM cadmus_auth_tokens
+	if (!credential?.startsWith("member-token:")) return undefined;
+	const live = await db
+		.prepare(
+			`SELECT 1 AS ok FROM cadmus_auth_tokens
          WHERE token_hash = ?1 AND user_id = ?2 AND account_id = ?3
            AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > ?4)`,
-			)
-			.bind(credential.slice("member-token:".length), userId, accountId, now)
-			.first();
-		if (!live) return undefined;
-		clampToUser = true;
-	} else if (credential !== "master") {
-		return undefined;
-	}
+		)
+		.bind(credential.slice("member-token:".length), userId, accountId, now)
+		.first();
+	if (!live) return undefined;
 	const member = await db
 		.prepare(
 			`SELECT (SELECT json_group_array(r.role) FROM cadmus_member_roles r
@@ -1173,11 +1167,8 @@ export async function resolveLegacyCredential(
 	}
 	const role = parseStoredRoles(member.roles).at(-1);
 	if (!role) return undefined;
-	// Master callers map to account-admin (issue phase 2), on /rpc and on a
-	// socket alike, whatever the membership row says; the row only has to exist.
-	return clampToUser
-		? { role, grants: [...ROLE_GRANTS.user] }
-		: { role: "account-admin" };
+	// Legacy member tokens stay on the user grant set. They are not account-admin.
+	return { role, grants: [...ROLE_GRANTS.user] };
 }
 
 /** Consumes a ticket exactly once; returns the identity it was minted for. */

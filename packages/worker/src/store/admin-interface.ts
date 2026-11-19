@@ -56,8 +56,8 @@ export interface AuthenticatedIdentity {
 	elevatedUntil?: number;
 	provisional?: boolean;
 	/**
-	 * Sessionless credentials only, set by the edge: "master" for the master
-	 * secret, "member-token:<sha256>" for a legacy member token,
+	 * Sessionless credentials only, set by the edge:
+	 * "member-token:<sha256>" for a legacy member token,
 	 * "api-token:<domain-hash>" for a cad_pat_ / cad_svc_ bearer.
 	 */
 	credential?: string;
@@ -182,9 +182,10 @@ export interface AdminStore {
 		target: TicketTarget,
 	): Promise<TicketIdentity | undefined>;
 	/**
-	 * Re-checks a sessionless credential (master secret or legacy member
-	 * token): the token row is live, the membership, user and account are
-	 * active. Returns the role and, for a legacy token, the `user` grant set.
+	 * Re-checks a sessionless credential (legacy member token or API token):
+	 * the token row is live, the membership, user and account are active.
+	 * A legacy member token returns the live role and the `user` grant set.
+	 * It is not granted account-admin.
 	 */
 	resolveLegacyCredential(
 		credential: string | undefined,

@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+	adminScope,
 	type ChatRecord,
 	type HarvestNote,
 	sendRpc,
-	uniqueAccountId,
 	useWorkerFixture,
 } from "./helpers.js";
 
@@ -11,7 +11,7 @@ describe("Bots, Virtual Files (SOUL.md, MEMORY.md, knowledge/<slug>.md), CAS & T
 	useWorkerFixture();
 
 	it("manages bot lifecycle and enforces CAS, size limits, and frontmatter rules on MEMORY.md and knowledge/<slug>.md", async () => {
-		const scope = { accountId: uniqueAccountId("files"), familyId: "default" };
+		const scope = await adminScope("default");
 
 		// 1. Create bot with initial soul, memory, and knowledge
 		const createRes = await sendRpc(
@@ -167,10 +167,7 @@ describe("Bots, Virtual Files (SOUL.md, MEMORY.md, knowledge/<slug>.md), CAS & T
 	});
 
 	it("executes knowledge and memory tools during a turn and enforces per-bot tool-gate policy", async () => {
-		const scope = {
-			accountId: uniqueAccountId("toolgate"),
-			familyId: "default",
-		};
+		const scope = await adminScope("default");
 
 		// Create a bot restricted to ONLY `memory_read` (disallowing `memory_update`)
 		await sendRpc(
@@ -244,9 +241,7 @@ describe("Bots, Virtual Files (SOUL.md, MEMORY.md, knowledge/<slug>.md), CAS & T
 	});
 
 	it("cascade-deletes chats and schedules on bot.delete so a recreated bot with the same slug starts clean", async () => {
-		const accountId = uniqueAccountId("bot-delete-cascade");
-		const familyId = "default";
-		const scope = { accountId, familyId };
+		const scope = await adminScope("default");
 
 		await sendRpc("family.update", { harvestDelayMs: 5000 }, scope);
 
@@ -392,10 +387,7 @@ describe("Bots, Virtual Files (SOUL.md, MEMORY.md, knowledge/<slug>.md), CAS & T
 	});
 
 	it("enforces strict chat-to-bot ownership across chat.create, schedule.create, schedule.update, schedule_create, and message_bot", async () => {
-		const scope = {
-			accountId: uniqueAccountId("strict-chat-owner"),
-			familyId: "default",
-		};
+		const scope = await adminScope("default");
 
 		await sendRpc(
 			"bot.create",

@@ -23,7 +23,6 @@ append_var() {
 	fi
 }
 
-append_var "CADMUS_AUTH_SECRET" "dev-cadmus-secret"
 append_var "CADMUS_ENCRYPTION_KEY" "dev-cadmus-encryption-key-32bytes!"
 append_var "CADMUS_DEFAULT_TIMEZONE" "UTC"
 append_var "CADMUS_HARVEST_DELAY_MS" "60000"
@@ -36,7 +35,7 @@ append_var "XAI_API_KEY"
 # Forward any extra CADMUS_* or custom *_API_KEY variables from environment
 env | grep -E '^(CADMUS_|.*_API_KEY=)' | while IFS='=' read -r key val; do
 	case "$key" in
-		CADMUS_AUTH_SECRET|CADMUS_ENCRYPTION_KEY|CADMUS_DEFAULT_TIMEZONE|CADMUS_HARVEST_DELAY_MS|CADMUS_LOG_LEVEL|ANTHROPIC_API_KEY|OPENAI_API_KEY|OPENROUTER_API_KEY|XAI_API_KEY)
+		CADMUS_ENCRYPTION_KEY|CADMUS_DEFAULT_TIMEZONE|CADMUS_HARVEST_DELAY_MS|CADMUS_LOG_LEVEL|ANTHROPIC_API_KEY|OPENAI_API_KEY|OPENROUTER_API_KEY|XAI_API_KEY)
 			# already handled
 			;;
 		*)

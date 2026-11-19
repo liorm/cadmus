@@ -24,7 +24,6 @@ export interface EdgeCacheMetrics {
 	familyL1Hits: number;
 	familyL2Hits: number;
 	familyMisses: number;
-	masterFastPathHits: number;
 }
 
 /**
@@ -109,28 +108,6 @@ export class LruCache<T> {
 	}
 }
 
-// Isolate-level set of ensured (accountId, userId) pairs for master secret
-const ensuredMasterUsers = new LruCache<true>(1000);
-
-export function isMasterUserEnsured(
-	accountId: string,
-	userId: string,
-): boolean {
-	return Boolean(ensuredMasterUsers.get(`${accountId}:${userId}`));
-}
-
-export function markMasterUserEnsured(
-	accountId: string,
-	userId: string,
-	ttlMs: number = 300_000,
-): void {
-	ensuredMasterUsers.set(`${accountId}:${userId}`, true, ttlMs);
-}
-
-export function clearEnsuredMasterUsers(): void {
-	ensuredMasterUsers.clear();
-}
-
 const activeCaches = new Set<WeakRef<EdgeCache>>();
 
 export function clearAllEdgeCaches(): void {
@@ -142,7 +119,6 @@ export function clearAllEdgeCaches(): void {
 			activeCaches.delete(ref);
 		}
 	}
-	ensuredMasterUsers.clear();
 }
 
 /**
@@ -161,7 +137,6 @@ export class EdgeCache {
 		familyL1Hits: 0,
 		familyL2Hits: 0,
 		familyMisses: 0,
-		masterFastPathHits: 0,
 	};
 
 	constructor(
@@ -213,12 +188,7 @@ export class EdgeCache {
 			familyL1Hits: 0,
 			familyL2Hits: 0,
 			familyMisses: 0,
-			masterFastPathHits: 0,
 		};
-	}
-
-	recordMasterFastPath(): void {
-		this.metrics.masterFastPathHits++;
 	}
 
 	async getToken(tokenHash: string): Promise<CachedTokenScope | undefined> {

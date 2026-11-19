@@ -28,20 +28,18 @@ export function TokensSettingsPage() {
 	const { client } = useCadmus();
 	const session = useSession();
 	// Service tokens belong to the account, so only account admins manage them.
-	// Personal tokens stay open to everyone. No session means the legacy master
-	// secret, which acts as account-admin (a heuristic, as on the members page).
+	// Personal tokens stay open to a signed-in user session. Signed out cannot
+	// mint or manage tokens.
 	const principal = session.principal;
 	const principalPending = session.signedIn && principal === null;
 	// A token session cannot mint tokens at all (the server rejects it), so
 	// the create form is hidden for it. It can still revoke its own tokens.
-	const canMint = !session.signedIn
-		? true
-		: Boolean(principal && !principal.viaToken);
-	const canManageService = !session.signedIn
-		? true
-		: Boolean(
-				principal && !principal.viaToken && principal.role === "account-admin",
-			);
+	const canMint = session.signedIn && Boolean(principal && !principal.viaToken);
+	const canManageService =
+		session.signedIn &&
+		Boolean(
+			principal && !principal.viaToken && principal.role === "account-admin",
+		);
 	const [notice, setNotice] = useState<string | null>(null);
 	const [label, setLabel] = useState("");
 	const [kindChoice, setKindChoice] = useState<"pat" | "service">("service");

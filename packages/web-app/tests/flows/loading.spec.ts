@@ -115,7 +115,7 @@ test("family switch drops the previous bot", async ({
 		method: "POST",
 		headers: {
 			"Content-Type": "application/json",
-			Authorization: "Bearer dev-cadmus-secret",
+			Authorization: "Bearer parked-ui-token",
 			"x-account-id": accountId,
 			"x-user-id": "owner",
 			"x-cadmus-family-id": "default",
@@ -130,7 +130,7 @@ test("family switch drops the previous bot", async ({
 		method: "POST",
 		headers: {
 			"Content-Type": "application/json",
-			Authorization: "Bearer dev-cadmus-secret",
+			Authorization: "Bearer parked-ui-token",
 			"x-account-id": accountId,
 			"x-user-id": "owner",
 			"x-cadmus-family-id": "other",

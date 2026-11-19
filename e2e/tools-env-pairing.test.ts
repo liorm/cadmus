@@ -1,10 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
 	addMemberBearer,
+	adminScope,
 	ScriptedDaemon,
 	sendRpc,
-	TEST_TOKEN,
-	uniqueAccountId,
 	useWorkerFixture,
 	workerFetch,
 } from "./helpers.js";
@@ -13,8 +12,8 @@ describe("tools-env automated pairing and registration", () => {
 	useWorkerFixture();
 
 	it("completes full pairing, key exchange, replay prevention, and deregistration", async () => {
-		const accountId = uniqueAccountId("pairing");
-		const rpcOpts = { accountId, familyId: "default" };
+		const { accountId, token } = await adminScope();
+		const rpcOpts = { accountId, token, familyId: "default" };
 
 		// 1. Create a local-daemon env. It starts unpaired and returns a pairing token.
 		const created = await sendRpc(
@@ -168,8 +167,8 @@ describe("tools-env automated pairing and registration", () => {
 	});
 
 	it("lets only the account owner deregister a daemon", async () => {
-		const accountId = uniqueAccountId("pair-owner");
-		const rpcOpts = { accountId, familyId: "default" };
+		const { accountId, token } = await adminScope();
+		const rpcOpts = { accountId, token, familyId: "default" };
 		const created = await sendRpc(
 			"account.toolsEnvs.create",
 			{
@@ -245,7 +244,7 @@ describe("tools-env automated pairing and registration", () => {
 			{
 				method: "POST",
 				headers: {
-					Authorization: `Bearer ${TEST_TOKEN}`,
+					Authorization: `Bearer ${token}`,
 					"x-account-id": accountId,
 					"Content-Type": "application/json",
 				},

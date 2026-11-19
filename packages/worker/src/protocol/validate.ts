@@ -21,7 +21,6 @@ const EDGE_COMMAND_TYPES = new Set<CommandType>([
 	"account.get",
 	"account.update",
 	"account.members.list",
-	"account.members.add",
 	"account.credentials.list",
 	"account.credentials.set",
 	"account.credentials.delete",

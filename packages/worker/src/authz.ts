@@ -12,8 +12,8 @@ import { ProtocolValidationError } from "./protocol.js";
 
 /**
  * Who is acting, as resolved at the edge from the request credential.
- * Issue #3 phase 1: built from today's credentials (master secret and stored
- * member tokens). Later phases add sessions and grants.
+ * Sessionless callers are legacy member tokens (and API tokens). A legacy
+ * member token stays on the user grant set; it is not account-admin.
  */
 export interface Principal {
 	/** What kind of credential authenticated the request. */
@@ -137,8 +137,8 @@ export function tokenUserRequired(): ProtocolValidationError {
  * session. A token (a token-login session, or a `cad_pat_` / `cad_svc_` bearer)
  * carries exactly the grants it was created with, including elevated grants
  * when it was minted in admin mode, so it is not asked to elevate again.
- * Callers with no session and no grant list are the legacy master-secret and
- * member-token paths that phase 9 removes, and they are not asked to elevate.
+ * Callers with no session and no grant list are legacy member tokens. They
+ * are not asked to elevate, and they are not account-admin.
  */
 export function authorize(caller: CallerMeta, commandType: string): Grant {
 	const grant = getCommandGrant(commandType) as Grant | undefined;
