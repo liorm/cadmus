@@ -97,7 +97,7 @@ describe("public/_headers (static assets, not applied to Worker responses)", () 
 		expect(directive("font-src")).toBe("font-src 'self'");
 		expect(directive("style-src")).toBe("style-src 'self' 'unsafe-inline'");
 		expect(directive("script-src")).toMatch(
-			/^script-src 'self' 'sha256-[A-Za-z0-9+/=]+'$/,
+			/^script-src 'self' 'sha256-[A-Za-z0-9+/=]+' https:\/\/static\.cloudflareinsights\.com$/,
 		);
 	});
 
