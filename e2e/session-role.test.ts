@@ -406,11 +406,7 @@ describe("session hats", () => {
 			}),
 		});
 		expect(missing.status).toBe(401);
-		const rejected = await assume(
-			"rejected-bearer",
-			"user",
-			"default-account",
-		);
+		const rejected = await assume("rejected-bearer", "user", "default-account");
 		expect(rejected.res.status).toBe(401);
 		expect(rejected.body.error?.code).toBe("unauthorized");
 		const member = await provisionInvitedMember({ role: "user" });

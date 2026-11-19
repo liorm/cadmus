@@ -10,12 +10,12 @@ import {
 	workerFetch,
 } from "./helpers.js";
 
-async function untilType(
-	events: Array<{ type: string }>,
-	type: string,
-) {
+async function untilType(events: Array<{ type: string }>, type: string) {
 	const deadline = Date.now() + 2_000;
-	while (!events.some((event) => event.type === type) && Date.now() < deadline) {
+	while (
+		!events.some((event) => event.type === type) &&
+		Date.now() < deadline
+	) {
 		await new Promise((resolve) => setTimeout(resolve, 20));
 	}
 }

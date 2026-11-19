@@ -101,7 +101,12 @@ async function callContractApi(
 		if (query.length > 0) url += `?${query}`;
 	} else {
 		headers["Content-Type"] = "application/json";
-		init.body = JSON.stringify(payload);
+		// auth.assumeRole is a session route that reads the command envelope.
+		init.body = JSON.stringify(
+			command === "auth.assumeRole"
+				? { id: "assume", type: command, payload }
+				: payload,
+		);
 	}
 	const response = await workerFetch(url, init);
 	const body: unknown = await response.json();
@@ -294,6 +299,7 @@ describe("contract conformance", () => {
 		await call("auth.login.google.start");
 		await call("auth.session.refresh");
 		await call("auth.session.logout");
+		await call("auth.elevate");
 		await call("family.list");
 		await call("family.get", { familyId });
 		await call("family.update", {
@@ -481,7 +487,7 @@ describe("contract conformance", () => {
 		);
 		expect(ticket.frame.ok).toBe(true);
 		const response = await workerFetch(
-			`http://example.com/events?ticket=${encodeURIComponent(ticket.frame.result?.ticket ?? "")}`,
+			`http://example.com/events?ticket=${encodeURIComponent(ticket.frame.result?.ticket ?? "")}&familyId=${encodeURIComponent(familyId)}`,
 		);
 		expect(response.status).toBe(200);
 		expect(response.headers.get("content-type")).toContain("text/event-stream");
@@ -491,7 +497,7 @@ describe("contract conformance", () => {
 		let buffer = "";
 		const readData = (async () => {
 			const started = Date.now();
-			while (Date.now() - started < 20000) {
+			while (Date.now() - started < 8_000) {
 				const chunk = await reader.read();
 				if (chunk.done) break;
 				buffer += decoder.decode(chunk.value, { stream: true });
