@@ -64,8 +64,7 @@ describe("wrangler preview config", () => {
 		expect(previews.vars).toEqual(
 			expect.objectContaining({
 				IS_PREVIEW: "true",
-				CADMUS_AUTH_SECRET: "dev-cadmus-secret",
-				CADMUS_ENCRYPTION_KEY: "dev-cadmus-encryption-key-32bytes!",
+				CADMUS_PUBLIC_URL: "",
 				CADMUS_DEFAULT_TIMEZONE: "UTC",
 				CADMUS_HARVEST_DELAY_MS: "60000",
 				CADMUS_LOG_LEVEL: "debug",

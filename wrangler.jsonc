@@ -5,6 +5,22 @@
 	"compatibility_date": "2026-10-18",
 	"compatibility_flags": ["nodejs_compat"],
 	"preview_urls": true,
+	"observability": {
+		"logs": {
+			"enabled": true,
+			"head_sampling_rate": 1,
+			"invocation_logs": true,
+			"persist": true
+		},
+		"traces": {
+			"enabled": false,
+			"head_sampling_rate": 1,
+			"persist": true
+		},
+		"issues": {
+			"enabled": false
+		}
+	},
 	"assets": {
 		"directory": "./packages/web-app/dist",
 		"not_found_handling": "single-page-application",
@@ -98,9 +114,7 @@
 		}
 	],
 	"vars": {
-		"CADMUS_AUTH_SECRET": "dev-cadmus-secret",
-		"CADMUS_PUBLIC_URL": "",
-		"CADMUS_ENCRYPTION_KEY": "dev-cadmus-encryption-key-32bytes!",
+		"CADMUS_PUBLIC_URL": "https://cadmus.purelogicstudios.com",
 		"CADMUS_DEFAULT_TIMEZONE": "UTC",
 		"CADMUS_HARVEST_DELAY_MS": "60000",
 		"CADMUS_LOG_LEVEL": "debug",
@@ -154,9 +168,7 @@
 			}
 		],
 		"vars": {
-			"CADMUS_AUTH_SECRET": "dev-cadmus-secret",
 			"CADMUS_PUBLIC_URL": "",
-			"CADMUS_ENCRYPTION_KEY": "dev-cadmus-encryption-key-32bytes!",
 			"CADMUS_DEFAULT_TIMEZONE": "UTC",
 			"CADMUS_HARVEST_DELAY_MS": "60000",
 			"CADMUS_LOG_LEVEL": "debug",
