@@ -118,7 +118,7 @@ describe("per-IP budget (issue #3 phase 8)", () => {
 		}
 		const nav = await ask("/api/auth/login/google/start", "navigation");
 		expect(nav?.status).toBe(302);
-		expect(nav?.headers.get("location")).toBe("/?auth_error=rate_limited");
+		expect(nav?.headers.get("location")).toBe("/login?auth_error=rate_limited");
 	});
 
 	it("/api/auth/session/refresh has its own larger budget: 120 pass (more than the credential routes' 20), then 429", async () => {
@@ -179,13 +179,13 @@ describe("per-IP budget (issue #3 phase 8)", () => {
 			}
 			for (const r of res.slice(0, LIMIT)) {
 				expect(r.headers.get("location"), `${path} inside`).not.toBe(
-					"/?auth_error=rate_limited",
+					"/login?auth_error=rate_limited",
 				);
 			}
 			for (const r of res.slice(LIMIT)) {
 				expect(r.status, path).toBe(302);
 				expect(r.headers.get("location"), path).toBe(
-					"/?auth_error=rate_limited",
+					"/login?auth_error=rate_limited",
 				);
 				expect(r.headers.get("cache-control")).toBe("no-store");
 				expect(Number(r.headers.get("retry-after"))).toBeGreaterThan(0);
@@ -249,7 +249,9 @@ describe("per-IP budget (issue #3 phase 8)", () => {
 			const r = await SELF.fetch(`${ORIGIN}/api/auth/login/google/start`, {
 				redirect: "manual",
 			});
-			expect(r.headers.get("location")).not.toBe("/?auth_error=rate_limited");
+			expect(r.headers.get("location")).not.toBe(
+				"/login?auth_error=rate_limited",
+			);
 		}
 	});
 });

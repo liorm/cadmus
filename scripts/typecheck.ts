@@ -25,6 +25,11 @@ const projects: Project[] = [
 		weight: 70,
 	},
 	{
+		name: "login-app",
+		cmd: ["bun", "run", "--cwd", "packages/login-app", "typecheck"],
+		weight: 20,
+	},
+	{
 		name: "worker",
 		cmd: ["bunx", "tsc", "-p", "packages/worker/tsconfig.json", "--noEmit"],
 		weight: 40,

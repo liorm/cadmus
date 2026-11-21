@@ -32,6 +32,7 @@ import { handleToolsEnvPair } from "./tools-env/edge-pair.js";
 import { handleToolsEnvWebsocket } from "./tools-env/edge-ws.js";
 import { CadmusEnvDO } from "./tools-env/env-do.js";
 import type { Env } from "./types.js";
+import { handleWebRoute } from "./web-routes.js";
 
 export { CadmusAuthLimiterDO, CadmusBotFamilyDO, CadmusEnvDO };
 
@@ -122,6 +123,9 @@ const routes = {
 
 		const crossOrigin = refuseCrossOrigin(request, url);
 		if (crossOrigin) return crossOrigin;
+
+		const webResponse = await handleWebRoute(request, url, env);
+		if (webResponse) return webResponse;
 
 		const defaultTimezone = env.CADMUS_DEFAULT_TIMEZONE ?? "UTC";
 		const defaultHarvestDelayMs = Number(env.CADMUS_HARVEST_DELAY_MS ?? 60_000);

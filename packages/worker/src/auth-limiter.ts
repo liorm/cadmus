@@ -153,7 +153,7 @@ function navigationRefused(retryAfterSec: number): Response {
 	return new Response(null, {
 		status: 302,
 		headers: {
-			location: "/?auth_error=rate_limited",
+			location: "/login?auth_error=rate_limited",
 			"cache-control": "no-store",
 			"retry-after": String(Math.max(1, retryAfterSec)),
 		},

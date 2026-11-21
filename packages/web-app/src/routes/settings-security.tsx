@@ -7,7 +7,7 @@ import { formatRemaining, useElevation } from "@/context/ElevationContext";
 import { useSession } from "@/context/SessionContext";
 import { useMemberships } from "@/hooks/useMemberships";
 import { useScopedResource } from "@/hooks/useScopedResource";
-import { isoTime, signOut } from "@/lib/session";
+import { isoTime, selectAccount, signOut } from "@/lib/session";
 import { orderSessions } from "@/lib/session-order";
 
 interface SessionRow {
@@ -108,7 +108,8 @@ function AssumeRole() {
 									);
 									return;
 								}
-								window.location.assign("/");
+								selectAccount(null);
+								window.location.assign("/app");
 							});
 						}}
 					>
@@ -147,29 +148,6 @@ function signedInDetail(principal: {
 		return `${name} · ${role}`;
 	}
 	return role;
-}
-
-function SignedOut({ providers }: { providers: string[] }) {
-	const hasGoogle = providers.includes("google");
-	return (
-		<SettingsSection title="Sign in">
-			<div className="flex flex-col gap-3 px-4 py-3">
-				<p className="text-[length:var(--fs-sm)] text-text-muted">
-					{hasGoogle
-						? "You are using the shared access key. Sign in to act as yourself."
-						: "Sign-in is not enabled on this server yet."}
-				</p>
-				{hasGoogle ? (
-					<a
-						href="/api/auth/login/google/start"
-						className="inline-flex min-h-tap items-center justify-center rounded-md border border-border px-4 font-semibold"
-					>
-						Sign in with Google
-					</a>
-				) : null}
-			</div>
-		</SettingsSection>
-	);
 }
 
 /**
@@ -308,7 +286,7 @@ function SignedIn() {
 						onClick={() => {
 							void signOut().then((ended) => {
 								if (ended) {
-									window.location.assign("/");
+									window.location.assign("/login");
 								} else {
 									setError(
 										"Could not sign out. Check your connection and try again.",
@@ -434,15 +412,10 @@ function SignedIn() {
 }
 
 export function SecuritySettingsPage() {
-	const session = useSession();
 	return (
 		<AppShell title="Sign-in and sessions" backTo="/settings">
 			<div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-3 py-4">
-				{session.signedIn ? (
-					<SignedIn />
-				) : (
-					<SignedOut providers={session.providers} />
-				)}
+				<SignedIn />
 			</div>
 		</AppShell>
 	);

@@ -14,6 +14,13 @@ import { TelemetryDeck } from "./TelemetryDeck";
 
 type FleetFilter = "all" | "running" | "needs";
 
+/** Strips the `/app` router basepath prefix so sub-route checks stay path-relative. */
+export function stripAppBasepath(pathname: string): string {
+	if (pathname === "/app" || pathname === "/app/") return "/";
+	if (pathname.startsWith("/app/")) return pathname.slice("/app".length);
+	return pathname;
+}
+
 export function DesktopCockpitShell({
 	children,
 }: {
@@ -22,7 +29,7 @@ export function DesktopCockpitShell({
 	const { bots, chats, lastBotId, setLastBotId } = useCadmus();
 	const routerState = useRouterState();
 	const navigate = useNavigate();
-	const pathname = routerState.location.pathname;
+	const pathname = stripAppBasepath(routerState.location.pathname);
 	const search = routerState.location.search as Record<string, unknown>;
 
 	const chatMatch = pathname.match(/^\/chat\/([^/]+)/);

@@ -3,24 +3,14 @@ import {
 	createRoute,
 	createRouter,
 	Outlet,
-	useRouterState,
 } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
 import { AccountResetNotice } from "@/components/AccountResetNotice";
-import { DeviceApprove } from "@/components/DeviceApprove";
 import { DesktopCockpitShell } from "@/components/desktop/CommandCockpit";
 import { CommandPaletteHost } from "@/components/desktop/CommandPalette";
 import { useDesktopViewport } from "@/components/desktop/use-desktop-viewport";
-import { LoginDialog } from "@/components/LoginDialog";
 import { CadmusProvider } from "@/context/CadmusContext";
 import { ElevationProvider } from "@/context/ElevationContext";
-import { SessionBoot } from "@/context/SessionContext";
-import {
-	deviceCeremonyPhase,
-	deviceCodeFromLocation,
-	readStoredDeviceCode,
-	rememberDeviceCode,
-} from "@/lib/device-login";
+import { useSession } from "@/context/SessionContext";
 import { isBotTab } from "@/lib/profile-tabs";
 import { ArchivePage } from "@/routes/archive";
 import { NewBotPage } from "@/routes/bot-new";
@@ -45,106 +35,44 @@ import { ToolsPage } from "@/routes/tools";
 
 function RootComponent() {
 	const desktop = useDesktopViewport();
-	const pathname = useRouterState({
-		select: (state) => state.location.pathname,
-	});
-	const search = useRouterState({ select: (state) => state.location.search });
-	const [storedCode, setStoredCode] = useState<string | null>(() =>
-		typeof sessionStorage === "undefined" ? null : readStoredDeviceCode(),
-	);
-	const deviceCode = deviceCodeFromLocation(pathname, search, storedCode);
-	useEffect(() => {
-		if (pathname === "/login/device" && deviceCode) {
-			rememberDeviceCode(deviceCode);
-			setStoredCode(deviceCode);
-		}
-	}, [pathname, deviceCode]);
+	const session = useSession();
+	if (!session.signedIn || !session.tokens || session.principal?.provisional) {
+		return null;
+	}
 	return (
-		<SessionBoot>
-			{(session) => {
-				const phase = deviceCeremonyPhase({
-					code: deviceCode,
-					signedIn: Boolean(session.signedIn && session.tokens),
-					provisional: session.principal?.provisional === true,
-				});
-				if (phase === "approve" && session.tokens) {
-					return (
-						<DeviceApprove
-							code={deviceCode ?? ""}
-							accessToken={session.tokens.accessToken}
-						/>
-					);
-				}
-				if (phase === "login" || phase === "role") {
-					return (
-						<LoginDialog
-							providers={session.providers}
-							accessToken={
-								phase === "role" ? session.tokens?.accessToken : undefined
-							}
-							memberships={session.memberships}
-							deviceCode={deviceCode}
-						/>
-					);
-				}
-				return session.signedIn &&
-					session.tokens &&
-					!session.principal?.provisional ? (
-					<CadmusProvider
-						key="signed-in"
-						sessionMode
-						skipTenantSync={
-							session.principal?.role === "super-admin" ||
-							(!session.principal && session.tokens.accountId === "system")
-						}
-						initialConfig={{
-							token: session.tokens.accessToken,
-							accountId:
-								session.principal?.accountId ?? session.tokens.accountId ?? "",
-							userId: session.principal?.userId ?? session.tokens.userId ?? "",
-						}}
-					>
-						<ElevationProvider>
-							{session.notice ? (
-								<AccountResetNotice message={session.notice} />
-							) : null}
-							<CommandPaletteHost />
-							{desktop ? (
-								<DesktopCockpitShell>
-									<Outlet />
-								</DesktopCockpitShell>
-							) : (
-								<Outlet />
-							)}
-						</ElevationProvider>
-					</CadmusProvider>
-				) : (
-					<LoginDialog
-						providers={session.providers}
-						accessToken={
-							session.principal?.provisional
-								? session.tokens?.accessToken
-								: undefined
-						}
-						memberships={session.memberships}
-					/>
-				);
+		<CadmusProvider
+			key="signed-in"
+			sessionMode
+			skipTenantSync={
+				session.principal?.role === "super-admin" ||
+				(!session.principal && session.tokens.accountId === "system")
+			}
+			initialConfig={{
+				token: session.tokens.accessToken,
+				accountId:
+					session.principal?.accountId ?? session.tokens.accountId ?? "",
+				userId: session.principal?.userId ?? session.tokens.userId ?? "",
 			}}
-		</SessionBoot>
+		>
+			<ElevationProvider>
+				{session.notice ? (
+					<AccountResetNotice message={session.notice} />
+				) : null}
+				<CommandPaletteHost />
+				{desktop ? (
+					<DesktopCockpitShell>
+						<Outlet />
+					</DesktopCockpitShell>
+				) : (
+					<Outlet />
+				)}
+			</ElevationProvider>
+		</CadmusProvider>
 	);
 }
 
 const rootRoute = createRootRoute({
 	component: RootComponent,
-});
-
-const deviceLoginRoute = createRoute({
-	getParentRoute: () => rootRoute,
-	path: "/login/device",
-	validateSearch: (search: Record<string, unknown>): { code: string } => ({
-		code: typeof search.code === "string" ? search.code : "",
-	}),
-	component: () => null,
 });
 
 const indexRoute = createRoute({
@@ -317,7 +245,6 @@ const searchRoute = createRoute({
 
 const routeTree = rootRoute.addChildren([
 	indexRoute,
-	deviceLoginRoute,
 	chatRoute,
 	chatStatusRoute,
 	newTaskRoute,
@@ -342,6 +269,7 @@ const routeTree = rootRoute.addChildren([
 
 export const router = createRouter({
 	routeTree,
+	basepath: "/app",
 	defaultPreload: "intent",
 });
 

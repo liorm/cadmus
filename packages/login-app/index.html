@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>Sign in — Cadmus</title>
+    <script>
+      (() => {
+        var key = "cadmus.theme";
+        var theme = "dark";
+        var stored;
+        try {
+          stored = localStorage.getItem(key);
+          if (stored === "light" || stored === "sepia" || stored === "dark") {
+            theme = stored;
+          }
+        } catch (_e) {}
+        document.documentElement.setAttribute("data-theme", theme);
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

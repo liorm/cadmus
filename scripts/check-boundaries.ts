@@ -24,7 +24,11 @@ import {
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
-const clientRoots = ["packages/cli/src", "packages/web-app/src"];
+const clientRoots = [
+	"packages/cli/src",
+	"packages/web-app/src",
+	"packages/login-app/src",
+];
 const cliSchemaAllow = ["@cadmus/contract/schemas"];
 const contractRoots = ["packages/contract/src", "packages/contract/generated"];
 const e2eRoots = ["e2e"];

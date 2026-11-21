@@ -10,6 +10,24 @@ export interface SessionTokens {
 	sessionId?: string;
 	accountId?: string;
 	userId?: string;
+	provisional?: boolean;
+}
+
+/**
+ * Builds the `/login` redirect target from the current `/app` location.
+ */
+export function buildLoginRedirectUrl(pathname: string, search = ""): string {
+	const target = `${pathname}${search}`;
+	if (
+		(pathname === "/app" || pathname === "/app/") &&
+		search.trim().length === 0
+	) {
+		return "/login";
+	}
+	if (pathname === "/app" || pathname.startsWith("/app/")) {
+		return `/login?next=${encodeURIComponent(target)}`;
+	}
+	return "/login";
 }
 
 export interface SessionPrincipal {
@@ -57,10 +75,6 @@ export async function fetchProvidersInfo(): Promise<ProvidersInfo> {
 	} catch {
 		return { providers: [] };
 	}
-}
-
-export async function fetchProviders(): Promise<string[]> {
-	return (await fetchProvidersInfo()).providers;
 }
 
 /**
@@ -116,6 +130,7 @@ if (channel) {
 		if (data.kind === "signout") {
 			latest = null;
 			bound = undefined;
+			selectAccount(null);
 			for (const listener of endListeners) listener();
 			return;
 		}
@@ -230,6 +245,7 @@ async function doRefresh(force: boolean): Promise<RefreshOutcome> {
 			sessionId?: string;
 			accountId?: string;
 			userId?: string;
+			provisional?: boolean;
 		};
 		if (!body.accessToken || typeof body.expiresAt !== "number")
 			return done(null);
@@ -239,6 +255,7 @@ async function doRefresh(force: boolean): Promise<RefreshOutcome> {
 			sessionId: body.sessionId,
 			...(body.accountId ? { accountId: body.accountId } : {}),
 			...(body.userId ? { userId: body.userId } : {}),
+			...(body.provisional ? { provisional: true } : {}),
 		};
 		if (bound && next.sessionId !== bound) {
 			// The browser's cookie now belongs to another sign-in. This tab keeps
@@ -345,6 +362,7 @@ export async function signOut(): Promise<boolean> {
 		await refreshSession(true);
 		latest = null;
 		bound = undefined;
+		selectAccount(null);
 		if (sessionId) channel?.postMessage({ kind: "signout", sessionId });
 		return true;
 	};

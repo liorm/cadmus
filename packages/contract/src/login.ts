@@ -100,7 +100,23 @@ export const AuthLoginGoogleStartCommandSchema = Type.Object(
 			description: "Command type identifier.",
 		}),
 		payload: Type.Optional(
-			Type.Object({}, { description: "Empty parameter payload." }),
+			Type.Object(
+				{
+					chooseRole: Type.Optional(
+						Type.Literal(true, {
+							description:
+								"Open a 15-minute provisional session on the lowest role when the user holds more than one, so they can choose a role before entering the app.",
+						}),
+					),
+					returnTo: Type.Optional(
+						Type.String({
+							description:
+								"Validated same-origin post-login destination (`/app`, `/app/*`, or `/login/device`). Stored in the signed OAuth transaction cookie.",
+						}),
+					),
+				},
+				{ description: "Optional Google sign-in parameters." },
+			),
 		),
 	},
 	{

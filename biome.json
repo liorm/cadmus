@@ -7,7 +7,12 @@
 	},
 	"files": {
 		"ignoreUnknown": false,
-		"includes": ["**", "!docs", "!packages/web-app/src/styles/app.css"]
+		"includes": [
+			"**",
+			"!docs",
+			"!packages/web-app/src/styles/app.css",
+			"!packages/login-app/src/styles/login.css"
+		]
 	},
 	"formatter": {
 		"enabled": true,
@@ -46,6 +51,7 @@
 										"group": [
 											"**/packages/worker/**",
 											"**/packages/daemon/**",
+											"**/packages/login-app/**",
 											"@cadmus/**",
 											"!@cadmus/contract/types",
 											"!@cadmus/contract/routes",
@@ -53,6 +59,35 @@
 											"!@cadmus/contract/client"
 										],
 										"message": "Clients may import only @cadmus/contract/types, @cadmus/contract/routes, @cadmus/contract/tools, and @cadmus/contract/client."
+									}
+								]
+							}
+						}
+					}
+				}
+			}
+		},
+		{
+			"includes": ["packages/login-app/**"],
+			"linter": {
+				"rules": {
+					"style": {
+						"noRestrictedImports": {
+							"level": "error",
+							"options": {
+								"patterns": [
+									{
+										"group": [
+											"**/packages/worker/**",
+											"**/packages/daemon/**",
+											"**/packages/web-app/**",
+											"@cadmus/**",
+											"!@cadmus/contract/types",
+											"!@cadmus/contract/routes",
+											"!@cadmus/contract/tools",
+											"!@cadmus/contract/client"
+										],
+										"message": "Login app may not import web-app, worker, daemon, or restricted contract subpaths."
 									}
 								]
 							}

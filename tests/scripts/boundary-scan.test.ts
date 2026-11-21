@@ -53,6 +53,9 @@ describe("clientImportReason", () => {
 		expect(clientImportReason("@cadmus/contract")).toBeDefined();
 		expect(clientImportReason("@cadmus/contract/schemas")).toBeDefined();
 		expect(clientImportReason("../../worker/src/index.ts")).toBeDefined();
+		expect(clientImportReason("../../web-app/package.json")).toBeDefined();
+		expect(clientImportReason("../../login-app/index.html")).toBeDefined();
+		expect(clientImportReason("../../cli/package.json")).toBeDefined();
 		expect(
 			nonStaticSpecifierReason(true) ??
 				clientImportReason("x", { nonStatic: true }),

@@ -49,16 +49,22 @@ const stages: Stage[] = [
 		weight: 10,
 	},
 	{
+		name: "login-app:test",
+		cmd: ["bun", "run", "login-app:test"],
+		group: "static",
+		weight: 6,
+	},
+	{
 		name: "web-app:test",
 		cmd: ["bun", "run", "--cwd", "packages/web-app", "test"],
 		group: "static",
 		weight: 8,
 	},
 	{
-		name: "web-app:build",
-		cmd: ["bun", "run", "web-app:build"],
+		name: "web:build",
+		cmd: ["bun", "run", "web:build"],
 		group: "static",
-		weight: 40,
+		weight: 45,
 	},
 	{
 		name: "format:check",

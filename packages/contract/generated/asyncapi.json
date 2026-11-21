@@ -1279,8 +1279,18 @@
 					},
 					"payload": {
 						"type": "object",
-						"properties": {},
-						"description": "Empty parameter payload."
+						"properties": {
+							"chooseRole": {
+								"type": "boolean",
+								"const": true,
+								"description": "Open a 15-minute provisional session on the lowest role when the user holds more than one, so they can choose a role before entering the app."
+							},
+							"returnTo": {
+								"type": "string",
+								"description": "Validated same-origin post-login destination (`/app`, `/app/*`, or `/login/device`). Stored in the signed OAuth transaction cookie."
+							}
+						},
+						"description": "Optional Google sign-in parameters."
 					}
 				},
 				"description": "Start Google sign-in. GET redirects to Google. Callback is GET /api/auth/login/google/callback."

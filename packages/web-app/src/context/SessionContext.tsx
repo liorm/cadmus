@@ -8,6 +8,7 @@ import {
 	useState,
 } from "react";
 import {
+	buildLoginRedirectUrl,
 	fetchProvidersInfo,
 	readMemberships,
 	readPrincipal,
@@ -20,9 +21,8 @@ import {
 } from "@/lib/session";
 
 export interface SessionState {
-	/** True when a Cadmus session (not the no-session fallback) is active. */
+	/** True when a full (non-provisional) Cadmus session is active. */
 	signedIn: boolean;
-	providers: string[];
 	principal: SessionPrincipal | null;
 	tokens: SessionTokens | null;
 	memberships: SessionMembership[];
@@ -32,7 +32,6 @@ export interface SessionState {
 
 const SessionContext = createContext<SessionState>({
 	signedIn: false,
-	providers: [],
 	principal: null,
 	tokens: null,
 	memberships: [],
@@ -42,10 +41,18 @@ export function useSession(): SessionState {
 	return useContext(SessionContext);
 }
 
+function redirectToLogin(): void {
+	if (typeof window === "undefined") return;
+	window.location.replace(
+		buildLoginRedirectUrl(window.location.pathname, window.location.search),
+	);
+}
+
 /**
- * Resolves the session once at boot: tries the refresh cookie, then reads the
- * principal. With no session the router shows the login dialog. It does not
- * fall back to the master secret.
+ * Resolves the session once at boot inside `/app`.
+ *
+ * Unauthenticated or provisional sessions are redirected immediately to
+ * `/login` before the main app bundle is loaded or rendered.
  */
 export function SessionBoot({
 	children,
@@ -53,62 +60,55 @@ export function SessionBoot({
 	children: (state: SessionState) => ReactNode;
 }) {
 	const [state, setState] = useState<SessionState | null>(null);
-	// "retrying": the session service said try again (rate limited or briefly
-	// down). "unavailable": it still does after the bounded retries. Neither is
-	// the signed-out view: whether a session exists is not known yet.
-	const [phase, setPhase] = useState<"loading" | "retrying" | "unavailable">(
-		"loading",
-	);
+	const [phase, setPhase] = useState<
+		"loading" | "retrying" | "unavailable" | "redirecting"
+	>("loading");
 	const cancelBoot = useRef<(() => void) | null>(null);
+
 	const startBoot = useCallback(() => {
 		cancelBoot.current?.();
 		let cancelled = false;
 		const abort = new AbortController();
 		setPhase("loading");
 		void (async () => {
-			const providersPromise = fetchProvidersInfo();
-			const [providersInfo, boot] = await Promise.all([
-				providersPromise,
-				refreshForBoot(
-					abort.signal,
-					() => {
-						if (!cancelled) setPhase("retrying");
-					},
-					undefined,
-					() => providersPromise.then((info) => info.bootRetry),
-				),
-			]);
-			const providers = providersInfo.providers;
+			let retryConfigPromise: Promise<
+				Awaited<ReturnType<typeof fetchProvidersInfo>>["bootRetry"]
+			> | null = null;
+			const boot = await refreshForBoot(
+				abort.signal,
+				() => {
+					if (!cancelled) setPhase("retrying");
+				},
+				undefined,
+				() => {
+					retryConfigPromise ??= fetchProvidersInfo().then(
+						(info) => info.bootRetry,
+					);
+					return retryConfigPromise;
+				},
+			);
 			if (cancelled || boot.kind === "cancelled") return;
 			if (boot.kind === "unavailable") {
 				setPhase("unavailable");
 				return;
 			}
 			const tokens = boot.kind === "tokens" ? boot.tokens : null;
-			if (!tokens) {
+			if (!tokens || tokens.provisional) {
 				if (cancelled) return;
-				setState({
-					signedIn: false,
-					providers,
-					principal: null,
-					tokens: null,
-					memberships: [],
-					notice: null,
-				});
+				setState(null);
+				setPhase("redirecting");
+				redirectToLogin();
 				return;
 			}
+
 			const remembered = selectedAccountId();
 			const membershipsPromise = readMemberships(tokens.accessToken);
 			const principalPromise = readPrincipal(tokens.accessToken, remembered);
 
-			// When no remembered account override is active and refresh gave us the
-			// home accountId, mount CadmusProvider immediately so whoami,
-			// memberships, ws ticket, and first data loads run in parallel.
 			const canMountEarly = !remembered && Boolean(tokens.accountId);
 			if (canMountEarly) {
 				setState({
 					signedIn: true,
-					providers,
 					principal: null,
 					tokens,
 					memberships: [],
@@ -122,6 +122,7 @@ export function SessionBoot({
 				memberships = resolved;
 				membershipsSettled = true;
 			});
+
 			let read = await principalPromise;
 			if (cancelled) return;
 			if (read.kind === "unavailable") {
@@ -131,10 +132,6 @@ export function SessionBoot({
 				if (cancelled) return;
 			}
 			if (remembered && read.kind === "refused") {
-				// The server refused the remembered account (membership removed,
-				// account suspended): only then start on the home account, and
-				// say so. A network error or 5xx keeps the choice and does not
-				// switch accounts behind the user's back.
 				selectAccount(null);
 				const notice =
 					"Your previous account is no longer available, so you are back in your own account.";
@@ -152,39 +149,44 @@ export function SessionBoot({
 					return;
 				}
 				const principal = read.kind === "ok" ? read.principal : null;
-				const live = principal ? tokens : null;
+				if (!principal || principal.provisional) {
+					setState(null);
+					setPhase("redirecting");
+					redirectToLogin();
+					return;
+				}
 				if (!membershipsSettled) {
 					memberships = await membershipsPromise;
 					if (cancelled) return;
 				}
-				if (live && memberships === null && principal?.kind === "user") {
+				if (memberships === null && principal.kind === "user") {
 					memberships = await readMemberships(tokens.accessToken);
 					if (cancelled) return;
 				}
 				setState({
-					signedIn: live !== null,
-					providers,
-					principal: live ? principal : null,
-					tokens: live,
-					memberships: live ? (memberships ?? []) : [],
-					notice: live ? notice : null,
+					signedIn: true,
+					principal,
+					tokens,
+					memberships: memberships ?? [],
+					notice,
 				});
 				return;
 			}
 			if (read.kind === "unavailable") {
-				// A transient 5xx or network error checking whoami after refresh
-				// succeeded is "unavailable", never signed-out fallback.
 				setState(null);
 				setPhase("unavailable");
 				return;
 			}
 			const principal = read.kind === "ok" ? read.principal : null;
-			const live = principal ? tokens : null;
-			if (!membershipsSettled && canMountEarly && live) {
-				// Publish principal right away so pages do not wait for memberships/list.
+			if (!principal || principal.provisional) {
+				setState(null);
+				setPhase("redirecting");
+				redirectToLogin();
+				return;
+			}
+			if (!membershipsSettled && canMountEarly) {
 				setState({
 					signedIn: true,
-					providers,
 					principal,
 					tokens,
 					memberships: [],
@@ -195,16 +197,15 @@ export function SessionBoot({
 				memberships = await membershipsPromise;
 				if (cancelled) return;
 			}
-			if (live && memberships === null && principal?.kind === "user") {
+			if (memberships === null && principal.kind === "user") {
 				memberships = await readMemberships(tokens.accessToken);
 				if (cancelled) return;
 			}
 			setState({
-				signedIn: live !== null,
-				providers,
-				principal: live ? principal : null,
-				tokens: live,
-				memberships: live ? (memberships ?? []) : [],
+				signedIn: true,
+				principal,
+				tokens,
+				memberships: memberships ?? [],
 				notice: null,
 			});
 		})();
@@ -213,10 +214,12 @@ export function SessionBoot({
 			abort.abort();
 		};
 	}, []);
+
 	useEffect(() => {
 		startBoot();
 		return () => cancelBoot.current?.();
 	}, [startBoot]);
+
 	if (!state && phase === "retrying") {
 		return (
 			<p role="status" className="p-6 text-sm text-muted-foreground">

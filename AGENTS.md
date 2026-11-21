@@ -76,7 +76,8 @@ This document contains everything an autonomous coding agent needs to understand
 ├── packages/
 │   ├── contract/                # @cadmus/contract declarations (types, schemas, generated routes, OpenAPI, AsyncAPI)
 │   ├── worker/                  # @cadmus/worker Cloudflare Worker backend (/health, /protocol/schema, /rpc, /api, auth, DOs)
-│   ├── web-app/                 # @cadmus/web-app Vite + React web UI (TanStack Router, served at /)
+│   ├── web-app/                 # @cadmus/web-app Vite + React web UI (TanStack Router, served at /app)
+│   ├── login-app/               # @cadmus/login-app Vite + React sign-in app (served at /login)
 │   ├── cli/                     # @cadmus/cli agent CLI (bin `cadmus`)
 │   └── daemon/                  # @cadmus/daemon Linux confinement daemon & CLI
 ├── scripts/                     # contract generator and API boundary check

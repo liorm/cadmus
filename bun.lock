@@ -55,6 +55,24 @@
         "cadmus-daemon": "./src/cli.ts",
       },
     },
+    "packages/login-app": {
+      "name": "@cadmus/login-app",
+      "version": "0.1.0",
+      "dependencies": {
+        "react": "^19.0.0",
+        "react-dom": "^19.0.0",
+      },
+      "devDependencies": {
+        "@tailwindcss/vite": "^4.1.14",
+        "@types/bun": "^1.4.3",
+        "@types/react": "^19.0.0",
+        "@types/react-dom": "^19.0.0",
+        "@vitejs/plugin-react": "^4.3.4",
+        "tailwindcss": "^4.1.14",
+        "typescript": "^5.9.3",
+        "vite": "^6.2.0",
+      },
+    },
     "packages/web-app": {
       "name": "@cadmus/web-app",
       "version": "0.1.0",
@@ -225,6 +243,8 @@
     "@cadmus/contract": ["@cadmus/contract@workspace:packages/contract"],
 
     "@cadmus/daemon": ["@cadmus/daemon@workspace:packages/daemon"],
+
+    "@cadmus/login-app": ["@cadmus/login-app@workspace:packages/login-app"],
 
     "@cadmus/web-app": ["@cadmus/web-app@workspace:packages/web-app"],
 
@@ -1403,6 +1423,8 @@
     "@aws-sdk/credential-provider-sso/@aws-sdk/token-providers": ["@aws-sdk/token-providers@3.1150.0", "", { "dependencies": { "@aws-sdk/core": "^3.978.3", "@aws-sdk/nested-clients": "^3.997.48", "@aws-sdk/types": "^3.974.6", "@smithy/core": "^3.35.2", "@smithy/types": "^4.19.0", "tslib": "^2.6.2" } }, "sha512-wDU36ofhabZYu+d2KSriyDbwzxNoaOp+4dG0p3qkabk7HeALR5nIWyQbjoyJZLn3iqWkv/xNdyUfbfevDVDzzg=="],
 
     "@babel/code-frame/js-tokens": ["js-tokens@4.0.0", "", {}, "sha512-RdJUflcE3cUzKiMqQgsCu06FPu9UdIJO0beYbPhHN4k6apgJtifcoCtT9bcxOpYBtpD2kCM6Sbzg4CausW/PKQ=="],
+
+    "@cadmus/login-app/typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
 
     "@cadmus/web-app/typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
 

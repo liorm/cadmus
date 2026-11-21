@@ -247,7 +247,7 @@ describe("auth flows (google, invites, sessions, phase 6)", () => {
 				sub: `g-${crypto.randomUUID()}`,
 			});
 			expect(outcome.status).toBe(302);
-			expect(outcome.location).toBe("/");
+			expect(outcome.location).toBe("/app");
 			expect(outcome.refresh.startsWith(`${REFRESH_COOKIE}=cad_rt_`)).toBe(
 				true,
 			);
@@ -314,8 +314,8 @@ describe("auth flows (google, invites, sessions, phase 6)", () => {
 			for (const item of cases) {
 				const outcome = await signIn(item.options);
 				expect(outcome.status, item.name).toBe(302);
-				expect(outcome.location, item.name).toContain(
-					`auth_error=${item.code}`,
+				expect(outcome.location, item.name).toBe(
+					`/login?auth_error=${item.code}`,
 				);
 				expect(outcome.refresh, item.name).toBe("");
 			}
@@ -377,7 +377,7 @@ describe("auth flows (google, invites, sessions, phase 6)", () => {
 				sub: `g-${crypto.randomUUID()}`,
 			});
 			expect(outcome.status).toBe(302);
-			expect(outcome.location).toBe("/");
+			expect(outcome.location).toBe("/app");
 			expect(outcome.refresh.startsWith(`${REFRESH_COOKIE}=`)).toBe(true);
 			const turned = await refresh(outcome.refresh);
 			expect(turned.status).toBe(200);
@@ -495,7 +495,7 @@ describe("auth flows (google, invites, sessions, phase 6)", () => {
 				email,
 				sub: `g-${crypto.randomUUID()}`,
 			});
-			expect(outcome.location).toBe("/");
+			expect(outcome.location).toBe("/app");
 			const turned = await refresh(outcome.refresh);
 			expect(turned.status).toBe(200);
 			const read = async () => {

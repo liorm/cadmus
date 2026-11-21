@@ -13,6 +13,7 @@ export default defineConfig(({ mode }) => {
 		.filter(Boolean);
 
 	return {
+		base: "/app/",
 		plugins: [
 			react(),
 			tailwindcss(),
@@ -49,6 +50,9 @@ export default defineConfig(({ mode }) => {
 						target: "http://localhost:8787",
 						ws: true,
 					},
+				"^/(?:login|sign-in)(?:/.*)?$": {
+					target: "http://localhost:5175",
+				},
 			},
 		},
 	};

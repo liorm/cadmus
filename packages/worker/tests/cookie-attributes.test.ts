@@ -4,6 +4,7 @@ import { REFRESH_COOKIE, REFRESH_PATH } from "../src/auth-routes.js";
 import { getEdgeCache } from "../src/edge-cache.js";
 import { D1AdminStore } from "../src/store/d1-admin.js";
 import { REFRESH_IDLE_MS } from "../src/store/d1-sessions.js";
+import { SESSION_HINT_COOKIE, SESSION_HINT_PATH } from "../src/web-routes.js";
 import { uniqueAccountId } from "./helpers.js";
 
 /**
@@ -19,6 +20,10 @@ const SET_COOKIE =
 	/^__Secure-cadmus_refresh=(cad_rt_[^;\s]+); Path=\/api\/auth\/session; HttpOnly; Secure; SameSite=Strict; Max-Age=(\d+)$/;
 const CLEAR_COOKIE =
 	"__Secure-cadmus_refresh=; Path=/api/auth/session; HttpOnly; Secure; SameSite=Strict; Max-Age=0";
+const SET_HINT_COOKIE =
+	/^__Secure-cadmus_signed_in=1; Path=\/app; HttpOnly; Secure; SameSite=Lax; Max-Age=(\d+)$/;
+const CLEAR_HINT_COOKIE =
+	"__Secure-cadmus_signed_in=; Path=/app; HttpOnly; Secure; SameSite=Lax; Max-Age=0";
 
 async function seed() {
 	const s = new D1AdminStore({
@@ -47,6 +52,8 @@ describe("refresh cookie name and attributes (issue #3 phase 8)", () => {
 	it("pins the exported name and path", () => {
 		expect(REFRESH_COOKIE).toBe("__Secure-cadmus_refresh");
 		expect(REFRESH_PATH).toBe("/api/auth/session");
+		expect(SESSION_HINT_COOKIE).toBe("__Secure-cadmus_signed_in");
+		expect(SESSION_HINT_PATH).toBe("/app");
 	});
 
 	it("a rotated cookie carries every attribute, once", async () => {
@@ -58,7 +65,7 @@ describe("refresh cookie name and attributes (issue #3 phase 8)", () => {
 		expect(res.status).toBe(200);
 		expect(res.headers.get("cache-control")).toBe("no-store");
 		const cookies = res.headers.getSetCookie();
-		expect(cookies).toHaveLength(1);
+		expect(cookies).toHaveLength(2);
 		const m = SET_COOKIE.exec(cookies[0] ?? "");
 		expect(m, cookies[0]).not.toBeNull();
 		expect(m?.[1]).not.toBe(t.refreshToken);
@@ -67,17 +74,27 @@ describe("refresh cookie name and attributes (issue #3 phase 8)", () => {
 		expect(maxAge * 1000).toBeLessThanOrEqual(REFRESH_IDLE_MS);
 		// Fresh rotation: close to the full idle window, not a stub value.
 		expect(maxAge * 1000).toBeGreaterThan(REFRESH_IDLE_MS - 60_000);
+		const hintMatch = SET_HINT_COOKIE.exec(cookies[1] ?? "");
+		expect(hintMatch, cookies[1]).not.toBeNull();
+		expect(Number(hintMatch?.[1])).toBeGreaterThan(0);
 	});
 
-	it("a refused refresh clears it with the same attributes; logout neither reads nor sets it", async () => {
+	it("a refused or cookie-less refresh clears both cookies; logout clears both too", async () => {
+		const missing = await post("/api/auth/session/refresh");
+		expect(missing.status).toBe(401);
+		expect(missing.headers.getSetCookie()).toEqual([
+			CLEAR_COOKIE,
+			CLEAR_HINT_COOKIE,
+		]);
 		const bad = await post(
 			"/api/auth/session/refresh",
 			`${REFRESH_COOKIE}=cad_rt_nope`,
 		);
 		expect(bad.status).toBe(401);
-		expect(bad.headers.getSetCookie()).toEqual([CLEAR_COOKIE]);
-		// Issue #3: only /api/auth/session/refresh reads cookies. A cookie sent to logout is
-		// ignored (revokes nothing, nothing set); the session survives.
+		expect(bad.headers.getSetCookie()).toEqual([
+			CLEAR_COOKIE,
+			CLEAR_HINT_COOKIE,
+		]);
 		const t = await seed();
 		const out = await post(
 			"/api/auth/session/logout",
@@ -85,7 +102,10 @@ describe("refresh cookie name and attributes (issue #3 phase 8)", () => {
 		);
 		expect(out.status).toBe(200);
 		expect(out.headers.get("cache-control")).toBe("no-store");
-		expect(out.headers.getSetCookie()).toEqual([CLEAR_COOKIE]);
+		expect(out.headers.getSetCookie()).toEqual([
+			CLEAR_COOKIE,
+			CLEAR_HINT_COOKIE,
+		]);
 		expect(((await out.json()) as { revoked: boolean }).revoked).toBe(true);
 		expect(
 			(

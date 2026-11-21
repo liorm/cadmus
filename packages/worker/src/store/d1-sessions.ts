@@ -49,6 +49,7 @@ export type RefreshResult =
 			tokens: SessionTokens;
 			accountId: string;
 			userId: string;
+			provisional?: boolean;
 	  }
 	| {
 			ok: false;
@@ -696,6 +697,7 @@ export async function rotateRefreshToken(
 		},
 		accountId: identity.accountId,
 		userId: identity.userId,
+		...(provisional ? { provisional: true } : {}),
 	};
 }
 

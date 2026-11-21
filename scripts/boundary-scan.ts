@@ -80,8 +80,10 @@ export function clientImportReason(
 		return "clients may import only @cadmus/contract/types, @cadmus/contract/routes, @cadmus/contract/tools, and @cadmus/contract/client";
 	}
 	const normalized = specifier.replaceAll("\\", "/");
-	if (/(^|\/)(src|worker|daemon)(\/|$)/.test(normalized)) {
-		return "clients must not import backend source (src, worker, or daemon)";
+	if (
+		/(^|\/)(src|worker|daemon|web-app|login-app|cli)(\/|$)/.test(normalized)
+	) {
+		return "clients must not import backend or sibling client source (src, worker, daemon, web-app, login-app, or cli)";
 	}
 	return undefined;
 }

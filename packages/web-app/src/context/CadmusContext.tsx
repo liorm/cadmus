@@ -211,7 +211,7 @@ export function CadmusProvider({
 		});
 		// Another tab signed this session out: leave the signed-in view.
 		const unsubscribeEnded = onSessionEnded(() => {
-			window.location.assign("/");
+			window.location.assign("/login");
 		});
 		return () => {
 			unsubscribe();

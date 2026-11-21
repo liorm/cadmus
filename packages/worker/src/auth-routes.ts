@@ -19,6 +19,11 @@ import { getLogger } from "./log.js";
 import type { AdminStore } from "./store/admin-interface.js";
 import type { SessionTokens } from "./store/d1-sessions.js";
 import type { Env } from "./types.js";
+import {
+	clearSessionHintCookieHeader,
+	sanitizeGoogleReturnTo,
+	sessionHintCookieHeader,
+} from "./web-routes.js";
 
 /**
  * Refresh cookie. `__Secure-` (not `__Host-`) so the path can stay under the
@@ -162,22 +167,33 @@ async function handleGoogleLogin(
 		);
 	}
 	let chooseRole = false;
+	let returnTo: string | undefined;
 	if (request.method === "POST") {
 		try {
 			const body = (await request.json()) as {
-				payload?: { chooseRole?: unknown };
+				payload?: { chooseRole?: unknown; returnTo?: unknown };
 			};
 			chooseRole = body.payload?.chooseRole === true;
+			returnTo =
+				typeof body.payload?.returnTo === "string"
+					? sanitizeGoogleReturnTo(body.payload.returnTo)
+					: undefined;
 		} catch {
 			chooseRole = false;
+			returnTo = undefined;
 		}
+	} else {
+		const url = new URL(request.url);
+		const chooseParam = url.searchParams.get("chooseRole");
+		chooseRole = chooseParam === "1" || chooseParam === "true";
+		returnTo = sanitizeGoogleReturnTo(url.searchParams.get("returnTo"));
 	}
 	const started = await startGoogleLogin(
 		env,
 		config,
 		redirectUriFor(request, env),
 		undefined,
-		{ chooseRole },
+		{ chooseRole, returnTo },
 	);
 	if (request.method === "POST") {
 		return Response.json(
@@ -199,7 +215,7 @@ async function handleGoogleLogin(
 
 function failRedirect(code: string): Response {
 	const headers = new Headers({
-		location: `/?auth_error=${encodeURIComponent(code)}`,
+		location: `/login?auth_error=${encodeURIComponent(code)}`,
 		"cache-control": "no-store",
 	});
 	headers.append("set-cookie", txnCookie("", 0));
@@ -253,12 +269,30 @@ async function handleGoogleCallback(
 		return failRedirect(login.code);
 	}
 	await lockoutClear(env, "google-callback", googleEmail);
-	// Fixed path. Never taken from the request.
+	const returnTo = sanitizeGoogleReturnTo(txn.returnTo);
+	let location: string;
+	if (login.provisional) {
+		if (returnTo === "/login/device") {
+			location = "/login/device";
+		} else if (returnTo && returnTo !== "/app" && returnTo !== "/app/") {
+			location = `/login?next=${encodeURIComponent(returnTo)}`;
+		} else {
+			location = "/login";
+		}
+	} else {
+		location = returnTo ?? "/app";
+	}
 	const headers = new Headers({
-		location: "/",
+		location,
 		"cache-control": "no-store",
 	});
 	headers.append("set-cookie", refreshCookieHeader(login.tokens));
+	headers.append(
+		"set-cookie",
+		login.provisional
+			? clearSessionHintCookieHeader()
+			: sessionHintCookieHeader(login.tokens),
+	);
 	headers.append("set-cookie", txnCookie("", 0));
 	return new Response(null, { status: 302, headers });
 }
@@ -275,10 +309,16 @@ export function clearRefreshCookieHeader(): string {
 	return `${REFRESH_COOKIE}=; Path=${REFRESH_PATH}; HttpOnly; Secure; SameSite=Strict; Max-Age=0`;
 }
 
-function noStore(init: ResponseInit & { cookie?: string }): ResponseInit {
+function noStore(
+	init: ResponseInit & { cookie?: string | string[] },
+): ResponseInit {
 	const headers = new Headers(init.headers);
 	headers.set("cache-control", "no-store");
-	if (init.cookie) headers.append("set-cookie", init.cookie);
+	if (Array.isArray(init.cookie)) {
+		for (const c of init.cookie) headers.append("set-cookie", c);
+	} else if (init.cookie) {
+		headers.append("set-cookie", init.cookie);
+	}
 	return { status: init.status, headers };
 }
 
@@ -350,14 +390,28 @@ export async function handleRefresh(
 	if (!raw) {
 		return Response.json(
 			{ error: { code: "unauthorized", message: "No refresh cookie" } },
-			noStore({ status: 401 }),
+			noStore({
+				status: 401,
+				cookie: [clearRefreshCookieHeader(), clearSessionHintCookieHeader()],
+			}),
 		);
 	}
 	const result = await adminStore.rotateRefreshToken(raw);
 	if (!result.ok) {
 		return Response.json(
 			{ error: { code: result.code, message: "Refresh refused" } },
-			noStore({ status: 401, cookie: clearRefreshCookieHeader() }),
+			noStore({
+				status: 401,
+				cookie: [clearRefreshCookieHeader(), clearSessionHintCookieHeader()],
+			}),
+		);
+	}
+	const cookies = [refreshCookieHeader(result.tokens)];
+	if (!bodyRefresh) {
+		cookies.push(
+			result.provisional
+				? clearSessionHintCookieHeader()
+				: sessionHintCookieHeader(result.tokens),
 		);
 	}
 	return Response.json(
@@ -367,9 +421,10 @@ export async function handleRefresh(
 			sessionId: result.tokens.sessionId,
 			accountId: result.accountId,
 			userId: result.userId,
+			...(result.provisional ? { provisional: true } : {}),
 			...(bodyRefresh ? { refreshToken: result.tokens.refreshToken } : {}),
 		},
-		noStore({ status: 200, cookie: refreshCookieHeader(result.tokens) }),
+		noStore({ status: 200, cookie: cookies }),
 	);
 }
 
@@ -474,7 +529,15 @@ async function handleDevPassword(
 			expiresAt: login.tokens.accessExpiresAt,
 			...(login.provisional ? { provisional: true } : {}),
 		},
-		noStore({ status: 200, cookie: refreshCookieHeader(login.tokens) }),
+		noStore({
+			status: 200,
+			cookie: [
+				refreshCookieHeader(login.tokens),
+				login.provisional
+					? clearSessionHintCookieHeader()
+					: sessionHintCookieHeader(login.tokens),
+			],
+		}),
 	);
 }
 
@@ -558,7 +621,13 @@ async function handleAssumeRole(
 			expiresAt: result.tokens.accessExpiresAt,
 			sessionId: result.tokens.sessionId,
 		},
-		noStore({ status: 200, cookie: refreshCookieHeader(result.tokens) }),
+		noStore({
+			status: 200,
+			cookie: [
+				refreshCookieHeader(result.tokens),
+				sessionHintCookieHeader(result.tokens),
+			],
+		}),
 	);
 }
 
@@ -614,7 +683,10 @@ async function handleLogout(
 	}
 	return Response.json(
 		{ revoked },
-		noStore({ status: 200, cookie: clearRefreshCookieHeader() }),
+		noStore({
+			status: 200,
+			cookie: [clearRefreshCookieHeader(), clearSessionHintCookieHeader()],
+		}),
 	);
 }
 

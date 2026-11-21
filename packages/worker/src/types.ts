@@ -3,6 +3,7 @@ import type { CadmusBotFamilyDO } from "./family-do.js";
 import type { CadmusEnvDO } from "./tools-env/env-do.js";
 
 export interface Env {
+	ASSETS?: Fetcher;
 	CADMUS_BOT_FAMILY: DurableObjectNamespace<CadmusBotFamilyDO>;
 	CADMUS_ENV: DurableObjectNamespace<CadmusEnvDO>;
 	CADMUS_AUTH_LIMITER: DurableObjectNamespace<CadmusAuthLimiterDO>;

@@ -4,6 +4,7 @@ import { readCookie } from "../src/auth.js";
 import { REFRESH_COOKIE } from "../src/auth-routes.js";
 import { getEdgeCache } from "../src/edge-cache.js";
 import { D1AdminStore } from "../src/store/d1-admin.js";
+import { SESSION_HINT_COOKIE } from "../src/web-routes.js";
 import { uniqueAccountId } from "./helpers.js";
 
 /**
@@ -52,13 +53,19 @@ describe("cookie reads are confined (issue #3 phase 8, L159)", () => {
 		// The only Cookie-header read is readCookie in auth.ts. auth-routes.ts
 		// calls it for the two OAuth state cookies and the refresh cookie.
 		// auth.ts also calls it once, for the retired cadmus_session credential.
+		// web-routes.ts calls it once for the non-credential SESSION_HINT_COOKIE
+		// on GET/HEAD /app* HTML navigations (strictly for 302 -> /login gating).
 		expect(readers).toEqual({ "auth.ts": 1 });
 		const callers: Record<string, number> = {};
 		for (const [file, text] of Object.entries(sources)) {
 			const n = (text.match(/\breadCookie\s*\(/g) ?? []).length;
 			if (n > 0) callers[file.replace("../src/", "")] = n;
 		}
-		expect(callers).toEqual({ "auth.ts": 2, "auth-routes.ts": 3 });
+		expect(callers).toEqual({
+			"auth.ts": 2,
+			"auth-routes.ts": 3,
+			"web-routes.ts": 1,
+		});
 		expect(Object.keys(sources).length).toBeGreaterThan(10);
 	});
 
@@ -117,6 +124,33 @@ describe("cookie reads are confined (issue #3 phase 8, L159)", () => {
 			},
 		});
 		expect(refreshed.status).toBe(401);
+	});
+
+	it("forged session hint cookie never authenticates API, RPC, SSE, or WS", async () => {
+		const cookie = `${SESSION_HINT_COOKIE}=1`;
+		expect(
+			(await SELF.fetch(`${ORIGIN}/api/auth/whoami`, { headers: { cookie } }))
+				.status,
+		).toBe(401);
+		expect(
+			(
+				await SELF.fetch(`${ORIGIN}/rpc`, {
+					method: "POST",
+					headers: { cookie, "content-type": "application/json" },
+					body: JSON.stringify({ id: "h", type: "auth.whoami", payload: {} }),
+				})
+			).status,
+		).toBe(401);
+		expect(
+			(await SELF.fetch(`${ORIGIN}/events`, { headers: { cookie } })).status,
+		).toBe(401);
+		expect(
+			(
+				await SELF.fetch(`${ORIGIN}/ws`, {
+					headers: { cookie, upgrade: "websocket" },
+				})
+			).status,
+		).toBe(401);
 	});
 
 	it("a malformed cadmus_session percent-escape is absent, not a 500", async () => {

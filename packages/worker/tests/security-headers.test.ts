@@ -24,6 +24,10 @@ describe("Worker responses carry the security headers", () => {
 	const cases: Array<[string, string, RequestInit]> = [
 		["GET /health", "/health", {}],
 		["GET /protocol/schema", "/protocol/schema", {}],
+		["GET / redirect to /app", "/", { redirect: "manual" }],
+		["GET /sign-in redirect to /login", "/sign-in", { redirect: "manual" }],
+		["GET /app unauthenticated redirect", "/app", { redirect: "manual" }],
+		["GET /login", "/login", { redirect: "manual" }],
 		["GET unknown path (401 or 404)", "/nope", {}],
 		["GET /api/auth/login/providers", "/api/auth/login/providers", {}],
 		[

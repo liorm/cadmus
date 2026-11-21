@@ -61,6 +61,8 @@ export interface LoginTransaction {
 	fresh?: boolean;
 	/** Role choice requested. Stays in this cookie, never in the redirect URL. */
 	chooseRole?: boolean;
+	/** Validated same-origin destination (`/app`, `/app/*`, or `/login/device`). */
+	returnTo?: string;
 	/** Link flow: the callback attaches the verified identity to this user. */
 	linkUserId?: string;
 	/** The session that started the link; it must still be live at the callback. */
@@ -202,6 +204,7 @@ export async function startGoogleLogin(
 	options: {
 		fresh?: boolean;
 		chooseRole?: boolean;
+		returnTo?: string;
 		linkUserId?: string;
 		linkSessionId?: string;
 	} = {},
@@ -213,6 +216,7 @@ export async function startGoogleLogin(
 		exp: now + TXN_TTL_MS,
 		...(options.fresh ? { fresh: true } : {}),
 		...(options.chooseRole ? { chooseRole: true } : {}),
+		...(options.returnTo ? { returnTo: options.returnTo } : {}),
 		...(options.linkUserId && options.linkSessionId
 			? {
 					linkUserId: options.linkUserId,

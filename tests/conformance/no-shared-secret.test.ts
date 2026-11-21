@@ -3,7 +3,15 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 
 const repoRoot = resolve(import.meta.dir, "../..");
-const skip = new Set(["node_modules", "dist", ".git"]);
+const skip = new Set([
+	"node_modules",
+	"dist",
+	".git",
+	".wrangler",
+	".engine",
+	".screens",
+	"coverage",
+]);
 const needles = ["CADMUS_" + "AUTH_SECRET", "dev-" + "cadmus-secret"];
 
 function walk(dir: string, hits: string[]): void {

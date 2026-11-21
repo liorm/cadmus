@@ -96,9 +96,52 @@ interface Started {
 	location: URL;
 }
 
-async function startLogin(fresh = false): Promise<Started> {
+async function startLogin(
+	options:
+		| boolean
+		| {
+				fresh?: boolean;
+				chooseRole?: boolean;
+				returnTo?: string;
+				method?: "GET" | "POST";
+		  } = false,
+): Promise<Started> {
+	const opts = typeof options === "boolean" ? { fresh: options } : options;
+	if (opts.method === "POST") {
+		const res = await SELF.fetch(`${ORIGIN}/api/auth/login/google/start`, {
+			method: "POST",
+			headers: {
+				origin: ORIGIN,
+				"content-type": "application/json",
+			},
+			body: JSON.stringify({
+				id: "g-start",
+				type: "auth.login.google.start",
+				payload: {
+					...(opts.chooseRole ? { chooseRole: true } : {}),
+					...(opts.returnTo ? { returnTo: opts.returnTo } : {}),
+				},
+			}),
+		});
+		expect(res.status).toBe(200);
+		expect(res.headers.get("cache-control")).toBe("no-store");
+		const body = (await res.json()) as { authorizationUrl: string };
+		const location = new URL(body.authorizationUrl);
+		const cookie = res.headers.get("set-cookie") ?? "";
+		return {
+			state: location.searchParams.get("state") ?? "",
+			nonce: location.searchParams.get("nonce") ?? "",
+			txnCookie: /(__Secure-cadmus_txn=[^;]+)/.exec(cookie)?.[1] ?? "",
+			location,
+		};
+	}
+	const params = new URLSearchParams();
+	if (opts.fresh) params.set("fresh", "1");
+	if (opts.chooseRole) params.set("chooseRole", "1");
+	if (opts.returnTo) params.set("returnTo", opts.returnTo);
+	const qs = params.toString();
 	const res = await SELF.fetch(
-		`${ORIGIN}/api/auth/login/google/start${fresh ? "?fresh=1" : ""}`,
+		`${ORIGIN}/api/auth/login/google/start${qs ? `?${qs}` : ""}`,
 		{
 			redirect: "manual",
 		},
@@ -119,6 +162,7 @@ interface Outcome {
 	status: number;
 	location: string;
 	cookies: string;
+	setCookies: string[];
 }
 
 async function signIn(options: {
@@ -130,10 +174,18 @@ async function signIn(options: {
 	expOffsetSec?: number;
 	state?: (real: string) => string;
 	fresh?: boolean;
+	chooseRole?: boolean;
+	returnTo?: string;
+	startMethod?: "GET" | "POST";
 	/** Seconds relative to now for the auth_time claim; "none" omits it, "string" sends a string. */
 	authTime?: number | "none" | "string" | "float";
 }): Promise<Outcome> {
-	const started = await startLogin(options.fresh);
+	const started = await startLogin({
+		fresh: options.fresh,
+		chooseRole: options.chooseRole,
+		returnTo: options.returnTo,
+		method: options.startMethod,
+	});
 	const at = options.authTime;
 	const authClaim =
 		at === undefined || at === "none"
@@ -165,6 +217,7 @@ async function signIn(options: {
 		status: res.status,
 		location: res.headers.get("location") ?? "",
 		cookies: res.headers.get("set-cookie") ?? "",
+		setCookies: res.headers.getSetCookie(),
 	};
 }
 
@@ -276,8 +329,9 @@ describe("Google sign-in (issue #3 phase 3b, mocked Google)", () => {
 		const sub = uniqueSub();
 		const first = await signIn({ sub, email: BOOTSTRAP });
 		expect(first.status).toBe(302);
-		expect(first.location).toBe("/");
+		expect(first.location).toBe("/app");
 		expect(first.cookies).toContain("__Secure-cadmus_refresh=");
+		expect(first.cookies).toContain("__Secure-cadmus_signed_in=1");
 		expect(tokenCalls[0]?.get("code_verifier")?.length).toBeGreaterThan(30);
 		expect(
 			await count(
@@ -289,11 +343,11 @@ describe("Google sign-in (issue #3 phase 3b, mocked Google)", () => {
 		).toBe(1);
 		expect(await count(mine, BOOTSTRAP)).toBe(1);
 		const again = await signIn({ sub, email: BOOTSTRAP });
-		expect(again.location).toBe("/");
+		expect(again.location).toBe("/app");
 		expect(await count(mine, BOOTSTRAP)).toBe(1);
 		const otherSub = uniqueSub();
 		const other = await signIn({ sub: otherSub, email: BOOTSTRAP });
-		expect(other.location).toBe("/");
+		expect(other.location).toBe("/app");
 		expect(await count(mine, BOOTSTRAP)).toBe(1);
 		expect(
 			await count(
@@ -313,7 +367,7 @@ describe("Google sign-in (issue #3 phase 3b, mocked Google)", () => {
 			sub: uniqueSub(),
 			email: "stranger@example.com",
 		});
-		expect(res.location).toBe("/?auth_error=not_invited");
+		expect(res.location).toBe("/login?auth_error=not_invited");
 		expect(res.cookies).not.toContain("cadmus_refresh=ey");
 		expect(await count(`SELECT COUNT(*) AS n FROM cadmus_users`)).toBe(users);
 		expect(await count(`SELECT COUNT(*) AS n FROM cadmus_login_methods`)).toBe(
@@ -329,7 +383,7 @@ describe("Google sign-in (issue #3 phase 3b, mocked Google)", () => {
 		const accountId = await invite(email, "account-admin");
 		const sub = uniqueSub();
 		const res = await signIn({ sub, email });
-		expect(res.location).toBe("/");
+		expect(res.location).toBe("/app");
 		const cookie = /cadmus_refresh=([^;]+)/.exec(res.cookies)?.[1] ?? "";
 		expect(cookie.startsWith("cad_rt_")).toBe(true);
 		expect(
@@ -371,9 +425,9 @@ describe("Google sign-in (issue #3 phase 3b, mocked Google)", () => {
 		const email = `again-${crypto.randomUUID().slice(0, 8)}@example.com`;
 		const first = await invite(email, "user");
 		const sub = uniqueSub();
-		expect((await signIn({ sub, email })).location).toBe("/");
+		expect((await signIn({ sub, email })).location).toBe("/app");
 		const second = await invite(email, "account-admin");
-		expect((await signIn({ sub, email })).location).toBe("/");
+		expect((await signIn({ sub, email })).location).toBe("/app");
 		expect(
 			await count(
 				`SELECT COUNT(*) AS n FROM cadmus_account_members m
@@ -413,7 +467,7 @@ describe("Google sign-in (issue #3 phase 3b, mocked Google)", () => {
 		];
 		for (const [code, options] of cases) {
 			const res = await signIn(options);
-			expect(res.location, code).toBe(`/?auth_error=${code}`);
+			expect(res.location, code).toBe(`/login?auth_error=${code}`);
 			expect(res.cookies, code).not.toContain("cadmus_refresh=cad_rt_");
 		}
 		expect(await count(`SELECT COUNT(*) AS n FROM cadmus_login_methods`)).toBe(
@@ -432,7 +486,7 @@ describe("Google sign-in (issue #3 phase 3b, mocked Google)", () => {
 			`${ORIGIN}/api/auth/login/google/callback?code=abc&state=whatever`,
 			{ redirect: "manual" },
 		);
-		expect(res.headers.get("location")).toBe("/?auth_error=bad_state");
+		expect(res.headers.get("location")).toBe("/login?auth_error=bad_state");
 	});
 
 	it("a malformed transaction cookie redirects as bad_state", async () => {
@@ -444,7 +498,7 @@ describe("Google sign-in (issue #3 phase 3b, mocked Google)", () => {
 			},
 		);
 		expect(res.status).toBe(302);
-		expect(res.headers.get("location")).toBe("/?auth_error=bad_state");
+		expect(res.headers.get("location")).toBe("/login?auth_error=bad_state");
 		expect(res.headers.get("cache-control")).toBe("no-store");
 	});
 
@@ -468,7 +522,7 @@ describe("Google sign-in (issue #3 phase 3b, mocked Google)", () => {
 			{ redirect: "manual", headers: { cookie: started.txnCookie } },
 		);
 		expect(res.status).toBe(302);
-		expect(res.headers.get("location")).toBe("/?auth_error=bad_id_token");
+		expect(res.headers.get("location")).toBe("/login?auth_error=bad_id_token");
 		expect(res.headers.get("cache-control")).toBe("no-store");
 	});
 
@@ -476,14 +530,77 @@ describe("Google sign-in (issue #3 phase 3b, mocked Google)", () => {
 		const email = `rev-${crypto.randomUUID().slice(0, 8)}@example.com`;
 		await invite(email);
 		const sub = uniqueSub();
-		expect((await signIn({ sub, email })).location).toBe("/");
+		expect((await signIn({ sub, email })).location).toBe("/app");
 		await env.CADMUS_ADMIN_DB.prepare(
 			`UPDATE cadmus_login_methods SET revoked_at = ?2 WHERE subject = ?1`,
 		)
 			.bind(sub, Date.now())
 			.run();
 		const res = await signIn({ sub, email });
-		expect(res.location).toBe("/?auth_error=login_method_revoked");
+		expect(res.location).toBe("/login?auth_error=login_method_revoked");
+	});
+
+	it("supports chooseRole and validated returnTo via GET and POST google/start", async () => {
+		const email = `multi-${crypto.randomUUID().slice(0, 8)}@example.com`;
+		await invite(email, "user");
+		await invite(email, "account-admin");
+		const sub = uniqueSub();
+
+		// Provisional session via GET chooseRole=1 redirects to /login and clears hint cookie.
+		const prov = await signIn({
+			sub,
+			email,
+			chooseRole: true,
+			returnTo: "/app/chat/abc?view=raw",
+		});
+		expect(prov.location).toBe("/login?next=%2Fapp%2Fchat%2Fabc%3Fview%3Draw");
+		expect(
+			prov.setCookies.some((c) =>
+				c.includes("__Secure-cadmus_signed_in=; Path=/app"),
+			),
+		).toBe(true);
+
+		// Device login returnTo stays on /login/device even when provisional.
+		const provDev = await signIn({
+			sub,
+			email,
+			chooseRole: true,
+			returnTo: "/login/device",
+			startMethod: "POST",
+		});
+		expect(provDev.location).toBe("/login/device");
+
+		// Full session with returnTo=/login/device lands on /login/device and sets hint cookie.
+		const fullDev = await signIn({
+			sub,
+			email,
+			returnTo: "/login/device",
+		});
+		expect(fullDev.location).toBe("/login/device");
+		expect(
+			fullDev.setCookies.some((c) =>
+				c.includes("__Secure-cadmus_signed_in=1; Path=/app"),
+			),
+		).toBe(true);
+
+		// Full session with validated /app deep link redirects there.
+		const deep = await signIn({
+			sub,
+			email,
+			returnTo: "/app/settings/security",
+		});
+		expect(deep.location).toBe("/app/settings/security");
+
+		// Unsafe open-redirect targets are discarded in favor of /app.
+		for (const bad of [
+			"https://evil.example/app",
+			"//evil.example/app",
+			"/api/auth/whoami",
+			"/login",
+		]) {
+			const res = await signIn({ sub, email, returnTo: bad });
+			expect(res.location, bad).toBe("/app");
+		}
 	});
 });
 
@@ -665,40 +782,42 @@ describe("Google sign-in lockout per verified email (issue #3 phase 8)", () => {
 		const attempt = () => signIn({ sub: uniqueSub(), email });
 		for (let i = 1; i <= LOCKOUT_MAX_FAILURES; i++) {
 			const out = await attempt();
-			expect(out.location, `refusal ${i}`).toBe("/?auth_error=not_invited");
+			expect(out.location, `refusal ${i}`).toBe(
+				"/login?auth_error=not_invited",
+			);
 		}
 		// Locked: an invite no longer helps until the lock ends or is cleared.
 		await invite(email);
 		const locked = await attempt();
-		expect(locked.location).toBe("/?auth_error=locked_out");
+		expect(locked.location).toBe("/login?auth_error=locked_out");
 		expect(locked.cookies).not.toContain("__Secure-cadmus_refresh=cad_rt_");
 		// Another email is unaffected.
 		const other = `lock-${crypto.randomUUID()}@example.com`;
 		await invite(other);
 		const ok = await signIn({ sub: uniqueSub(), email: other });
-		expect(ok.location).toBe("/");
+		expect(ok.location).toBe("/app");
 		// Clearing the identity lets the invited email in.
 		await lockoutClear(env, "google-callback", email);
 		const after = await attempt();
-		expect(after.location).toBe("/");
+		expect(after.location).toBe("/app");
 		// A success reset its count: failures short of the maximum do not lock.
 		const third = `lock-${crypto.randomUUID()}@example.com`;
 		for (let i = 1; i < LOCKOUT_MAX_FAILURES; i++) {
 			expect((await signIn({ sub: uniqueSub(), email: third })).location).toBe(
-				"/?auth_error=not_invited",
+				"/login?auth_error=not_invited",
 			);
 		}
 		await invite(third);
 		expect((await signIn({ sub: uniqueSub(), email: third })).location).toBe(
-			"/",
+			"/app",
 		);
 		// A second subject for the same verified address attaches. A new address does not.
 		expect((await signIn({ sub: uniqueSub(), email: third })).location).toBe(
-			"/",
+			"/app",
 		);
 		const stranger = `lock-${crypto.randomUUID()}@example.com`;
 		expect((await signIn({ sub: uniqueSub(), email: stranger })).location).toBe(
-			"/?auth_error=not_invited",
+			"/login?auth_error=not_invited",
 		);
 	});
 });
@@ -738,6 +857,6 @@ describe("verifyGoogleIdToken fails closed on malformed JWKs", () => {
 			{ redirect: "manual", headers: { cookie: started.txnCookie } },
 		);
 		expect(res.status).toBe(302);
-		expect(res.headers.get("location")).toBe("/?auth_error=bad_id_token");
+		expect(res.headers.get("location")).toBe("/login?auth_error=bad_id_token");
 	});
 });

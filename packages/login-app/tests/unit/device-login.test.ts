@@ -2,7 +2,6 @@ import { describe, expect, it } from "bun:test";
 import {
 	clearDeviceCode,
 	DEVICE_CODE_STORAGE_KEY,
-	deviceCeremonyPhase,
 	deviceCodeFromLocation,
 	readStoredDeviceCode,
 	rememberDeviceCode,
@@ -25,37 +24,39 @@ describe("device login ceremony", () => {
 		length: 0,
 	} as Storage;
 
-	it("keeps a signed-out visit on the login page and stashes the code", () => {
+	it("reads ?code on /login/device and stashes it in sessionStorage", () => {
 		sessionStorage.clear();
 		const code = deviceCodeFromLocation(
 			"/login/device",
-			{ code: "ABCD-EFGH" },
+			"?code=ABCD-EFGH",
 			null,
 		);
 		expect(code).toBe("ABCD-EFGH");
-		expect(
-			deviceCeremonyPhase({ code, signedIn: false, provisional: false }),
-		).toBe("login");
 		if (code) rememberDeviceCode(code);
 		expect(readStoredDeviceCode()).toBe("ABCD-EFGH");
 		expect(sessionStorage.getItem(DEVICE_CODE_STORAGE_KEY)).toBe("ABCD-EFGH");
 	});
 
-	it("shows approve when a finished session restores the stashed code", () => {
-		const code = deviceCodeFromLocation("/", {}, "ABCD-EFGH");
+	it("restores the stashed code on /login/device and on /login?auth_error=...", () => {
+		expect(deviceCodeFromLocation("/login/device", "", "ABCD-EFGH")).toBe(
+			"ABCD-EFGH",
+		);
 		expect(
-			deviceCeremonyPhase({ code, signedIn: true, provisional: false }),
-		).toBe("approve");
+			deviceCodeFromLocation("/login", "?auth_error=login_denied", "ABCD-EFGH"),
+		).toBe("ABCD-EFGH");
 	});
 
-	it("does not approve a provisional session", () => {
+	it("does not restore the stashed code on plain /login without auth_error", () => {
+		expect(deviceCodeFromLocation("/login", "", "ABCD-EFGH")).toBeNull();
 		expect(
-			deviceCeremonyPhase({
-				code: "ABCD-EFGH",
-				signedIn: true,
-				provisional: true,
-			}),
-		).toBe("role");
+			deviceCodeFromLocation("/login", "?next=%2Fapp%2Fsettings", "ABCD-EFGH"),
+		).toBeNull();
+		expect(
+			deviceCodeFromLocation("/login", "?auth_error=", "ABCD-EFGH"),
+		).toBeNull();
+		expect(
+			deviceCodeFromLocation("/login", "?code=ABCD-EFGH", "ABCD-EFGH"),
+		).toBeNull();
 		clearDeviceCode();
 		expect(readStoredDeviceCode()).toBeNull();
 	});
