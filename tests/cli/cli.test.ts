@@ -234,7 +234,7 @@ describe("cadmus CLI", () => {
 			[...(await baseArgs(accountId)), "file.write", "--payload", "-"],
 			JSON.stringify({
 				botId: "scribe",
-				path: "MEMORY.md",
+				path: "/.cadmus/MEMORY.md",
 				content: "from stdin",
 			}),
 		);
@@ -246,7 +246,7 @@ describe("cadmus CLI", () => {
 			"--botId",
 			"scribe",
 			"--path",
-			"MEMORY.md",
+			"/.cadmus/MEMORY.md",
 		]);
 		expect(read.code, read.stderr).toBe(0);
 		expect(JSON.parse(read.stdout).content).toBe("from stdin");

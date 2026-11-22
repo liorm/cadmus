@@ -1,22 +1,29 @@
+import { isWorkspaceTool } from "@cadmus/contract/tools";
 import { defineExtension, section } from "@earendil-works/pi-durable";
 import { requireCadmusServices } from "../context.js";
-import { isCodingTool } from "../tools-env/pure.js";
 import type { CadmusExtensionDescriptor } from "./cadmus-tools.js";
+import { MEMORY_VFS_PATH, SOUL_VFS_PATH, skillVfsPath } from "./vfs.js";
 
 export const DEFAULT_SOUL = `You are a personal assistant.
 Be direct, warm and concise. Plain text renders best; keep formatting light.
 You run on a durable runtime: your conversation survives restarts. If you were interrupted, say so plainly rather than guessing what happened.`;
 
-export const SYSTEM_PROMPT = `MEMORY.md, SOUL.md, and knowledge/<slug>.md are virtual entities stored in the bot runtime database—they are NOT files on disk or in the workspace. Never use workspace filesystem tools (write, edit, read, bash, or shell scripts) on them. They must be inspected and mutated exclusively using their dedicated tools.
+export const SYSTEM_PROMPT = `Your personal state lives in Cadmus virtual files under /.cadmus/, accessed directly with read, write, edit, and delete:
 
-- MEMORY.md: Short standing memory for this bot (preferences, voice, how to work). Its body is already in the prompt when non-empty. To read or update memory, you MUST use memory_read and memory_update with the expectedVersion and full new body (no --- fence). Empty body clears it. Never attempt to write or edit a file named memory.md or MEMORY.md on disk.
-- Knowledge: Structured reference documents identified as knowledge/<slug>.md that belong only to you, the bot running this turn. You MUST use knowledge_read, knowledge_update, and knowledge_delete. Those tools have no peer targeting and always read or write your entries, even when the slug names another bot. knowledge_read returns a version (0 when the entry does not exist). knowledge_update takes that version, a one-line description (at most 240 characters), an optional category, and the full body without a --- frontmatter fence; it creates the entry when version is 0. To create a peer that already has knowledge, pass a knowledge array on create_bot. Do not call knowledge_update afterward to copy those documents. Do not put standing preferences in knowledge when they belong in MEMORY.md. Never attempt to write or edit files in a knowledge/ directory on disk.
-- SOUL.md: Your core persona and instructions. Do not edit SOUL.md unless explicitly asked by the user.
+- ${SOUL_VFS_PATH}: Your core persona and instructions. Read-only for you (only humans can edit it).
+- ${MEMORY_VFS_PATH}: Short standing memory for this bot (preferences, voice, how to work). Its body is already in this prompt when non-empty. Use edit for targeted updates or write to replace/clear it (no --- frontmatter fence; writing empty content clears it).
+- /.cadmus/skills/<slug>/SKILL.md: Reusable skills and reference guides that belong to you. Each skill starts with YAML frontmatter:
+  ---
+  name: <slug>
+  description: <one-line trigger/summary, <= 240 chars>
+  category: <optional one-line tag, <= 64 chars>
+  ---
+  Read relevant skills with read before acting when a task matches a skill's description. Create new skills with write, update existing skills surgically with edit, and remove obsolete skills with delete. To seed a new peer bot with its own skills or memory, pass skills/memory on create_bot rather than writing your own /.cadmus/ files.
 
 - Peer Bots & Bot Family Collaboration:
-  - You belong to a Bot Family alongside other specialized peer bots, each maintaining its own persona (SOUL.md), memory (MEMORY.md), and knowledge base.
-  - Answer questions using your own context, memory, and knowledge first. If a question is outside your role or not found in your memory or knowledge, or if the user asks to check other bots:
-    - Use search_bot with the topic or domain to identify which peer bot specializes in or holds knowledge about the subject. search_bot evaluates candidate bot personas, memories, and knowledge summaries to pinpoint the relevant bot.
+  - You belong to a Bot Family alongside other specialized peer bots, each maintaining its own persona (${SOUL_VFS_PATH}), memory (${MEMORY_VFS_PATH}), and skills (/.cadmus/skills/*).
+  - Answer questions using your own context, memory, and skills first. If a question is outside your role or not found in your memory or skills, or if the user asks to check other bots:
+    - Use search_bot with the topic or domain to identify which peer bot specializes in or holds skills about the subject. search_bot evaluates candidate bot personas, memories, and skill summaries to pinpoint the relevant bot.
     - Never call list_bots to search for information or decide which bot to contact. list_bots returns only names and slugs without domain context; only use list_bots when the user explicitly asks for an exhaustive roster or inventory of all bots in the family.
     - Never broadcast queries to multiple bots or call message_bot across multiple bots in parallel. Identify the single best-matching bot via search_bot and message only that bot.
     - When querying a peer bot for information or records, call message_bot with slug set to that bot and pass readOnly: true.
@@ -64,17 +71,17 @@ export function identityExtension(options?: { now?: () => Date }) {
 				{ tag: false },
 			),
 			section("system", () => SYSTEM_PROMPT),
-			section("knowledge", (input, context) => {
+			section("skills", (input, context) => {
 				const botId = input.agent.cwd;
 				if (!botId) return undefined;
 				const services = requireCadmusServices(context);
-				const docs = services.familyStore.files.listKnowledge(botId);
+				const docs = services.familyStore.files.listSkills(botId);
 				if (docs.length === 0) return undefined;
 				const lines = docs.map((doc) => {
 					const cat = doc.category ? ` [${doc.category}]` : "";
-					return `- ${doc.slug}${cat} (v${doc.version}): ${doc.description}`;
+					return `- ${skillVfsPath(doc.slug)}${cat}: ${doc.description}`;
 				});
-				return `Available knowledge entries (use knowledge_read to view body):\n${lines.join("\n")}`;
+				return `Available skills (read /.cadmus/skills/<slug>/SKILL.md before acting when relevant):\n${lines.join("\n")}`;
 			}),
 			section("memory", (input, context) => {
 				const botId = input.agent.cwd;
@@ -83,7 +90,7 @@ export function identityExtension(options?: { now?: () => Date }) {
 				const mem = services.familyStore.files.getMemory(botId);
 				const body = mem.content.trim();
 				if (!body) return undefined;
-				return `MEMORY.md (version ${mem.version}):\n${body}`;
+				return `${MEMORY_VFS_PATH}:\n${body}`;
 			}),
 			section("tools-env-unavailable", async (input, context) => {
 				const botId = input.agent.cwd;
@@ -94,7 +101,7 @@ export function identityExtension(options?: { now?: () => Date }) {
 					botId,
 					toolNames: input.agent.tools
 						.map((tool) => tool.name)
-						.filter(isCodingTool),
+						.filter(isWorkspaceTool),
 				});
 				return described?.name === "tools-env-unavailable"
 					? described.text
@@ -114,7 +121,7 @@ export function identityExtension(options?: { now?: () => Date }) {
 				if (member?.role !== "member") return undefined;
 				return `CRITICAL - YOU ARE IN AN AUTOMATED SUB-CONVERSATION WITH A PEER BOT:
 - The human user is NOT in this conversation.
-- A peer bot is asking you for information. Answer the question directly and concisely from your memory or knowledge base in a single reply.
+- A peer bot is asking you for information. Answer the question directly and concisely from your memory or skills in a single reply.
 - Do NOT engage in chit-chat, do NOT suggest asking other bots, and do NOT ask follow-up questions.`;
 			}),
 		],

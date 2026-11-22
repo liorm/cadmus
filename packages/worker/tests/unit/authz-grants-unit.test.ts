@@ -50,12 +50,7 @@ describe("authorization matrix", () => {
 	});
 
 	it("denies a super admin tenant data", () => {
-		for (const type of [
-			"bot.list",
-			"chat.list",
-			"file.list",
-			"knowledge.search",
-		]) {
+		for (const type of ["bot.list", "chat.list", "file.list", "skill.search"]) {
 			expect(() => authorize(caller("super-admin"), type)).toThrow();
 		}
 	});

@@ -208,7 +208,7 @@ Exit codes: 0 ok, 1 protocol or HTTP error, 2 usage, 3 transport or auth, 4 turn
 cadmus bot.create --slug scribe --name Scribe --model faux/echo
 cadmus bot.get --botId scribe
 cadmus file.list --botId scribe
-cadmus file.read --botId scribe --path SOUL.md
+cadmus file.read --botId scribe --path /.cadmus/SOUL.md
 \`\`\`
 
 ### Send and await a reply

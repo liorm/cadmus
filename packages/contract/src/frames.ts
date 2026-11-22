@@ -126,7 +126,7 @@ export const TurnToolCallEventSchema = Type.Object(
 				}),
 				toolName: Type.String({
 					description:
-						"Name of the tool being called (e.g. 'knowledge_read', 'schedule_create', 'web.fetch').",
+						"Name of the tool being called (e.g. 'read', 'schedule_create', 'web.fetch').",
 				}),
 				args: Type.Record(Type.String(), Type.Unknown(), {
 					description: "Dictionary of arguments passed to the tool.",

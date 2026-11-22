@@ -142,14 +142,14 @@ describe("REST /api command translation", () => {
 		expect(created.status).toBe(200);
 
 		const readUrl =
-			"http://example.com/api/file/read?botId=scribe&path=SOUL.md";
+			"http://example.com/api/file/read?botId=scribe&path=/.cadmus/SOUL.md";
 		const apiRead = await workerFetch(readUrl, { headers });
 		expect(apiRead.status).toBe(200);
 		expectPrivateApiCache(apiRead);
 		const apiBody = await apiRead.json();
 		const rpcRead = await sendRpc(
 			"file.read",
-			{ botId: "scribe", path: "SOUL.md" },
+			{ botId: "scribe", path: "/.cadmus/SOUL.md" },
 			{ accountId, token },
 		);
 		expect(rpcRead.status).toBe(200);
@@ -163,7 +163,7 @@ describe("REST /api command translation", () => {
 		const wrongMethod = await workerFetch(readUrl, {
 			method: "POST",
 			headers: { ...headers, "Content-Type": "application/json" },
-			body: JSON.stringify({ botId: "scribe", path: "SOUL.md" }),
+			body: JSON.stringify({ botId: "scribe", path: "/.cadmus/SOUL.md" }),
 		});
 		expect(wrongMethod.status).toBe(405);
 		expectPrivateApiCache(wrongMethod);
@@ -173,7 +173,7 @@ describe("REST /api command translation", () => {
 		});
 
 		const getWrite = await workerFetch(
-			"http://example.com/api/file/write?botId=scribe&path=MEMORY.md",
+			"http://example.com/api/file/write?botId=scribe&path=/.cadmus/MEMORY.md",
 			{ headers },
 		);
 		expect(getWrite.status).toBe(405);
@@ -192,14 +192,14 @@ describe("REST /api command translation", () => {
 			headers: { ...headers, "Content-Type": "application/json" },
 			body: JSON.stringify({
 				botId: "scribe",
-				path: "MEMORY.md",
+				path: "/.cadmus/MEMORY.md",
 				content: "Remember the gate.",
 				expectedVersion: 0,
 			}),
 		});
 		expect(write.status).toBe(200);
 		expect(await write.json()).toMatchObject({
-			path: "MEMORY.md",
+			path: "/.cadmus/MEMORY.md",
 			version: 1,
 			content: "Remember the gate.",
 		});
@@ -212,7 +212,7 @@ describe("REST /api command translation", () => {
 				type: "file.write",
 				payload: {
 					botId: "scribe",
-					path: "MEMORY.md",
+					path: "/.cadmus/MEMORY.md",
 					content: "Remember the gate, revised.",
 					expectedVersion: 1,
 				},
@@ -226,7 +226,7 @@ describe("REST /api command translation", () => {
 			headers: { ...headers, "Content-Type": "application/json" },
 			body: JSON.stringify({
 				botId: "scribe",
-				path: "MEMORY.md",
+				path: "/.cadmus/MEMORY.md",
 				content: "stale",
 				expectedVersion: 0,
 			}),
@@ -239,7 +239,7 @@ describe("REST /api command translation", () => {
 			"file.write",
 			{
 				botId: "scribe",
-				path: "MEMORY.md",
+				path: "/.cadmus/MEMORY.md",
 				content: "stale",
 				expectedVersion: 0,
 			},
@@ -249,7 +249,7 @@ describe("REST /api command translation", () => {
 		expect(rpcConflict.frame.error?.code).toBe("cas_conflict");
 
 		const missing = await workerFetch(
-			"http://example.com/api/file/read?botId=missing&path=SOUL.md",
+			"http://example.com/api/file/read?botId=missing&path=/.cadmus/SOUL.md",
 			{ headers },
 		);
 		expect(missing.status).toBe(404);

@@ -1,22 +1,16 @@
+import { isWorkspaceTool } from "@cadmus/contract/tools";
 import { defineExtension, section } from "@earendil-works/pi-durable";
-import {
-	createBashTool,
-	createEditTool,
-	createReadTool,
-	createWriteTool,
-	type ReadToolOptions,
-} from "@earendil-works/pi-durable/tools";
+import { createBashTool } from "@earendil-works/pi-durable/tools";
 import { requireCadmusServices } from "../context.js";
-import { isCodingTool } from "../tools-env/pure.js";
 import type { CadmusExtensionDescriptor } from "./cadmus-tools.js";
 
 /**
- * Cadmus coding tools extension (`read`, `write`, `edit`, `bash`).
- * Mutating and shell tools (`write`, `edit`, `bash`) specify `executionMode: "sequential"`
- * so that any round containing them executes in causal call order rather than racing concurrently.
- * Read-only tools (`read`) remain parallel.
+ * Cadmus coding tools extension (`bash`).
+ * File tools (`read`, `write`, `edit`, `delete`) live in `cadmus.files` and are
+ * always available for `/.cadmus/*` virtual files, forwarding workspace paths to
+ * `tools-env` when enabled.
  */
-export function createCadmusCodingTools(options?: ReadToolOptions) {
+export function createCadmusCodingTools() {
 	return defineExtension({
 		name: "coding-tools",
 		sections: [
@@ -29,25 +23,18 @@ export function createCadmusCodingTools(options?: ReadToolOptions) {
 					botId,
 					toolNames: input.agent.tools
 						.map((tool) => tool.name)
-						.filter(isCodingTool),
+						.filter(isWorkspaceTool),
 				});
 				return described?.name === "tools-env" ? described.text : undefined;
 			}),
 		],
-		tools: [
-			{ ...createBashTool(), executionMode: "sequential" as const },
-			createReadTool(options), // Cadmus settings read-only: workspace read.
-			{ ...createWriteTool(), executionMode: "sequential" as const },
-			{ ...createEditTool(), executionMode: "sequential" as const },
-		],
+		tools: [{ ...createBashTool(), executionMode: "sequential" as const }],
 	});
 }
 
-export function codingToolsExtensionDescriptor(
-	options?: ReadToolOptions,
-): CadmusExtensionDescriptor {
+export function codingToolsExtensionDescriptor(): CadmusExtensionDescriptor {
 	return {
-		extension: createCadmusCodingTools(options),
+		extension: createCadmusCodingTools(),
 		defaultEnabled: false,
 		allowlistPolicy: { mode: "catalog" },
 		isActive: (ctx) => ctx.codingToolsOffered,

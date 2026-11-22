@@ -934,7 +934,7 @@ export const HarvestFileDiffSchema = Type.Object(
 	{
 		path: Type.String({
 			description:
-				"Virtual workspace file path modified (e.g. 'MEMORY.md', 'knowledge/topic.md').",
+				"Virtual file path modified (e.g. '/.cadmus/MEMORY.md', '/.cadmus/skills/topic/SKILL.md').",
 		}),
 		diff: Type.String({
 			description:

@@ -1,5 +1,6 @@
 import {
 	DEFAULT_CADMUS_TOOL_NAMES,
+	isFileTool,
 	isReadOnlyGroupTool,
 	TOOL_CATALOG,
 	type ToolCatalogEntry,
@@ -9,10 +10,10 @@ import type { ReadToolOptions } from "@earendil-works/pi-durable/tools";
 import type { BotRecord, ChatRecord } from "../protocol.js";
 import { scheduleTaskExtensionDescriptor } from "../schedules.js";
 import { codingToolsExtensionDescriptor } from "./coding-tools.js";
+import { filesExtensionDescriptor } from "./file-tools.js";
 import { groupCallerExtensionDescriptor } from "./group-caller-tools.js";
 import { identityExtensionDescriptor } from "./identity.js";
 import { internalToolsExtensionDescriptor } from "./internal-tools.js";
-import { knowledgeExtensionDescriptor } from "./knowledge-tools.js";
 import { schedulesToolsExtensionDescriptor } from "./schedules-tools.js";
 import {
 	tasksFollowupExtensionDescriptor,
@@ -29,6 +30,7 @@ export interface ExtensionActivationContext {
 	isGroupSession: boolean;
 	isGroupCaller: boolean;
 	isConsultMember: boolean;
+	isHarvest?: boolean;
 	hasActiveTasks: boolean;
 	provider: string | null;
 }
@@ -54,7 +56,7 @@ export function cadmusExtensionDescriptors(options?: {
 }): readonly CadmusExtensionDescriptor[] {
 	return [
 		identityExtensionDescriptor(options),
-		knowledgeExtensionDescriptor(),
+		filesExtensionDescriptor(options?.readToolOptions),
 		schedulesToolsExtensionDescriptor(),
 		tasksToolsExtensionDescriptor(),
 		tasksFollowupExtensionDescriptor(),
@@ -62,7 +64,7 @@ export function cadmusExtensionDescriptors(options?: {
 		groupCallerExtensionDescriptor(),
 		webToolsExtensionDescriptor(),
 		xaiToolsExtensionDescriptor(),
-		codingToolsExtensionDescriptor(options?.readToolOptions),
+		codingToolsExtensionDescriptor(),
 		toolGateExtensionDescriptor(),
 		scheduleTaskExtensionDescriptor(),
 	];
@@ -203,9 +205,11 @@ export function resolveConversationExtensionsAndTools(
 					? allowedTools
 							.filter((t) => isReadOnlyGroupTool(t.name))
 							.map((t) => t.name)
-					: allowedTools
-							.filter((t) => isCatalogToolActive(t.name, ctx))
-							.map((t) => t.name);
+					: ctx.isHarvest
+						? allowedTools.filter((t) => isFileTool(t.name)).map((t) => t.name)
+						: allowedTools
+								.filter((t) => isCatalogToolActive(t.name, ctx))
+								.map((t) => t.name);
 				activeToolNames.push(...names);
 			}
 		} else {

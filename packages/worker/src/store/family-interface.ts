@@ -6,8 +6,8 @@ import type {
 	Deadlines,
 	HarvestFileDiff,
 	HarvestNote,
-	KnowledgeSearchResult,
 	ScheduleRecord,
+	SkillSearchResult,
 } from "../protocol.js";
 
 export type ConversationRouteKind =
@@ -33,8 +33,8 @@ export type {
 	Deadlines,
 	HarvestFileDiff,
 	HarvestNote,
-	KnowledgeSearchResult,
 	ScheduleRecord,
+	SkillSearchResult,
 };
 
 export interface MemoryDoc {
@@ -43,7 +43,7 @@ export interface MemoryDoc {
 	updatedAt: number;
 }
 
-export interface KnowledgeDoc {
+export interface SkillDoc {
 	slug: string;
 	description: string;
 	category?: string;
@@ -67,27 +67,27 @@ export interface BotFileStore {
 	updateMemory(
 		botId: string,
 		content: string,
-		expectedVersion: number,
+		expectedVersion?: number,
 	): MemoryDoc;
 
-	listKnowledge(botId: string, category?: string): KnowledgeDoc[];
-	getKnowledge(botId: string, slug: string): KnowledgeDoc | undefined;
-	updateKnowledge(
+	listSkills(botId: string, category?: string): SkillDoc[];
+	getSkill(botId: string, slug: string): SkillDoc | undefined;
+	updateSkill(
 		botId: string,
 		input: {
 			slug: string;
 			description: string;
 			category?: string;
 			body: string;
-			expectedVersion: number;
+			expectedVersion?: number;
 		},
-	): KnowledgeDoc;
-	deleteKnowledge(botId: string, slug: string, expectedVersion: number): void;
-	searchKnowledge(
+	): SkillDoc;
+	deleteSkill(botId: string, slug: string, expectedVersion?: number): void;
+	searchSkills(
 		botId: string,
 		query: string,
 		category?: string,
-	): KnowledgeSearchResult[];
+	): SkillSearchResult[];
 
 	snapshotFiles(botId: string): Map<string, string>;
 	diffSnapshots(

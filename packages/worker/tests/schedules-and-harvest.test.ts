@@ -133,7 +133,7 @@ describe("Unified ScheduleTask (Cron, When & Idle Harvest Forks) & DO Alarm Driv
 
 		const memRead = await sendRpc<{ content: string; version: number }>(
 			"file.read",
-			{ botId: "harvester", path: "MEMORY.md" },
+			{ botId: "harvester", path: "/.cadmus/MEMORY.md" },
 			scope,
 		);
 		expect(memRead.frame.result?.version).toBe(1);
@@ -148,7 +148,9 @@ describe("Unified ScheduleTask (Cron, When & Idle Harvest Forks) & DO Alarm Driv
 
 		expect(chatAfter.frame.result?.messages).toHaveLength(2);
 		expect(chatAfter.frame.result?.notes).toHaveLength(1);
-		expect(chatAfter.frame.result?.notes[0]?.files[0]?.path).toBe("MEMORY.md");
+		expect(chatAfter.frame.result?.notes[0]?.files[0]?.path).toBe(
+			"/.cadmus/MEMORY.md",
+		);
 		expect(chatAfter.frame.result?.notes[0]?.files[0]?.diff).toContain(
 			"+- User prefers dark roast espresso",
 		);

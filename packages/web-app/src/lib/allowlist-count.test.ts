@@ -25,7 +25,7 @@ describe("allowlistCount", () => {
 
 	it("counts an explicit list against the current env catalogue", () => {
 		const count = allowlistCount(
-			["memory_read", CODING_TOOL_NAMES[0] ?? "bash"],
+			["read", CODING_TOOL_NAMES[0] ?? "bash"],
 			true,
 		);
 		expect(count.allowed).toBe(2);

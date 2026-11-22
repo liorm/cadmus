@@ -44,11 +44,11 @@ describe("Turns, Streaming Protocol Events & chat.status", () => {
 			// Submit a turn with a tool call directive
 			const turnRes = await wsClient.send<{ reply: string }>("turn.submit", {
 				chatKey: "ws-chat-1",
-				text: "Read memory please [tool:memory_read {}]",
+				text: 'Read soul please [tool:read {"path":"/.cadmus/SOUL.md"}]',
 			});
 			expect(turnRes.ok).toBe(true);
 			expect(turnRes.result?.reply).toContain("echo(1):");
-			expect(turnRes.result?.reply).toContain('"exists":false');
+			expect(turnRes.result?.reply).toContain("You are a personal assistant.");
 			await untilType(wsClient.events, "turn.completed");
 
 			const eventTypes = wsClient.events.map((e) => e.type);
@@ -198,7 +198,7 @@ describe("Turns, Streaming Protocol Events & chat.status", () => {
 				blocks: TurnBlock[];
 			}>("turn.submit", {
 				chatKey: "chip-chat-1",
-				text: "Analyze my memory [think: reasoning deeply] [tool:memory_read {}]",
+				text: 'Analyze my memory [think: reasoning deeply] [tool:read {"path":"/.cadmus/MEMORY.md"}]',
 			});
 
 			expect(turnRes.ok).toBe(true);
@@ -208,7 +208,7 @@ describe("Turns, Streaming Protocol Events & chat.status", () => {
 			expect(resultBlocks.some((b) => b.type === "thinking")).toBe(true);
 			expect(
 				resultBlocks.some(
-					(b) => b.type === "tool_call" && b.toolName === "memory_read",
+					(b) => b.type === "tool_call" && b.toolName === "read",
 				),
 			).toBe(true);
 
@@ -225,7 +225,7 @@ describe("Turns, Streaming Protocol Events & chat.status", () => {
 				).toBe(true);
 				expect(
 					completedEvent.payload.blocks?.some(
-						(b) => b.type === "tool_call" && b.toolName === "memory_read",
+						(b) => b.type === "tool_call" && b.toolName === "read",
 					),
 				).toBe(true);
 			}
@@ -284,7 +284,7 @@ describe("Turns, Streaming Protocol Events & chat.status", () => {
 			"turn.submit",
 			{
 				chatKey: "enrich-chat",
-				text: "Check memory [think: checking memory first] [tool:memory_read {}]",
+				text: 'Check memory [think: checking memory first] [tool:read {"path":"/.cadmus/SOUL.md"}]',
 			},
 			scope,
 		);
@@ -317,7 +317,7 @@ describe("Turns, Streaming Protocol Events & chat.status", () => {
 		const userMsg = messages.find((m) => m.role === "user");
 		expect(userMsg).toBeDefined();
 		expect(userMsg?.text).toBe(
-			"Check memory [think: checking memory first] [tool:memory_read {}]",
+			'Check memory [think: checking memory first] [tool:read {"path":"/.cadmus/SOUL.md"}]',
 		);
 		expect(userMsg?.id).toBeDefined();
 
@@ -327,11 +327,11 @@ describe("Turns, Streaming Protocol Events & chat.status", () => {
 		expect(assistantWithTool).toBeDefined();
 		expect(assistantWithTool?.replyToEntryId).toBe(userMsg?.id);
 		expect(assistantWithTool?.thinking).toBe("checking memory first");
-		expect(assistantWithTool?.toolCalls?.[0].name).toBe("memory_read");
+		expect(assistantWithTool?.toolCalls?.[0].name).toBe("read");
 		expect(assistantWithTool?.toolCalls?.[0].result).toBeDefined();
 		expect(assistantWithTool?.toolCalls?.[0].result?.isError).toBe(false);
 		expect(assistantWithTool?.toolCalls?.[0].result?.content).toContain(
-			'"exists":false',
+			"You are a personal assistant.",
 		);
 
 		const thinkingBlock = assistantWithTool?.blocks?.find(
@@ -343,9 +343,11 @@ describe("Turns, Streaming Protocol Events & chat.status", () => {
 		);
 		expect(toolCallBlock).toBeDefined();
 		if (toolCallBlock && toolCallBlock.type === "toolCall") {
-			expect(toolCallBlock.name).toBe("memory_read");
+			expect(toolCallBlock.name).toBe("read");
 			expect(toolCallBlock.result?.isError).toBe(false);
-			expect(toolCallBlock.result?.content).toContain('"exists":false');
+			expect(toolCallBlock.result?.content).toContain(
+				"You are a personal assistant.",
+			);
 		}
 
 		// 6. Verify entries in chat.entries

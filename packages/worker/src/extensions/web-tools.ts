@@ -2,7 +2,7 @@ import { defineExtension, defineTool } from "@earendil-works/pi-durable";
 import { Type } from "typebox";
 import { getLogger } from "../log.js";
 import type { CadmusExtensionDescriptor } from "./cadmus-tools.js";
-import { toolError, toolText } from "./knowledge-tools.js";
+import { toolError, toolText } from "./file-tools.js";
 
 const MAX_FETCH_CHARS = 32_000;
 

@@ -23,11 +23,11 @@ import type {
 	HarvestFileDiff,
 	HarvestNote,
 	HarvestStore,
-	KnowledgeDoc,
-	KnowledgeSearchResult,
 	MemoryDoc,
 	ScheduleRecord,
 	ScheduleStore,
+	SkillDoc,
+	SkillSearchResult,
 	TaskLoopState,
 	TaskStore,
 } from "./family-interface.js";
@@ -80,35 +80,35 @@ export class CasConflictError extends Error {
 	}
 }
 
-export function validateKnowledgeMetadata(
+export function validateSkillMetadata(
 	slug: string,
 	description: string,
 	category?: string,
 ): void {
 	if (!SLUG_REGEX.test(slug)) {
 		throw new Error(
-			`Invalid knowledge slug '${slug}': must match /^[a-z0-9][a-z0-9-]{0,63}$/`,
+			`Invalid skill slug '${slug}': must match /^[a-z0-9][a-z0-9-]{0,63}$/`,
 		);
 	}
 	const trimmedDesc = description.trim();
 	if (!trimmedDesc) {
-		throw new Error("Knowledge description is required and cannot be empty");
+		throw new Error("Skill description is required and cannot be empty");
 	}
 	if (description.includes("\n") || description.includes("\r")) {
-		throw new Error("Knowledge description must be a single line");
+		throw new Error("Skill description must be a single line");
 	}
 	if (description.length > 240) {
 		throw new Error(
-			`Knowledge description must be at most 240 characters (got ${description.length})`,
+			`Skill description must be at most 240 characters (got ${description.length})`,
 		);
 	}
 	if (category !== undefined && category !== "") {
 		if (category.includes("\n") || category.includes("\r")) {
-			throw new Error("Knowledge category must be a single line");
+			throw new Error("Skill category must be a single line");
 		}
 		if (category.length > 64) {
 			throw new Error(
-				`Knowledge category must be at most 64 characters (got ${category.length})`,
+				`Skill category must be at most 64 characters (got ${category.length})`,
 			);
 		}
 	}
@@ -118,24 +118,27 @@ export function validateMemoryContent(content: string): void {
 	const byteLength = new TextEncoder().encode(content).byteLength;
 	if (byteLength > MAX_MEMORY_BYTES) {
 		throw new Error(
-			`MEMORY.md exceeds maximum size of ${MAX_MEMORY_BYTES} bytes (got ${byteLength} bytes)`,
+			`/.cadmus/MEMORY.md exceeds maximum size of ${MAX_MEMORY_BYTES} bytes (got ${byteLength} bytes)`,
 		);
 	}
 	if (content.trimStart().startsWith("---")) {
-		throw new Error("MEMORY.md must not start with YAML frontmatter (---)");
+		throw new Error(
+			"/.cadmus/MEMORY.md must not start with YAML frontmatter (---)",
+		);
 	}
 }
 
-export function formatKnowledgeMarkdown(doc: KnowledgeDoc): string {
-	const lines = ["---", `description: ${doc.description}`];
+export function formatSkillMarkdown(doc: SkillDoc): string {
+	const lines = ["---", `name: ${doc.slug}`, `description: ${doc.description}`];
 	if (doc.category) {
 		lines.push(`category: ${doc.category}`);
 	}
-	lines.push(`version: ${doc.version}`, "---", "");
-	return lines.join("\n") + doc.body;
+	lines.push("---", "");
+	return doc.body ? `${lines.join("\n")}\n${doc.body}` : lines.join("\n");
 }
 
-export function parseKnowledgeMarkdown(raw: string): {
+export function parseSkillMarkdown(raw: string): {
+	name?: string;
 	description: string;
 	category?: string;
 	version?: number;
@@ -143,18 +146,25 @@ export function parseKnowledgeMarkdown(raw: string): {
 } {
 	const normalized = raw.replace(/\r\n/g, "\n");
 	if (!normalized.startsWith("---\n")) {
-		throw new Error("Knowledge file must start with YAML frontmatter (---)");
+		throw new Error("Skill file must start with YAML frontmatter (---)");
 	}
-	const closingIdx = normalized.indexOf("\n---\n", 4);
+	let closingIdx = normalized.indexOf("\n---\n", 4);
+	let bodyOffset = 5;
 	if (closingIdx === -1) {
-		throw new Error("Knowledge file is missing closing YAML frontmatter (---)");
+		if (normalized.endsWith("\n---")) {
+			closingIdx = normalized.length - 4;
+			bodyOffset = 4;
+		} else {
+			throw new Error("Skill file is missing closing YAML frontmatter (---)");
+		}
 	}
 	const fmBlock = normalized.slice(4, closingIdx);
-	let body = normalized.slice(closingIdx + 5);
+	let body = normalized.slice(closingIdx + bodyOffset);
 	if (body.startsWith("\n")) {
 		body = body.slice(1);
 	}
 
+	let name: string | undefined;
 	let description = "";
 	let category: string | undefined;
 	let version: number | undefined;
@@ -164,7 +174,8 @@ export function parseKnowledgeMarkdown(raw: string): {
 		if (colon === -1) continue;
 		const key = line.slice(0, colon).trim();
 		const val = line.slice(colon + 1).trim();
-		if (key === "description") description = val;
+		if (key === "name" && val) name = val;
+		else if (key === "description") description = val;
 		else if (key === "category" && val) category = val;
 		else if (key === "version" && val) {
 			const parsed = Number(val);
@@ -172,7 +183,7 @@ export function parseKnowledgeMarkdown(raw: string): {
 		}
 	}
 
-	return { description, category, version, body };
+	return { name, description, category, version, body };
 }
 
 type SqlStorage = DurableObjectStorage["sql"];
@@ -348,12 +359,16 @@ class SqliteBotFileStore implements BotFileStore {
 	updateMemory(
 		botId: string,
 		content: string,
-		expectedVersion: number,
+		expectedVersion?: number,
 	): MemoryDoc {
 		validateMemoryContent(content);
 		const current = this.getMemory(botId);
-		if (current.version !== expectedVersion) {
-			throw new CasConflictError("MEMORY.md", expectedVersion, current.version);
+		if (expectedVersion !== undefined && current.version !== expectedVersion) {
+			throw new CasConflictError(
+				"/.cadmus/MEMORY.md",
+				expectedVersion,
+				current.version,
+			);
 		}
 		const nextVersion = current.version + 1;
 		const now = Date.now();
@@ -376,7 +391,7 @@ class SqliteBotFileStore implements BotFileStore {
 		};
 	}
 
-	listKnowledge(botId: string, category?: string): KnowledgeDoc[] {
+	listSkills(botId: string, category?: string): SkillDoc[] {
 		if (category !== undefined && category !== "") {
 			const rows = this.sql
 				.exec<{
@@ -388,14 +403,14 @@ class SqliteBotFileStore implements BotFileStore {
 					updated_at: number;
 				}>(
 					`SELECT slug, description, category, version, body, updated_at
-           FROM cadmus_bot_knowledge
+           FROM cadmus_bot_skills
            WHERE bot_id = ? AND category = ?
            ORDER BY slug ASC`,
 					botId,
 					category,
 				)
 				.toArray();
-			return rows.map((r) => this.mapKnowledge(r));
+			return rows.map((r) => this.mapSkill(r));
 		}
 
 		const rows = this.sql
@@ -408,16 +423,16 @@ class SqliteBotFileStore implements BotFileStore {
 				updated_at: number;
 			}>(
 				`SELECT slug, description, category, version, body, updated_at
-         FROM cadmus_bot_knowledge
+         FROM cadmus_bot_skills
          WHERE bot_id = ?
          ORDER BY slug ASC`,
 				botId,
 			)
 			.toArray();
-		return rows.map((r) => this.mapKnowledge(r));
+		return rows.map((r) => this.mapSkill(r));
 	}
 
-	getKnowledge(botId: string, slug: string): KnowledgeDoc | undefined {
+	getSkill(botId: string, slug: string): SkillDoc | undefined {
 		const rows = this.sql
 			.exec<{
 				slug: string;
@@ -428,31 +443,34 @@ class SqliteBotFileStore implements BotFileStore {
 				updated_at: number;
 			}>(
 				`SELECT slug, description, category, version, body, updated_at
-         FROM cadmus_bot_knowledge
+         FROM cadmus_bot_skills
          WHERE bot_id = ? AND slug = ?`,
 				botId,
 				slug,
 			)
 			.toArray();
-		return rows[0] ? this.mapKnowledge(rows[0]) : undefined;
+		return rows[0] ? this.mapSkill(rows[0]) : undefined;
 	}
 
-	updateKnowledge(
+	updateSkill(
 		botId: string,
 		input: {
 			slug: string;
 			description: string;
 			category?: string;
 			body: string;
-			expectedVersion: number;
+			expectedVersion?: number;
 		},
-	): KnowledgeDoc {
-		validateKnowledgeMetadata(input.slug, input.description, input.category);
-		const existing = this.getKnowledge(botId, input.slug);
+	): SkillDoc {
+		validateSkillMetadata(input.slug, input.description, input.category);
+		const existing = this.getSkill(botId, input.slug);
 		const actualVersion = existing ? existing.version : 0;
-		if (actualVersion !== input.expectedVersion) {
+		if (
+			input.expectedVersion !== undefined &&
+			actualVersion !== input.expectedVersion
+		) {
 			throw new CasConflictError(
-				`knowledge/${input.slug}.md`,
+				`/.cadmus/skills/${input.slug}/SKILL.md`,
 				input.expectedVersion,
 				actualVersion,
 			);
@@ -465,7 +483,7 @@ class SqliteBotFileStore implements BotFileStore {
 				: null;
 
 		this.sql.exec(
-			`INSERT INTO cadmus_bot_knowledge (bot_id, slug, description, category, version, body, updated_at)
+			`INSERT INTO cadmus_bot_skills (bot_id, slug, description, category, version, body, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(bot_id, slug) DO UPDATE SET
          description = excluded.description,
@@ -482,7 +500,7 @@ class SqliteBotFileStore implements BotFileStore {
 			now,
 		);
 
-		const doc: KnowledgeDoc = {
+		const doc: SkillDoc = {
 			slug: input.slug,
 			description: input.description.trim(),
 			version: nextVersion,
@@ -495,33 +513,33 @@ class SqliteBotFileStore implements BotFileStore {
 		return doc;
 	}
 
-	deleteKnowledge(botId: string, slug: string, expectedVersion: number): void {
-		const existing = this.getKnowledge(botId, slug);
+	deleteSkill(botId: string, slug: string, expectedVersion?: number): void {
+		const existing = this.getSkill(botId, slug);
 		if (!existing) {
-			throw new Error(`Knowledge entry '${slug}' not found`);
+			throw new Error(`Skill '${slug}' not found`);
 		}
-		if (existing.version !== expectedVersion) {
+		if (expectedVersion !== undefined && existing.version !== expectedVersion) {
 			throw new CasConflictError(
-				`knowledge/${slug}.md`,
+				`/.cadmus/skills/${slug}/SKILL.md`,
 				expectedVersion,
 				existing.version,
 			);
 		}
 		this.sql.exec(
-			`DELETE FROM cadmus_bot_knowledge WHERE bot_id = ? AND slug = ?`,
+			`DELETE FROM cadmus_bot_skills WHERE bot_id = ? AND slug = ?`,
 			botId,
 			slug,
 		);
 	}
 
-	searchKnowledge(
+	searchSkills(
 		botId: string,
 		query: string,
 		category?: string,
-	): KnowledgeSearchResult[] {
+	): SkillSearchResult[] {
 		const q = query.trim().toLowerCase();
-		const docs = this.listKnowledge(botId, category);
-		const results: KnowledgeSearchResult[] = [];
+		const docs = this.listSkills(botId, category);
+		const results: SkillSearchResult[] = [];
 
 		for (const doc of docs) {
 			if (!q) {
@@ -570,15 +588,15 @@ class SqliteBotFileStore implements BotFileStore {
 		const map = new Map<string, string>();
 		const soul = this.getSoul(botId);
 		if (soul) {
-			map.set("SOUL.md", soul);
+			map.set("/.cadmus/SOUL.md", soul);
 		}
 		const memory = this.getMemory(botId);
 		if (memory.version > 0 || memory.content) {
-			map.set("MEMORY.md", memory.content);
+			map.set("/.cadmus/MEMORY.md", memory.content);
 		}
-		const knowledgeList = this.listKnowledge(botId);
-		for (const doc of knowledgeList) {
-			map.set(`knowledge/${doc.slug}.md`, formatKnowledgeMarkdown(doc));
+		const skillsList = this.listSkills(botId);
+		for (const doc of skillsList) {
+			map.set(`/.cadmus/skills/${doc.slug}/SKILL.md`, formatSkillMarkdown(doc));
 		}
 		return map;
 	}
@@ -613,15 +631,15 @@ class SqliteBotFileStore implements BotFileStore {
 		return diffs;
 	}
 
-	private mapKnowledge(row: {
+	private mapSkill(row: {
 		slug: string;
 		description: string;
 		category: string | null;
 		version: number;
 		body: string;
 		updated_at: number;
-	}): KnowledgeDoc {
-		const doc: KnowledgeDoc = {
+	}): SkillDoc {
+		const doc: SkillDoc = {
 			slug: row.slug,
 			description: row.description,
 			version: Number(row.version),
@@ -1806,7 +1824,7 @@ export class SqliteFamilyStore implements FamilyStore {
         updated_at INTEGER NOT NULL
       );
 
-      CREATE TABLE IF NOT EXISTS cadmus_bot_knowledge (
+      CREATE TABLE IF NOT EXISTS cadmus_bot_skills (
         bot_id TEXT NOT NULL REFERENCES cadmus_bots(id) ON DELETE CASCADE,
         slug TEXT NOT NULL,
         description TEXT NOT NULL,
@@ -1817,8 +1835,8 @@ export class SqliteFamilyStore implements FamilyStore {
         PRIMARY KEY (bot_id, slug)
       );
 
-      CREATE INDEX IF NOT EXISTS idx_cadmus_bot_knowledge_cat
-        ON cadmus_bot_knowledge(bot_id, category);
+      CREATE INDEX IF NOT EXISTS idx_cadmus_bot_skills_cat
+        ON cadmus_bot_skills(bot_id, category);
 
       CREATE TABLE IF NOT EXISTS cadmus_chats (
         key TEXT PRIMARY KEY,

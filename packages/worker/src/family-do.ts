@@ -67,6 +67,12 @@ import {
 } from "./extensions/cadmus-tools.js";
 import { DEFAULT_SOUL } from "./extensions/identity.js";
 import {
+	MEMORY_VFS_PATH,
+	parseVirtualPath,
+	SOUL_VFS_PATH,
+	skillVfsPath,
+} from "./extensions/vfs.js";
+import {
 	driveGroupChat,
 	GroupReplyTimeout,
 	groupWakeText,
@@ -123,8 +129,8 @@ import { D1AdminStore, toDoName } from "./store/d1-admin.js";
 import type { FamilyStore, GroupChatRecord } from "./store/family-interface.js";
 import {
 	CasConflictError,
-	formatKnowledgeMarkdown,
-	parseKnowledgeMarkdown,
+	formatSkillMarkdown,
+	parseSkillMarkdown,
 	SLUG_REGEX,
 	SqliteFamilyStore,
 } from "./store/sqlite-family.js";
@@ -578,6 +584,8 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 				this.prepareCodingTools(conversationId),
 			codingToolsOffered: (conversationId, botId) =>
 				this.codingToolsOffered(conversationId, botId),
+			workspaceEnvEnabled: (conversationId, botId) =>
+				this.workspaceEnvEnabled(conversationId, botId),
 			codingToolAllowed: (conversationId, botId, toolName) =>
 				this.codingToolAllowed(conversationId, botId, toolName),
 			describeToolsEnv: (input) => this.describeToolsEnv(input),
@@ -2157,12 +2165,12 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 				}
 				const soul = this.familyStore.files.getSoul(bot.id);
 				const memory = this.familyStore.files.getMemory(bot.id);
-				const knowledge = this.familyStore.files.listKnowledge(bot.id);
+				const skills = this.familyStore.files.listSkills(bot.id);
 				const resolved = await this.toolsEnvController.resolvedFields(
 					bot,
 					null,
 				);
-				return { bot, soul, memory, knowledge, ...resolved };
+				return { bot, soul, memory, skills, ...resolved };
 			},
 			"bot.update": async (command) => {
 				const existing = this.familyStore.bots.getBot(command.payload.botId);
@@ -2612,44 +2620,46 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 						"not_found",
 					);
 				}
-				if (path === "SOUL.md") {
-					const content = this.familyStore.files.getSoul(botId);
-					return { path: "SOUL.md", content, text: content, version: 1 };
+				const parsed = parseVirtualPath(path);
+				if (!parsed || parsed.kind === "invalid") {
+					throw new ProtocolValidationError(
+						parsed?.kind === "invalid"
+							? parsed.error
+							: `Unsupported virtual file path '${path}'. Expected /.cadmus/SOUL.md, /.cadmus/MEMORY.md, or /.cadmus/skills/<slug>/SKILL.md`,
+						"invalid_path",
+					);
 				}
-				if (path === "MEMORY.md") {
+				if (parsed.kind === "soul") {
+					const content = this.familyStore.files.getSoul(botId);
+					return { path: SOUL_VFS_PATH, content, text: content, version: 1 };
+				}
+				if (parsed.kind === "memory") {
 					const mem = this.familyStore.files.getMemory(botId);
 					return {
-						path: "MEMORY.md",
+						path: MEMORY_VFS_PATH,
 						content: mem.content,
 						text: mem.content,
 						version: mem.version,
 					};
 				}
-				const kMatch = /^knowledge\/([a-z0-9-]+)\.md$/.exec(path);
-				if (kMatch?.[1]) {
-					const doc = this.familyStore.files.getKnowledge(botId, kMatch[1]);
-					if (!doc) {
-						throw new ProtocolValidationError(
-							`Knowledge file '${path}' not found`,
-							"not_found",
-						);
-					}
-					const formatted = formatKnowledgeMarkdown(doc);
-					return {
-						path,
-						slug: doc.slug,
-						description: doc.description,
-						...(doc.category ? { category: doc.category } : {}),
-						version: doc.version,
-						body: doc.body,
-						content: formatted,
-						text: formatted,
-					};
+				const doc = this.familyStore.files.getSkill(botId, parsed.slug);
+				if (!doc) {
+					throw new ProtocolValidationError(
+						`Skill file '${parsed.canonicalPath}' not found`,
+						"not_found",
+					);
 				}
-				throw new ProtocolValidationError(
-					`Unsupported virtual file path '${path}'. Expected SOUL.md, MEMORY.md, or knowledge/<slug>.md`,
-					"invalid_path",
-				);
+				const formatted = formatSkillMarkdown(doc);
+				return {
+					path: parsed.canonicalPath,
+					slug: doc.slug,
+					description: doc.description,
+					...(doc.category ? { category: doc.category } : {}),
+					version: doc.version,
+					body: doc.body,
+					content: formatted,
+					text: formatted,
+				};
 			},
 			"file.write": async (command) => {
 				const {
@@ -2676,116 +2686,122 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 					);
 				}
 
+				const parsed = parseVirtualPath(path);
+				if (!parsed || parsed.kind === "invalid") {
+					throw new ProtocolValidationError(
+						parsed?.kind === "invalid"
+							? parsed.error
+							: `Unsupported virtual file path '${path}'. Expected /.cadmus/SOUL.md, /.cadmus/MEMORY.md, or /.cadmus/skills/<slug>/SKILL.md`,
+						"invalid_path",
+					);
+				}
+
 				if (isDelete) {
-					const kMatch = /^knowledge\/([a-z0-9-]+)\.md$/.exec(path);
-					if (!kMatch?.[1]) {
+					if (parsed.kind !== "skill") {
 						throw new ProtocolValidationError(
-							`Only knowledge/<slug>.md files can be deleted (got '${path}')`,
+							`Only /.cadmus/skills/<slug>/SKILL.md files can be deleted (got '${path}')`,
 							"invalid_path",
 						);
 					}
-					const slug = kMatch[1];
-					const existing = this.familyStore.files.getKnowledge(botId, slug);
+					const existing = this.familyStore.files.getSkill(botId, parsed.slug);
 					if (!existing) {
 						throw new ProtocolValidationError(
-							`Knowledge file '${path}' not found`,
+							`Skill file '${parsed.canonicalPath}' not found`,
 							"not_found",
 						);
 					}
-					this.familyStore.files.deleteKnowledge(
+					this.familyStore.files.deleteSkill(
 						botId,
-						slug,
+						parsed.slug,
 						expectedVersion ?? existing.version,
 					);
-					return { deleted: path };
+					return { deleted: parsed.canonicalPath };
 				}
 
-				if (path === "SOUL.md") {
+				if (parsed.kind === "soul") {
 					this.familyStore.files.setSoul(botId, content);
-					return { path: "SOUL.md", version: 1, content };
+					return { path: SOUL_VFS_PATH, version: 1, content };
 				}
-				if (path === "MEMORY.md") {
+				if (parsed.kind === "memory") {
 					const updated = this.familyStore.files.updateMemory(
 						botId,
 						content,
 						expectedVersion ?? 0,
 					);
 					return {
-						path: "MEMORY.md",
+						path: MEMORY_VFS_PATH,
 						version: updated.version,
 						content: updated.content,
 					};
 				}
-				const kMatch = /^knowledge\/([a-z0-9-]+)\.md$/.exec(path);
-				if (kMatch?.[1]) {
-					const slug = kMatch[1];
-					let desc = description;
-					let cat = category;
-					let body = rawBody ?? rawContent ?? rawText ?? "";
-					let expVer = expectedVersion;
+				const slug = parsed.slug;
+				let desc = description;
+				let cat = category;
+				let body = rawBody ?? rawContent ?? rawText ?? "";
+				let expVer = expectedVersion;
 
-					if (desc === undefined && body.trimStart().startsWith("---")) {
-						const parsed = parseKnowledgeMarkdown(body);
-						desc = parsed.description;
-						cat = parsed.category;
-						body = parsed.body;
-						if (expVer === undefined && parsed.version !== undefined) {
-							expVer = parsed.version;
-						}
-					}
-					if (!desc) {
+				if (desc === undefined && body.trimStart().startsWith("---")) {
+					const parsedMd = parseSkillMarkdown(body);
+					if (parsedMd.name && parsedMd.name !== slug) {
 						throw new ProtocolValidationError(
-							"Knowledge write requires a description (either in payload.description or YAML frontmatter)",
-							"invalid_knowledge",
+							`Skill frontmatter name '${parsedMd.name}' does not match path slug '${slug}'`,
+							"invalid_skill",
 						);
 					}
-					const updated = this.familyStore.files.updateKnowledge(botId, {
-						slug,
-						description: desc,
-						category: cat,
-						body,
-						expectedVersion: expVer ?? 0,
-					});
-					return {
-						path,
-						slug: updated.slug,
-						description: updated.description,
-						...(updated.category ? { category: updated.category } : {}),
-						version: updated.version,
-						body: updated.body,
-					};
+					desc = parsedMd.description;
+					cat = parsedMd.category;
+					body = parsedMd.body;
+					if (expVer === undefined && parsedMd.version !== undefined) {
+						expVer = parsedMd.version;
+					}
 				}
-				throw new ProtocolValidationError(
-					`Unsupported virtual file path '${path}'`,
-					"invalid_path",
-				);
+				if (!desc) {
+					throw new ProtocolValidationError(
+						"Skill write requires a description (either in payload.description or YAML frontmatter)",
+						"invalid_skill",
+					);
+				}
+				const updated = this.familyStore.files.updateSkill(botId, {
+					slug,
+					description: desc,
+					category: cat,
+					body,
+					expectedVersion: expVer ?? 0,
+				});
+				return {
+					path: parsed.canonicalPath,
+					slug: updated.slug,
+					description: updated.description,
+					...(updated.category ? { category: updated.category } : {}),
+					version: updated.version,
+					body: updated.body,
+				};
 			},
 			"file.delete": async (command) => {
 				const { botId, path, expectedVersion, version } = command.payload;
-				const kMatch = /^knowledge\/([a-z0-9-]+)\.md$/.exec(path);
-				if (!kMatch?.[1]) {
+				const parsed = parseVirtualPath(path);
+				if (parsed?.kind !== "skill") {
 					throw new ProtocolValidationError(
-						`Only knowledge/<slug>.md files can be deleted (got '${path}')`,
+						`Only /.cadmus/skills/<slug>/SKILL.md files can be deleted (got '${path}')`,
 						"invalid_path",
 					);
 				}
-				const slug = kMatch[1];
-				const existing = this.familyStore.files.getKnowledge(botId, slug);
+				const existing = this.familyStore.files.getSkill(botId, parsed.slug);
 				if (!existing) {
 					throw new ProtocolValidationError(
-						`Knowledge file '${path}' not found`,
+						`Skill file '${parsed.canonicalPath}' not found`,
 						"not_found",
 					);
 				}
-				this.familyStore.files.deleteKnowledge(
+				this.familyStore.files.deleteSkill(
 					botId,
-					slug,
+					parsed.slug,
 					expectedVersion ?? version ?? existing.version,
 				);
-				return { deleted: path };
+				return { deleted: parsed.canonicalPath };
 			},
-			"knowledge.search": async (command) => {
-				const results = this.familyStore.files.searchKnowledge(
+			"skill.search": async (command) => {
+				const results = this.familyStore.files.searchSkills(
 					command.payload.botId,
 					command.payload.query ?? "",
 					command.payload.category,
@@ -3034,22 +3050,22 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 		}
 		const soul = this.familyStore.files.getSoul(botId);
 		const memory = this.familyStore.files.getMemory(botId);
-		const knowledge = this.familyStore.files.listKnowledge(botId, category);
+		const skills = this.familyStore.files.listSkills(botId, category);
 		const files = [
 			{
-				path: "SOUL.md",
+				path: SOUL_VFS_PATH,
 				kind: "soul" as const,
 				size: new TextEncoder().encode(soul).byteLength,
 			},
 			{
-				path: "MEMORY.md",
+				path: MEMORY_VFS_PATH,
 				kind: "memory" as const,
 				version: memory.version,
 				size: new TextEncoder().encode(memory.content).byteLength,
 			},
-			...knowledge.map((doc) => ({
-				path: `knowledge/${doc.slug}.md`,
-				kind: "knowledge" as const,
+			...skills.map((doc) => ({
+				path: skillVfsPath(doc.slug),
+				kind: "skill" as const,
 				slug: doc.slug,
 				description: doc.description,
 				...(doc.category ? { category: doc.category } : {}),
@@ -3091,6 +3107,7 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 			? this.familyStore.tasks.openCount(chat.key) > 0
 			: false;
 		const provider = agent.model?.provider ?? extractModelProvider(bot.model);
+		const route = this.familyStore.chats.getConversationRoute(conversationId);
 		const actCtx: ExtensionActivationContext = {
 			bot,
 			chat,
@@ -3098,6 +3115,7 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 			isGroupSession: groupSession,
 			isGroupCaller,
 			isConsultMember,
+			isHarvest: route?.kind === "harvest",
 			hasActiveTasks,
 			provider,
 		};
@@ -3161,6 +3179,15 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 		const bot = this.familyStore.bots.getBot(botId);
 		if (!bot) return false;
 		return this.toolsEnvController.offerCodingTools(conversationId, bot);
+	}
+
+	private async workspaceEnvEnabled(
+		conversationId: number,
+		botId: string,
+	): Promise<boolean> {
+		const bot = this.familyStore.bots.getBot(botId);
+		if (!bot) return false;
+		return this.toolsEnvController.workspaceEnvEnabled(conversationId, bot);
 	}
 
 	private async codingToolAllowed(
@@ -3354,7 +3381,7 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 		toolsEnv?: ToolsEnvSetting | null;
 		timezone?: string;
 		metadata?: BotRecord["metadata"];
-		knowledge?: {
+		skills?: {
 			slug: string;
 			description: string;
 			category?: string;
@@ -3469,13 +3496,13 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 		if (input.memory !== undefined && input.memory !== "") {
 			this.familyStore.files.updateMemory(slug, input.memory, 0);
 		}
-		if (input.knowledge) {
-			for (const k of input.knowledge) {
-				this.familyStore.files.updateKnowledge(slug, {
-					slug: k.slug,
-					description: k.description,
-					category: k.category,
-					body: k.body,
+		if (input.skills) {
+			for (const s of input.skills) {
+				this.familyStore.files.updateSkill(slug, {
+					slug: s.slug,
+					description: s.description,
+					category: s.category,
+					body: s.body,
 					expectedVersion: 0,
 				});
 			}

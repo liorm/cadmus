@@ -714,36 +714,37 @@ export const BotCreateResultSchema = Type.Object(
 export type BotCreateResult = Static<typeof BotCreateResultSchema>;
 
 /**
- * Result returned by bot.get containing bot metadata, SOUL.md prompt, MEMORY.md content with version, and knowledge documents.
+ * Result returned by bot.get containing bot metadata, /.cadmus/SOUL.md prompt, /.cadmus/MEMORY.md content with version, and skills.
  */
 export const BotGetResultSchema = Type.Object(
 	{
 		bot: BotRecordSchema,
 		soul: Type.String({
 			description:
-				"Raw system prompt and personality instructions loaded from SOUL.md.",
+				"Raw system prompt and personality instructions loaded from /.cadmus/SOUL.md.",
 		}),
 		memory: Type.Object(
 			{
 				content: Type.String({
-					description: "Current markdown content of MEMORY.md.",
+					description: "Current markdown content of /.cadmus/MEMORY.md.",
 				}),
 				version: Type.Number({
 					description:
-						"Current version sequence number of MEMORY.md for optimistic concurrency control.",
+						"Current version sequence number of /.cadmus/MEMORY.md for optimistic concurrency control.",
 				}),
 			},
 			{ description: "Long-term memory file state and version." },
 		),
-		knowledge: Type.Array(
+		skills: Type.Array(
 			Type.Object(
 				{
 					slug: Type.String({
-						description: "Unique document slug / filename without extension.",
+						description:
+							"Unique skill slug used for /.cadmus/skills/<slug>/SKILL.md.",
 					}),
 					description: Type.String({
 						description:
-							"Document summary used by model tools to decide when to read this document.",
+							"Skill summary used by model tools to decide when to read this skill.",
 					}),
 					category: Type.Optional(
 						Type.String({
@@ -751,18 +752,16 @@ export const BotGetResultSchema = Type.Object(
 						}),
 					),
 					version: Type.Number({
-						description:
-							"Current version sequence number of the knowledge document.",
+						description: "Current version sequence number of the skill.",
 					}),
 					body: Type.String({
-						description: "Full markdown content body of the document.",
+						description: "Full markdown content body of the skill.",
 					}),
 				},
-				{ description: "Individual knowledge document record." },
+				{ description: "Individual skill record." },
 			),
 			{
-				description:
-					"List of all knowledge documents associated with this bot.",
+				description: "List of all skills associated with this bot.",
 			},
 		),
 		toolsEnvEnabled: Type.Optional(Type.Boolean()),
@@ -1133,13 +1132,13 @@ export type TurnInterruptResult = Static<typeof TurnInterruptResultSchema>;
 export type TurnAbortResult = TurnInterruptResult;
 
 /**
- * Summary metadata for a single virtual workspace file (SOUL.md, MEMORY.md, or knowledge document).
+ * Summary metadata for a single virtual file (/.cadmus/SOUL.md, /.cadmus/MEMORY.md, or /.cadmus/skills/<slug>/SKILL.md).
  */
 export const FileListItemSchema = Type.Object(
 	{
 		path: Type.String({
 			description:
-				"Virtual workspace file path (e.g. 'SOUL.md', 'MEMORY.md', 'knowledge/topic.md').",
+				"Virtual file path (e.g. '/.cadmus/SOUL.md', '/.cadmus/MEMORY.md', '/.cadmus/skills/topic/SKILL.md').",
 		}),
 		kind: Type.Union(
 			[
@@ -1149,13 +1148,13 @@ export const FileListItemSchema = Type.Object(
 				Type.Literal("memory", {
 					description: "Bot long-term memory file.",
 				}),
-				Type.Literal("knowledge", {
-					description: "Topic-specific knowledge base document.",
+				Type.Literal("skill", {
+					description: "Skill document (/.cadmus/skills/<slug>/SKILL.md).",
 				}),
 			],
 			{
 				description:
-					"File classification: 'soul' (SOUL.md), 'memory' (MEMORY.md), or 'knowledge' (knowledge doc).",
+					"File classification: 'soul' (/.cadmus/SOUL.md), 'memory' (/.cadmus/MEMORY.md), or 'skill' (/.cadmus/skills/<slug>/SKILL.md).",
 			},
 		),
 		size: Type.Number({
@@ -1169,23 +1168,22 @@ export const FileListItemSchema = Type.Object(
 		),
 		slug: Type.Optional(
 			Type.String({
-				description: "Document slug / identifier (for knowledge documents).",
+				description: "Skill slug / identifier (for skill files).",
 			}),
 		),
 		description: Type.Optional(
 			Type.String({
-				description: "Document summary description (for knowledge documents).",
+				description: "Skill summary description (for skill files).",
 			}),
 		),
 		category: Type.Optional(
 			Type.String({
-				description: "Optional categorization tag (for knowledge documents).",
+				description: "Optional categorization tag (for skill files).",
 			}),
 		),
 	},
 	{
-		description:
-			"Summary descriptor of a virtual workspace file belonging to a bot.",
+		description: "Summary descriptor of a virtual file belonging to a bot.",
 	},
 );
 export type FileListItem = Static<typeof FileListItemSchema>;
@@ -1197,12 +1195,12 @@ export const FileListResultSchema = Type.Object(
 	{
 		files: Type.Array(FileListItemSchema, {
 			description:
-				"List of virtual workspace files (SOUL.md, MEMORY.md, knowledge documents).",
+				"List of virtual files (/.cadmus/SOUL.md, /.cadmus/MEMORY.md, /.cadmus/skills/<slug>/SKILL.md).",
 		}),
 	},
 	{
 		description:
-			"Result payload returned by file.list containing virtual workspace files.",
+			"Result payload returned by file.list containing virtual files.",
 	},
 );
 export type FileListResult = Static<typeof FileListResultSchema>;
@@ -1213,7 +1211,7 @@ export type FileListResult = Static<typeof FileListResultSchema>;
 export const FileReadDocResultSchema = Type.Object(
 	{
 		path: Type.String({
-			description: "Virtual workspace file path.",
+			description: "Virtual file path.",
 		}),
 		content: Type.String({
 			description: "Full raw file content string.",
@@ -1227,29 +1225,28 @@ export const FileReadDocResultSchema = Type.Object(
 		}),
 		slug: Type.Optional(
 			Type.String({
-				description: "Document slug / identifier (for knowledge documents).",
+				description: "Skill slug / identifier (for skill files).",
 			}),
 		),
 		description: Type.Optional(
 			Type.String({
-				description: "Document summary description (for knowledge documents).",
+				description: "Skill summary description (for skill files).",
 			}),
 		),
 		category: Type.Optional(
 			Type.String({
-				description: "Optional categorization tag (for knowledge documents).",
+				description: "Optional categorization tag (for skill files).",
 			}),
 		),
 		body: Type.Optional(
 			Type.String({
 				description:
-					"Document markdown body without header metadata (for knowledge documents).",
+					"Skill markdown body without YAML frontmatter (for skill files).",
 			}),
 		),
 	},
 	{
-		description:
-			"Content and version metadata of a single virtual workspace file.",
+		description: "Content and version metadata of a single virtual file.",
 	},
 );
 export type FileReadDocResult = Static<typeof FileReadDocResultSchema>;
@@ -1282,7 +1279,7 @@ export const FileWriteResultSchema = Type.Union(
 		Type.Object(
 			{
 				path: Type.String({
-					description: "Virtual workspace file path that was written.",
+					description: "Virtual file path that was written.",
 				}),
 				version: Type.Number({
 					description: "New version sequence number assigned after the write.",
@@ -1294,25 +1291,22 @@ export const FileWriteResultSchema = Type.Union(
 				),
 				slug: Type.Optional(
 					Type.String({
-						description:
-							"Document slug / identifier (for knowledge documents).",
+						description: "Skill slug / identifier (for skill files).",
 					}),
 				),
 				description: Type.Optional(
 					Type.String({
-						description:
-							"Document summary description (for knowledge documents).",
+						description: "Skill summary description (for skill files).",
 					}),
 				),
 				category: Type.Optional(
 					Type.String({
-						description:
-							"Optional categorization tag (for knowledge documents).",
+						description: "Optional categorization tag (for skill files).",
 					}),
 				),
 				body: Type.Optional(
 					Type.String({
-						description: "Document markdown body (for knowledge documents).",
+						description: "Skill markdown body (for skill files).",
 					}),
 				),
 			},
@@ -1332,7 +1326,7 @@ export type FileWriteResult = Static<typeof FileWriteResultSchema>;
 export const FileDeleteResultSchema = Type.Object(
 	{
 		deleted: Type.String({
-			description: "Virtual workspace file path that was deleted.",
+			description: "Virtual file path that was deleted.",
 		}),
 	},
 	{
@@ -1343,15 +1337,15 @@ export const FileDeleteResultSchema = Type.Object(
 export type FileDeleteResult = Static<typeof FileDeleteResultSchema>;
 
 /**
- * Individual search result match from knowledge.search.
+ * Individual search result match from skill.search.
  */
-export const KnowledgeSearchResultSchema = Type.Object(
+export const SkillSearchResultSchema = Type.Object(
 	{
 		slug: Type.String({
-			description: "Knowledge document slug / identifier.",
+			description: "Skill slug / identifier.",
 		}),
 		description: Type.String({
-			description: "Document summary description.",
+			description: "Skill summary description.",
 		}),
 		category: Type.Optional(
 			Type.String({
@@ -1359,37 +1353,33 @@ export const KnowledgeSearchResultSchema = Type.Object(
 			}),
 		),
 		version: Type.Number({
-			description: "Current version sequence number of the document.",
+			description: "Current version sequence number of the skill.",
 		}),
 		snippet: Type.String({
-			description:
-				"Matching text excerpt from the document body or description.",
+			description: "Matching text excerpt from the skill body or description.",
 		}),
 	},
 	{
-		description:
-			"Individual knowledge document search match with snippet excerpt.",
+		description: "Individual skill search match with snippet excerpt.",
 	},
 );
-export type KnowledgeSearchResult = Static<typeof KnowledgeSearchResultSchema>;
+export type SkillSearchResult = Static<typeof SkillSearchResultSchema>;
 
 /**
- * Result returned by knowledge.search containing matched knowledge snippets.
+ * Result returned by skill.search containing matched skill snippets.
  */
-export const KnowledgeSearchResultsSchema = Type.Object(
+export const SkillSearchResultsSchema = Type.Object(
 	{
-		results: Type.Array(KnowledgeSearchResultSchema, {
-			description: "List of matching knowledge document excerpts.",
+		results: Type.Array(SkillSearchResultSchema, {
+			description: "List of matching skill excerpts.",
 		}),
 	},
 	{
 		description:
-			"Result payload returned by knowledge.search containing search matches.",
+			"Result payload returned by skill.search containing search matches.",
 	},
 );
-export type KnowledgeSearchResults = Static<
-	typeof KnowledgeSearchResultsSchema
->;
+export type SkillSearchResults = Static<typeof SkillSearchResultsSchema>;
 
 /**
  * Result returned by schedule.create containing the created schedule record.

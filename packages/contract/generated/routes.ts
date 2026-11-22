@@ -508,9 +508,9 @@ export const API_ROUTES = {
 		allow: "POST",
 		readOnly: false,
 	},
-	"knowledge.search": {
+	"skill.search": {
 		method: "GET",
-		path: "/api/knowledge/search",
+		path: "/api/skill/search",
 		allow: "GET, HEAD",
 		readOnly: true,
 	},

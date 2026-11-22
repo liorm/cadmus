@@ -703,9 +703,9 @@ function handleHarvestPrompt(context: TranscriptContext): AssistantMessage {
 		const fact = rememberMatch[1].trim();
 		return fauxAssistantMessage(
 			[
-				fauxToolCall("memory_update", {
+				fauxToolCall("write", {
+					path: "/.cadmus/MEMORY.md",
 					content: `- ${fact}\n`,
-					expectedVersion: 0,
 				}),
 			],
 			{ stopReason: "toolUse" },
@@ -718,12 +718,9 @@ function handleHarvestPrompt(context: TranscriptContext): AssistantMessage {
 		const body = learnMatch[2].trim();
 		return fauxAssistantMessage(
 			[
-				fauxToolCall("knowledge_update", {
-					slug,
-					description: `Learned note on ${slug}`,
-					category: "learned",
-					body,
-					expectedVersion: 0,
+				fauxToolCall("write", {
+					path: `/.cadmus/skills/${slug}/SKILL.md`,
+					content: `---\nname: ${slug}\ndescription: Learned note on ${slug}\ncategory: learned\n---\n\n${body}`,
 				}),
 			],
 			{ stopReason: "toolUse" },
@@ -736,12 +733,9 @@ function handleHarvestPrompt(context: TranscriptContext): AssistantMessage {
 		if (latest.trim()) {
 			return fauxAssistantMessage(
 				[
-					fauxToolCall("knowledge_update", {
-						slug: "session-notes",
-						description: "Notes harvested from conversation",
-						category: "harvest",
-						body: `Harvested summary: ${latest.trim()}\n`,
-						expectedVersion: 0,
+					fauxToolCall("write", {
+						path: "/.cadmus/skills/session-notes/SKILL.md",
+						content: `---\nname: session-notes\ndescription: Notes harvested from conversation\ncategory: harvest\n---\n\nHarvested summary: ${latest.trim()}\n`,
 					}),
 				],
 				{ stopReason: "toolUse" },

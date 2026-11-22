@@ -63,9 +63,9 @@ describe("default Cadmus tools plus coding tools", () => {
 		};
 		try {
 			const memory = await turn(
-				'[tool:memory_update {"content":"from-default","expectedVersion":0}]',
+				'[tool:write {"path":"/.cadmus/MEMORY.md","content":"from-default"}]',
 			);
-			expect(memory?.toolName).toBe("memory_update");
+			expect(memory?.toolName).toBe("write");
 			expect(memory?.isError).toBe(false);
 			const bashFirst = await turn('[tool:bash {"command":"echo coded"}]');
 			expect(bashFirst?.toolName).toBe("bash");
@@ -96,11 +96,14 @@ describe("default Cadmus tools plus coding tools", () => {
 				effectiveToolNames(DEFAULT_PLUS_CODING, { codingToolsOffered: true }),
 			);
 
-			const knowledge = await turn(
-				'[tool:knowledge_update {"slug":"note","description":"a note","body":"kept","expectedVersion":0}]',
+			const skill = await turn(
+				`[tool:write ${JSON.stringify({
+					path: "/.cadmus/skills/note/SKILL.md",
+					content: "---\nname: note\ndescription: a note\n---\n\nkept",
+				})}]`,
 			);
-			expect(knowledge?.toolName).toBe("knowledge_update");
-			expect(knowledge?.isError).toBe(false);
+			expect(skill?.toolName).toBe("write");
+			expect(skill?.isError).toBe(false);
 			const bash = await turn('[tool:bash {"command":"echo coded"}]');
 			expect(bash?.toolName).toBe("bash");
 			expect(bash?.isError).toBe(false);
@@ -126,8 +129,10 @@ describe("default Cadmus tools plus coding tools", () => {
 				effectiveToolNames(undefined, { codingToolsOffered: true }),
 			);
 
-			const memoryAgain = await turn("[tool:memory_read {}]");
-			expect(memoryAgain?.toolName).toBe("memory_read");
+			const memoryAgain = await turn(
+				'[tool:read {"path":"/.cadmus/MEMORY.md"}]',
+			);
+			expect(memoryAgain?.toolName).toBe("read");
 			expect(memoryAgain?.isError).toBe(false);
 			const bashAgain = await turn('[tool:bash {"command":"echo again"}]');
 			expect(bashAgain?.toolName).toBe("bash");
@@ -139,16 +144,16 @@ describe("default Cadmus tools plus coding tools", () => {
 
 		const memoryFile = await sendRpc<{ content: string }>(
 			"file.read",
-			{ botId: "assistant", path: "MEMORY.md" },
+			{ botId: "assistant", path: "/.cadmus/MEMORY.md" },
 			options,
 		);
 		expect(memoryFile.frame.result?.content).toBe("from-default");
-		const knowledgeFile = await sendRpc<{ content: string }>(
+		const skillFile = await sendRpc<{ content: string }>(
 			"file.read",
-			{ botId: "assistant", path: "knowledge/note.md" },
+			{ botId: "assistant", path: "/.cadmus/skills/note/SKILL.md" },
 			options,
 		);
-		expect(knowledgeFile.frame.result?.content).toContain("kept");
+		expect(skillFile.frame.result?.content).toContain("kept");
 	});
 
 	it("create_bot with only coding tools keeps the default Cadmus tools", async () => {
@@ -198,13 +203,13 @@ describe("default Cadmus tools plus coding tools", () => {
 			coder.events.length = 0;
 			const memory = await coder.send("turn.submit", {
 				chatKey: "coder-chat",
-				text: '[tool:memory_update {"content":"from-create-bot","expectedVersion":0}]',
+				text: '[tool:write {"path":"/.cadmus/MEMORY.md","content":"from-create-bot"}]',
 			});
 			expect(memory.ok).toBe(true);
 			const memoryResult = toolResults(coder.events)[0]?.payload as
 				| { toolName?: string; isError?: boolean }
 				| undefined;
-			expect(memoryResult?.toolName).toBe("memory_update");
+			expect(memoryResult?.toolName).toBe("write");
 			expect(memoryResult?.isError).toBe(false);
 
 			coder.events.length = 0;

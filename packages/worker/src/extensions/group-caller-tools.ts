@@ -7,7 +7,7 @@ import {
 import { Type } from "typebox";
 import { requireCadmusServices } from "../context.js";
 import type { CadmusExtensionDescriptor } from "./cadmus-tools.js";
-import { resolveBotScope, toolError, toolText } from "./knowledge-tools.js";
+import { resolveBotScope, toolError, toolText } from "./file-tools.js";
 
 export const GROUP_CALLER_PROMPT = `CRITICAL - YOU ARE IN AN AUTOMATED SUB-CONVERSATION WITH PEER BOTS:
 - The human user is NOT in this conversation. All incoming messages are from peer bots.

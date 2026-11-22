@@ -64,10 +64,10 @@ function capturesFor(sink: ProviderToolCapture[], botId: string): string[][] {
 		.map((entry) => entry.tools);
 }
 
-const READS = ["knowledge_read", "memory_read"];
+const READS = ["read"];
 
 describe("message_bot readOnly", () => {
-	it("returns a knowledge fact through end_conversation in a user read-only group chat", async () => {
+	it("returns a skill fact through end_conversation in a user read-only group chat", async () => {
 		const scope = {
 			accountId: uniqueAccountId("ro-fact"),
 			familyId: "default",
@@ -84,7 +84,7 @@ describe("message_bot readOnly", () => {
 				name: "b",
 				model: "faux/echo",
 				memory: "- origin memory\n",
-				knowledge: [
+				skills: [
 					{
 						slug: "spice",
 						description: "pantry spice",
@@ -107,7 +107,7 @@ describe("message_bot readOnly", () => {
 						botId: "b",
 						topic: "spice",
 						readOnly: true,
-						text: '[[consult]] [tool:knowledge_read {"slug":"spice"}]',
+						text: '[[consult]] [tool:read {"path":"/.cadmus/skills/spice/SKILL.md"}]',
 					})}]`,
 				},
 				scope,
@@ -160,15 +160,15 @@ describe("message_bot readOnly", () => {
 			clearProviderToolCapture();
 		}
 
-		const knowledge = await sendRpc<{ content?: string; version?: number }>(
+		const skill = await sendRpc<{ content?: string; version?: number }>(
 			"file.read",
-			{ botId: "b", path: "knowledge/spice.md" },
+			{ botId: "b", path: "/.cadmus/skills/spice/SKILL.md" },
 			scope,
 		);
-		expect(knowledge.frame.result?.content).toContain("cinnamon");
+		expect(skill.frame.result?.content).toContain("cinnamon");
 		const memory = await sendRpc<{ content?: string }>(
 			"file.read",
-			{ botId: "b", path: "MEMORY.md" },
+			{ botId: "b", path: "/.cadmus/MEMORY.md" },
 			scope,
 		);
 		expect(memory.frame.result?.content).toContain("origin memory");
@@ -191,7 +191,7 @@ describe("message_bot readOnly", () => {
 				name: "b",
 				model: "faux/echo",
 				memory: "- stay\n",
-				knowledge: [
+				skills: [
 					{
 						slug: "spice",
 						description: "pantry spice",
@@ -214,8 +214,9 @@ describe("message_bot readOnly", () => {
 			.sort();
 
 		const forged = [
-			'[tool:knowledge_update {"slug":"spice","description":"x","body":"changed","expectedVersion":1}]',
-			'[tool:memory_update {"content":"- changed\\n","expectedVersion":1}]',
+			'[tool:write {"path":"/.cadmus/skills/spice/SKILL.md","content":"---\\nname: spice\\ndescription: x\\n---\\n\\nchanged"}]',
+			'[tool:write {"path":"/.cadmus/MEMORY.md","content":"- changed\\n"}]',
+			'[tool:read {"path":"README.md"}]',
 			'[tool:schedule_create {"kind":"absolute","input":"2099-01-01T00:00:00Z","text":"go"}]',
 			'[tool:message_bot {"botId":"a","topic":"side","text":"hi"}]',
 			'[tool:create_bot {"name":"c"}]',
@@ -238,16 +239,16 @@ describe("message_bot readOnly", () => {
 		expect(turn.frame.result?.reply).toContain("This group chat is read-only");
 		expect(turn.frame.result?.reply).toContain('"status":"ended"');
 
-		const knowledge = await sendRpc<{ content?: string }>(
+		const skill = await sendRpc<{ content?: string }>(
 			"file.read",
-			{ botId: "b", path: "knowledge/spice.md" },
+			{ botId: "b", path: "/.cadmus/skills/spice/SKILL.md" },
 			scope,
 		);
-		expect(knowledge.frame.result?.content).toContain("cinnamon");
-		expect(knowledge.frame.result?.content).not.toContain("changed");
+		expect(skill.frame.result?.content).toContain("cinnamon");
+		expect(skill.frame.result?.content).not.toContain("changed");
 		const memory = await sendRpc<{ content?: string }>(
 			"file.read",
-			{ botId: "b", path: "MEMORY.md" },
+			{ botId: "b", path: "/.cadmus/MEMORY.md" },
 			scope,
 		);
 		expect(memory.frame.result?.content).toContain("stay");
@@ -440,10 +441,10 @@ describe("message_bot readOnly", () => {
 			expect(offered.length).toBeGreaterThan(0);
 			for (const tools of offered) {
 				for (const name of [
-					"knowledge_read",
-					"knowledge_update",
-					"memory_read",
-					"memory_update",
+					"read",
+					"write",
+					"edit",
+					"delete",
 					"schedule_create",
 					"message_bot",
 					"create_bot",

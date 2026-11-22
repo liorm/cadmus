@@ -174,7 +174,7 @@ const docRoute = createRoute({
 	getParentRoute: () => rootRoute,
 	path: "/bot/$botId/doc",
 	validateSearch: (search: Record<string, unknown>): { path: string } => ({
-		path: typeof search.path === "string" ? search.path : "MEMORY.md",
+		path: typeof search.path === "string" ? search.path : "/.cadmus/MEMORY.md",
 	}),
 	component: function DocRoutePage() {
 		const { botId } = docRoute.useParams();

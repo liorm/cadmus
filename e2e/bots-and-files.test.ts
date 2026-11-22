@@ -7,14 +7,14 @@ import {
 	useWorkerFixture,
 } from "./helpers.js";
 
-describe("Bots, Virtual Files (SOUL.md, MEMORY.md, knowledge/<slug>.md), CAS & Tool Gate", () => {
+describe("Bots, Virtual Files (/.cadmus/SOUL.md, /.cadmus/MEMORY.md, /.cadmus/skills/<slug>/SKILL.md), CAS & Tool Gate", () => {
 	useWorkerFixture();
 
-	it("manages bot lifecycle and enforces CAS, size limits, and frontmatter rules on MEMORY.md and knowledge/<slug>.md", async () => {
+	it("manages bot lifecycle and enforces CAS, size limits, and frontmatter rules on /.cadmus/MEMORY.md and /.cadmus/skills/<slug>/SKILL.md", async () => {
 		const scope = await adminScope("default");
 
-		// 1. Create bot with initial soul, memory, and knowledge
-		const createRes = await sendRpc(
+		// 1. Create bot with initial soul, memory, and skills
+		const createRes = await sendRpc<{ bot: { id: string } }>(
 			"bot.create",
 			{
 				slug: "scribe",
@@ -23,7 +23,7 @@ describe("Bots, Virtual Files (SOUL.md, MEMORY.md, knowledge/<slug>.md), CAS & T
 				thinking: "off",
 				soul: "You are Scribe, keeper of records.",
 				memory: "- Prefer concise bullet points.",
-				knowledge: [
+				skills: [
 					{
 						slug: "architecture",
 						description: "Cloudflare DO + D1 architecture overview",
@@ -37,17 +37,17 @@ describe("Bots, Virtual Files (SOUL.md, MEMORY.md, knowledge/<slug>.md), CAS & T
 		expect(createRes.status).toBe(200);
 		expect(createRes.frame.result?.bot.id).toBe("scribe");
 
-		// 2. Read SOUL.md, MEMORY.md, and knowledge/architecture.md
+		// 2. Read /.cadmus/SOUL.md, /.cadmus/MEMORY.md, and /.cadmus/skills/architecture/SKILL.md
 		const soulRead = await sendRpc<{ content: string }>(
 			"file.read",
-			{ botId: "scribe", path: "SOUL.md" },
+			{ botId: "scribe", path: "/.cadmus/SOUL.md" },
 			scope,
 		);
 		expect(soulRead.frame.result?.content).toContain("keeper of records");
 
 		const memRead = await sendRpc<{ content: string; version: number }>(
 			"file.read",
-			{ botId: "scribe", path: "MEMORY.md" },
+			{ botId: "scribe", path: "/.cadmus/MEMORY.md" },
 			scope,
 		);
 		expect(memRead.frame.result?.version).toBe(1);
@@ -62,19 +62,19 @@ describe("Bots, Virtual Files (SOUL.md, MEMORY.md, knowledge/<slug>.md), CAS & T
 			body: string;
 		}>(
 			"file.read",
-			{ botId: "scribe", path: "knowledge/architecture.md" },
+			{ botId: "scribe", path: "/.cadmus/skills/architecture/SKILL.md" },
 			scope,
 		);
 		expect(kRead.frame.result?.version).toBe(1);
 		expect(kRead.frame.result?.category).toBe("design");
 		expect(kRead.frame.result?.body).toContain("# Cadmus V2");
 
-		// 3. Enforce CAS on MEMORY.md: stale expectedVersion (0 instead of 1) must fail with cas_conflict
+		// 3. Enforce CAS on /.cadmus/MEMORY.md: stale expectedVersion (0 instead of 1) must fail with cas_conflict
 		const staleMem = await sendRpc(
 			"file.write",
 			{
 				botId: "scribe",
-				path: "MEMORY.md",
+				path: "/.cadmus/MEMORY.md",
 				content: "Stale write",
 				expectedVersion: 0,
 			},
@@ -89,7 +89,7 @@ describe("Bots, Virtual Files (SOUL.md, MEMORY.md, knowledge/<slug>.md), CAS & T
 			"file.write",
 			{
 				botId: "scribe",
-				path: "MEMORY.md",
+				path: "/.cadmus/MEMORY.md",
 				content: "- Updated standing memory",
 				expectedVersion: 1,
 			},
@@ -98,12 +98,12 @@ describe("Bots, Virtual Files (SOUL.md, MEMORY.md, knowledge/<slug>.md), CAS & T
 		expect(goodMem.status).toBe(200);
 		expect(goodMem.frame.result?.version).toBe(2);
 
-		// 5. Reject MEMORY.md > 8192 bytes or starting with ---
+		// 5. Reject /.cadmus/MEMORY.md > 8192 bytes or starting with ---
 		const frontmatterMem = await sendRpc(
 			"file.write",
 			{
 				botId: "scribe",
-				path: "MEMORY.md",
+				path: "/.cadmus/MEMORY.md",
 				content: "---\ntitle: bad\n---\nbody",
 				expectedVersion: 2,
 			},
@@ -115,7 +115,7 @@ describe("Bots, Virtual Files (SOUL.md, MEMORY.md, knowledge/<slug>.md), CAS & T
 			"file.write",
 			{
 				botId: "scribe",
-				path: "MEMORY.md",
+				path: "/.cadmus/MEMORY.md",
 				content: "x".repeat(8200),
 				expectedVersion: 2,
 			},
@@ -123,12 +123,12 @@ describe("Bots, Virtual Files (SOUL.md, MEMORY.md, knowledge/<slug>.md), CAS & T
 		);
 		expect(hugeMem.status).toBe(400);
 
-		// 6. Enforce CAS on knowledge/architecture.md
+		// 6. Enforce CAS on /.cadmus/skills/architecture/SKILL.md
 		const staleKnow = await sendRpc(
 			"file.write",
 			{
 				botId: "scribe",
-				path: "knowledge/architecture.md",
+				path: "/.cadmus/skills/architecture/SKILL.md",
 				description: "Updated desc",
 				body: "New body",
 				expectedVersion: 0,
@@ -142,7 +142,7 @@ describe("Bots, Virtual Files (SOUL.md, MEMORY.md, knowledge/<slug>.md), CAS & T
 			"file.write",
 			{
 				botId: "scribe",
-				path: "knowledge/architecture.md",
+				path: "/.cadmus/skills/architecture/SKILL.md",
 				description: "Updated architecture overview",
 				category: "design",
 				body: "# Cadmus V2\nUpdated body with Durable Objects.",
@@ -153,11 +153,11 @@ describe("Bots, Virtual Files (SOUL.md, MEMORY.md, knowledge/<slug>.md), CAS & T
 		expect(goodKnow.status).toBe(200);
 		expect(goodKnow.frame.result?.version).toBe(2);
 
-		// 7. Search knowledge
+		// 7. Search skills
 		const searchRes = await sendRpc<{
 			results: { slug: string; version: number; snippet: string }[];
 		}>(
-			"knowledge.search",
+			"skill.search",
 			{ botId: "scribe", query: "Durable Objects", category: "design" },
 			scope,
 		);
@@ -166,17 +166,18 @@ describe("Bots, Virtual Files (SOUL.md, MEMORY.md, knowledge/<slug>.md), CAS & T
 		expect(searchRes.frame.result?.results[0]?.slug).toBe("architecture");
 	});
 
-	it("executes knowledge and memory tools during a turn and enforces per-bot tool-gate policy", async () => {
+	it("executes VFS read/write/edit/delete on /.cadmus/* without tools-env, blocks SOUL.md writes, errors on workspace paths, and enforces bot.tools", async () => {
 		const scope = await adminScope("default");
 
-		// Create a bot restricted to ONLY `memory_read` (disallowing `memory_update`)
+		// Create a bot restricted to ONLY `read` (disallowing `write`, `edit`, `delete`)
 		await sendRpc(
 			"bot.create",
 			{
 				slug: "reader-only",
 				name: "Reader Only",
 				model: "faux/echo",
-				tools: ["memory_read"],
+				tools: ["read"],
+				toolsEnv: { enabled: false },
 			},
 			scope,
 		);
@@ -188,56 +189,154 @@ describe("Bots, Virtual Files (SOUL.md, MEMORY.md, knowledge/<slug>.md), CAS & T
 		);
 		expect(chatRes.status).toBe(200);
 
-		// Attempt to call `memory_update` via tool directive: tool-gate must block it!
+		// Attempt to call `write` via tool directive: tool-gate must block it!
 		const blockedTurn = await sendRpc<{ reply: string }>(
 			"turn.submit",
 			{
 				chatKey: "reader-chat",
-				text: 'Try updating memory [tool:memory_update {"content":"secret","expectedVersion":0}]',
+				text: 'Try updating memory [tool:write {"path":"/.cadmus/MEMORY.md","content":"secret"}]',
 			},
 			scope,
 		);
 		expect(blockedTurn.status).toBe(200);
 		expect(blockedTurn.frame.result?.reply).toContain(
-			"Tool memory_update is not available",
+			"Tool write is not available",
 		);
 
-		// Verify MEMORY.md was not modified (still version 0)
+		// Verify /.cadmus/MEMORY.md was not modified (still version 0)
 		const memAfterBlocked = await sendRpc<{ version: number; content: string }>(
 			"file.read",
-			{ botId: "reader-only", path: "MEMORY.md" },
+			{ botId: "reader-only", path: "/.cadmus/MEMORY.md" },
 			scope,
 		);
 		expect(memAfterBlocked.frame.result?.version).toBe(0);
 
-		// Now enable `memory_update` via `bot.update` and re-run
+		// Now enable `read`, `write`, `edit`, `delete` via `bot.update` (still NO tools-env!)
 		await sendRpc(
 			"bot.update",
 			{
 				botId: "reader-only",
-				tools: ["memory_read", "memory_update"],
+				tools: ["read", "write", "edit", "delete"],
 			},
 			scope,
 		);
 
-		const allowedTurn = await sendRpc<{ reply: string }>(
+		// 1. Write /.cadmus/MEMORY.md
+		const writeMemTurn = await sendRpc<{ reply: string }>(
 			"turn.submit",
 			{
 				chatKey: "reader-chat",
-				text: 'Now update memory [tool:memory_update {"content":"Allowed memory line","expectedVersion":0}]',
+				text: 'Write memory [tool:write {"path":"/.cadmus/MEMORY.md","content":"Allowed memory line\\nSecond line"}]',
 			},
 			scope,
 		);
-		expect(allowedTurn.status).toBe(200);
-		expect(allowedTurn.frame.result?.reply).toContain('"version":1');
+		expect(writeMemTurn.status).toBe(200);
+		expect(writeMemTurn.frame.result?.reply).toContain(
+			"Successfully wrote to /.cadmus/MEMORY.md",
+		);
 
-		const memAfterAllowed = await sendRpc<{ version: number; content: string }>(
-			"file.read",
-			{ botId: "reader-only", path: "MEMORY.md" },
+		// 2. Surgically edit /.cadmus/MEMORY.md
+		const editMemTurn = await sendRpc<{ reply: string }>(
+			"turn.submit",
+			{
+				chatKey: "reader-chat",
+				text: 'Edit memory [tool:edit {"path":"/.cadmus/MEMORY.md","edits":[{"oldText":"Second line","newText":"Edited second line"}]}]',
+			},
 			scope,
 		);
-		expect(memAfterAllowed.frame.result?.version).toBe(1);
-		expect(memAfterAllowed.frame.result?.content).toBe("Allowed memory line");
+		expect(editMemTurn.status).toBe(200);
+		expect(editMemTurn.frame.result?.reply).toContain("Successfully replaced");
+
+		const memAfterEdit = await sendRpc<{ version: number; content: string }>(
+			"file.read",
+			{ botId: "reader-only", path: "/.cadmus/MEMORY.md" },
+			scope,
+		);
+		expect(memAfterEdit.frame.result?.version).toBe(2);
+		expect(memAfterEdit.frame.result?.content).toBe(
+			"Allowed memory line\nEdited second line",
+		);
+
+		// 3. Write, read, edit, and delete a skill at /.cadmus/skills/deploy/SKILL.md
+		const writeSkill = await sendRpc<{ reply: string }>(
+			"turn.submit",
+			{
+				chatKey: "reader-chat",
+				text: `Create skill [tool:write ${JSON.stringify({
+					path: "/.cadmus/skills/deploy/SKILL.md",
+					content:
+						"---\nname: deploy\ndescription: How to deploy\ncategory: ops\n---\n\nRun bun run deploy.\n",
+				})}]`,
+			},
+			scope,
+		);
+		expect(writeSkill.frame.result?.reply).toContain(
+			"Successfully wrote to /.cadmus/skills/deploy/SKILL.md",
+		);
+
+		const readSkill = await sendRpc<{ reply: string }>(
+			"turn.submit",
+			{
+				chatKey: "reader-chat",
+				text: 'Read skill [tool:read {"path":"/.cadmus/skills/deploy/SKILL.md"}]',
+			},
+			scope,
+		);
+		expect(readSkill.frame.result?.reply).toContain("Run bun run deploy.");
+
+		const editSkill = await sendRpc<{ reply: string }>(
+			"turn.submit",
+			{
+				chatKey: "reader-chat",
+				text: `Edit skill [tool:edit ${JSON.stringify({
+					path: "/.cadmus/skills/deploy/SKILL.md",
+					edits: [
+						{
+							oldText: "Run bun run deploy.",
+							newText: "Run bun run check:all && bun run deploy.",
+						},
+					],
+				})}]`,
+			},
+			scope,
+		);
+		expect(editSkill.frame.result?.reply).toContain("Successfully replaced");
+
+		const deleteSkill = await sendRpc<{ reply: string }>(
+			"turn.submit",
+			{
+				chatKey: "reader-chat",
+				text: 'Delete skill [tool:delete {"path":"/.cadmus/skills/deploy/SKILL.md"}]',
+			},
+			scope,
+		);
+		expect(deleteSkill.frame.result?.reply).toContain(
+			"Successfully deleted /.cadmus/skills/deploy/SKILL.md",
+		);
+
+		// 4. /.cadmus/SOUL.md is read-only for LLM tools
+		const writeSoul = await sendRpc<{ reply: string }>(
+			"turn.submit",
+			{
+				chatKey: "reader-chat",
+				text: 'Write soul [tool:write {"path":"/.cadmus/SOUL.md","content":"hijacked"}]',
+			},
+			scope,
+		);
+		expect(writeSoul.frame.result?.reply).toContain("read-only");
+
+		// 5. Non-/.cadmus/ workspace path errors cleanly when no tools-env is enabled
+		const workspaceRead = await sendRpc<{ reply: string }>(
+			"turn.submit",
+			{
+				chatKey: "reader-chat",
+				text: 'Read workspace [tool:read {"path":"README.md"}]',
+			},
+			scope,
+		);
+		expect(workspaceRead.frame.result?.reply).toContain(
+			"No workspace tools environment is enabled",
+		);
 	});
 
 	it("cascade-deletes chats and schedules on bot.delete so a recreated bot with the same slug starts clean", async () => {

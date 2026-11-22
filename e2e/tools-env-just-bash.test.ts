@@ -462,7 +462,7 @@ describe("just-bash tools env through the bot", () => {
 				slug: "memory-only",
 				name: "Memory",
 				model: "faux/echo",
-				tools: ["memory_read"],
+				tools: ["read"],
 			},
 			options,
 		);
@@ -969,7 +969,7 @@ describe("just-bash tools env through the bot", () => {
 
 	it("clears bot.tools on null, leaves them unchanged when omitted, and replaces them with a list or []", async () => {
 		const options = await scope("tools-update");
-		const allowlist = ["memory_read", "memory_update", ...CODING_TOOLS];
+		const allowlist = ["read", "write", ...CODING_TOOLS];
 		await sendRpc("family.update", { harvestDelayMs: 0 }, options);
 		await sendRpc(
 			"bot.create",
@@ -1023,7 +1023,7 @@ describe("just-bash tools env through the bot", () => {
 				(
 					await turn(
 						"main",
-						'[tool:memory_update {"content":"kept","expectedVersion":0}]',
+						'[tool:write {"path":"/.cadmus/MEMORY.md","content":"kept"}]',
 					)
 				)?.isError,
 			).toBe(false);
@@ -1046,16 +1046,20 @@ describe("just-bash tools env through the bot", () => {
 			}>("chat.status", { chatKey: "main" }, options);
 			expect(defaultStatus.frame.result?.status.tools).toEqual([
 				...DEFAULT_CADMUS_TOOL_NAMES.filter((name) => name !== "code.execute"),
-				...CODING_TOOLS,
+				"bash",
 			]);
-			expect((await turn("main", "[tool:memory_read {}]"))?.isError).toBe(
-				false,
-			);
-			const restoredKnowledge = await turn(
+			expect(
+				(await turn("main", '[tool:read {"path":"/.cadmus/MEMORY.md"}]'))
+					?.isError,
+			).toBe(false);
+			const restoredSkill = await turn(
 				"main",
-				'[tool:knowledge_update {"slug":"restored","description":"back","body":"default","expectedVersion":0}]',
+				`[tool:write ${JSON.stringify({
+					path: "/.cadmus/skills/restored/SKILL.md",
+					content: "---\nname: restored\ndescription: back\n---\n\ndefault",
+				})}]`,
 			);
-			expect(restoredKnowledge?.isError).toBe(false);
+			expect(restoredSkill?.isError).toBe(false);
 			expect(
 				(await turn("main", '[tool:bash {"command":"echo default"}]'))?.isError,
 			).toBe(false);
@@ -1069,24 +1073,25 @@ describe("just-bash tools env through the bot", () => {
 
 			const replaced = await sendRpc<{ bot: { tools?: string[] } }>(
 				"bot.update",
-				{ botId: "assistant", tools: ["memory_read"] },
+				{ botId: "assistant", tools: ["read"] },
 				options,
 			);
 			expect(replaced.frame.ok).toBe(true);
-			expect(replaced.frame.result?.bot.tools).toEqual(["memory_read"]);
+			expect(replaced.frame.result?.bot.tools).toEqual(["read"]);
 			expectBlocked(
 				await turn(
 					"main",
-					'[tool:memory_update {"content":"nope","expectedVersion":1}]',
+					'[tool:write {"path":"/.cadmus/MEMORY.md","content":"nope"}]',
 				),
 			);
 			expectBlocked(await turn("main", '[tool:bash {"command":"echo no"}]'));
-			expect((await turn("main", "[tool:memory_read {}]"))?.isError).toBe(
-				false,
-			);
+			expect(
+				(await turn("main", '[tool:read {"path":"/.cadmus/MEMORY.md"}]'))
+					?.isError,
+			).toBe(false);
 			const memory = await sendRpc<{ version: number; content: string }>(
 				"file.read",
-				{ botId: "assistant", path: "MEMORY.md" },
+				{ botId: "assistant", path: "/.cadmus/MEMORY.md" },
 				options,
 			);
 			expect(memory.frame.result?.version).toBe(1);
@@ -1105,17 +1110,21 @@ describe("just-bash tools env through the bot", () => {
 				options,
 			);
 			expect(afterClear.frame.result?.bot.tools).toEqual([]);
-			expectBlocked(await turn("main", "[tool:memory_read {}]"));
+			expectBlocked(
+				await turn("main", '[tool:read {"path":"/.cadmus/MEMORY.md"}]'),
+			);
 			expectBlocked(await turn("main", '[tool:bash {"command":"echo no"}]'));
-			expectBlocked(await turn("empty", "[tool:memory_read {}]"));
+			expectBlocked(
+				await turn("empty", '[tool:read {"path":"/.cadmus/MEMORY.md"}]'),
+			);
 			expectBlocked(await turn("empty", '[tool:bash {"command":"echo no"}]'));
 		} finally {
 			ws.close();
 		}
 	});
 
-	it("blocks coding tools from writing, editing, or reading virtual files like memory.md", async () => {
-		const options = await scope("virtual-block");
+	it("routes /.cadmus/* to BotFileStore while forwarding workspace files (even memory.md) to tools-env", async () => {
+		const options = await scope("virtual-routing");
 		await sendRpc("family.update", { harvestDelayMs: 0 }, options);
 		await sendRpc(
 			"account.toolsEnvs.update",
@@ -1128,7 +1137,7 @@ describe("just-bash tools env through the bot", () => {
 				slug: "assistant",
 				name: "Assistant",
 				model: "faux/echo",
-				tools: [...CODING_TOOLS, "memory_update", "memory_read"],
+				tools: [...CODING_TOOLS, "read", "write", "edit", "delete"],
 				toolsEnv: { enabled: true, binding: { envId: "jb_default" } },
 			},
 			options,
@@ -1150,25 +1159,44 @@ describe("just-bash tools env through the bot", () => {
 				return payload;
 			};
 
-			const blockedWrite = await turn(
-				'Save this [tool:write {"path":"memory.md","content":"hello"}]',
+			// Workspace file named memory.md goes to tools-env, not BotFileStore
+			const wsWrite = await turn(
+				'Save workspace file [tool:write {"path":"memory.md","content":"workspace hello"}]',
 			);
-			expect(blockedWrite?.isError).toBe(true);
-			expect(blockedWrite?.content ?? "").toContain("virtual entity");
-			expect(blockedWrite?.content ?? "").toContain("memory_update");
+			expect(wsWrite?.isError).toBe(false);
 
-			const blockedEdit = await turn(
-				'Edit this [tool:edit {"path":"MEMORY.md","edits":[{"oldText":"a","newText":"b"}]}]',
+			const wsRead = await turn(
+				'Read workspace [tool:read {"path":"memory.md"}]',
 			);
-			expect(blockedEdit?.isError).toBe(true);
-			expect(blockedEdit?.content ?? "").toContain("virtual entity");
+			expect(wsRead?.isError).toBe(false);
+			expect(wsRead?.content ?? "").toContain("workspace hello");
 
-			const blockedKnowledge = await turn(
-				'Edit knowledge [tool:write {"path":"knowledge/test.md","content":"body"}]',
+			// BotFileStore /.cadmus/MEMORY.md is still untouched (version 0)
+			const virtualMemBefore = await sendRpc<{ version: number }>(
+				"file.read",
+				{ botId: "assistant", path: "/.cadmus/MEMORY.md" },
+				options,
 			);
-			expect(blockedKnowledge?.isError).toBe(true);
-			expect(blockedKnowledge?.content ?? "").toContain("virtual entity");
-			expect(blockedKnowledge?.content ?? "").toContain("knowledge_update");
+			expect(virtualMemBefore.frame.result?.version).toBe(0);
+
+			// Writing /.cadmus/MEMORY.md goes to BotFileStore
+			const vfsWrite = await turn(
+				'Save virtual memory [tool:write {"path":"/.cadmus/MEMORY.md","content":"virtual hello"}]',
+			);
+			expect(vfsWrite?.isError).toBe(false);
+
+			// Deleting workspace file works via delete tool when tools-env is enabled
+			const wsDelete = await turn(
+				'Delete workspace file [tool:delete {"path":"memory.md"}]',
+			);
+			expect(wsDelete?.isError).toBe(false);
+
+			// /.cadmus/SOUL.md remains read-only for LLM tools
+			const blockedSoul = await turn(
+				'Edit soul [tool:write {"path":"/.cadmus/SOUL.md","content":"hacked"}]',
+			);
+			expect(blockedSoul?.isError).toBe(true);
+			expect(blockedSoul?.content ?? "").toContain("read-only");
 		} finally {
 			ws.close();
 		}

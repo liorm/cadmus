@@ -18,14 +18,7 @@ import {
 } from "./helpers.js";
 import { ScriptedDaemon } from "./scripted-daemon.js";
 
-const CODING_TOOLS = [
-	"bash",
-	"read",
-	"write",
-	"edit",
-	"memory_update",
-	"knowledge_update",
-];
+const CODING_TOOLS = ["bash", "read", "write", "edit", "delete"];
 
 function scope(
 	label: string,
@@ -281,18 +274,16 @@ describe("daemon websocket DO internals (generation, alarms, fork routes, heartb
 			options,
 		);
 		expect(JSON.stringify(hello.frame.result)).toContain("Hello");
-		const memory = await toolTurn(options, "main", "memory_update", {
+		const memory = await toolTurn(options, "main", "write", {
+			path: "/.cadmus/MEMORY.md",
 			content: "kept",
-			expectedVersion: 0,
 		});
 		expect(memory.payload?.isError).toBe(false);
-		const knowledge = await toolTurn(options, "main", "knowledge_update", {
-			slug: "note",
-			description: "A note",
-			body: "body",
-			expectedVersion: 0,
+		const skill = await toolTurn(options, "main", "write", {
+			path: "/.cadmus/skills/note/SKILL.md",
+			content: "---\nname: note\ndescription: A note\n---\n\nbody",
 		});
-		expect(knowledge.payload?.isError).toBe(false);
+		expect(skill.payload?.isError).toBe(false);
 		const scheduled = await sendRpc(
 			"schedule.create",
 			{

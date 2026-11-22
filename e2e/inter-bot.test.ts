@@ -37,12 +37,12 @@ describe("Inter-Bot Co-Location Tools (create_bot, search_bot, message_bot)", ()
 
 			const seeded = await wsClient.send<{ reply: string }>("turn.submit", {
 				chatKey: "coord-chat",
-				text: `Seed a peer with its own knowledge [tool:create_bot ${JSON.stringify(
+				text: `Seed a peer with its own skills [tool:create_bot ${JSON.stringify(
 					{
 						slug: "ha",
 						name: "HA",
 						soul: "Home assistant host.",
-						knowledge: [
+						skills: [
 							{
 								slug: "host",
 								description: "Host notes",
@@ -56,15 +56,15 @@ describe("Inter-Bot Co-Location Tools (create_bot, search_bot, message_bot)", ()
 			expect(seeded.result?.reply).toContain('"id":"ha"');
 
 			const peer = await sendRpc<{
-				knowledge: { slug: string; body?: string; description: string }[];
+				skills: { slug: string; body?: string; description: string }[];
 			}>("bot.get", { botId: "ha" }, scope);
-			expect(peer.frame.result?.knowledge.map((doc) => doc.slug)).toEqual([
+			expect(peer.frame.result?.skills.map((doc) => doc.slug)).toEqual([
 				"host",
 			]);
 			const caller = await sendRpc<{
-				knowledge: { slug: string }[];
+				skills: { slug: string }[];
 			}>("bot.get", { botId: "coordinator" }, scope);
-			expect(caller.frame.result?.knowledge).toEqual([]);
+			expect(caller.frame.result?.skills).toEqual([]);
 
 			// Verify `chef` now exists in the family's bot catalog
 			const botsRes = await sendRpc<{ bots: BotRecord[] }>(

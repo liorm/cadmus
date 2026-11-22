@@ -29,15 +29,15 @@ describe("TOOL_CATALOG", () => {
 	});
 
 	it("marks read-only from execute() behavior, not name suffixes", () => {
-		expect(isKnownReadOnlyTool("knowledge_read")).toBe(true);
-		expect(isKnownReadOnlyTool("memory_read")).toBe(true);
+		expect(isKnownReadOnlyTool("read")).toBe(true);
 		expect(isKnownReadOnlyTool("schedule_list")).toBe(true);
 		expect(isKnownReadOnlyTool("list_bots")).toBe(true);
 		expect(isKnownReadOnlyTool("web.fetch")).toBe(true);
-		expect(isKnownReadOnlyTool("read")).toBe(true);
+		expect(isKnownReadOnlyTool("write")).toBe(false);
+		expect(isKnownReadOnlyTool("edit")).toBe(false);
+		expect(isKnownReadOnlyTool("delete")).toBe(false);
 		expect(isKnownReadOnlyTool("task_get")).toBe(false);
 		expect(isKnownReadOnlyTool("search_bot")).toBe(false);
-		expect(isKnownReadOnlyTool("memory_update")).toBe(false);
 		expect(isKnownReadOnlyTool("code.execute")).toBe(false);
 		expect(isKnownReadOnlyTool("mystery_read")).toBe(false);
 	});
@@ -146,22 +146,22 @@ describe("persistAllowlist", () => {
 
 	it("keeps hidden coding picks when the env is cleared", () => {
 		const persisted = persistAllowlist({
-			selected: ["memory_read"],
+			selected: ["read"],
 			available: availableAllowlistNames(false),
-			previous: ["memory_read", "bash"],
+			previous: ["read", "bash"],
 			codingEnvOffered: false,
 		});
-		expect(persisted).toEqual(["memory_read", "bash"]);
+		expect(persisted).toEqual(["read", "bash"]);
 	});
 
 	it("does not add coding tools that were not selected", () => {
 		const persisted = persistAllowlist({
-			selected: ["memory_read"],
+			selected: ["read"],
 			available: availableAllowlistNames(true),
-			previous: ["memory_read"],
+			previous: ["read"],
 			codingEnvOffered: true,
 		});
-		expect(persisted).toEqual(["memory_read"]);
+		expect(persisted).toEqual(["read"]);
 		expect(persisted).not.toContain("bash");
 	});
 });
@@ -170,11 +170,11 @@ describe("displayedAllowlist and category state", () => {
 	it("filters stored names to the current env", () => {
 		expect(
 			displayedAllowlist({
-				stored: ["memory_read", "bash"],
+				stored: ["read", "bash"],
 				available: availableAllowlistNames(false),
 				codingEnvOffered: false,
 			}),
-		).toEqual(["memory_read"]);
+		).toEqual(["read"]);
 	});
 
 	it("reports mixed category membership", () => {
@@ -186,8 +186,8 @@ describe("displayedAllowlist and category state", () => {
 	});
 
 	it("read-only names ignore unknown tools", () => {
-		expect(
-			knownReadOnlyToolNames(["memory_read", "mystery_read", "bash"]),
-		).toEqual(["memory_read"]);
+		expect(knownReadOnlyToolNames(["read", "mystery_read", "bash"])).toEqual([
+			"read",
+		]);
 	});
 });

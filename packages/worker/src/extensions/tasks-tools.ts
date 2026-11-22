@@ -14,7 +14,7 @@ import {
 } from "../tasks/limits.js";
 import { TaskContinueTask } from "../tasks/task.js";
 import type { CadmusExtensionDescriptor } from "./cadmus-tools.js";
-import { resolveBotScope, toolError, toolText } from "./knowledge-tools.js";
+import { resolveBotScope, toolError, toolText } from "./file-tools.js";
 
 export const TASKS_PROMPT = `When a request involves a long or multi-step workflow, break it down into discrete, manageable tasks and queue each one with task_add({ title, details }).
 - Once tasks are queued and your turn finishes, the runtime harness deterministically auto-continues round by round until all open tasks are completed.`;

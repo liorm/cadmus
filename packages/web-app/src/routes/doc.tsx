@@ -6,9 +6,12 @@ import { useCadmus } from "@/context/CadmusContext";
 export function DocPage({ botId, path }: { botId: string; path: string }) {
 	const navigate = useNavigate();
 	const { client } = useCadmus();
-	const title = path.split("/").pop() ?? path;
+	const title = path.startsWith("/.cadmus/skills/")
+		? path.replace(/^\/\.cadmus\/skills\//, "").replace(/\/SKILL\.md$/i, "") ||
+			path
+		: (path.split("/").pop() ?? path);
 	return (
-		<AppShell title={title} backTo={`/bot/${botId}/knowledge`}>
+		<AppShell title={title} backTo={`/bot/${botId}/skills`}>
 			<MarkdownFileView
 				botId={botId}
 				path={path}
@@ -17,7 +20,7 @@ export function DocPage({ botId, path }: { botId: string; path: string }) {
 					void client.callRpc("file.delete", { botId, path }).then(() =>
 						navigate({
 							to: "/bot/$botId/$tab",
-							params: { botId, tab: "knowledge" },
+							params: { botId, tab: "skills" },
 						}),
 					);
 				}}

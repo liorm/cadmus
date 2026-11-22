@@ -956,7 +956,7 @@ export const BotListCommandSchema = Type.Object(
 export type BotListCommand = Static<typeof BotListCommandSchema>;
 
 /**
- * Command to create a new bot persona with optional initial system prompt (soul), memory, and knowledge base documents.
+ * Command to create a new bot persona with optional initial system prompt (soul), memory, and skills.
  */
 export const BotCreateCommandSchema = Type.Object(
 	{
@@ -990,19 +990,19 @@ export const BotCreateCommandSchema = Type.Object(
 				tools: Type.Optional(
 					Type.Array(Type.String(), {
 						description:
-							"Allowlist of tool names. Omit it for the default set (Cadmus tools allowed, coding tools opt-in). An empty array allows no gated tools.",
+							"Allowlist of tool names. Omit it for the default set (Cadmus tools including file tools allowed, coding bash opt-in). An empty array allows no gated tools.",
 					}),
 				),
 				soul: Type.Optional(
 					Type.String({
 						description:
-							"Optional initial system prompt / personality instructions (SOUL.md content).",
+							"Optional initial system prompt / personality instructions (/.cadmus/SOUL.md content).",
 					}),
 				),
 				memory: Type.Optional(
 					Type.String({
 						description:
-							"Optional initial long-term memory markdown content (MEMORY.md content).",
+							"Optional initial long-term memory markdown content (/.cadmus/MEMORY.md content).",
 					}),
 				),
 				toolsEnv: Type.Optional(ToolsEnvSettingSchema),
@@ -1014,17 +1014,17 @@ export const BotCreateCommandSchema = Type.Object(
 					}),
 				),
 				metadata: Type.Optional(BotMetadataSchema),
-				knowledge: Type.Optional(
+				skills: Type.Optional(
 					Type.Array(
 						Type.Object(
 							{
 								slug: Type.String({
 									description:
-										"Unique document slug / filename without extension.",
+										"Unique skill slug used for /.cadmus/skills/<slug>/SKILL.md.",
 								}),
 								description: Type.String({
 									description:
-										"Document summary used by model tools to decide when to read this document.",
+										"Skill summary used by model tools to decide when to read this skill.",
 								}),
 								category: Type.Optional(
 									Type.String({
@@ -1032,14 +1032,14 @@ export const BotCreateCommandSchema = Type.Object(
 									}),
 								),
 								body: Type.String({
-									description: "Full markdown content body of the document.",
+									description: "Full markdown content body of the skill.",
 								}),
 							},
-							{ description: "Initial knowledge document entry." },
+							{ description: "Initial skill entry." },
 						),
 						{
 							description:
-								"Optional array of initial knowledge documents to create for this bot.",
+								"Optional array of initial skills to create for this bot.",
 						},
 					),
 				),
@@ -1053,13 +1053,13 @@ export const BotCreateCommandSchema = Type.Object(
 	{
 		grant: "bot.write",
 		description:
-			"Create a new bot persona with default model, thinking budget, tool access, optional timezone and metadata, and initial virtual workspace files.",
+			"Create a new bot persona with default model, thinking budget, tool access, optional timezone and metadata, and initial virtual files.",
 	},
 );
 export type BotCreateCommand = Static<typeof BotCreateCommandSchema>;
 
 /**
- * Command to retrieve a bot's configuration, SOUL.md system prompt, MEMORY.md content with version, and knowledge base documents.
+ * Command to retrieve a bot's configuration, /.cadmus/SOUL.md system prompt, /.cadmus/MEMORY.md content with version, and skills.
  */
 export const BotGetCommandSchema = Type.Object(
 	{
@@ -1085,7 +1085,7 @@ export const BotGetCommandSchema = Type.Object(
 		readOnly: true,
 		grant: "bot.read",
 		description:
-			"Retrieve full bot configuration, system prompt (SOUL.md), memory state, and knowledge documents.",
+			"Retrieve full bot configuration, system prompt (/.cadmus/SOUL.md), memory state, and skills.",
 	},
 );
 export type BotGetCommand = Static<typeof BotGetCommandSchema>;
@@ -2006,7 +2006,7 @@ export const TurnAbortCommandSchema = Type.Object(
 export type TurnAbortCommand = Static<typeof TurnAbortCommandSchema>;
 
 /**
- * Command to list virtual workspace files (SOUL.md, MEMORY.md, and knowledge documents) for a bot.
+ * Command to list virtual files (/.cadmus/SOUL.md, /.cadmus/MEMORY.md, and /.cadmus/skills/<slug>/SKILL.md) for a bot.
  */
 export const FileListCommandSchema = Type.Object(
 	{
@@ -2026,25 +2026,24 @@ export const FileListCommandSchema = Type.Object(
 				}),
 				category: Type.Optional(
 					Type.String({
-						description:
-							"Optional category tag filter for knowledge documents.",
+						description: "Optional category tag filter for skills.",
 					}),
 				),
 			},
-			{ description: "Parameters for listing virtual workspace files." },
+			{ description: "Parameters for listing virtual files." },
 		),
 	},
 	{
 		readOnly: true,
 		grant: "bot.read",
 		description:
-			"List virtual workspace files (SOUL.md, MEMORY.md, and knowledge documents) associated with a bot.",
+			"List virtual files (/.cadmus/SOUL.md, /.cadmus/MEMORY.md, and /.cadmus/skills/<slug>/SKILL.md) associated with a bot.",
 	},
 );
 export type FileListCommand = Static<typeof FileListCommandSchema>;
 
 /**
- * Command to read a virtual workspace file's content and version metadata, or list files if path is omitted.
+ * Command to read a virtual file's content and version metadata, or list files if path is omitted.
  */
 export const FileReadCommandSchema = Type.Object(
 	{
@@ -2065,7 +2064,7 @@ export const FileReadCommandSchema = Type.Object(
 				path: Type.Optional(
 					Type.String({
 						description:
-							"Virtual workspace file path to read (e.g. 'SOUL.md', 'MEMORY.md', 'knowledge/topic.md'). If omitted, lists all files.",
+							"Virtual file path to read (e.g. '/.cadmus/SOUL.md', '/.cadmus/MEMORY.md', '/.cadmus/skills/topic/SKILL.md'). If omitted, lists all files.",
 					}),
 				),
 			},
@@ -2076,13 +2075,13 @@ export const FileReadCommandSchema = Type.Object(
 		readOnly: true,
 		grant: "bot.read",
 		description:
-			"Read a virtual workspace file's content and version metadata, or list files if path is omitted.",
+			"Read a virtual file's content and version metadata, or list files if path is omitted.",
 	},
 );
 export type FileReadCommand = Static<typeof FileReadCommandSchema>;
 
 /**
- * Command to create, update, or delete a virtual workspace file with optimistic concurrency version control (CAS).
+ * Command to create, update, or delete a virtual file with optimistic concurrency version control (CAS).
  */
 export const FileWriteCommandSchema = Type.Object(
 	{
@@ -2103,7 +2102,7 @@ export const FileWriteCommandSchema = Type.Object(
 				path: Type.String({
 					minLength: 1,
 					description:
-						"Virtual workspace file path (e.g. 'SOUL.md', 'MEMORY.md', 'knowledge/topic.md').",
+						"Virtual file path (e.g. '/.cadmus/SOUL.md', '/.cadmus/MEMORY.md', '/.cadmus/skills/topic/SKILL.md').",
 				}),
 				content: Type.Optional(
 					Type.String({
@@ -2128,17 +2127,17 @@ export const FileWriteCommandSchema = Type.Object(
 				),
 				description: Type.Optional(
 					Type.String({
-						description: "Summary description for knowledge documents.",
+						description: "Summary description for skills.",
 					}),
 				),
 				category: Type.Optional(
 					Type.String({
-						description: "Optional category tag for knowledge documents.",
+						description: "Optional category tag for skills.",
 					}),
 				),
 				body: Type.Optional(
 					Type.String({
-						description: "Markdown body for knowledge documents.",
+						description: "Markdown body for skills.",
 					}),
 				),
 				delete: Type.Optional(
@@ -2154,13 +2153,13 @@ export const FileWriteCommandSchema = Type.Object(
 	{
 		grant: "files.write",
 		description:
-			"Create, update, or delete a virtual workspace file with optimistic concurrency version control (CAS).",
+			"Create, update, or delete a virtual file with optimistic concurrency version control (CAS).",
 	},
 );
 export type FileWriteCommand = Static<typeof FileWriteCommandSchema>;
 
 /**
- * Command to delete a virtual workspace file with optimistic concurrency version control.
+ * Command to delete a virtual skill file with optimistic concurrency version control.
  */
 export const FileDeleteCommandSchema = Type.Object(
 	{
@@ -2180,7 +2179,7 @@ export const FileDeleteCommandSchema = Type.Object(
 				}),
 				path: Type.String({
 					minLength: 1,
-					description: "Virtual workspace file path to delete.",
+					description: "Virtual skill file path to delete.",
 				}),
 				expectedVersion: Type.Optional(
 					Type.Number({
@@ -2200,29 +2199,29 @@ export const FileDeleteCommandSchema = Type.Object(
 	{
 		grant: "files.write",
 		description:
-			"Delete a virtual workspace file with optimistic concurrency version verification.",
+			"Delete a virtual skill file with optimistic concurrency version verification.",
 	},
 );
 export type FileDeleteCommand = Static<typeof FileDeleteCommandSchema>;
 
 /**
- * Command to search across knowledge base documents for a bot using keyword matching.
+ * Command to search across skills for a bot using keyword matching.
  */
-export const KnowledgeSearchCommandSchema = Type.Object(
+export const SkillSearchCommandSchema = Type.Object(
 	{
 		id: Type.String({
 			minLength: 1,
 			description:
 				"Non-empty unique correlation identifier for this command request.",
 		}),
-		type: Type.Literal("knowledge.search", {
+		type: Type.Literal("skill.search", {
 			description: "Command type identifier.",
 		}),
 		payload: Type.Object(
 			{
 				botId: Type.String({
 					minLength: 1,
-					description: "Bot identifier whose knowledge documents to search.",
+					description: "Bot identifier whose skills to search.",
 				}),
 				query: Type.Optional(
 					Type.String({
@@ -2235,19 +2234,17 @@ export const KnowledgeSearchCommandSchema = Type.Object(
 					}),
 				),
 			},
-			{ description: "Parameters for searching knowledge documents." },
+			{ description: "Parameters for searching skills." },
 		),
 	},
 	{
 		readOnly: true,
 		grant: "bot.read",
 		description:
-			"Search across knowledge base documents for a bot using keyword and category filters.",
+			"Search across skills for a bot using keyword and category filters.",
 	},
 );
-export type KnowledgeSearchCommand = Static<
-	typeof KnowledgeSearchCommandSchema
->;
+export type SkillSearchCommand = Static<typeof SkillSearchCommandSchema>;
 
 /**
  * Command to create a scheduled task (recurring cron, relative delay timer, or absolute date/time) for a bot.
@@ -2982,7 +2979,7 @@ export const ClientCommandSchema = Type.Union(
 		FileReadCommandSchema,
 		FileWriteCommandSchema,
 		FileDeleteCommandSchema,
-		KnowledgeSearchCommandSchema,
+		SkillSearchCommandSchema,
 		ScheduleCreateCommandSchema,
 		ScheduleListCommandSchema,
 		ScheduleUpdateCommandSchema,

@@ -347,18 +347,24 @@ describe("contract conformance", () => {
 		await call("file.list", { botId: "scribe", category: "notes" });
 		await call("file.write", {
 			botId: "scribe",
-			path: "knowledge/note.md",
+			path: "/.cadmus/skills/note/SKILL.md",
 			description: "A note",
 			category: "notes",
 			body: "Contract note",
 		});
-		await call("file.read", { botId: "scribe", path: "knowledge/note.md" });
-		await call("knowledge.search", {
+		await call("file.read", {
+			botId: "scribe",
+			path: "/.cadmus/skills/note/SKILL.md",
+		});
+		await call("skill.search", {
 			botId: "scribe",
 			query: "Contract",
 			category: "notes",
 		});
-		await call("file.delete", { botId: "scribe", path: "knowledge/note.md" });
+		await call("file.delete", {
+			botId: "scribe",
+			path: "/.cadmus/skills/note/SKILL.md",
+		});
 
 		const schedule = await call("schedule.create", {
 			id: "sched-1",

@@ -1,7 +1,7 @@
 export const BOT_TABS = [
 	"schedules",
 	"memory",
-	"knowledge",
+	"skills",
 	"soul",
 	"config",
 ] as const;

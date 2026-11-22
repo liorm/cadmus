@@ -84,7 +84,7 @@ export function CommandPaletteHost({
 			{
 				id: "search",
 				label: "Search",
-				hint: "knowledge.search",
+				hint: "skill.search",
 				run: closeAnd(() => {
 					void navigate({ to: "/search" });
 				}),
@@ -343,12 +343,12 @@ function botRows(
 			},
 		},
 		{
-			id: "knowledge",
-			label: "Knowledge",
+			id: "skills",
+			label: "Skills",
 			run: () => {
 				void navigate({
 					to: "/bot/$botId/$tab",
-					params: { botId: bot.id, tab: "knowledge" },
+					params: { botId: bot.id, tab: "skills" },
 				});
 			},
 		},

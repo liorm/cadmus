@@ -329,7 +329,7 @@ export function TelemetryDeck({
 									<Link
 										to="/bot/$botId/doc"
 										params={{ botId }}
-										search={{ path: "MEMORY.md" }}
+										search={{ path: "/.cadmus/MEMORY.md" }}
 										className="underline"
 									>
 										Open MEMORY.md

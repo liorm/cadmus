@@ -138,6 +138,25 @@ export class ToolsEnvController {
 		return this.willOffer(bot, chat?.toolsEnv ?? null);
 	}
 
+	async workspaceEnvEnabled(
+		conversationId: number,
+		bot: BotRecord,
+	): Promise<boolean> {
+		const route = this.deps.store.chats.getConversationRoute(conversationId);
+		if (route && !route.toolsEnvEnabled) return false;
+		const chat = route
+			? this.deps.store.chats.getChat(route.chatKey)
+			: undefined;
+		const { resolved, def } = await this.resolvedFor(
+			bot,
+			chat?.toolsEnv ?? null,
+		);
+		return (
+			runtimeToolsEnvOn(resolved) &&
+			(def?.kind === "just-bash" || def?.kind === "local-daemon")
+		);
+	}
+
 	async codingToolAllowed(
 		conversationId: number,
 		bot: BotRecord,

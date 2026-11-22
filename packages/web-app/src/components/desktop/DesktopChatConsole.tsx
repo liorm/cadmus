@@ -65,7 +65,7 @@ export function DesktopChatConsole({
 		setPersona(null);
 		if (chatKey || !botId) return;
 		void client
-			.callRpc("file.read", { botId, path: "SOUL.md" })
+			.callRpc("file.read", { botId, path: "/.cadmus/SOUL.md" })
 			.then((res) => {
 				if (cancelled || !res.ok || !res.result || !("text" in res.result)) {
 					return;

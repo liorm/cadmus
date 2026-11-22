@@ -42,7 +42,7 @@ const READONLY = [
 	"family.list",
 	"file.list",
 	"file.read",
-	"knowledge.search",
+	"skill.search",
 	"schedule.list",
 	"system.accounts.list",
 	"system.audit.list",

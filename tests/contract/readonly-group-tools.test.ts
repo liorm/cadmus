@@ -8,42 +8,37 @@ import {
 } from "@cadmus/contract/tools";
 
 describe("readOnlyGroupToolNames", () => {
-	it("keeps only memory and knowledge reads from the default set", () => {
+	it("keeps only read from the default set", () => {
 		expect(readOnlyGroupToolNames(undefined)).toEqual([
 			...READONLY_GROUP_TOOL_NAMES,
 		]);
-		expect(readOnlyGroupToolNames(undefined)).toEqual([
-			"knowledge_read",
-			"memory_read",
-		]);
+		expect(readOnlyGroupToolNames(undefined)).toEqual(["read"]);
 	});
 
 	it("intersects an explicit list and drops side-effecting tools", () => {
 		expect(
 			readOnlyGroupToolNames([
 				"bash",
-				"memory_update",
-				"memory_read",
+				"write",
+				"read",
+				"edit",
+				"delete",
 				"message_bot",
 				"schedule_create",
-				"knowledge_update",
-				"knowledge_read",
 				"code.execute",
 				"create_bot",
 			]),
-		).toEqual(["memory_read", "knowledge_read"]);
+		).toEqual(["read"]);
 	});
 
-	it("returns nothing when the bot lists no read tools", () => {
+	it("returns nothing when the bot lists no read tool", () => {
 		expect(readOnlyGroupToolNames(["message_bot", "bash"])).toEqual([]);
 		expect(readOnlyGroupToolNames([])).toEqual([]);
 	});
 
-	it("does not treat coding tools as reads", () => {
+	it("only treats read as a read-only group tool", () => {
 		for (const name of [...DEFAULT_CADMUS_TOOL_NAMES, ...CODING_TOOL_NAMES]) {
-			expect(isReadOnlyGroupTool(name)).toBe(
-				name === "knowledge_read" || name === "memory_read",
-			);
+			expect(isReadOnlyGroupTool(name)).toBe(name === "read");
 		}
 	});
 });

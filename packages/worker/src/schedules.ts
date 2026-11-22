@@ -13,16 +13,10 @@ import { getLogger } from "./log.js";
 import { parseThinkingLevel } from "./models.js";
 import type { HarvestNote, ScheduleRecord } from "./protocol.js";
 
-export const HARVEST_TOOLS = [
-	"knowledge_read",
-	"knowledge_update",
-	"knowledge_delete",
-	"memory_read",
-	"memory_update",
-] as const;
+export const HARVEST_TOOLS = ["read", "write", "edit", "delete"] as const;
 
 export const DEFAULT_HARVEST_PROMPT =
-	"[HARVEST] Review the conversation since the last harvest watermark. Extract durable facts, preferences, or reusable reference notes and persist them using memory_update or knowledge_update. If nothing durable was added, do not modify any files.";
+	"[HARVEST] Review the conversation since the last harvest watermark. Extract durable facts, preferences, or reusable skills and persist them using read, edit, write, or delete on /.cadmus/MEMORY.md and /.cadmus/skills/<slug>/SKILL.md (with YAML frontmatter). If nothing durable was added, do not modify any files.";
 
 export type ScheduleCheckpoint =
 	| { phase: "wait"; nextRun?: number }

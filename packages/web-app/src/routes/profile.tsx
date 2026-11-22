@@ -20,7 +20,7 @@ import type { BotTab } from "@/lib/profile-tabs";
 const TABS: Array<{ value: BotTab; label: string }> = [
 	{ value: "schedules", label: "Schedules" },
 	{ value: "memory", label: "Memory" },
-	{ value: "knowledge", label: "Knowledge" },
+	{ value: "skills", label: "Skills" },
 	{ value: "soul", label: "Soul" },
 	{ value: "config", label: "Config" },
 ];
@@ -91,8 +91,8 @@ export function ProfilePage({ botId, tab }: { botId: string; tab: BotTab }) {
 		});
 	}
 
-	const knowledge = files.filter(
-		(file) => file.kind === "knowledge" || file.path.startsWith("knowledge/"),
+	const skills = files.filter(
+		(file) => file.kind === "skill" || file.path.startsWith("/.cadmus/skills/"),
 	);
 
 	return (
@@ -155,30 +155,40 @@ export function ProfilePage({ botId, tab }: { botId: string; tab: BotTab }) {
 				/>
 			) : null}
 			{tab === "memory" ? (
-				<MarkdownFileView botId={botId} path="MEMORY.md" title="MEMORY.md" />
+				<MarkdownFileView
+					botId={botId}
+					path="/.cadmus/MEMORY.md"
+					title="MEMORY.md"
+				/>
 			) : null}
 			{tab === "soul" ? (
-				<MarkdownFileView botId={botId} path="SOUL.md" title="SOUL.md" />
+				<MarkdownFileView
+					botId={botId}
+					path="/.cadmus/SOUL.md"
+					title="SOUL.md"
+				/>
 			) : null}
-			{tab === "knowledge" ? (
+			{tab === "skills" ? (
 				<div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
 					<LoadGate
 						phase={fileLoad.phase}
 						error={fileLoad.error}
 						onRetry={fileLoad.retry}
-						label="Loading knowledge"
+						label="Loading skills"
 					>
 						<div className="overflow-hidden rounded-md border border-border bg-surface">
-							{knowledge.length === 0 ? (
+							{skills.length === 0 ? (
 								<p className="px-3 py-4 text-[length:var(--fs-sm)] text-text-muted">
-									No knowledge docs.
+									No skills yet.
 								</p>
 							) : (
-								knowledge.map((file) => {
+								skills.map((file) => {
 									const title =
-										file.path
-											.replace(/^knowledge\//, "")
-											.replace(/\.md$/, "") || file.path;
+										file.slug ??
+										(file.path
+											.replace(/^\/\.cadmus\/skills\//, "")
+											.replace(/\/SKILL\.md$/i, "") ||
+											file.path);
 									return (
 										<div
 											key={file.path}
@@ -196,6 +206,11 @@ export function ProfilePage({ botId, tab }: { botId: string; tab: BotTab }) {
 												}
 											>
 												<div className="truncate font-semibold">{title}</div>
+												{file.description ? (
+													<div className="truncate text-[length:var(--fs-sm)] text-text-muted">
+														{file.description}
+													</div>
+												) : null}
 												<div className="text-[length:var(--fs-sm)] text-text-muted">
 													{file.size} bytes
 												</div>

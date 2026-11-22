@@ -13,14 +13,7 @@ import {
 
 const TEST_TOKEN = "rejected-bearer";
 
-const CODING_TOOLS = [
-	"bash",
-	"read",
-	"write",
-	"edit",
-	"memory_update",
-	"knowledge_update",
-];
+const CODING_TOOLS = ["bash", "read", "write", "edit", "delete"];
 const WORKSPACE = "/home/dev/workspace";
 
 async function scope(

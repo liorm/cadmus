@@ -17,7 +17,7 @@ import { getLogger } from "../log.js";
 import type { ScheduleRecord, ScheduleTarget } from "../protocol.js";
 import { ThinkingLevelSchema } from "../protocol.js";
 import type { CadmusExtensionDescriptor } from "./cadmus-tools.js";
-import { resolveBotScope, toolError, toolText } from "./knowledge-tools.js";
+import { resolveBotScope, toolError, toolText } from "./file-tools.js";
 
 export const SCHEDULES_PROMPT = `You can schedule future or recurring tasks for yourself using schedule tools:
 - schedule_create: create a one-shot ('relative' e.g. '10m', or 'absolute' e.g. 'tomorrow at 5pm') or recurring ('cron' e.g. '0 9 * * *') schedule.

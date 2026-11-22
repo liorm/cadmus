@@ -32,15 +32,7 @@ async function tool(
 	return turn.frame.result?.reply ?? "";
 }
 
-function lastNumber(reply: string, field: string): number {
-	const re = new RegExp(`"${field}":(\\d+)`, "g");
-	let last: number | undefined;
-	for (const match of reply.matchAll(re)) last = Number(match[1]);
-	expect(last, reply).toBeTypeOf("number");
-	return last ?? -1;
-}
-
-describe("egress and knowledge tools on a turn", () => {
+describe("egress and virtual file tools on a turn", () => {
 	useWorkerFixture();
 
 	it("fetches public pages and reports provider tools as unavailable on faux", async () => {
@@ -142,8 +134,8 @@ describe("egress and knowledge tools on a turn", () => {
 		}
 	}, 60_000);
 
-	it("reads, updates, and deletes the bot's own knowledge and memory", async () => {
-		const account = await scope("knowledge-tools");
+	it("reads, writes, edits, and deletes the bot's own /.cadmus/* skills and memory", async () => {
+		const account = await scope("skill-tools");
 		await sendRpc(
 			"bot.create",
 			{ slug: "scribe", name: "Scribe", model: "faux/echo" },
@@ -154,118 +146,101 @@ describe("egress and knowledge tools on a turn", () => {
 		const missing = await tool(
 			account,
 			"main",
-			'[tool:knowledge_read {"slug":"missing"}]',
+			'[tool:read {"path":"/.cadmus/skills/missing/SKILL.md"}]',
 		);
-		expect(missing).toContain('"exists":false');
-		expect(missing).toContain('"version":0');
+		expect(missing).toContain("not found");
 
 		const badSlug = await tool(
 			account,
 			"main",
-			'[tool:knowledge_read {"slug":"Bad Slug"}]',
+			'[tool:read {"path":"/.cadmus/skills/Bad Slug/SKILL.md"}]',
 		);
-		expect(badSlug).toContain("Invalid knowledge slug");
+		expect(badSlug).toContain("Invalid skill slug");
 
 		const created = await tool(
 			account,
 			"main",
-			'[tool:knowledge_update {"slug":"note","description":"A note","body":"hello","expectedVersion":0}]',
+			`[tool:write ${JSON.stringify({
+				path: "/.cadmus/skills/note/SKILL.md",
+				content: "---\nname: note\ndescription: A note\n---\n\nhello",
+			})}]`,
 		);
-		expect(lastNumber(created, "version")).toBe(1);
+		expect(created).toContain(
+			"Successfully wrote to /.cadmus/skills/note/SKILL.md",
+		);
 
 		const withCategory = await tool(
 			account,
 			"main",
-			'[tool:knowledge_update {"slug":"note","description":"A note","category":"ops","body":"hello 2","version":1}]',
+			`[tool:write ${JSON.stringify({
+				path: "/.cadmus/skills/note/SKILL.md",
+				content:
+					"---\nname: note\ndescription: A note\ncategory: ops\n---\n\nhello 2",
+			})}]`,
 		);
-		expect(withCategory).toContain('"category":"ops"');
-		expect(lastNumber(withCategory, "version")).toBe(2);
+		expect(withCategory).toContain("Successfully wrote");
 
 		const read = await tool(
 			account,
 			"main",
-			'[tool:knowledge_read {"slug":"note"}]',
+			'[tool:read {"path":"/.cadmus/skills/note/SKILL.md"}]',
 		);
-		expect(read).toContain('"exists":true');
+		expect(read).toContain("category: ops");
 		expect(read).toContain("hello 2");
 
-		const cleared = await tool(
+		const edited = await tool(
 			account,
 			"main",
-			'[tool:knowledge_update {"slug":"note","description":"A note","category":"","body":"cleared","expectedVersion":2}]',
+			`[tool:edit ${JSON.stringify({
+				path: "/.cadmus/skills/note/SKILL.md",
+				edits: [{ oldText: "hello 2", newText: "edited body" }],
+			})}]`,
 		);
-		expect(lastNumber(cleared, "version")).toBe(3);
-		const clearedResult = cleared.slice(cleared.lastIndexOf("->") + 2);
-		expect(clearedResult).not.toContain('"category"');
+		expect(edited).toContain("Successfully replaced");
 
-		const badVersion = await tool(
+		const readEdited = await tool(
 			account,
 			"main",
-			'[tool:knowledge_update {"slug":"note","description":"nope","body":"x","expectedVersion":-1}]',
+			'[tool:read {"path":"/.cadmus/skills/note/SKILL.md"}]',
 		);
-		expect(badVersion).toContain("non-negative integer");
-
-		const stale = await tool(
-			account,
-			"main",
-			'[tool:knowledge_update {"slug":"note","description":"stale","body":"x","expectedVersion":0}]',
-		);
-		expect(stale.toLowerCase()).toContain("version");
-
-		const deleteMissingVersion = await tool(
-			account,
-			"main",
-			'[tool:knowledge_delete {"slug":"note"}]',
-		);
-		expect(deleteMissingVersion).toContain("positive integer");
-
-		const deleteStale = await tool(
-			account,
-			"main",
-			'[tool:knowledge_delete {"slug":"note","expectedVersion":1}]',
-		);
-		expect(deleteStale.toLowerCase()).toContain("version");
+		expect(readEdited).toContain("edited body");
 
 		const deleted = await tool(
 			account,
 			"main",
-			'[tool:knowledge_delete {"slug":"note","version":3}]',
+			'[tool:delete {"path":"/.cadmus/skills/note/SKILL.md"}]',
 		);
-		expect(deleted).toContain('"deleted":"note"');
+		expect(deleted).toContain(
+			"Successfully deleted /.cadmus/skills/note/SKILL.md",
+		);
 
 		const gone = await tool(
 			account,
 			"main",
-			'[tool:knowledge_read {"slug":"note"}]',
+			'[tool:read {"path":"/.cadmus/skills/note/SKILL.md"}]',
 		);
-		expect(gone).toContain('"exists":false');
-
-		const memory = await tool(account, "main", "[tool:memory_read {}]");
-		expect(memory).toContain('"exists":false');
+		expect(gone).toContain("not found");
 
 		const remembered = await tool(
 			account,
 			"main",
-			'[tool:memory_update {"body":"remember this","version":0}]',
+			'[tool:write {"path":"/.cadmus/MEMORY.md","content":"remember this"}]',
 		);
-		expect(lastNumber(remembered, "version")).toBe(1);
+		expect(remembered).toContain("Successfully wrote to /.cadmus/MEMORY.md");
 
-		const noContent = await tool(account, "main", "[tool:memory_update {}]");
-		expect(noContent).toContain("content (or body) string is required");
-
-		const badMemoryVersion = await tool(
+		const readMem = await tool(
 			account,
 			"main",
-			'[tool:memory_update {"content":"x","expectedVersion":-1}]',
+			'[tool:read {"path":"/.cadmus/MEMORY.md"}]',
 		);
-		expect(badMemoryVersion).toContain("non-negative integer");
+		expect(readMem).toContain("remember this");
 
-		const staleMemory = await tool(
+		const badMemFrontmatter = await tool(
 			account,
 			"main",
-			'[tool:memory_update {"content":"x","expectedVersion":0}]',
+			'[tool:write {"path":"/.cadmus/MEMORY.md","content":"---\\nfoo: bar\\n---\\n"}]',
 		);
-		expect(staleMemory.toLowerCase()).toContain("version");
+		expect(badMemFrontmatter).toContain("YAML frontmatter");
 	}, 60_000);
 
 	it("rejects unknown models and accepts a provider once a key is stored", async () => {

@@ -47,9 +47,9 @@ describe("Web UI client over /api", () => {
 			slug: "scribe",
 			name: "Scribe",
 			model: "faux/echo",
-			tools: ["knowledge_read"],
+			tools: ["read"],
 			soul: "You are Scribe.",
-			knowledge: [
+			skills: [
 				{
 					slug: "notes",
 					description: "Field notes",
@@ -61,7 +61,7 @@ describe("Web UI client over /api", () => {
 		expect(bot.ok).toBe(true);
 		expect(bot.result?.bot).toMatchObject({
 			id: "scribe",
-			tools: ["knowledge_read"],
+			tools: ["read"],
 		});
 
 		const schedules = await familyClient.callRpc("schedule.list", {
@@ -77,7 +77,7 @@ describe("Web UI client over /api", () => {
 
 		const soul = await familyClient.callRpc("file.read", {
 			botId: "scribe",
-			path: "SOUL.md",
+			path: "/.cadmus/SOUL.md",
 		});
 		expect(soul.ok).toBe(true);
 		expect(soul.result && "content" in soul.result).toBe(true);
@@ -86,14 +86,14 @@ describe("Web UI client over /api", () => {
 		}
 		const rpcSoul = await sendRpc(
 			"file.read",
-			{ botId: "scribe", path: "SOUL.md" },
+			{ botId: "scribe", path: "/.cadmus/SOUL.md" },
 			{ accountId, familyId: "alpha" },
 		);
 		expect(soul.result).toEqual(rpcSoul.frame.result);
 
 		const note = await familyClient.callRpc("file.read", {
 			botId: "scribe",
-			path: "knowledge/notes.md",
+			path: "/.cadmus/skills/notes/SKILL.md",
 		});
 		expect(note.ok).toBe(true);
 		expect(note.result).toMatchObject({
@@ -104,20 +104,20 @@ describe("Web UI client over /api", () => {
 
 		const write = await familyClient.callRpc("file.write", {
 			botId: "scribe",
-			path: "MEMORY.md",
+			path: "/.cadmus/MEMORY.md",
 			content: "Remember the gate.",
 			expectedVersion: 0,
 		});
 		expect(write.ok).toBe(true);
 		expect(write.result).toMatchObject({
-			path: "MEMORY.md",
+			path: "/.cadmus/MEMORY.md",
 			version: 1,
 			content: "Remember the gate.",
 		});
 
 		const conflict = await familyClient.callRpc("file.write", {
 			botId: "scribe",
-			path: "MEMORY.md",
+			path: "/.cadmus/MEMORY.md",
 			content: "stale",
 			expectedVersion: 0,
 		});
@@ -128,7 +128,7 @@ describe("Web UI client over /api", () => {
 
 		const missing = await familyClient.callRpc("file.read", {
 			botId: "missing",
-			path: "SOUL.md",
+			path: "/.cadmus/SOUL.md",
 		});
 		expect(missing.ok).toBe(false);
 		expect(missing.error?.code).toBe("not_found");

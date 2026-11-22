@@ -1630,15 +1630,15 @@
 								"items": {
 									"type": "string"
 								},
-								"description": "Allowlist of tool names. Omit it for the default set (Cadmus tools allowed, coding tools opt-in). An empty array allows no gated tools."
+								"description": "Allowlist of tool names. Omit it for the default set (Cadmus tools including file tools allowed, coding bash opt-in). An empty array allows no gated tools."
 							},
 							"soul": {
 								"type": "string",
-								"description": "Optional initial system prompt / personality instructions (SOUL.md content)."
+								"description": "Optional initial system prompt / personality instructions (/.cadmus/SOUL.md content)."
 							},
 							"memory": {
 								"type": "string",
-								"description": "Optional initial long-term memory markdown content (MEMORY.md content)."
+								"description": "Optional initial long-term memory markdown content (/.cadmus/MEMORY.md content)."
 							},
 							"toolsEnv": {
 								"$ref": "#/components/schemas/ToolsEnvSetting"
@@ -1651,7 +1651,7 @@
 							"metadata": {
 								"$ref": "#/components/schemas/BotMetadata"
 							},
-							"knowledge": {
+							"skills": {
 								"type": "array",
 								"items": {
 									"type": "object",
@@ -1659,11 +1659,11 @@
 									"properties": {
 										"slug": {
 											"type": "string",
-											"description": "Unique document slug / filename without extension."
+											"description": "Unique skill slug used for /.cadmus/skills/<slug>/SKILL.md."
 										},
 										"description": {
 											"type": "string",
-											"description": "Document summary used by model tools to decide when to read this document."
+											"description": "Skill summary used by model tools to decide when to read this skill."
 										},
 										"category": {
 											"type": "string",
@@ -1671,19 +1671,19 @@
 										},
 										"body": {
 											"type": "string",
-											"description": "Full markdown content body of the document."
+											"description": "Full markdown content body of the skill."
 										}
 									},
-									"description": "Initial knowledge document entry."
+									"description": "Initial skill entry."
 								},
-								"description": "Optional array of initial knowledge documents to create for this bot."
+								"description": "Optional array of initial skills to create for this bot."
 							}
 						},
 						"description": "Parameters for creating a new bot persona, including optional timezone and metadata."
 					}
 				},
 				"grant": "bot.write",
-				"description": "Create a new bot persona with default model, thinking budget, tool access, optional timezone and metadata, and initial virtual workspace files."
+				"description": "Create a new bot persona with default model, thinking budget, tool access, optional timezone and metadata, and initial virtual files."
 			},
 			"BotDeleteCommand": {
 				"type": "object",
@@ -1744,7 +1744,7 @@
 				},
 				"readOnly": true,
 				"grant": "bot.read",
-				"description": "Retrieve full bot configuration, system prompt (SOUL.md), memory state, and knowledge documents."
+				"description": "Retrieve full bot configuration, system prompt (/.cadmus/SOUL.md), memory state, and skills."
 			},
 			"BotListCommand": {
 				"type": "object",
@@ -2834,7 +2834,7 @@
 						"$ref": "#/components/schemas/FileDeleteCommand"
 					},
 					{
-						"$ref": "#/components/schemas/KnowledgeSearchCommand"
+						"$ref": "#/components/schemas/SkillSearchCommand"
 					},
 					{
 						"$ref": "#/components/schemas/ScheduleCreateCommand"
@@ -3226,7 +3226,7 @@
 							"path": {
 								"type": "string",
 								"minLength": 1,
-								"description": "Virtual workspace file path to delete."
+								"description": "Virtual skill file path to delete."
 							},
 							"expectedVersion": {
 								"type": "number",
@@ -3241,7 +3241,7 @@
 					}
 				},
 				"grant": "files.write",
-				"description": "Delete a virtual workspace file with optimistic concurrency version verification."
+				"description": "Delete a virtual skill file with optimistic concurrency version verification."
 			},
 			"FileListCommand": {
 				"type": "object",
@@ -3268,15 +3268,15 @@
 							},
 							"category": {
 								"type": "string",
-								"description": "Optional category tag filter for knowledge documents."
+								"description": "Optional category tag filter for skills."
 							}
 						},
-						"description": "Parameters for listing virtual workspace files."
+						"description": "Parameters for listing virtual files."
 					}
 				},
 				"readOnly": true,
 				"grant": "bot.read",
-				"description": "List virtual workspace files (SOUL.md, MEMORY.md, and knowledge documents) associated with a bot."
+				"description": "List virtual files (/.cadmus/SOUL.md, /.cadmus/MEMORY.md, and /.cadmus/skills/<slug>/SKILL.md) associated with a bot."
 			},
 			"FileReadCommand": {
 				"type": "object",
@@ -3303,7 +3303,7 @@
 							},
 							"path": {
 								"type": "string",
-								"description": "Virtual workspace file path to read (e.g. 'SOUL.md', 'MEMORY.md', 'knowledge/topic.md'). If omitted, lists all files."
+								"description": "Virtual file path to read (e.g. '/.cadmus/SOUL.md', '/.cadmus/MEMORY.md', '/.cadmus/skills/topic/SKILL.md'). If omitted, lists all files."
 							}
 						},
 						"description": "Parameters identifying the file to read."
@@ -3311,7 +3311,7 @@
 				},
 				"readOnly": true,
 				"grant": "bot.read",
-				"description": "Read a virtual workspace file's content and version metadata, or list files if path is omitted."
+				"description": "Read a virtual file's content and version metadata, or list files if path is omitted."
 			},
 			"FileWriteCommand": {
 				"type": "object",
@@ -3339,7 +3339,7 @@
 							"path": {
 								"type": "string",
 								"minLength": 1,
-								"description": "Virtual workspace file path (e.g. 'SOUL.md', 'MEMORY.md', 'knowledge/topic.md')."
+								"description": "Virtual file path (e.g. '/.cadmus/SOUL.md', '/.cadmus/MEMORY.md', '/.cadmus/skills/topic/SKILL.md')."
 							},
 							"content": {
 								"type": "string",
@@ -3359,15 +3359,15 @@
 							},
 							"description": {
 								"type": "string",
-								"description": "Summary description for knowledge documents."
+								"description": "Summary description for skills."
 							},
 							"category": {
 								"type": "string",
-								"description": "Optional category tag for knowledge documents."
+								"description": "Optional category tag for skills."
 							},
 							"body": {
 								"type": "string",
-								"description": "Markdown body for knowledge documents."
+								"description": "Markdown body for skills."
 							},
 							"delete": {
 								"type": "boolean",
@@ -3378,7 +3378,7 @@
 					}
 				},
 				"grant": "files.write",
-				"description": "Create, update, or delete a virtual workspace file with optimistic concurrency version control (CAS)."
+				"description": "Create, update, or delete a virtual file with optimistic concurrency version control (CAS)."
 			},
 			"HarvestFileDiff": {
 				"type": "object",
@@ -3386,7 +3386,7 @@
 				"properties": {
 					"path": {
 						"type": "string",
-						"description": "Virtual workspace file path modified (e.g. 'MEMORY.md', 'knowledge/topic.md')."
+						"description": "Virtual file path modified (e.g. '/.cadmus/MEMORY.md', '/.cadmus/skills/topic/SKILL.md')."
 					},
 					"diff": {
 						"type": "string",
@@ -3435,45 +3435,6 @@
 					}
 				},
 				"description": "Event emitted when an idle conversation harvest run completes and saves memory or knowledge file diffs."
-			},
-			"KnowledgeSearchCommand": {
-				"type": "object",
-				"required": ["id", "type", "payload"],
-				"properties": {
-					"id": {
-						"type": "string",
-						"minLength": 1,
-						"description": "Non-empty unique correlation identifier for this command request."
-					},
-					"type": {
-						"type": "string",
-						"const": "knowledge.search",
-						"description": "Command type identifier."
-					},
-					"payload": {
-						"type": "object",
-						"required": ["botId"],
-						"properties": {
-							"botId": {
-								"type": "string",
-								"minLength": 1,
-								"description": "Bot identifier whose knowledge documents to search."
-							},
-							"query": {
-								"type": "string",
-								"description": "Keyword or substring search query."
-							},
-							"category": {
-								"type": "string",
-								"description": "Optional category filter tag."
-							}
-						},
-						"description": "Parameters for searching knowledge documents."
-					}
-				},
-				"readOnly": true,
-				"grant": "bot.read",
-				"description": "Search across knowledge base documents for a bot using keyword and category filters."
 			},
 			"OAuthFlowRecord": {
 				"type": "object",
@@ -4016,6 +3977,45 @@
 					}
 				],
 				"description": "Complete union of all possible frames sent from server to client over WebSocket, SSE, or RPC."
+			},
+			"SkillSearchCommand": {
+				"type": "object",
+				"required": ["id", "type", "payload"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Non-empty unique correlation identifier for this command request."
+					},
+					"type": {
+						"type": "string",
+						"const": "skill.search",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"required": ["botId"],
+						"properties": {
+							"botId": {
+								"type": "string",
+								"minLength": 1,
+								"description": "Bot identifier whose skills to search."
+							},
+							"query": {
+								"type": "string",
+								"description": "Keyword or substring search query."
+							},
+							"category": {
+								"type": "string",
+								"description": "Optional category filter tag."
+							}
+						},
+						"description": "Parameters for searching skills."
+					}
+				},
+				"readOnly": true,
+				"grant": "bot.read",
+				"description": "Search across skills for a bot using keyword and category filters."
 			},
 			"SystemAccountsCreateCommand": {
 				"type": "object",
@@ -4912,7 +4912,7 @@
 							},
 							"toolName": {
 								"type": "string",
-								"description": "Name of the tool being called (e.g. 'knowledge_read', 'schedule_create', 'web.fetch')."
+								"description": "Name of the tool being called (e.g. 'read', 'schedule_create', 'web.fetch')."
 							},
 							"args": {
 								"type": "object",

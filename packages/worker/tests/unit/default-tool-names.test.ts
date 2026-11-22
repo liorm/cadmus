@@ -61,15 +61,12 @@ describe("create_bot coding-only allowlist", () => {
 	it("expands a coding-only list to the default set plus those coding tools", () => {
 		expect(expandCodingOnlyAllowlist(undefined)).toBeUndefined();
 		expect(expandCodingOnlyAllowlist([])).toEqual([]);
-		expect(
-			expandCodingOnlyAllowlist(["bash", "read", "write", "edit"]),
-		).toEqual([...DEFAULT_CADMUS_TOOL_NAMES, ...CODING_TOOL_NAMES]);
 		expect(expandCodingOnlyAllowlist(["bash"])).toEqual([
 			...DEFAULT_CADMUS_TOOL_NAMES,
 			"bash",
 		]);
-		expect(expandCodingOnlyAllowlist(["memory_read", "bash"])).toEqual([
-			"memory_read",
+		expect(expandCodingOnlyAllowlist(["read", "bash"])).toEqual([
+			"read",
 			"bash",
 		]);
 	});

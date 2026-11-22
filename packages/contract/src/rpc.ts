@@ -57,11 +57,11 @@ import type {
 	FileListCommand,
 	FileReadCommand,
 	FileWriteCommand,
-	KnowledgeSearchCommand,
 	ScheduleCreateCommand,
 	ScheduleDeleteCommand,
 	ScheduleListCommand,
 	ScheduleUpdateCommand,
+	SkillSearchCommand,
 	SystemAccountsCreateCommand,
 	SystemAccountsListCommand,
 	SystemAccountsRenameCommand,
@@ -171,11 +171,11 @@ import type {
 	FileListResult,
 	FileReadResult,
 	FileWriteResult,
-	KnowledgeSearchResults,
 	ScheduleCreateResult,
 	ScheduleDeleteResult,
 	ScheduleListResult,
 	ScheduleUpdateResult,
+	SkillSearchResults,
 	SystemAccountsCreateResult,
 	SystemAccountsListResult,
 	SystemAccountsRenameResult,
@@ -513,11 +513,8 @@ export type FileWriteRpc = Rpc<FileWriteCommand, FileWriteResult>;
 /** RPC contract for `file.delete`: deletes a virtual workspace file. */
 export type FileDeleteRpc = Rpc<FileDeleteCommand, FileDeleteResult>;
 
-/** RPC contract for `knowledge.search`: searches knowledge documents for a bot. */
-export type KnowledgeSearchRpc = Rpc<
-	KnowledgeSearchCommand,
-	KnowledgeSearchResults
->;
+/** RPC contract for `skill.search`: searches skills for a bot. */
+export type SkillSearchRpc = Rpc<SkillSearchCommand, SkillSearchResults>;
 
 /** RPC contract for `schedule.create`: schedules a recurring cron job or delayed timer. */
 export type ScheduleCreateRpc = Rpc<
@@ -652,7 +649,7 @@ export interface RpcMap {
 	"file.read": FileReadRpc;
 	"file.write": FileWriteRpc;
 	"file.delete": FileDeleteRpc;
-	"knowledge.search": KnowledgeSearchRpc;
+	"skill.search": SkillSearchRpc;
 	"schedule.create": ScheduleCreateRpc;
 	"schedule.list": ScheduleListRpc;
 	"schedule.update": ScheduleUpdateRpc;

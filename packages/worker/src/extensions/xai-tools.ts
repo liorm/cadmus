@@ -2,7 +2,7 @@ import { defineExtension, defineTool } from "@earendil-works/pi-durable";
 import { Type } from "typebox";
 import { unavailableToolMessage } from "../models.js";
 import type { CadmusExtensionDescriptor } from "./cadmus-tools.js";
-import { toolError } from "./knowledge-tools.js";
+import { toolError } from "./file-tools.js";
 
 export function xaiToolsExtension() {
 	return defineExtension({

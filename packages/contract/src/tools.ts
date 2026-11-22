@@ -5,7 +5,17 @@
  * An explicit array replaces that set. Coding tools are opt-in and are
  * never part of the default set.
  */
-export const CODING_TOOL_NAMES = ["bash", "read", "write", "edit"] as const;
+export const FILE_TOOL_NAMES = ["read", "write", "edit", "delete"] as const;
+
+export const CODING_TOOL_NAMES = ["bash"] as const;
+
+export const WORKSPACE_TOOL_NAMES = [
+	"bash",
+	"read",
+	"write",
+	"edit",
+	"delete",
+] as const;
 
 export const CODE_EXECUTE_TOOL_NAME = "code.execute";
 
@@ -31,7 +41,7 @@ export function isTaskTool(name: string): boolean {
  * Unlisted tools are not known read-only.
  */
 export const TOOL_CATEGORIES = [
-	{ id: "knowledge", label: "Knowledge", extension: "cadmus.knowledge" },
+	{ id: "files", label: "Files & Skills", extension: "cadmus.files" },
 	{
 		id: "schedules",
 		label: "Schedules",
@@ -62,34 +72,27 @@ export type ToolCatalogEntry = {
 
 export const TOOL_CATALOG: readonly ToolCatalogEntry[] = [
 	{
-		name: "knowledge_read",
-		category: "knowledge",
+		name: "read",
+		category: "files",
 		readOnly: true,
 		readOnlyGroup: true,
 		codingEnv: false,
 	},
 	{
-		name: "knowledge_update",
-		category: "knowledge",
+		name: "write",
+		category: "files",
 		readOnly: false,
 		codingEnv: false,
 	},
 	{
-		name: "knowledge_delete",
-		category: "knowledge",
+		name: "edit",
+		category: "files",
 		readOnly: false,
 		codingEnv: false,
 	},
 	{
-		name: "memory_read",
-		category: "knowledge",
-		readOnly: true,
-		readOnlyGroup: true,
-		codingEnv: false,
-	},
-	{
-		name: "memory_update",
-		category: "knowledge",
+		name: "delete",
+		category: "files",
 		readOnly: false,
 		codingEnv: false,
 	},
@@ -157,9 +160,6 @@ export const TOOL_CATALOG: readonly ToolCatalogEntry[] = [
 		providers: ["xai", "faux"],
 	},
 	{ name: "bash", category: "coding", readOnly: false, codingEnv: true },
-	{ name: "read", category: "coding", readOnly: true, codingEnv: true },
-	{ name: "write", category: "coding", readOnly: false, codingEnv: true },
-	{ name: "edit", category: "coding", readOnly: false, codingEnv: true },
 ];
 
 /**
@@ -174,8 +174,8 @@ export const DEFAULT_CADMUS_TOOL_NAMES: readonly string[] = TOOL_CATALOG.filter(
 ).map((entry) => entry.name);
 
 /**
- * Tools a `message_bot` `readOnly` target may use. Memory and knowledge
- * reads only. Writes, schedules, messaging, coding, and bot management
+ * Tools a `message_bot` `readOnly` target may use. Reading Cadmus virtual files
+ * (`/.cadmus/*`) only. Writes, schedules, messaging, coding, and bot management
  * stay off this list.
  */
 export const READONLY_GROUP_TOOL_NAMES: readonly string[] = TOOL_CATALOG.filter(
@@ -201,7 +201,17 @@ export function readOnlyGroupToolNames(
 }
 
 export type DefaultCadmusToolName = string;
+export type FileToolName = (typeof FILE_TOOL_NAMES)[number];
 export type CodingToolName = (typeof CODING_TOOL_NAMES)[number];
+export type WorkspaceToolName = (typeof WORKSPACE_TOOL_NAMES)[number];
+
+export function isFileTool(name: string): name is FileToolName {
+	return (FILE_TOOL_NAMES as readonly string[]).includes(name);
+}
+
+export function isWorkspaceTool(name: string): name is WorkspaceToolName {
+	return (WORKSPACE_TOOL_NAMES as readonly string[]).includes(name);
+}
 
 export function extractModelProvider(model?: string | null): string | null {
 	if (!model) return null;

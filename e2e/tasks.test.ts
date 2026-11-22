@@ -245,7 +245,7 @@ describe("chat tasks", () => {
 		expect(listed.frame.result?.tasks ?? []).toEqual([]);
 
 		const explicit = await adminScope("default");
-		await setupBot(explicit, { tools: ["memory_read"] });
+		await setupBot(explicit, { tools: ["read"] });
 		await sendRpc(
 			"turn.submit",
 			{

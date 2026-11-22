@@ -341,7 +341,7 @@ describe("just-bash tools env DO & D1 internals", () => {
 				slug: "assistant",
 				name: "Assistant",
 				model: "faux/echo",
-				tools: [...CODING_TOOLS, "memory_update", "knowledge_update"],
+				tools: [...CODING_TOOLS, "read", "write", "edit", "delete"],
 			},
 			options,
 		);

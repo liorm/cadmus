@@ -19,7 +19,7 @@ import { parseThinkingLevel } from "../models.js";
 import { ThinkingLevelSchema, ToolsEnvSettingSchema } from "../protocol.js";
 import type { CadmusExtensionDescriptor } from "./cadmus-tools.js";
 import { expandCodingOnlyAllowlist } from "./coding-allowlist.js";
-import { resolveBotScope, toolError, toolText } from "./knowledge-tools.js";
+import { resolveBotScope, toolError, toolText } from "./file-tools.js";
 
 export type SearchBotInput = {
 	query: string;
@@ -284,7 +284,7 @@ export function internalToolsExtension() {
 			defineTool({
 				name: "create_bot",
 				description:
-					"Create a new peer bot in this Bot Family with its own persona (SOUL.md), memory, knowledge documents, model, and tool policy. Knowledge and memory passed here are stored on the new bot only. Do not follow this call with knowledge_update or memory_update to copy those documents: those tools write the caller, not the peer.",
+					"Create a new peer bot in this Bot Family with its own persona (/.cadmus/SOUL.md), memory, skills, model, and tool policy. Skills and memory passed here are stored on the new bot only. Do not follow this call with write/edit on your own /.cadmus/ files to copy those documents.",
 				parameters: Type.Object({
 					slug: Type.Optional(Type.String()),
 					name: Type.String({ minLength: 1 }),
@@ -295,15 +295,15 @@ export function internalToolsExtension() {
 					memory: Type.Optional(
 						Type.String({
 							description:
-								"Initial MEMORY.md body stored on the new bot, not on you.",
+								"Initial /.cadmus/MEMORY.md body stored on the new bot, not on you.",
 						}),
 					),
-					knowledge: Type.Optional(
+					skills: Type.Optional(
 						Type.Array(
 							Type.Object({
 								slug: Type.String({
 									description:
-										"Knowledge slug on the new bot (lowercase letters, digits, hyphens, 1-64 chars).",
+										"Skill slug on the new bot (lowercase letters, digits, hyphens, 1-64 chars).",
 								}),
 								description: Type.String({
 									description:
@@ -317,7 +317,7 @@ export function internalToolsExtension() {
 							}),
 							{
 								description:
-									"Initial knowledge documents created on the new bot. This is the only way for you to attach knowledge to a peer at creation. knowledge_update cannot target them.",
+									"Initial skills created on the new bot (/.cadmus/skills/<slug>/SKILL.md).",
 							},
 						),
 					),
@@ -346,7 +346,7 @@ export function internalToolsExtension() {
 							tools: expandCodingOnlyAllowlist(args.tools),
 							soul: args.soul,
 							memory: args.memory,
-							knowledge: args.knowledge,
+							skills: args.skills,
 							toolsEnv: args.toolsEnv,
 						});
 						getLogger().info("peer bot created via create_bot tool", {
@@ -369,7 +369,7 @@ export function internalToolsExtension() {
 			defineTool({
 				name: "search_bot",
 				description:
-					"Search for peer bots in this Bot Family matching a query, topic, or description. Evaluates bot names, SOUL.md personas, MEMORY.md, and knowledge summaries to identify the single most relevant bot. Always use this tool first when looking for information that might be held by other bots or determining which bot is responsible for a specific topic, domain, or task.",
+					"Search for peer bots in this Bot Family matching a query, topic, or description. Evaluates bot names, /.cadmus/SOUL.md personas, /.cadmus/MEMORY.md, and skill summaries to identify the single most relevant bot. Always use this tool first when looking for information that might be held by other bots or determining which bot is responsible for a specific topic, domain, or task.",
 				parameters: Type.Object({
 					query: Type.Optional(
 						Type.String({
@@ -402,9 +402,9 @@ export function internalToolsExtension() {
 						slugs.push(bot.id);
 						const soul = services.familyStore.files.getSoul(bot.id);
 						const memory = services.familyStore.files.getMemory(bot.id).content;
-						const knowledge = services.familyStore.files
-							.listKnowledge(bot.id)
-							.map((k) => `${k.slug}: ${k.description}`)
+						const skills = services.familyStore.files
+							.listSkills(bot.id)
+							.map((s) => `${s.slug}: ${s.description}`)
 							.join("; ");
 						catalogBlocks.push(
 							[
@@ -412,7 +412,7 @@ export function internalToolsExtension() {
 								`Name: ${bot.name}`,
 								`Soul: ${soul.slice(0, 400)}`,
 								...(memory ? [`Memory: ${memory.slice(0, 200)}`] : []),
-								...(knowledge ? [`Knowledge: ${knowledge}`] : []),
+								...(skills ? [`Skills: ${skills}`] : []),
 							].join("\n"),
 						);
 					}
@@ -475,7 +475,7 @@ export function internalToolsExtension() {
 				name: "list_bots",
 				// Cadmus settings read-only: execute() lists slug and name.
 				description:
-					"List all bots in this Bot Family. Returns only the slug and display name of each bot. Do NOT use this tool to search for a bot to answer a question or check for specific information—use search_bot instead, which inspects bot personas, memories, and knowledge summaries. Only use list_bots when the user explicitly requests an exhaustive roster or inventory of all bots.",
+					"List all bots in this Bot Family. Returns only the slug and display name of each bot. Do NOT use this tool to search for a bot to answer a question or check for specific information—use search_bot instead, which inspects bot personas, memories, and skill summaries. Only use list_bots when the user explicitly requests an exhaustive roster or inventory of all bots.",
 				parameters: Type.Object({}),
 				replay: "safe",
 				async execute(_args, _api, context) {
@@ -495,7 +495,7 @@ export function internalToolsExtension() {
 			defineTool({
 				name: "message_bot",
 				description:
-					"Open a new group chat in this family. Pass slug for one target, or to: [slug, ...] for several. topic is required. When seeking answers or checking records from other bots, NEVER message all bots at once—use search_bot first to find the single relevant bot, then message that bot with slug and pass readOnly: true. In a two-member chat with wait: true, every message gets a reply from the other member; when you receive the needed information (or confirmation that none exists), call end_conversation immediately to finish rather than sending back-and-forth chit-chat or acknowledgments. wait defaults to true and blocks until you call end_conversation, the 10-turn cap, or the watchdog. wait false returns immediately with the group chat id and topic. A two-member fire-and-forget chat ends on the target's first reply. A larger one ends when every bot mentioned in the opening has replied once (or on cap or timeout). That result is delivered later as a new turn in this chat. Same family only. Legacy peer chats are not reused. Cost is charged to you. readOnly defaults to false. readOnly true still opens a normal group chat (topic required, visible, user read-only, same limits) but each target session is offered only knowledge_read and memory_read. Harvest stays off. Your own session in that chat keeps its tools, including end_conversation.",
+					"Open a new group chat in this family. Pass slug for one target, or to: [slug, ...] for several. topic is required. When seeking answers or checking records from other bots, NEVER message all bots at once—use search_bot first to find the single relevant bot, then message that bot with slug and pass readOnly: true. In a two-member chat with wait: true, every message gets a reply from the other member; when you receive the needed information (or confirmation that none exists), call end_conversation immediately to finish rather than sending back-and-forth chit-chat or acknowledgments. wait defaults to true and blocks until you call end_conversation, the 10-turn cap, or the watchdog. wait false returns immediately with the group chat id and topic. A two-member fire-and-forget chat ends on the target's first reply. A larger one ends when every bot mentioned in the opening has replied once (or on cap or timeout). That result is delivered later as a new turn in this chat. Same family only. Legacy peer chats are not reused. Cost is charged to you. readOnly defaults to false. readOnly true still opens a normal group chat (topic required, visible, user read-only, same limits) but each target session is offered only read on /.cadmus/* virtual files. Harvest stays off. Your own session in that chat keeps its tools, including end_conversation.",
 				parameters: Type.Object({
 					slug: Type.Optional(
 						Type.String({
@@ -524,7 +524,7 @@ export function internalToolsExtension() {
 					readOnly: Type.Optional(
 						Type.Boolean({
 							description:
-								"When true, each target is offered only knowledge_read and memory_read. Writes, schedules, messaging, and coding tools are refused. Recommended when querying peer bots for information. Defaults to false.",
+								"When true, each target is offered only read on /.cadmus/* virtual files. Writes, schedules, messaging, and coding tools are refused. Recommended when querying peer bots for information. Defaults to false.",
 						}),
 					),
 				}),
