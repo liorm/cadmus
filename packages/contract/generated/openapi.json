@@ -1858,6 +1858,155 @@
 				}
 			}
 		},
+		"/api/system/metrics": {
+			"get": {
+				"operationId": "system.metrics",
+				"x-cadmus-grant": "system.accounts.read",
+				"summary": "Return platform-wide tenant, user, family, session, and 24h audit metrics. Super-admin only, never tenant chat data.",
+				"parameters": [],
+				"responses": {
+					"200": {
+						"description": "Command result",
+						"content": {
+							"application/json": {
+								"schema": { "$ref": "#/components/schemas/SystemMetricsResult" }
+							}
+						}
+					},
+					"400": { "$ref": "#/components/responses/ApiError" },
+					"401": { "$ref": "#/components/responses/ApiError" },
+					"404": { "$ref": "#/components/responses/ApiError" },
+					"405": { "$ref": "#/components/responses/ApiError" },
+					"409": { "$ref": "#/components/responses/ApiError" },
+					"500": { "$ref": "#/components/responses/ApiError" }
+				}
+			},
+			"head": {
+				"operationId": "system.metrics.head",
+				"x-cadmus-grant": "system.accounts.read",
+				"summary": "Return platform-wide tenant, user, family, session, and 24h audit metrics. Super-admin only, never tenant chat data.",
+				"parameters": [],
+				"responses": {
+					"200": { "description": "Same as GET with an empty body" },
+					"400": { "$ref": "#/components/responses/ApiError" },
+					"401": { "$ref": "#/components/responses/ApiError" },
+					"404": { "$ref": "#/components/responses/ApiError" },
+					"405": { "$ref": "#/components/responses/ApiError" }
+				}
+			}
+		},
+		"/api/system/accounts/get": {
+			"get": {
+				"operationId": "system.accounts.get",
+				"x-cadmus-grant": "system.accounts.read",
+				"summary": "Retrieve detailed operational metadata for one tenant account (counts, connected providers, active sign-ins). Super-admin only.",
+				"parameters": [
+					{
+						"name": "accountId",
+						"in": "query",
+						"required": true,
+						"schema": {
+							"type": "string",
+							"minLength": 1,
+							"description": "Target tenant account ID."
+						},
+						"description": "Target tenant account ID."
+					}
+				],
+				"responses": {
+					"200": {
+						"description": "Command result",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/SystemAccountsGetResult"
+								}
+							}
+						}
+					},
+					"400": { "$ref": "#/components/responses/ApiError" },
+					"401": { "$ref": "#/components/responses/ApiError" },
+					"404": { "$ref": "#/components/responses/ApiError" },
+					"405": { "$ref": "#/components/responses/ApiError" },
+					"409": { "$ref": "#/components/responses/ApiError" },
+					"500": { "$ref": "#/components/responses/ApiError" }
+				}
+			},
+			"head": {
+				"operationId": "system.accounts.get.head",
+				"x-cadmus-grant": "system.accounts.read",
+				"summary": "Retrieve detailed operational metadata for one tenant account (counts, connected providers, active sign-ins). Super-admin only.",
+				"parameters": [
+					{
+						"name": "accountId",
+						"in": "query",
+						"required": true,
+						"schema": {
+							"type": "string",
+							"minLength": 1,
+							"description": "Target tenant account ID."
+						},
+						"description": "Target tenant account ID."
+					}
+				],
+				"responses": {
+					"200": { "description": "Same as GET with an empty body" },
+					"400": { "$ref": "#/components/responses/ApiError" },
+					"401": { "$ref": "#/components/responses/ApiError" },
+					"404": { "$ref": "#/components/responses/ApiError" },
+					"405": { "$ref": "#/components/responses/ApiError" }
+				}
+			}
+		},
+		"/api/system/sessions/revoke": {
+			"post": {
+				"operationId": "system.sessions.revoke",
+				"x-cadmus-grant": "system.users.manage",
+				"summary": "Force-revoke a specific active sign-in session. Needs admin mode.",
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"required": ["sessionId"],
+								"properties": {
+									"sessionId": {
+										"type": "string",
+										"minLength": 1,
+										"description": "Session ID to revoke."
+									},
+									"accountId": {
+										"type": "string",
+										"minLength": 1,
+										"description": "Optional tenant account ID guard."
+									}
+								},
+								"additionalProperties": false
+							}
+						}
+					}
+				},
+				"responses": {
+					"200": {
+						"description": "Command result",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/SystemSessionsRevokeResult"
+								}
+							}
+						}
+					},
+					"400": { "$ref": "#/components/responses/ApiError" },
+					"401": { "$ref": "#/components/responses/ApiError" },
+					"404": { "$ref": "#/components/responses/ApiError" },
+					"405": { "$ref": "#/components/responses/ApiError" },
+					"409": { "$ref": "#/components/responses/ApiError" },
+					"500": { "$ref": "#/components/responses/ApiError" }
+				}
+			}
+		},
 		"/api/auth/elevate": {
 			"post": {
 				"operationId": "auth.elevate",
@@ -3057,75 +3206,6 @@
 				}
 			}
 		},
-		"/api/chat/create": {
-			"post": {
-				"operationId": "chat.create",
-				"x-cadmus-grant": "chat.use",
-				"summary": "Create a new chat conversation thread with a bot, returning its unique routing key.",
-				"requestBody": {
-					"required": true,
-					"content": {
-						"application/json": {
-							"schema": {
-								"type": "object",
-								"required": ["botId"],
-								"properties": {
-									"botId": {
-										"type": "string",
-										"minLength": 1,
-										"description": "Identifier of the bot to converse with."
-									},
-									"key": {
-										"type": "string",
-										"description": "Optional custom chat routing key / slug. Generated if omitted."
-									},
-									"chatId": {
-										"type": "string",
-										"description": "Deprecated alias for key."
-									},
-									"title": {
-										"type": "string",
-										"description": "Optional title or topic label for the chat session."
-									},
-									"thinking": { "$ref": "#/components/schemas/ThinkingLevel" },
-									"toolsEnv": {
-										"$ref": "#/components/schemas/ToolsEnvSetting"
-									},
-									"harvest": {
-										"type": "boolean",
-										"description": "Idle harvest switch for this chat. Omitted or true arms harvest after turns. False leaves harvest off. Group-chat sessions are created off."
-									},
-									"kind": {
-										"anyOf": [
-											{ "type": "string", "const": "direct" },
-											{ "type": "string", "const": "scheduled" }
-										],
-										"description": "Kind of chat to create. Defaults to 'direct'."
-									}
-								},
-								"description": "Parameters for creating a new chat session."
-							}
-						}
-					}
-				},
-				"responses": {
-					"200": {
-						"description": "Command result",
-						"content": {
-							"application/json": {
-								"schema": { "$ref": "#/components/schemas/ChatCreateResult" }
-							}
-						}
-					},
-					"400": { "$ref": "#/components/responses/ApiError" },
-					"401": { "$ref": "#/components/responses/ApiError" },
-					"404": { "$ref": "#/components/responses/ApiError" },
-					"405": { "$ref": "#/components/responses/ApiError" },
-					"409": { "$ref": "#/components/responses/ApiError" },
-					"500": { "$ref": "#/components/responses/ApiError" }
-				}
-			}
-		},
 		"/api/chat/list": {
 			"get": {
 				"operationId": "chat.list",
@@ -3149,19 +3229,9 @@
 						"schema": {
 							"type": "array",
 							"items": { "$ref": "#/components/schemas/ChatKind" },
-							"description": "Kinds of chat sessions to include. Defaults to ['direct'] (user-created chats)."
+							"description": "Kinds of chat sessions to include. Defaults to ['direct'] (primary bot chats)."
 						},
-						"description": "Kinds of chat sessions to include. Defaults to ['direct'] (user-created chats)."
-					},
-					{
-						"name": "includeDeleted",
-						"in": "query",
-						"required": false,
-						"schema": {
-							"type": "boolean",
-							"description": "Whether to include soft-deleted chat sessions. Defaults to false."
-						},
-						"description": "Whether to include soft-deleted chat sessions. Defaults to false."
+						"description": "Kinds of chat sessions to include. Defaults to ['direct'] (primary bot chats)."
 					}
 				],
 				"responses": {
@@ -3203,19 +3273,9 @@
 						"schema": {
 							"type": "array",
 							"items": { "$ref": "#/components/schemas/ChatKind" },
-							"description": "Kinds of chat sessions to include. Defaults to ['direct'] (user-created chats)."
+							"description": "Kinds of chat sessions to include. Defaults to ['direct'] (primary bot chats)."
 						},
-						"description": "Kinds of chat sessions to include. Defaults to ['direct'] (user-created chats)."
-					},
-					{
-						"name": "includeDeleted",
-						"in": "query",
-						"required": false,
-						"schema": {
-							"type": "boolean",
-							"description": "Whether to include soft-deleted chat sessions. Defaults to false."
-						},
-						"description": "Whether to include soft-deleted chat sessions. Defaults to false."
+						"description": "Kinds of chat sessions to include. Defaults to ['direct'] (primary bot chats)."
 					}
 				],
 				"responses": {
@@ -3231,7 +3291,7 @@
 			"get": {
 				"operationId": "chat.get",
 				"x-cadmus-grant": "chat.use",
-				"summary": "Retrieve chat session metadata, active busy flag, recent messages, entries, and harvest notes.",
+				"summary": "Retrieve chat session metadata, compaction status, paginated continuous transcript messages, optional raw entries, and harvest notes.",
 				"parameters": [
 					{
 						"name": "chatKey",
@@ -3243,6 +3303,39 @@
 							"description": "Unique routing key of the chat session to retrieve."
 						},
 						"description": "Unique routing key of the chat session to retrieve."
+					},
+					{
+						"name": "raw",
+						"in": "query",
+						"required": false,
+						"schema": {
+							"type": "boolean",
+							"description": "Include non-user-visible internal messages (compaction summaries, system prompt updates, reset markers) and raw durable transcript entries. Defaults to false."
+						},
+						"description": "Include non-user-visible internal messages (compaction summaries, system prompt updates, reset markers) and raw durable transcript entries. Defaults to false."
+					},
+					{
+						"name": "limit",
+						"in": "query",
+						"required": false,
+						"schema": {
+							"type": "integer",
+							"minimum": 1,
+							"maximum": 500,
+							"description": "Maximum number of transcript items to return (newest page by default). Integer 1..500; defaults to 100."
+						},
+						"description": "Maximum number of transcript items to return (newest page by default). Integer 1..500; defaults to 100."
+					},
+					{
+						"name": "beforeEntryId",
+						"in": "query",
+						"required": false,
+						"schema": {
+							"type": "integer",
+							"minimum": 1,
+							"description": "Pagination cursor: return history with entry ID strictly less than beforeEntryId."
+						},
+						"description": "Pagination cursor: return history with entry ID strictly less than beforeEntryId."
 					}
 				],
 				"responses": {
@@ -3265,7 +3358,7 @@
 			"head": {
 				"operationId": "chat.get.head",
 				"x-cadmus-grant": "chat.use",
-				"summary": "Retrieve chat session metadata, active busy flag, recent messages, entries, and harvest notes.",
+				"summary": "Retrieve chat session metadata, compaction status, paginated continuous transcript messages, optional raw entries, and harvest notes.",
 				"parameters": [
 					{
 						"name": "chatKey",
@@ -3277,6 +3370,39 @@
 							"description": "Unique routing key of the chat session to retrieve."
 						},
 						"description": "Unique routing key of the chat session to retrieve."
+					},
+					{
+						"name": "raw",
+						"in": "query",
+						"required": false,
+						"schema": {
+							"type": "boolean",
+							"description": "Include non-user-visible internal messages (compaction summaries, system prompt updates, reset markers) and raw durable transcript entries. Defaults to false."
+						},
+						"description": "Include non-user-visible internal messages (compaction summaries, system prompt updates, reset markers) and raw durable transcript entries. Defaults to false."
+					},
+					{
+						"name": "limit",
+						"in": "query",
+						"required": false,
+						"schema": {
+							"type": "integer",
+							"minimum": 1,
+							"maximum": 500,
+							"description": "Maximum number of transcript items to return (newest page by default). Integer 1..500; defaults to 100."
+						},
+						"description": "Maximum number of transcript items to return (newest page by default). Integer 1..500; defaults to 100."
+					},
+					{
+						"name": "beforeEntryId",
+						"in": "query",
+						"required": false,
+						"schema": {
+							"type": "integer",
+							"minimum": 1,
+							"description": "Pagination cursor: return history with entry ID strictly less than beforeEntryId."
+						},
+						"description": "Pagination cursor: return history with entry ID strictly less than beforeEntryId."
 					}
 				],
 				"responses": {
@@ -3285,136 +3411,6 @@
 					"401": { "$ref": "#/components/responses/ApiError" },
 					"404": { "$ref": "#/components/responses/ApiError" },
 					"405": { "$ref": "#/components/responses/ApiError" }
-				}
-			}
-		},
-		"/api/chat/rename": {
-			"post": {
-				"operationId": "chat.rename",
-				"x-cadmus-grant": "chat.use",
-				"summary": "Rename the title or topic of an existing chat session.",
-				"requestBody": {
-					"required": true,
-					"content": {
-						"application/json": {
-							"schema": {
-								"type": "object",
-								"required": ["chatKey", "title"],
-								"properties": {
-									"chatKey": {
-										"type": "string",
-										"minLength": 1,
-										"description": "Chat routing key to rename."
-									},
-									"title": {
-										"type": "string",
-										"description": "New title string for the conversation."
-									}
-								},
-								"description": "Parameters for renaming a chat session."
-							}
-						}
-					}
-				},
-				"responses": {
-					"200": {
-						"description": "Command result",
-						"content": {
-							"application/json": {
-								"schema": { "$ref": "#/components/schemas/ChatRenameResult" }
-							}
-						}
-					},
-					"400": { "$ref": "#/components/responses/ApiError" },
-					"401": { "$ref": "#/components/responses/ApiError" },
-					"404": { "$ref": "#/components/responses/ApiError" },
-					"405": { "$ref": "#/components/responses/ApiError" },
-					"409": { "$ref": "#/components/responses/ApiError" },
-					"500": { "$ref": "#/components/responses/ApiError" }
-				}
-			}
-		},
-		"/api/chat/close": {
-			"post": {
-				"operationId": "chat.close",
-				"x-cadmus-grant": "chat.use",
-				"summary": "Close and archive a chat conversation session.",
-				"requestBody": {
-					"required": true,
-					"content": {
-						"application/json": {
-							"schema": {
-								"type": "object",
-								"required": ["chatKey"],
-								"properties": {
-									"chatKey": {
-										"type": "string",
-										"minLength": 1,
-										"description": "Chat routing key to close."
-									}
-								},
-								"description": "Parameters identifying the chat session to close."
-							}
-						}
-					}
-				},
-				"responses": {
-					"200": {
-						"description": "Command result",
-						"content": {
-							"application/json": {
-								"schema": { "$ref": "#/components/schemas/ChatCloseResult" }
-							}
-						}
-					},
-					"400": { "$ref": "#/components/responses/ApiError" },
-					"401": { "$ref": "#/components/responses/ApiError" },
-					"404": { "$ref": "#/components/responses/ApiError" },
-					"405": { "$ref": "#/components/responses/ApiError" },
-					"409": { "$ref": "#/components/responses/ApiError" },
-					"500": { "$ref": "#/components/responses/ApiError" }
-				}
-			}
-		},
-		"/api/chat/delete": {
-			"post": {
-				"operationId": "chat.delete",
-				"x-cadmus-grant": "chat.use",
-				"summary": "Soft-delete a chat conversation session, preserving conversation history and bot token/cost accounting.",
-				"requestBody": {
-					"required": true,
-					"content": {
-						"application/json": {
-							"schema": {
-								"type": "object",
-								"required": ["chatKey"],
-								"properties": {
-									"chatKey": {
-										"type": "string",
-										"minLength": 1,
-										"description": "Chat routing key to soft-delete."
-									}
-								},
-								"description": "Parameters identifying the chat session to delete."
-							}
-						}
-					}
-				},
-				"responses": {
-					"200": {
-						"description": "Command result",
-						"content": {
-							"application/json": {
-								"schema": { "$ref": "#/components/schemas/ChatDeleteResult" }
-							}
-						}
-					},
-					"400": { "$ref": "#/components/responses/ApiError" },
-					"401": { "$ref": "#/components/responses/ApiError" },
-					"404": { "$ref": "#/components/responses/ApiError" },
-					"405": { "$ref": "#/components/responses/ApiError" },
-					"409": { "$ref": "#/components/responses/ApiError" },
-					"500": { "$ref": "#/components/responses/ApiError" }
 				}
 			}
 		},
@@ -3461,128 +3457,6 @@
 					"405": { "$ref": "#/components/responses/ApiError" },
 					"409": { "$ref": "#/components/responses/ApiError" },
 					"500": { "$ref": "#/components/responses/ApiError" }
-				}
-			}
-		},
-		"/api/chat/messages": {
-			"get": {
-				"operationId": "chat.messages",
-				"x-cadmus-grant": "chat.use",
-				"summary": "Fetch the user and assistant message exchange history for a chat session.",
-				"parameters": [
-					{
-						"name": "chatKey",
-						"in": "query",
-						"required": true,
-						"schema": {
-							"type": "string",
-							"minLength": 1,
-							"description": "Chat routing key whose messages to fetch."
-						},
-						"description": "Chat routing key whose messages to fetch."
-					}
-				],
-				"responses": {
-					"200": {
-						"description": "Command result",
-						"content": {
-							"application/json": {
-								"schema": { "$ref": "#/components/schemas/ChatGetResult" }
-							}
-						}
-					},
-					"400": { "$ref": "#/components/responses/ApiError" },
-					"401": { "$ref": "#/components/responses/ApiError" },
-					"404": { "$ref": "#/components/responses/ApiError" },
-					"405": { "$ref": "#/components/responses/ApiError" },
-					"409": { "$ref": "#/components/responses/ApiError" },
-					"500": { "$ref": "#/components/responses/ApiError" }
-				}
-			},
-			"head": {
-				"operationId": "chat.messages.head",
-				"x-cadmus-grant": "chat.use",
-				"summary": "Fetch the user and assistant message exchange history for a chat session.",
-				"parameters": [
-					{
-						"name": "chatKey",
-						"in": "query",
-						"required": true,
-						"schema": {
-							"type": "string",
-							"minLength": 1,
-							"description": "Chat routing key whose messages to fetch."
-						},
-						"description": "Chat routing key whose messages to fetch."
-					}
-				],
-				"responses": {
-					"200": { "description": "Same as GET with an empty body" },
-					"400": { "$ref": "#/components/responses/ApiError" },
-					"401": { "$ref": "#/components/responses/ApiError" },
-					"404": { "$ref": "#/components/responses/ApiError" },
-					"405": { "$ref": "#/components/responses/ApiError" }
-				}
-			}
-		},
-		"/api/chat/entries": {
-			"get": {
-				"operationId": "chat.entries",
-				"x-cadmus-grant": "chat.use",
-				"summary": "Fetch the underlying durable transcript entries (including tool calls and state records) for a chat session.",
-				"parameters": [
-					{
-						"name": "chatKey",
-						"in": "query",
-						"required": true,
-						"schema": {
-							"type": "string",
-							"minLength": 1,
-							"description": "Chat routing key whose transcript entries to fetch."
-						},
-						"description": "Chat routing key whose transcript entries to fetch."
-					}
-				],
-				"responses": {
-					"200": {
-						"description": "Command result",
-						"content": {
-							"application/json": {
-								"schema": { "$ref": "#/components/schemas/ChatGetResult" }
-							}
-						}
-					},
-					"400": { "$ref": "#/components/responses/ApiError" },
-					"401": { "$ref": "#/components/responses/ApiError" },
-					"404": { "$ref": "#/components/responses/ApiError" },
-					"405": { "$ref": "#/components/responses/ApiError" },
-					"409": { "$ref": "#/components/responses/ApiError" },
-					"500": { "$ref": "#/components/responses/ApiError" }
-				}
-			},
-			"head": {
-				"operationId": "chat.entries.head",
-				"x-cadmus-grant": "chat.use",
-				"summary": "Fetch the underlying durable transcript entries (including tool calls and state records) for a chat session.",
-				"parameters": [
-					{
-						"name": "chatKey",
-						"in": "query",
-						"required": true,
-						"schema": {
-							"type": "string",
-							"minLength": 1,
-							"description": "Chat routing key whose transcript entries to fetch."
-						},
-						"description": "Chat routing key whose transcript entries to fetch."
-					}
-				],
-				"responses": {
-					"200": { "description": "Same as GET with an empty body" },
-					"400": { "$ref": "#/components/responses/ApiError" },
-					"401": { "$ref": "#/components/responses/ApiError" },
-					"404": { "$ref": "#/components/responses/ApiError" },
-					"405": { "$ref": "#/components/responses/ApiError" }
 				}
 			}
 		},
@@ -3644,48 +3518,6 @@
 					"401": { "$ref": "#/components/responses/ApiError" },
 					"404": { "$ref": "#/components/responses/ApiError" },
 					"405": { "$ref": "#/components/responses/ApiError" }
-				}
-			}
-		},
-		"/api/chat/subscribe": {
-			"post": {
-				"operationId": "chat.subscribe",
-				"x-cadmus-grant": "chat.use",
-				"summary": "Subscribe the current connection (WebSocket or SSE) to real-time streaming deltas, tool calls, and state events for a chat.",
-				"requestBody": {
-					"required": true,
-					"content": {
-						"application/json": {
-							"schema": {
-								"type": "object",
-								"required": ["chatKey"],
-								"properties": {
-									"chatKey": {
-										"type": "string",
-										"minLength": 1,
-										"description": "Chat routing key to subscribe to."
-									}
-								},
-								"description": "Parameters identifying the chat session."
-							}
-						}
-					}
-				},
-				"responses": {
-					"200": {
-						"description": "Command result",
-						"content": {
-							"application/json": {
-								"schema": { "$ref": "#/components/schemas/ChatGetResult" }
-							}
-						}
-					},
-					"400": { "$ref": "#/components/responses/ApiError" },
-					"401": { "$ref": "#/components/responses/ApiError" },
-					"404": { "$ref": "#/components/responses/ApiError" },
-					"405": { "$ref": "#/components/responses/ApiError" },
-					"409": { "$ref": "#/components/responses/ApiError" },
-					"500": { "$ref": "#/components/responses/ApiError" }
 				}
 			}
 		},
@@ -4509,7 +4341,7 @@
 						"application/json": {
 							"schema": {
 								"type": "object",
-								"required": ["botId", "kind", "input", "text", "target"],
+								"required": ["botId", "kind", "input", "text"],
 								"properties": {
 									"id": {
 										"type": "string",
@@ -4553,7 +4385,9 @@
 										"minLength": 1,
 										"description": "Prompt text delivered to the bot when the schedule triggers."
 									},
-									"target": { "$ref": "#/components/schemas/ScheduleTarget" },
+									"target": {
+										"$ref": "#/components/schemas/ScheduleTargetInput"
+									},
 									"thinking": { "$ref": "#/components/schemas/ThinkingLevel" },
 									"enabled": {
 										"type": "boolean",
@@ -5207,6 +5041,14 @@
 						"type": "string",
 						"description": "Identifier of the user member."
 					},
+					"name": {
+						"type": "string",
+						"description": "Display name of the member."
+					},
+					"email": {
+						"type": "string",
+						"description": "Primary email address of the member."
+					},
 					"roles": {
 						"type": "array",
 						"items": {
@@ -5221,6 +5063,10 @@
 					"createdAt": {
 						"type": "number",
 						"description": "Epoch timestamp in milliseconds when the membership was created."
+					},
+					"disabledAt": {
+						"type": "number",
+						"description": "Epoch timestamp in milliseconds when the user was disabled."
 					}
 				},
 				"description": "Membership relation linking a user identity to a tenant account with an access role."
@@ -6020,6 +5866,7 @@
 					"thinking",
 					"timezone",
 					"rootConversationId",
+					"primaryChatKey",
 					"createdAt"
 				],
 				"properties": {
@@ -6049,6 +5896,10 @@
 						"type": "number",
 						"description": "Internal numeric ID of the primary root conversation associated with the bot."
 					},
+					"primaryChatKey": {
+						"type": "string",
+						"description": "Primary continuous direct chat routing key (\"bot:<botId>\")."
+					},
 					"createdAt": {
 						"type": "number",
 						"description": "Epoch timestamp in milliseconds when the bot was created."
@@ -6064,49 +5915,72 @@
 				"properties": { "bot": { "$ref": "#/components/schemas/BotRecord" } },
 				"description": "Result payload returned by bot.update containing the updated bot record."
 			},
-			"ChatCloseResult": {
+			"ChatCompactionSnapshot": {
 				"type": "object",
-				"required": ["chat"],
-				"properties": { "chat": { "$ref": "#/components/schemas/ChatRecord" } },
-				"description": "Result payload returned by chat.close containing the closed chat record."
-			},
-			"ChatCreateResult": {
-				"type": "object",
-				"required": ["chat"],
-				"properties": { "chat": { "$ref": "#/components/schemas/ChatRecord" } },
-				"description": "Result payload returned by chat.create containing the new chat session record."
-			},
-			"ChatDeleteResult": {
-				"type": "object",
-				"required": ["chat", "deleted"],
+				"required": ["active", "tasks"],
 				"properties": {
-					"chat": { "$ref": "#/components/schemas/ChatRecord" },
-					"deleted": {
+					"active": {
 						"type": "boolean",
-						"const": true,
-						"description": "Always true, confirming the chat was soft-deleted."
+						"description": "True while one or more compaction tasks are running."
+					},
+					"tasks": {
+						"type": "array",
+						"items": { "$ref": "#/components/schemas/CompactionTaskView" }
+					},
+					"lastFailure": {
+						"$ref": "#/components/schemas/CompactionFailureView"
+					},
+					"headEntryId": {
+						"type": "number",
+						"description": "Latest compaction entry ID if compacted."
+					},
+					"firstKeptEntryId": {
+						"type": "number",
+						"description": "Earliest verbatim entry ID retained after compaction."
 					}
 				},
-				"description": "Result payload returned by chat.delete confirming the chat was soft-deleted."
+				"description": "Compaction state snapshot for a chat."
 			},
 			"ChatGetResult": {
 				"type": "object",
-				"required": ["chat", "busy", "messages", "entries", "notes"],
+				"required": [
+					"chat",
+					"busy",
+					"compacting",
+					"messages",
+					"hasMore",
+					"notes"
+				],
 				"properties": {
 					"chat": { "$ref": "#/components/schemas/ChatRecord" },
 					"busy": {
 						"type": "boolean",
 						"description": "True if the chat is actively executing a model turn or scheduled task."
 					},
+					"compacting": {
+						"type": "boolean",
+						"description": "True while one or more compaction tasks are running."
+					},
+					"compaction": {
+						"$ref": "#/components/schemas/ChatCompactionSnapshot"
+					},
 					"messages": {
 						"type": "array",
 						"items": { "$ref": "#/components/schemas/TranscriptMessageView" },
-						"description": "Recent message exchange history for this chat session."
+						"description": "Continuous transcript message exchange history in ascending chronological order."
 					},
 					"entries": {
 						"type": "array",
 						"items": { "$ref": "#/components/schemas/RawTranscriptEntry" },
-						"description": "Raw transcript entries recorded for this conversation."
+						"description": "Raw durable transcript entries, populated only when raw === true."
+					},
+					"hasMore": {
+						"type": "boolean",
+						"description": "True if older transcript history exists before oldestEntryId."
+					},
+					"oldestEntryId": {
+						"type": "number",
+						"description": "Entry ID cursor to pass as beforeEntryId when fetching the next older page."
 					},
 					"notes": {
 						"type": "array",
@@ -6136,7 +6010,7 @@
 						"anyOf": [{ "type": "string" }, { "type": "null" }]
 					}
 				},
-				"description": "Full chat session state including recent messages, transcript entries, and harvest audit notes."
+				"description": "Full chat session state including compaction telemetry, paginated continuous messages, optional raw entries, and harvest audit notes."
 			},
 			"ChatKind": {
 				"anyOf": [
@@ -6238,26 +6112,12 @@
 						},
 						"additionalProperties": false
 					},
-					"deleted": {
-						"type": "boolean",
-						"description": "Whether this chat has been soft-deleted."
-					},
-					"deletedAt": {
-						"type": "number",
-						"description": "Epoch timestamp in milliseconds when the chat was soft-deleted."
-					},
 					"originChatKey": {
 						"type": "string",
 						"description": "Routing key of the originating chat that spawned this child or group member chat."
 					}
 				},
 				"description": "Chat session record tracking a conversation thread with a specific bot, or a read-only group chat shared by bots."
-			},
-			"ChatRenameResult": {
-				"type": "object",
-				"required": ["chat"],
-				"properties": { "chat": { "$ref": "#/components/schemas/ChatRecord" } },
-				"description": "Result payload returned by chat.rename containing the renamed chat record."
 			},
 			"ChatResetResult": {
 				"type": "object",
@@ -6272,6 +6132,47 @@
 				},
 				"description": "Result payload returned by chat.reset confirming conversation history reset."
 			},
+			"ChatStatusCompaction": {
+				"type": "object",
+				"required": [
+					"active",
+					"tasks",
+					"contextTokens",
+					"contextWindow",
+					"policy"
+				],
+				"properties": {
+					"active": {
+						"type": "boolean",
+						"description": "True while one or more compaction tasks are running."
+					},
+					"tasks": {
+						"type": "array",
+						"items": { "$ref": "#/components/schemas/CompactionTaskView" }
+					},
+					"lastFailure": {
+						"$ref": "#/components/schemas/CompactionFailureView"
+					},
+					"headEntryId": {
+						"type": "number",
+						"description": "Latest compaction entry ID if compacted."
+					},
+					"firstKeptEntryId": {
+						"type": "number",
+						"description": "Earliest verbatim entry ID retained after compaction."
+					},
+					"contextTokens": {
+						"type": "number",
+						"description": "Estimated token count in the active model context window."
+					},
+					"contextWindow": {
+						"type": "number",
+						"description": "Model context window limit in tokens."
+					},
+					"policy": { "$ref": "#/components/schemas/CompactionPolicy" }
+				},
+				"description": "Extended compaction and context usage telemetry."
+			},
 			"ChatStatusRecord": {
 				"type": "object",
 				"required": [
@@ -6284,6 +6185,8 @@
 					"tools",
 					"busy",
 					"entryCount",
+					"totalEntryCount",
+					"compaction",
 					"harvestWatermark",
 					"nextWakeAt",
 					"usage",
@@ -6332,8 +6235,13 @@
 					},
 					"entryCount": {
 						"type": "number",
-						"description": "Total number of transcript entries recorded in this conversation."
+						"description": "Number of transcript entries in the active model context window."
 					},
+					"totalEntryCount": {
+						"type": "number",
+						"description": "Total number of durable transcript entries across all compactions."
+					},
+					"compaction": { "$ref": "#/components/schemas/ChatStatusCompaction" },
 					"harvestWatermark": {
 						"type": "number",
 						"description": "Highest transcript entry sequence number harvested into long-term memory."
@@ -6494,6 +6402,71 @@
 				"type": "object",
 				"required": ["chat"],
 				"properties": { "chat": { "$ref": "#/components/schemas/ChatRecord" } }
+			},
+			"CompactionFailureView": {
+				"type": "object",
+				"required": ["taskId", "reason", "error"],
+				"properties": {
+					"taskId": {
+						"type": "number",
+						"description": "Failed compaction task ID."
+					},
+					"reason": { "$ref": "#/components/schemas/CompactionReason" },
+					"error": { "type": "string", "description": "Failure message." }
+				},
+				"description": "Last compaction failure recorded on the conversation."
+			},
+			"CompactionPolicy": {
+				"type": "object",
+				"required": [
+					"enabled",
+					"reserveTokens",
+					"keepRecentTokens",
+					"backgroundTokens"
+				],
+				"properties": {
+					"enabled": { "type": "boolean" },
+					"reserveTokens": { "type": "number" },
+					"keepRecentTokens": { "type": "number" },
+					"backgroundTokens": { "type": "number" }
+				},
+				"description": "Automatic compaction thresholds in tokens."
+			},
+			"CompactionReason": {
+				"anyOf": [
+					{ "type": "string", "const": "manual" },
+					{ "type": "string", "const": "threshold" },
+					{ "type": "string", "const": "overflow" }
+				],
+				"description": "Reason compaction was triggered."
+			},
+			"CompactionTaskView": {
+				"type": "object",
+				"required": ["taskId", "reason", "blocking", "attempt"],
+				"properties": {
+					"taskId": {
+						"type": "number",
+						"description": "Durable compaction task ID."
+					},
+					"reason": { "$ref": "#/components/schemas/CompactionReason" },
+					"blocking": {
+						"type": "boolean",
+						"description": "Whether this compaction blocks active turns."
+					},
+					"attempt": {
+						"type": "number",
+						"description": "Current summarization attempt."
+					},
+					"retryAt": {
+						"type": "number",
+						"description": "Epoch ms for next retry if sleeping."
+					},
+					"retryError": {
+						"type": "string",
+						"description": "Error from previous attempt if retrying."
+					}
+				},
+				"description": "Active compaction task snapshot."
 			},
 			"ConfinementPolicy": {
 				"anyOf": [
@@ -7429,6 +7402,65 @@
 				],
 				"description": "Target execution destination and mode for a scheduled task or idle harvest."
 			},
+			"ScheduleTargetInput": {
+				"anyOf": [
+					{
+						"type": "object",
+						"required": ["mode"],
+						"properties": {
+							"mode": {
+								"type": "string",
+								"const": "chat",
+								"description": "Deliver the scheduled prompt to an existing chat session (defaults to primary bot chat)."
+							},
+							"chatKey": {
+								"type": "string",
+								"minLength": 1,
+								"description": "Target chat session routing key. Defaults to bot:<botId> when omitted."
+							}
+						},
+						"description": "Target an existing persistent chat session."
+					},
+					{
+						"type": "object",
+						"required": ["mode"],
+						"properties": {
+							"mode": {
+								"type": "string",
+								"const": "new-chat",
+								"description": "Create a brand new chat session for each scheduled trigger."
+							}
+						},
+						"description": "Spawn a new chat session per schedule execution."
+					},
+					{
+						"type": "object",
+						"required": ["mode", "chatKey"],
+						"properties": {
+							"mode": {
+								"type": "string",
+								"const": "fork",
+								"description": "Fork from an existing chat session at a given transcript entry watermark."
+							},
+							"chatKey": {
+								"type": "string",
+								"minLength": 1,
+								"description": "Source chat session routing key to fork from."
+							},
+							"at": {
+								"type": "number",
+								"description": "Optional transcript entry sequence number watermark up to which conversation is forked."
+							},
+							"harvest": {
+								"type": "boolean",
+								"description": "True if this fork is an internal idle harvest task inspecting conversation history."
+							}
+						},
+						"description": "Fork an existing chat at a specific watermark, typically for background memory/knowledge harvesting."
+					}
+				],
+				"description": "Target execution destination and mode when creating a scheduled task."
+			},
 			"ScheduleUpdateResult": {
 				"type": "object",
 				"required": ["schedule"],
@@ -7476,6 +7508,56 @@
 				},
 				"description": "Result payload returned by skill.search containing search matches."
 			},
+			"SystemAccountMetrics": {
+				"type": "object",
+				"required": [
+					"accountId",
+					"name",
+					"status",
+					"memberCount",
+					"familyCount",
+					"activeSessionCount",
+					"credentialCount",
+					"auditEvents24h"
+				],
+				"properties": {
+					"accountId": {
+						"type": "string",
+						"description": "Tenant account identifier."
+					},
+					"name": {
+						"type": "string",
+						"description": "Display name of the tenant account."
+					},
+					"status": {
+						"anyOf": [
+							{ "type": "string", "const": "active" },
+							{ "type": "string", "const": "suspended" }
+						]
+					},
+					"memberCount": {
+						"type": "number",
+						"description": "Number of members in the tenant."
+					},
+					"familyCount": {
+						"type": "number",
+						"description": "Number of bot families in the tenant."
+					},
+					"activeSessionCount": {
+						"type": "number",
+						"description": "Number of currently active user sessions in the tenant."
+					},
+					"credentialCount": {
+						"type": "number",
+						"description": "Number of connected BYOK AI provider credentials."
+					},
+					"auditEvents24h": {
+						"type": "number",
+						"description": "Audit events recorded for this tenant in the last 24 hours."
+					}
+				},
+				"description": "Operational metrics summary for a single tenant account."
+			},
 			"SystemAccountSummary": {
 				"type": "object",
 				"required": [
@@ -7519,6 +7601,34 @@
 					"account": { "$ref": "#/components/schemas/SystemAccountSummary" }
 				},
 				"description": "Result payload returned by system.accounts.create."
+			},
+			"SystemAccountsGetResult": {
+				"type": "object",
+				"required": [
+					"account",
+					"familyCount",
+					"pendingInviteCount",
+					"activeSessionCount",
+					"connectedProviders",
+					"auditEvents24h",
+					"activeSessions"
+				],
+				"properties": {
+					"account": { "$ref": "#/components/schemas/SystemAccountSummary" },
+					"familyCount": { "type": "number" },
+					"pendingInviteCount": { "type": "number" },
+					"activeSessionCount": { "type": "number" },
+					"connectedProviders": {
+						"type": "array",
+						"items": { "type": "string" }
+					},
+					"auditEvents24h": { "type": "number" },
+					"activeSessions": {
+						"type": "array",
+						"items": { "$ref": "#/components/schemas/SystemSessionRecord" }
+					}
+				},
+				"description": "Result payload returned by system.accounts.get."
 			},
 			"SystemAccountsListResult": {
 				"type": "object",
@@ -7633,6 +7743,80 @@
 					}
 				},
 				"description": "Result payload returned by system.members.list."
+			},
+			"SystemMetricsResult": {
+				"type": "object",
+				"required": [
+					"totalAccounts",
+					"activeAccounts",
+					"suspendedAccounts",
+					"totalUsers",
+					"disabledUsers",
+					"totalFamilies",
+					"activeSessions",
+					"pendingInvites",
+					"auditEvents24h",
+					"perAccount"
+				],
+				"properties": {
+					"totalAccounts": { "type": "number" },
+					"activeAccounts": { "type": "number" },
+					"suspendedAccounts": { "type": "number" },
+					"totalUsers": { "type": "number" },
+					"disabledUsers": { "type": "number" },
+					"totalFamilies": { "type": "number" },
+					"activeSessions": { "type": "number" },
+					"pendingInvites": { "type": "number" },
+					"auditEvents24h": { "type": "number" },
+					"perAccount": {
+						"type": "array",
+						"items": { "$ref": "#/components/schemas/SystemAccountMetrics" }
+					}
+				},
+				"description": "Result payload returned by system.metrics."
+			},
+			"SystemSessionRecord": {
+				"type": "object",
+				"required": ["id", "userId", "client", "createdAt", "lastUsedAt"],
+				"properties": {
+					"id": { "type": "string", "description": "Session identifier." },
+					"userId": { "type": "string", "description": "User identifier." },
+					"userName": { "type": "string", "description": "User display name." },
+					"userEmail": {
+						"type": "string",
+						"description": "User primary email."
+					},
+					"client": {
+						"type": "string",
+						"description": "Client surface (e.g. web, cli)."
+					},
+					"ipCountry": {
+						"type": "string",
+						"description": "Country code of last request."
+					},
+					"userAgent": {
+						"type": "string",
+						"description": "Reported user-agent."
+					},
+					"createdAt": {
+						"type": "number",
+						"description": "Epoch ms when the session began."
+					},
+					"lastUsedAt": {
+						"type": "number",
+						"description": "Epoch ms when the session was last used."
+					}
+				},
+				"description": "Active sign-in session belonging to a tenant account."
+			},
+			"SystemSessionsRevokeResult": {
+				"type": "object",
+				"required": ["revoked", "sessionId"],
+				"properties": {
+					"revoked": { "type": "boolean" },
+					"sessionId": { "type": "string" }
+				},
+				"description": "Result payload returned by system.sessions.revoke."
 			},
 			"SystemUsersDisableResult": {
 				"type": "object",
@@ -7874,7 +8058,7 @@
 			},
 			"TranscriptMessageView": {
 				"type": "object",
-				"required": ["id", "role", "text"],
+				"required": ["id", "role", "visibleToUser", "visibleToModel", "text"],
 				"properties": {
 					"id": {
 						"type": "number",
@@ -7885,8 +8069,29 @@
 							{ "type": "string", "const": "user" },
 							{ "type": "string", "const": "assistant" },
 							{ "type": "string", "const": "system" },
-							{ "type": "string", "const": "toolResult" }
+							{ "type": "string", "const": "toolResult" },
+							{ "type": "string", "const": "compaction" },
+							{ "type": "string", "const": "reset" }
 						]
+					},
+					"entryKind": {
+						"type": "string",
+						"description": "Underlying durable entry kind (e.g. pi.user, pi.assistant, pi.toolResult, pi.compaction, pi.system, pi.reset)."
+					},
+					"visibleToUser": {
+						"type": "boolean",
+						"description": "Whether this entry belongs to the user-visible continuous stream."
+					},
+					"visibleToModel": {
+						"type": "boolean",
+						"description": "Whether this entry is currently included in the active LLM context."
+					},
+					"compactionReason": {
+						"$ref": "#/components/schemas/CompactionReason"
+					},
+					"firstKeptEntryId": {
+						"type": "number",
+						"description": "First entry ID retained verbatim by this compaction entry."
 					},
 					"text": {
 						"type": "string",

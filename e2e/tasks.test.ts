@@ -18,10 +18,7 @@ async function waitFor(check: () => Promise<boolean>, ms = 15_000) {
 	throw new Error("condition was not met before the deadline");
 }
 
-async function setupBot(
-	scope: Scope,
-	opts?: { tools?: string[]; key?: string },
-) {
+async function setupBot(scope: Scope, opts?: { tools?: string[] }) {
 	await sendRpc(
 		"bot.create",
 		{
@@ -30,11 +27,6 @@ async function setupBot(
 			model: "faux/echo",
 			...(opts?.tools ? { tools: opts.tools } : {}),
 		},
-		scope,
-	);
-	await sendRpc(
-		"chat.create",
-		{ botId: "worker", key: opts?.key ?? "main" },
 		scope,
 	);
 }
@@ -55,7 +47,7 @@ describe("chat tasks", () => {
 		const add = await sendRpc<{ reply: string }>(
 			"turn.submit",
 			{
-				chatKey: "main",
+				chatKey: "bot:worker",
 				text: `${addTools(2)} [tool:task_list {}]`,
 			},
 			scope,
@@ -64,7 +56,7 @@ describe("chat tasks", () => {
 		await waitFor(async () => {
 			const listed = await sendRpc<{
 				tasks: { index: number; status: string }[];
-			}>("chat.tasks.list", { chatKey: "main" }, scope);
+			}>("chat.tasks.list", { chatKey: "bot:worker" }, scope);
 			const tasks = listed.frame.result?.tasks ?? [];
 			return (
 				tasks.length === 2 && tasks.every((task) => task.status === "done")
@@ -72,47 +64,47 @@ describe("chat tasks", () => {
 		});
 		const notStarted = await sendRpc<{ reply: string }>(
 			"turn.submit",
-			{ chatKey: "main", text: '[tool:task_finish {"index":1}]' },
+			{ chatKey: "bot:worker", text: '[tool:task_finish {"index":1}]' },
 			scope,
 		);
 		expect(notStarted.frame.result?.reply).toContain("is not in progress");
 		await sendRpc<{ reply: string }>(
 			"turn.submit",
 			{
-				chatKey: "main",
+				chatKey: "bot:worker",
 				text: '[tool:task_add {"title":"Third","details":"next"}] [tool:task_add {"title":"Fourth","details":"also"}] [tool:task_get {}] [tool:task_get {"index":4}] [tool:task_finish {"index":3,"summary":"ok"}]',
 			},
 			scope,
 		);
 		const snap = await sendRpc<{
 			messages: { text: string }[];
-		}>("chat.get", { chatKey: "main" }, scope);
+		}>("chat.get", { chatKey: "bot:worker" }, scope);
 		const blob = JSON.stringify(snap.frame.result);
 		expect(blob).toContain("already in progress");
 		expect(blob).toContain('"index":3');
 		const got = await sendRpc<{ task: { summary?: string; status: string } }>(
 			"chat.tasks.get",
-			{ chatKey: "main", index: 3 },
+			{ chatKey: "bot:worker", index: 3 },
 			scope,
 		);
 		expect(got.frame.result?.task.status).toBe("done");
 		expect(got.frame.result?.task.summary).toBe("ok");
 		await sendRpc(
 			"turn.submit",
-			{ chatKey: "main", text: '[tool:task_remove {"index":2}]' },
+			{ chatKey: "bot:worker", text: '[tool:task_remove {"index":2}]' },
 			scope,
 		);
 		await sendRpc(
 			"turn.submit",
 			{
-				chatKey: "main",
+				chatKey: "bot:worker",
 				text: '[tool:task_add {"title":"Reuse","details":"no"}]',
 			},
 			scope,
 		);
 		const after = await sendRpc<{ tasks: { index: number }[] }>(
 			"chat.tasks.list",
-			{ chatKey: "main" },
+			{ chatKey: "bot:worker" },
 			scope,
 		);
 		const indexes = (after.frame.result?.tasks ?? []).map((t) => t.index);
@@ -127,7 +119,7 @@ describe("chat tasks", () => {
 		const started = Date.now();
 		const turn = await sendRpc<{ reply: string }>(
 			"turn.submit",
-			{ chatKey: "main", text: addTools(2) },
+			{ chatKey: "bot:worker", text: addTools(2) },
 			scope,
 		);
 		expect(turn.frame.ok).toBe(true);
@@ -136,7 +128,7 @@ describe("chat tasks", () => {
 			const viewed = await sendRpc<{
 				messages: { role: string; text: string }[];
 				tasks?: { status: string }[];
-			}>("chat.get", { chatKey: "main" }, scope);
+			}>("chat.get", { chatKey: "bot:worker" }, scope);
 			const continues = (viewed.frame.result?.messages ?? []).filter(
 				(message) =>
 					message.role === "user" &&
@@ -152,31 +144,39 @@ describe("chat tasks", () => {
 	it("pauses on abort and resumes on the next user message", async () => {
 		const scope = await adminScope("default");
 		await setupBot(scope);
-		await sendRpc("turn.submit", { chatKey: "main", text: addTools(2) }, scope);
+		await sendRpc(
+			"turn.submit",
+			{ chatKey: "bot:worker", text: addTools(2) },
+			scope,
+		);
 		await waitFor(async () => {
 			const viewed = await sendRpc<{
 				messages: { role: string; text: string }[];
-			}>("chat.get", { chatKey: "main" }, scope);
+			}>("chat.get", { chatKey: "bot:worker" }, scope);
 			return (viewed.frame.result?.messages ?? []).some(
 				(message) =>
 					message.role === "user" &&
 					message.text.includes("[tasks · auto-continue"),
 			);
 		});
-		const aborted = await sendRpc("turn.abort", { chatKey: "main" }, scope);
+		const aborted = await sendRpc(
+			"turn.abort",
+			{ chatKey: "bot:worker" },
+			scope,
+		);
 		expect(aborted.frame.ok).toBe(true);
 		const status = await sendRpc<{
 			taskLoop?: { state: string };
-		}>("chat.get", { chatKey: "main" }, scope);
+		}>("chat.get", { chatKey: "bot:worker" }, scope);
 		expect(status.frame.result?.taskLoop?.state).toBe("paused");
 		await sendRpc(
 			"turn.submit",
-			{ chatKey: "main", text: "resume please" },
+			{ chatKey: "bot:worker", text: "resume please" },
 			scope,
 		);
 		const resumed = await sendRpc<{
 			taskLoop?: { state: string };
-		}>("chat.get", { chatKey: "main" }, scope);
+		}>("chat.get", { chatKey: "bot:worker" }, scope);
 		expect(resumed.frame.result?.taskLoop?.state).not.toBe("paused");
 	}, 30_000);
 
@@ -185,12 +185,12 @@ describe("chat tasks", () => {
 		await setupBot(scope);
 		const first = sendRpc(
 			"turn.submit",
-			{ chatKey: "main", text: addTools(2) },
+			{ chatKey: "bot:worker", text: addTools(2) },
 			scope,
 		);
 		const queued = sendRpc<{ reply: string }>(
 			"turn.submit",
-			{ chatKey: "main", text: "queued-user" },
+			{ chatKey: "bot:worker", text: "queued-user" },
 			scope,
 		);
 		await first;
@@ -198,7 +198,7 @@ describe("chat tasks", () => {
 		expect(result.frame.result?.reply).toContain("queued-user");
 		const viewed = await sendRpc<{
 			messages: { role: string; text: string }[];
-		}>("chat.get", { chatKey: "main" }, scope);
+		}>("chat.get", { chatKey: "bot:worker" }, scope);
 		const texts = (viewed.frame.result?.messages ?? [])
 			.filter((message) => message.role === "user")
 			.map((message) => message.text);
@@ -220,11 +220,10 @@ describe("chat tasks", () => {
 			{ slug: "b", name: "b", model: "faux/echo" },
 			groupScope,
 		);
-		await sendRpc("chat.create", { botId: "a", key: "root" }, groupScope);
 		const group = await sendRpc<{ reply: string }>(
 			"turn.submit",
 			{
-				chatKey: "root",
+				chatKey: "bot:a",
 				text: `[tool:message_bot ${JSON.stringify({
 					botId: "b",
 					topic: "room",
@@ -239,7 +238,7 @@ describe("chat tasks", () => {
 		);
 		const listed = await sendRpc<{ tasks: unknown[] }>(
 			"chat.tasks.list",
-			{ chatKey: "root" },
+			{ chatKey: "bot:a" },
 			groupScope,
 		);
 		expect(listed.frame.result?.tasks ?? []).toEqual([]);
@@ -249,14 +248,14 @@ describe("chat tasks", () => {
 		await sendRpc(
 			"turn.submit",
 			{
-				chatKey: "main",
+				chatKey: "bot:worker",
 				text: '[tool:task_add {"title":"no","details":"nope"}]',
 			},
 			explicit,
 		);
 		const none = await sendRpc<{ tasks: unknown[] }>(
 			"chat.tasks.list",
-			{ chatKey: "main" },
+			{ chatKey: "bot:worker" },
 			explicit,
 		);
 		expect(none.frame.result?.tasks ?? []).toEqual([]);
@@ -268,20 +267,20 @@ describe("chat tasks", () => {
 		const ws = await connectTestWs(scope);
 		try {
 			await ws.send("turn.submit", {
-				chatKey: "main",
+				chatKey: "bot:worker",
 				text: '[tool:task_add {"title":"One","details":"body"}]',
 			});
 			expect(ws.events.some((event) => event.type === "chat.tasks")).toBe(true);
 			const listed = await ws.send<{ tasks: { title: string }[] }>(
 				"chat.tasks.list",
-				{ chatKey: "main" },
+				{ chatKey: "bot:worker" },
 			);
 			expect(listed.result?.tasks[0]?.title).toBe("One");
 		} finally {
 			ws.close();
 		}
 		const rest = await workerFetch(
-			"http://example.com/api/chat/tasks/list?chatKey=main",
+			"http://example.com/api/chat/tasks/list?chatKey=bot%3Aworker",
 			{
 				headers: {
 					Authorization: `Bearer ${scope.token}`,
@@ -293,10 +292,14 @@ describe("chat tasks", () => {
 		expect(rest.status).toBe(200);
 		const body = (await rest.json()) as { tasks: { title: string }[] };
 		expect(body.tasks[0]?.title).toBe("One");
-		await sendRpc("chat.reset", { chatKey: "main", handoff: "reset" }, scope);
+		await sendRpc(
+			"chat.reset",
+			{ chatKey: "bot:worker", handoff: "reset" },
+			scope,
+		);
 		const cleared = await sendRpc<{ tasks: unknown[] }>(
 			"chat.tasks.list",
-			{ chatKey: "main" },
+			{ chatKey: "bot:worker" },
 			scope,
 		);
 		expect(cleared.frame.result?.tasks).toEqual([]);
@@ -307,14 +310,14 @@ describe("chat tasks", () => {
 		await setupBot(scope);
 		const tooBig = await sendRpc(
 			"chat.update",
-			{ chatKey: "main", deadlines: { turnMs: 25 * 60 * 60 * 1000 } },
+			{ chatKey: "bot:worker", deadlines: { turnMs: 25 * 60 * 60 * 1000 } },
 			scope,
 		);
 		expect(tooBig.frame.ok).toBe(false);
 
 		await sendRpc(
 			"chat.update",
-			{ chatKey: "main", deadlines: { turnMs: 0, runMs: 50 } },
+			{ chatKey: "bot:worker", deadlines: { turnMs: 0, runMs: 50 } },
 			scope,
 		);
 		const got = await sendRpc<{
@@ -322,29 +325,33 @@ describe("chat tasks", () => {
 				deadlines?: { turnMs?: number; runMs?: number };
 				effectiveDeadlines?: { turnMs: number; runMs: number };
 			};
-		}>("chat.get", { chatKey: "main" }, scope);
+		}>("chat.get", { chatKey: "bot:worker" }, scope);
 		expect(got.frame.result?.chat.deadlines?.turnMs).toBe(0);
 		expect(got.frame.result?.chat.effectiveDeadlines?.turnMs).toBe(0);
 		expect(got.frame.result?.chat.effectiveDeadlines?.runMs).toBe(50);
 
 		await sendRpc(
 			"chat.update",
-			{ chatKey: "main", deadlines: { turnMs: 1000 } },
+			{ chatKey: "bot:worker", deadlines: { turnMs: 1000 } },
 			scope,
 		);
 		const merged = await sendRpc<{
 			chat: { deadlines?: { turnMs?: number; runMs?: number } };
-		}>("chat.get", { chatKey: "main" }, scope);
+		}>("chat.get", { chatKey: "bot:worker" }, scope);
 		expect(merged.frame.result?.chat.deadlines?.runMs).toBe(50);
 		expect(merged.frame.result?.chat.deadlines?.turnMs).toBe(1000);
 
-		await sendRpc("chat.update", { chatKey: "main", deadlines: null }, scope);
+		await sendRpc(
+			"chat.update",
+			{ chatKey: "bot:worker", deadlines: null },
+			scope,
+		);
 		const reset = await sendRpc<{
 			chat: {
 				deadlines?: unknown;
 				effectiveDeadlines?: { turnMs: number; runMs: number };
 			};
-		}>("chat.get", { chatKey: "main" }, scope);
+		}>("chat.get", { chatKey: "bot:worker" }, scope);
 		expect(reset.frame.result?.chat.deadlines).toBeUndefined();
 		expect(reset.frame.result?.chat.effectiveDeadlines?.turnMs).toBe(0);
 
@@ -356,7 +363,7 @@ describe("chat tasks", () => {
 		await sendRpc(
 			"turn.submit",
 			{
-				chatKey: "main",
+				chatKey: "bot:worker",
 				text: `[tool:message_bot ${JSON.stringify({
 					botId: "peer",
 					topic: "g",
@@ -381,11 +388,15 @@ describe("chat tasks", () => {
 	it("caps the loop at the round limit and keeps the remaining task", async () => {
 		const scope = await adminScope("default");
 		await setupBot(scope);
-		await sendRpc("turn.submit", { chatKey: "main", text: addTools(3) }, scope);
+		await sendRpc(
+			"turn.submit",
+			{ chatKey: "bot:worker", text: addTools(3) },
+			scope,
+		);
 		await waitFor(async () => {
 			const viewed = await sendRpc<{ taskLoop?: { state: string } }>(
 				"chat.get",
-				{ chatKey: "main" },
+				{ chatKey: "bot:worker" },
 				scope,
 			);
 			return viewed.frame.result?.taskLoop?.state === "capped";
@@ -393,7 +404,7 @@ describe("chat tasks", () => {
 		const viewed = await sendRpc<{
 			messages: { role: string; text: string }[];
 			tasks?: { status: string }[];
-		}>("chat.get", { chatKey: "main" }, scope);
+		}>("chat.get", { chatKey: "bot:worker" }, scope);
 		const continues = (viewed.frame.result?.messages ?? []).filter(
 			(message) =>
 				message.role === "user" &&

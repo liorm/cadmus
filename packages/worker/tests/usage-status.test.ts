@@ -24,18 +24,17 @@ describe("Token Usage and Status Attribution", () => {
 			familyId: "default",
 		};
 
-		// 1. Create bot and chat
+		// 1. Create bot (auto-creates primary chat bot:scribe)
 		await callRpc(
 			"bot.create",
 			{ slug: "scribe", name: "Scribe", model: "faux/echo" },
 			scope,
 		);
-		await callRpc("chat.create", { botId: "scribe", key: "main" }, scope);
 
 		// Initial status: usage exists with 0 tokens
 		const initial = await callRpc<{ status: ChatStatusRecord }>(
 			"chat.status",
-			{ chatKey: "main" },
+			{ chatKey: "bot:scribe" },
 			scope,
 		);
 		expect(initial.status.usage).toBeDefined();
@@ -46,13 +45,13 @@ describe("Token Usage and Status Attribution", () => {
 		// 2. Submit a turn
 		await callRpc(
 			"turn.submit",
-			{ chatKey: "main", text: "Hello Scribe!" },
+			{ chatKey: "bot:scribe", text: "Hello Scribe!" },
 			scope,
 		);
 
 		const afterTurn = await callRpc<{ status: ChatStatusRecord }>(
 			"chat.status",
-			{ chatKey: "main" },
+			{ chatKey: "bot:scribe" },
 			scope,
 		);
 		const turnTokens = afterTurn.status.usage.totals.totalTokens;
@@ -71,7 +70,7 @@ describe("Token Usage and Status Attribution", () => {
 		await callRpc(
 			"turn.submit",
 			{
-				chatKey: "main",
+				chatKey: "bot:scribe",
 				text: "Please learn this [learn:rules Some knowledge body]",
 			},
 			scope,
@@ -85,7 +84,7 @@ describe("Token Usage and Status Attribution", () => {
 		await callRpc(
 			"schedule.update",
 			{
-				id: "harvest:main",
+				id: "harvest:bot:scribe",
 				kind: "absolute",
 				input: Date.now() - 10,
 			},
@@ -96,7 +95,7 @@ describe("Token Usage and Status Attribution", () => {
 
 		const afterHarvest = await callRpc<{ status: ChatStatusRecord }>(
 			"chat.status",
-			{ chatKey: "main" },
+			{ chatKey: "bot:scribe" },
 			scope,
 		);
 
@@ -134,51 +133,44 @@ describe("Token Usage and Status Attribution", () => {
 			);
 		});
 
-		// 5. chat.reset preserves cumulative token usage
+		// 5. chat.reset preserves cumulative token usage and continuous entries
 		await callRpc(
 			"chat.reset",
-			{ chatKey: "main", handoff: "New session" },
+			{ chatKey: "bot:scribe", handoff: "New session" },
 			scope,
 		);
 		const afterReset = await callRpc<{ status: ChatStatusRecord }>(
 			"chat.status",
-			{ chatKey: "main" },
+			{ chatKey: "bot:scribe" },
 			scope,
 		);
 		expect(afterReset.status.usage.totals.totalTokens).toBe(totalTokens);
-
-		// 6. chat.delete soft deletes and preserves usage history
-		const deleted = await callRpc<{ deleted: boolean; chat: ChatRecord }>(
-			"chat.delete",
-			{ chatKey: "main" },
-			scope,
+		expect(afterReset.status.totalEntryCount).toBeGreaterThanOrEqual(
+			afterReset.status.entryCount,
 		);
-		expect(deleted.deleted).toBe(true);
-		expect(deleted.chat.deleted).toBe(true);
-		expect(deleted.chat.deletedAt).toBeGreaterThan(0);
 
-		// Excluded by default from list
+		// 6. chat.list reflects the active primary chat, and bot.delete removes it
 		const list = await callRpc<{ chats: ChatRecord[] }>(
 			"chat.list",
 			{ botId: "scribe" },
 			scope,
 		);
-		expect(list.chats.some((c) => c.key === "main")).toBe(false);
+		expect(list.chats.some((c) => c.key === "bot:scribe")).toBe(true);
 
-		// Included with includeDeleted
-		const listWithDeleted = await callRpc<{ chats: ChatRecord[] }>(
+		const deleted = await callRpc<{ deleted: string }>(
+			"bot.delete",
+			{ botId: "scribe" },
+			scope,
+		);
+		expect(deleted.deleted).toBe("scribe");
+
+		const afterDeleteList = await callRpc<{ chats: ChatRecord[] }>(
 			"chat.list",
-			{ botId: "scribe", includeDeleted: true },
+			{},
 			scope,
 		);
-		expect(listWithDeleted.chats.some((c) => c.key === "main")).toBe(true);
-
-		// Status still returns full history
-		const statusAfterDelete = await callRpc<{ status: ChatStatusRecord }>(
-			"chat.status",
-			{ chatKey: "main" },
-			scope,
+		expect(afterDeleteList.chats.some((c) => c.key === "bot:scribe")).toBe(
+			false,
 		);
-		expect(statusAfterDelete.status.usage.totals.totalTokens).toBe(totalTokens);
 	});
 });

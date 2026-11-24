@@ -39,11 +39,10 @@ describe("default Cadmus tools plus coding tools", () => {
 		);
 		expect(created.frame.ok).toBe(true);
 		expect(created.frame.result?.bot.tools).toBeUndefined();
-		await sendRpc("chat.create", { botId: "assistant", key: "main" }, options);
 
 		const initialStatus = await sendRpc<{
 			status: { tools: string[] | "all" };
-		}>("chat.status", { chatKey: "main" }, options);
+		}>("chat.status", { chatKey: "bot:assistant" }, options);
 		expect(initialStatus.frame.ok).toBe(true);
 		expect(initialStatus.frame.result?.status.tools).toEqual(
 			effectiveToolNames(undefined, { codingToolsOffered: true }),
@@ -53,7 +52,7 @@ describe("default Cadmus tools plus coding tools", () => {
 		const turn = async (text: string) => {
 			ws.events.length = 0;
 			const submitted = await ws.send("turn.submit", {
-				chatKey: "main",
+				chatKey: "bot:assistant",
 				text,
 			});
 			expect(submitted.ok).toBe(true);
@@ -91,7 +90,7 @@ describe("default Cadmus tools plus coding tools", () => {
 			expect(enabled.frame.result?.bot.tools).toEqual(DEFAULT_PLUS_CODING);
 			const codingStatus = await sendRpc<{
 				status: { tools: string[] | "all" };
-			}>("chat.status", { chatKey: "main" }, options);
+			}>("chat.status", { chatKey: "bot:assistant" }, options);
 			expect(codingStatus.frame.result?.status.tools).toEqual(
 				effectiveToolNames(DEFAULT_PLUS_CODING, { codingToolsOffered: true }),
 			);
@@ -124,7 +123,7 @@ describe("default Cadmus tools plus coding tools", () => {
 			expect(fetched.frame.result?.bot.tools).toBeUndefined();
 			const restored = await sendRpc<{
 				status: { tools: string[] | "all" };
-			}>("chat.status", { chatKey: "main" }, options);
+			}>("chat.status", { chatKey: "bot:assistant" }, options);
 			expect(restored.frame.result?.status.tools).toEqual(
 				effectiveToolNames(undefined, { codingToolsOffered: true }),
 			);
@@ -164,15 +163,10 @@ describe("default Cadmus tools plus coding tools", () => {
 			{ slug: "caller", name: "Caller", model: "faux/echo" },
 			options,
 		);
-		await sendRpc(
-			"chat.create",
-			{ botId: "caller", key: "caller-chat" },
-			options,
-		);
 		const ws = await connectTestWs(options);
 		try {
 			const submitted = await ws.send("turn.submit", {
-				chatKey: "caller-chat",
+				chatKey: "bot:caller",
 				text: `[tool:create_bot ${JSON.stringify({
 					name: "Coder",
 					slug: "coder",
@@ -193,16 +187,11 @@ describe("default Cadmus tools plus coding tools", () => {
 		expect(created.frame.ok).toBe(true);
 		expect(created.frame.result?.bot.tools).toEqual(DEFAULT_PLUS_CODING);
 
-		await sendRpc(
-			"chat.create",
-			{ botId: "coder", key: "coder-chat" },
-			options,
-		);
 		const coder = await connectTestWs(options);
 		try {
 			coder.events.length = 0;
 			const memory = await coder.send("turn.submit", {
-				chatKey: "coder-chat",
+				chatKey: "bot:coder",
 				text: '[tool:write {"path":"/.cadmus/MEMORY.md","content":"from-create-bot"}]',
 			});
 			expect(memory.ok).toBe(true);
@@ -214,7 +203,7 @@ describe("default Cadmus tools plus coding tools", () => {
 
 			coder.events.length = 0;
 			const bash = await coder.send("turn.submit", {
-				chatKey: "coder-chat",
+				chatKey: "bot:coder",
 				text: '[tool:bash {"command":"echo coded"}]',
 			});
 			expect(bash.ok).toBe(true);

@@ -414,8 +414,17 @@ export function lastUserText(context: TranscriptContext): string {
 	return extractMessageText(user.content);
 }
 
+const COMPACTION_SUMMARY_MESSAGE_PREFIX =
+	"The conversation history before this point was compacted into the following summary:";
+
 export function visibleUserMessages(context: TranscriptContext): number {
-	return context.messages.filter((message) => message.role === "user").length;
+	return context.messages.filter(
+		(message) =>
+			message.role === "user" &&
+			!extractMessageText(message.content).startsWith(
+				COMPACTION_SUMMARY_MESSAGE_PREFIX,
+			),
+	).length;
 }
 
 function matchToolDirectives(text: string): { name: string; json: string }[] {
@@ -479,6 +488,25 @@ function matchToolDirectives(text: string): { name: string; json: string }[] {
 export function echoResponse(
 	context: TranscriptContext,
 ): AssistantMessage | Promise<AssistantMessage> {
+	// Detect pi-durable's compaction summarization prompt early so embedded
+	// `[tool:...]` or `[[hold:...]]` markers inside `<conversation>` never
+	// trigger tool calls or holds during summarization.
+	const firstMsg = context.messages[0];
+	const systemPrompt =
+		firstMsg?.role === "system" ? extractMessageText(firstMsg.content) : "";
+	const lastMsg = context.messages[context.messages.length - 1];
+	const lastMsgText =
+		lastMsg?.role === "user" ? extractMessageText(lastMsg.content) : "";
+	if (
+		systemPrompt.startsWith("You are a context summarization assistant.") ||
+		(lastMsgText.includes("<conversation>\n") &&
+			lastMsgText.includes(
+				"The messages above are a conversation to summarize.",
+			))
+	) {
+		return handleCompactionSummaryPrompt(lastMsgText);
+	}
+
 	const lastUserIdx = context.messages.findLastIndex(
 		(message) => message.role === "user",
 	);
@@ -657,6 +685,37 @@ export function echoResponse(
 	}
 
 	return fauxAssistantMessage(`echo(${userCount}): ${userText}`);
+}
+
+function handleCompactionSummaryPrompt(prompt: string): AssistantMessage {
+	const start = prompt.indexOf("<conversation>\n");
+	const end = prompt.indexOf("\n</conversation>");
+	const body =
+		start >= 0 && end > start
+			? prompt.slice(start + "<conversation>\n".length, end)
+			: prompt;
+	const lines = body
+		.split("\n")
+		.map((l) => l.trim())
+		.filter((l) => l.length > 0);
+	const userLines = lines.filter((l) => l.startsWith("[User]:"));
+	const assistantLines = lines.filter((l) => l.startsWith("[Assistant]:"));
+	const firstUser = userLines[0]?.slice("[User]:".length).trim() ?? "";
+	const lastUser =
+		userLines[userLines.length - 1]?.slice("[User]:".length).trim() ?? "";
+	const summary = [
+		"## Goal",
+		firstUser
+			? `Initial topic: ${firstUser.slice(0, 120)}`
+			: "Continued conversation.",
+		"",
+		"## Progress",
+		`- Summarized ${userLines.length} user turns and ${assistantLines.length} assistant turns.`,
+		lastUser ? `- Latest summarized request: ${lastUser.slice(0, 120)}` : "",
+	]
+		.filter(Boolean)
+		.join("\n");
+	return fauxAssistantMessage(summary);
 }
 
 function handleSearchBotJudge(prompt: string): AssistantMessage {

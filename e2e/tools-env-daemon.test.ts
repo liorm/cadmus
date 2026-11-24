@@ -179,12 +179,7 @@ describe("local-daemon tools env through the bot", () => {
 		expect(byId.has(envA)).toBe(false);
 		expect(byId.get(envB)?.connection).toEqual({ status: "disconnected" });
 
-		await sendRpc(
-			"chat.create",
-			{ botId: "pinned", key: "daemon-chat" },
-			options,
-		);
-		const offline = await bashResult(options, "daemon-chat", "echo hi");
+		const offline = await bashResult(options, "bot:pinned", "echo hi");
 		expect(offline.turnOk).toBe(true);
 		expect(offline.payload?.isError).toBe(true);
 
@@ -238,19 +233,18 @@ describe("local-daemon tools env through the bot", () => {
 			},
 			beta,
 		);
-		await sendRpc("chat.create", { botId: "assistant", key: "main" }, beta);
-		const warmed = await bashResult(beta, "main", "echo warm");
+		const warmed = await bashResult(beta, "bot:assistant", "echo warm");
 		expect(warmed.payload?.isError).toBe(false);
 
 		const before = await sendRpc<{
 			status: { nextWakeAt: number | null };
-		}>("chat.status", { chatKey: "main" }, beta);
-		const beforeEntries = await sendRpc<{ entries: unknown[] }>(
-			"chat.entries",
-			{ chatKey: "main" },
+		}>("chat.status", { chatKey: "bot:assistant" }, beta);
+		const beforeEntries = await sendRpc<{ entries?: unknown[] }>(
+			"chat.get",
+			{ chatKey: "bot:assistant", raw: true },
 			beta,
 		);
-		const entryCount = beforeEntries.frame.result?.entries.length ?? 0;
+		const entryCount = beforeEntries.frame.result?.entries?.length ?? 0;
 
 		const created = await createDaemon(alpha, {
 			confineToWorkspace: true,
@@ -278,16 +272,16 @@ describe("local-daemon tools env through the bot", () => {
 
 		const after = await sendRpc<{
 			status: { nextWakeAt: number | null };
-		}>("chat.status", { chatKey: "main" }, beta);
+		}>("chat.status", { chatKey: "bot:assistant" }, beta);
 		expect(after.frame.result?.status.nextWakeAt).toBe(
 			before.frame.result?.status.nextWakeAt,
 		);
-		const afterEntries = await sendRpc<{ entries: unknown[] }>(
-			"chat.entries",
-			{ chatKey: "main" },
+		const afterEntries = await sendRpc<{ entries?: unknown[] }>(
+			"chat.get",
+			{ chatKey: "bot:assistant", raw: true },
 			beta,
 		);
-		expect(afterEntries.frame.result?.entries.length).toBe(entryCount);
+		expect(afterEntries.frame.result?.entries?.length).toBe(entryCount);
 
 		const view = await sendRpc<{
 			bot: { toolsEnv?: unknown };
@@ -302,7 +296,7 @@ describe("local-daemon tools env through the bot", () => {
 			kind: "local-daemon",
 		});
 
-		const offline = await bashResult(beta, "main", "echo later");
+		const offline = await bashResult(beta, "bot:assistant", "echo later");
 		expect(offline.payload?.isError).toBe(true);
 		expect(offline.payload?.content ?? "").toContain("env disconnected");
 
@@ -311,11 +305,11 @@ describe("local-daemon tools env through the bot", () => {
 			{ defaultToolsEnv: { envId: "jb_default" } },
 			alpha,
 		);
-		const restored = await bashResult(beta, "main", "echo back");
+		const restored = await bashResult(beta, "bot:assistant", "echo back");
 		expect(restored.payload?.isError).toBe(false);
 
 		await sendRpc("account.update", { defaultToolsEnv: null }, alpha);
-		const removedTools = await bashResult(beta, "main", "echo gone");
+		const removedTools = await bashResult(beta, "bot:assistant", "echo gone");
 		expect(removedTools.payload?.isError).toBe(true);
 		expect(removedTools.payload?.content ?? "").toMatch(
 			/not available|disabled/,
@@ -362,14 +356,8 @@ describe("local-daemon tools env through the bot", () => {
 			},
 			options,
 		);
-		await sendRpc(
-			"chat.create",
-			{ botId: "off-bot", key: "off-chat" },
-			options,
-		);
-		await sendRpc("chat.create", { botId: "on-bot", key: "on-chat" }, options);
 
-		const hidden = await bashResult(options, "off-chat", "echo no");
+		const hidden = await bashResult(options, "bot:off-bot", "echo no");
 		expect(hidden.payload?.isError).toBe(true);
 		expect(hidden.payload?.content ?? "").toMatch(/not available|disabled/);
 		expect(hidden.payload?.content ?? "").not.toContain("env disconnected");
@@ -383,7 +371,7 @@ describe("local-daemon tools env through the bot", () => {
 		expect(onView.frame.result?.toolsEnvBindingSource).toBe("account");
 		expect(onView.frame.result?.effectiveToolsEnv?.envId).toBe(daemonId);
 
-		const usedAccount = await bashResult(options, "on-chat", "echo yes");
+		const usedAccount = await bashResult(options, "bot:on-bot", "echo yes");
 		expect(usedAccount.payload?.isError).toBe(true);
 		expect(usedAccount.payload?.content ?? "").toContain("env disconnected");
 		expect(usedAccount.payload?.content ?? "").toContain(
@@ -412,24 +400,39 @@ describe("local-daemon tools env through the bot", () => {
 			options,
 		);
 		await sendRpc(
-			"chat.create",
+			"bot.create",
 			{
-				botId: "assistant",
-				key: "chat-pin",
+				slug: "chat-pin",
+				name: "Chat Pin",
+				model: "faux/echo",
+				tools: CODING_TOOLS,
+				toolsEnv: { enabled: true, binding: { envId: "jb_default" } },
+			},
+			options,
+		);
+		await sendRpc(
+			"chat.update",
+			{
+				chatKey: "bot:chat-pin",
 				toolsEnv: { enabled: true, binding: { envId: daemonId } },
 			},
 			options,
 		);
 		await sendRpc(
-			"chat.create",
-			{ botId: "assistant", key: "bot-pin" },
+			"bot.create",
+			{
+				slug: "chat-off",
+				name: "Chat Off",
+				model: "faux/echo",
+				tools: CODING_TOOLS,
+				toolsEnv: { enabled: true, binding: { envId: "jb_default" } },
+			},
 			options,
 		);
 		await sendRpc(
-			"chat.create",
+			"chat.update",
 			{
-				botId: "assistant",
-				key: "chat-off",
+				chatKey: "bot:chat-off",
 				toolsEnv: { enabled: false },
 			},
 			options,
@@ -446,7 +449,7 @@ describe("local-daemon tools env through the bot", () => {
 				root?: string;
 			} | null;
 			toolsEnvStatus?: string;
-		}>("chat.get", { chatKey: "chat-pin" }, options);
+		}>("chat.get", { chatKey: "bot:chat-pin" }, options);
 		expect(chatPin.frame.result?.toolsEnvEnabled).toBe(true);
 		expect(chatPin.frame.result?.toolsEnvEnabledSource).toBe("chat");
 		expect(chatPin.frame.result?.toolsEnvBindingSource).toBe("chat");
@@ -464,7 +467,7 @@ describe("local-daemon tools env through the bot", () => {
 			toolsEnvEnabledSource?: string;
 			toolsEnvBindingSource?: string;
 			effectiveToolsEnv?: { kind?: string; envId?: string } | null;
-		}>("chat.get", { chatKey: "bot-pin" }, options);
+		}>("chat.get", { chatKey: "bot:assistant" }, options);
 		expect(botPin.frame.result?.toolsEnvEnabledSource).toBe("bot");
 		expect(botPin.frame.result?.toolsEnvBindingSource).toBe("bot");
 		expect(botPin.frame.result?.effectiveToolsEnv).toMatchObject({
@@ -477,7 +480,7 @@ describe("local-daemon tools env through the bot", () => {
 			toolsEnvEnabledSource?: string;
 			toolsEnvBindingSource?: string;
 			effectiveToolsEnv?: unknown;
-		}>("chat.get", { chatKey: "chat-off" }, options);
+		}>("chat.get", { chatKey: "bot:chat-off" }, options);
 		expect(chatOff.frame.result?.toolsEnvEnabled).toBe(false);
 		expect(chatOff.frame.result?.toolsEnvEnabledSource).toBe("chat");
 		expect(chatOff.frame.result?.toolsEnvBindingSource).toBe("bot");
@@ -493,16 +496,11 @@ describe("local-daemon tools env through the bot", () => {
 			},
 			options,
 		);
-		await sendRpc(
-			"chat.create",
-			{ botId: "inherits", key: "account-chat" },
-			options,
-		);
 		const accountPin = await sendRpc<{
 			toolsEnvEnabledSource?: string;
 			toolsEnvBindingSource?: string;
 			effectiveToolsEnv?: { envId?: string } | null;
-		}>("chat.get", { chatKey: "account-chat" }, options);
+		}>("chat.get", { chatKey: "bot:inherits" }, options);
 		expect(accountPin.frame.result?.toolsEnvEnabledSource).toBe("account");
 		expect(accountPin.frame.result?.toolsEnvBindingSource).toBe("account");
 		expect(accountPin.frame.result?.effectiveToolsEnv?.envId).toBe(
@@ -515,7 +513,7 @@ describe("local-daemon tools env through the bot", () => {
 			toolsEnvEnabledSource?: string;
 			toolsEnvBindingSource?: string;
 			effectiveToolsEnv?: unknown;
-		}>("chat.get", { chatKey: "account-chat" }, options);
+		}>("chat.get", { chatKey: "bot:inherits" }, options);
 		expect(unbound.frame.result?.toolsEnvEnabled).toBe(false);
 		expect(unbound.frame.result?.toolsEnvEnabledSource).toBe("unbound");
 		expect(unbound.frame.result?.toolsEnvBindingSource).toBe("unbound");
@@ -541,33 +539,32 @@ describe("local-daemon tools env through the bot", () => {
 			options,
 		);
 		await sendRpc(
-			"chat.create",
+			"chat.update",
 			{
-				botId: "assistant",
-				key: "daemon-pin",
+				chatKey: "bot:assistant",
 				toolsEnv: { enabled: true, binding: { envId: daemonId } },
 			},
 			options,
 		);
-		const offline = await bashResult(options, "daemon-pin", "echo no");
+		const offline = await bashResult(options, "bot:assistant", "echo no");
 		expect(offline.payload?.isError).toBe(true);
 		expect(offline.payload?.content ?? "").toContain("env disconnected");
 
 		const cleared = await sendRpc<{ chat: { toolsEnv?: unknown } }>(
 			"chat.update",
-			{ chatKey: "daemon-pin", toolsEnv: null },
+			{ chatKey: "bot:assistant", toolsEnv: null },
 			options,
 		);
 		expect(cleared.frame.ok).toBe(true);
 		expect(cleared.frame.result?.chat.toolsEnv).toBeUndefined();
 
-		const inherited = await bashResult(options, "daemon-pin", "echo hi");
+		const inherited = await bashResult(options, "bot:assistant", "echo hi");
 		expect(inherited.payload?.isError).toBe(false);
 		const view = await sendRpc<{
 			toolsEnvBindingSource?: string;
 			effectiveToolsEnv?: { envId?: string; kind?: string } | null;
 			toolsEnvStatus?: string;
-		}>("chat.get", { chatKey: "daemon-pin" }, options);
+		}>("chat.get", { chatKey: "bot:assistant" }, options);
 		expect(view.frame.result?.toolsEnvBindingSource).toBe("account");
 		expect(view.frame.result?.effectiveToolsEnv).toMatchObject({
 			envId: "jb_default",
@@ -589,7 +586,6 @@ describe("local-daemon tools env through the bot", () => {
 			},
 			options,
 		);
-		await sendRpc("chat.create", { botId: "assistant", key: "main" }, options);
 		const extras = {
 			persist: true,
 			confineToWorkspace: true,
@@ -614,7 +610,7 @@ describe("local-daemon tools env through the bot", () => {
 			const chatUpdate = await sendRpc(
 				"chat.update",
 				{
-					chatKey: "main",
+					chatKey: "bot:assistant",
 					toolsEnv: {
 						enabled: true,
 						binding: { envId: "jb_default", [key]: value },
@@ -652,13 +648,10 @@ describe("local-daemon tools env through the bot", () => {
 					})
 				).ok,
 			).toBe(true);
-			expect(
-				(await ws.send("chat.create", { botId: "parent", key: "parent" })).ok,
-			).toBe(true);
 
 			ws.events.length = 0;
 			const leaked = await ws.send("turn.submit", {
-				chatKey: "parent",
+				chatKey: "bot:parent",
 				text: `[tool:create_bot ${JSON.stringify({
 					name: "Leaked",
 					slug: "leaked-peer",
@@ -681,7 +674,7 @@ describe("local-daemon tools env through the bot", () => {
 
 			ws.events.length = 0;
 			const pinned = await ws.send("turn.submit", {
-				chatKey: "parent",
+				chatKey: "bot:parent",
 				text: `[tool:create_bot ${JSON.stringify({
 					name: "Daemon Peer",
 					slug: "daemon-peer",
@@ -710,12 +703,7 @@ describe("local-daemon tools env through the bot", () => {
 			binding: { envId: daemonId },
 		});
 
-		await sendRpc(
-			"chat.create",
-			{ botId: "daemon-peer", key: "peer-chat" },
-			options,
-		);
-		const offline = await bashResult(options, "peer-chat", "echo peer");
+		const offline = await bashResult(options, "bot:daemon-peer", "echo peer");
 		expect(offline.payload?.toolName).toBe("bash");
 		expect(offline.payload?.isError).toBe(true);
 		expect(offline.payload?.content ?? "").toContain("env disconnected");

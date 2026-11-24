@@ -210,7 +210,7 @@ export async function computeBotUsage(
 	readUsageState: (conversationId: number) => Promise<UsageState | undefined>,
 ): Promise<UsageSummary> {
 	const summary = createEmptyUsageSummary();
-	const allChats = store.chats.listChats({ botId, includeDeleted: true });
+	const allChats = store.chats.listChats({ botId });
 	// Top-level chats are direct/scheduled chats not initiated as children of another chat
 	for (const chat of allChats) {
 		if (

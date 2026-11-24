@@ -37,7 +37,6 @@ async function setup() {
 		},
 		scope,
 	);
-	await sendRpc("chat.create", { botId: "abort-bot", key: "main" }, scope);
 	return scope;
 }
 
@@ -57,13 +56,13 @@ describe("turn.completed after an interrupt", () => {
 		const ws = await connectTestWs(scope);
 		const pending = sendRpc(
 			"turn.submit",
-			{ chatKey: "main", text: "x [[hold:abort-a]]" },
+			{ chatKey: "bot:abort-bot", text: "x [[hold:abort-a]]" },
 			scope,
 		);
 		await waitFor(() => hasHold(scope, "abort-a"));
 		const interrupted = await sendRpc(
 			"turn.interrupt",
-			{ chatKey: "main" },
+			{ chatKey: "bot:abort-bot" },
 			scope,
 		);
 		expect(interrupted.frame.ok).toBe(true);
@@ -85,7 +84,7 @@ describe("turn.completed after an interrupt", () => {
 		const ws = await connectTestWs(scope);
 		const pending = sendRpc(
 			"turn.submit",
-			{ chatKey: "main", text: "x [[hold:abort-b]]" },
+			{ chatKey: "bot:abort-bot", text: "x [[hold:abort-b]]" },
 			scope,
 		);
 		await waitFor(() => hasHold(scope, "abort-b"));
@@ -112,15 +111,15 @@ describe("turn.completed after an interrupt", () => {
 		const ws = await connectTestWs(scope);
 		const pending = sendRpc(
 			"turn.submit",
-			{ chatKey: "main", text: "x [[hold:abort-c]]" },
+			{ chatKey: "bot:abort-bot", text: "x [[hold:abort-c]]" },
 			scope,
 		);
 		await waitFor(() => hasHold(scope, "abort-c"));
-		await sendRpc("turn.interrupt", { chatKey: "main" }, scope);
+		await sendRpc("turn.interrupt", { chatKey: "bot:abort-bot" }, scope);
 		await pending;
 		await sendRpc(
 			"turn.submit",
-			{ chatKey: "main", text: "hello again" },
+			{ chatKey: "bot:abort-bot", text: "hello again" },
 			scope,
 		);
 		await waitFor(

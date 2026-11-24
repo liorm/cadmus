@@ -3,7 +3,9 @@ import {
 	AccountMemberSchema,
 	AccountRecordSchema,
 	BotRecordSchema,
+	ChatCompactionSnapshotSchema,
 	ChatRecordSchema,
+	ChatStatusCompactionSchema,
 	ChatTaskLoopSchema,
 	ChatTaskSchema,
 	ConfinementPolicySchema,
@@ -14,6 +16,8 @@ import {
 	ModelInfoSchema,
 	RawTranscriptEntrySchema,
 	ScheduleRecordSchema,
+	SystemAccountMetricsSchema,
+	SystemSessionRecordSchema,
 	ThinkingLevelSchema,
 	TranscriptMessageViewSchema,
 	TurnBlockSchema,
@@ -522,6 +526,50 @@ export type SystemUsersRevokeSessionsResult = Static<
 	typeof SystemUsersRevokeSessionsResultSchema
 >;
 
+export const SystemMetricsResultSchema = Type.Object(
+	{
+		totalAccounts: Type.Number(),
+		activeAccounts: Type.Number(),
+		suspendedAccounts: Type.Number(),
+		totalUsers: Type.Number(),
+		disabledUsers: Type.Number(),
+		totalFamilies: Type.Number(),
+		activeSessions: Type.Number(),
+		pendingInvites: Type.Number(),
+		auditEvents24h: Type.Number(),
+		perAccount: Type.Array(SystemAccountMetricsSchema),
+	},
+	{ description: "Result payload returned by system.metrics." },
+);
+export type SystemMetricsResult = Static<typeof SystemMetricsResultSchema>;
+
+export const SystemAccountsGetResultSchema = Type.Object(
+	{
+		account: SystemAccountSummarySchema,
+		familyCount: Type.Number(),
+		pendingInviteCount: Type.Number(),
+		activeSessionCount: Type.Number(),
+		connectedProviders: Type.Array(Type.String()),
+		auditEvents24h: Type.Number(),
+		activeSessions: Type.Array(SystemSessionRecordSchema),
+	},
+	{ description: "Result payload returned by system.accounts.get." },
+);
+export type SystemAccountsGetResult = Static<
+	typeof SystemAccountsGetResultSchema
+>;
+
+export const SystemSessionsRevokeResultSchema = Type.Object(
+	{
+		revoked: Type.Boolean(),
+		sessionId: Type.String(),
+	},
+	{ description: "Result payload returned by system.sessions.revoke." },
+);
+export type SystemSessionsRevokeResult = Static<
+	typeof SystemSessionsRevokeResultSchema
+>;
+
 export const AuthElevateResultSchema = Type.Object(
 	{
 		elevatedUntil: Type.Number({
@@ -830,21 +878,7 @@ export const ChatListResultSchema = Type.Object(
 export type ChatListResult = Static<typeof ChatListResultSchema>;
 
 /**
- * Result returned by chat.create containing the newly created chat session record.
- */
-export const ChatCreateResultSchema = Type.Object(
-	{
-		chat: ChatRecordSchema,
-	},
-	{
-		description:
-			"Result payload returned by chat.create containing the new chat session record.",
-	},
-);
-export type ChatCreateResult = Static<typeof ChatCreateResultSchema>;
-
-/**
- * Result returned by chat.get containing chat session details, active busy status, messages, entries, and harvest notes.
+ * Result returned by chat.get containing chat session details, active busy status, compaction state, paginated continuous messages, optional raw entries, and harvest notes.
  */
 export const ChatGetResultSchema = Type.Object(
 	{
@@ -853,12 +887,30 @@ export const ChatGetResultSchema = Type.Object(
 			description:
 				"True if the chat is actively executing a model turn or scheduled task.",
 		}),
+		compacting: Type.Boolean({
+			description: "True while one or more compaction tasks are running.",
+		}),
+		compaction: Type.Optional(ChatCompactionSnapshotSchema),
 		messages: Type.Array(TranscriptMessageViewSchema, {
-			description: "Recent message exchange history for this chat session.",
+			description:
+				"Continuous transcript message exchange history in ascending chronological order.",
 		}),
-		entries: Type.Array(RawTranscriptEntrySchema, {
-			description: "Raw transcript entries recorded for this conversation.",
+		entries: Type.Optional(
+			Type.Array(RawTranscriptEntrySchema, {
+				description:
+					"Raw durable transcript entries, populated only when raw === true.",
+			}),
+		),
+		hasMore: Type.Boolean({
+			description:
+				"True if older transcript history exists before oldestEntryId.",
 		}),
+		oldestEntryId: Type.Optional(
+			Type.Number({
+				description:
+					"Entry ID cursor to pass as beforeEntryId when fetching the next older page.",
+			}),
+		),
 		notes: Type.Array(HarvestNoteSchema, {
 			description:
 				"Historical harvest notes recording memory and knowledge updates from this chat.",
@@ -883,13 +935,10 @@ export const ChatGetResultSchema = Type.Object(
 	},
 	{
 		description:
-			"Full chat session state including recent messages, transcript entries, and harvest audit notes.",
+			"Full chat session state including compaction telemetry, paginated continuous messages, optional raw entries, and harvest audit notes.",
 	},
 );
 export type ChatGetResult = Static<typeof ChatGetResultSchema>;
-export type ChatMessagesResult = ChatGetResult;
-export type ChatEntriesResult = ChatGetResult;
-export type ChatSubscribeResult = ChatGetResult;
 
 /**
  * Structured runtime status record for a chat session.
@@ -933,8 +982,13 @@ export const ChatStatusRecordSchema = Type.Object(
 		}),
 		entryCount: Type.Number({
 			description:
-				"Total number of transcript entries recorded in this conversation.",
+				"Number of transcript entries in the active model context window.",
 		}),
+		totalEntryCount: Type.Number({
+			description:
+				"Total number of durable transcript entries across all compactions.",
+		}),
+		compaction: ChatStatusCompactionSchema,
 		harvestWatermark: Type.Number({
 			description:
 				"Highest transcript entry sequence number harvested into long-term memory.",
@@ -1001,20 +1055,6 @@ export const ChatStatusResultSchema = Type.Object(
 export type ChatStatusResult = Static<typeof ChatStatusResultSchema>;
 
 /**
- * Result returned by chat.rename containing the updated chat session record.
- */
-export const ChatRenameResultSchema = Type.Object(
-	{
-		chat: ChatRecordSchema,
-	},
-	{
-		description:
-			"Result payload returned by chat.rename containing the renamed chat record.",
-	},
-);
-export type ChatRenameResult = Static<typeof ChatRenameResultSchema>;
-
-/**
  * Result returned by chat.reset confirming conversation reset.
  */
 export const ChatResetResultSchema = Type.Object(
@@ -1031,37 +1071,6 @@ export const ChatResetResultSchema = Type.Object(
 	},
 );
 export type ChatResetResult = Static<typeof ChatResetResultSchema>;
-
-/**
- * Result returned by chat.close containing the closed chat record.
- */
-export const ChatCloseResultSchema = Type.Object(
-	{
-		chat: ChatRecordSchema,
-	},
-	{
-		description:
-			"Result payload returned by chat.close containing the closed chat record.",
-	},
-);
-export type ChatCloseResult = Static<typeof ChatCloseResultSchema>;
-
-/**
- * Result returned by chat.delete confirming the chat has been soft-deleted.
- */
-export const ChatDeleteResultSchema = Type.Object(
-	{
-		chat: ChatRecordSchema,
-		deleted: Type.Literal(true, {
-			description: "Always true, confirming the chat was soft-deleted.",
-		}),
-	},
-	{
-		description:
-			"Result payload returned by chat.delete confirming the chat was soft-deleted.",
-	},
-);
-export type ChatDeleteResult = Static<typeof ChatDeleteResultSchema>;
 
 /**
  * Result returned when a model turn completes synchronously or settles.

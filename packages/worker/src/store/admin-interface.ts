@@ -8,6 +8,8 @@ import type {
 	CredentialInput,
 	CredentialSummary,
 	FamilyRecord,
+	SystemAccountsGetResult,
+	SystemMetricsResult,
 } from "../protocol.js";
 import type {
 	DeviceDecisionResult,
@@ -231,6 +233,15 @@ export interface AdminStore {
 		before?: number;
 		beforeId?: string;
 	}): Promise<SystemAuditEvent[]>;
+	getSystemMetrics(): Promise<SystemMetricsResult>;
+	getSystemAccountDetail(
+		accountId: string,
+	): Promise<SystemResult<SystemAccountsGetResult>>;
+	revokeSystemSession(input: {
+		sessionId: string;
+		accountId?: string;
+		actor: string;
+	}): Promise<SystemResult<{ revoked: boolean; sessionId: string }>>;
 	listAccountAudit(input: {
 		accountId: string;
 		limit: number;

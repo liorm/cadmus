@@ -2,7 +2,13 @@ import type { RawTranscriptEntry } from "@cadmus/contract/types";
 
 export interface RawLine {
 	id: string;
-	role: "user" | "assistant" | "tool_call" | "tool_result";
+	role:
+		| "user"
+		| "assistant"
+		| "tool_call"
+		| "tool_result"
+		| "compaction"
+		| "reset";
 	time?: string;
 	name?: string;
 	body: string;
@@ -106,6 +112,28 @@ export function rawTranscriptLines(entries: RawTranscriptEntry[]): RawLine[] {
 	const lines: RawLine[] = [];
 	for (const entry of entries) {
 		const models = Array.isArray(entry.model) ? entry.model : [];
+		if (entry.kind === "pi.compaction") {
+			const first = models[0] as Record<string, unknown> | undefined;
+			const body = first ? textOf(first.content) : "";
+			const data = (entry.data ?? {}) as { reason?: string };
+			lines.push({
+				id: `${entry.id}-compaction`,
+				role: "compaction",
+				name: data.reason ?? "threshold",
+				body: body || "Context compacted",
+			});
+			continue;
+		}
+		if (entry.kind === "pi.reset") {
+			const first = models[0] as Record<string, unknown> | undefined;
+			const body = first ? textOf(first.content) : "";
+			lines.push({
+				id: `${entry.id}-reset`,
+				role: "reset",
+				body: body || "Conversation context reset",
+			});
+			continue;
+		}
 		for (const [index, message] of models.entries()) {
 			if (!message || typeof message !== "object") continue;
 			lines.push(

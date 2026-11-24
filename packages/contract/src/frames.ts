@@ -543,6 +543,48 @@ export const ProtocolErrorEventSchema = Type.Object(
 );
 export type ProtocolErrorEvent = Static<typeof ProtocolErrorEventSchema>;
 
+export const ChatCompactionEventSchema = Type.Object(
+	{
+		type: Type.Literal("chat.compaction", {
+			description: "Event type identifier for compaction lifecycle updates.",
+		}),
+		payload: Type.Object(
+			{
+				chatKey: Type.String({
+					description: "Routing key of the affected chat.",
+				}),
+				botId: Type.String({
+					description: "Owning bot identifier.",
+				}),
+				conversationId: Type.Number({
+					description: "Durable conversation ID.",
+				}),
+				phase: Type.Union([
+					Type.Literal("started"),
+					Type.Literal("completed"),
+					Type.Literal("failed"),
+				]),
+				taskId: Type.Number({
+					description: "Durable compaction task ID.",
+				}),
+				reason: Type.Union([
+					Type.Literal("manual"),
+					Type.Literal("threshold"),
+					Type.Literal("overflow"),
+				]),
+				blocking: Type.Optional(Type.Boolean()),
+				error: Type.Optional(Type.String()),
+			},
+			{ description: "Compaction event payload." },
+		),
+	},
+	{
+		description:
+			"Broadcast event emitted when background or blocking compaction starts, completes, or fails.",
+	},
+);
+export type ChatCompactionEvent = Static<typeof ChatCompactionEventSchema>;
+
 /**
  * Discriminated union of all asynchronous server push events.
  */
@@ -553,6 +595,7 @@ export const ServerEventSchema = Type.Union(
 		TurnToolResultEventSchema,
 		TurnCompletedEventSchema,
 		ChatStateEventSchema,
+		ChatCompactionEventSchema,
 		HarvestNoteEventSchema,
 		ChatTasksEventSchema,
 		BotMessageEventSchema,

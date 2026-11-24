@@ -52,6 +52,10 @@ export interface SkillDoc {
 	updatedAt: number;
 }
 
+export function primaryChatKey(botId: string): string {
+	return `bot:${botId}`;
+}
+
 export interface BotStore {
 	listBots(): BotRecord[];
 	getBot(botId: string): BotRecord | undefined;
@@ -103,14 +107,12 @@ export interface ChatStore {
 			| {
 					botId?: string;
 					kinds?: readonly ChatKind[];
-					includeDeleted?: boolean;
 			  },
 	): ChatRecord[];
 	getChat(key: string): ChatRecord | undefined;
 	getChatByConversationId(conversationId: number): ChatRecord | undefined;
 	upsertChat(chat: ChatRecord): void;
 	deleteChat(key: string): void;
-	softDeleteChat(key: string, deletedAt?: number): void;
 	listChildChats(originChatKey: string): ChatRecord[];
 	setTurnRoot(chatKey: string, rootRequestId: string): void;
 	getTurnRoot(chatKey: string): string | undefined;

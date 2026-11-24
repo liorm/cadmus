@@ -24,7 +24,6 @@ async function bots(slugs: string[], scope: Scope) {
 			scope,
 		);
 	}
-	await sendRpc("chat.create", { botId: slugs[0], key: "root" }, scope);
 }
 
 async function waitFor(check: () => Promise<boolean>, ms = 15_000) {
@@ -101,7 +100,7 @@ describe("group chats with more than two bots", () => {
 		const pending = sendRpc<{ reply: string }>(
 			"turn.submit",
 			{
-				chatKey: "root",
+				chatKey: "bot:a",
 				text: `[tool:message_bot ${JSON.stringify({
 					to: ["b", "c"],
 					topic: "trio",
@@ -169,7 +168,7 @@ describe("group chats with more than two bots", () => {
 		const pending = sendRpc<{ reply: string }>(
 			"turn.submit",
 			{
-				chatKey: "root",
+				chatKey: "bot:a",
 				text: `[tool:message_bot ${JSON.stringify({
 					to: ["b", "c"],
 					topic: "quiet",
@@ -216,7 +215,7 @@ describe("group chats with more than two bots", () => {
 		const turn = await sendRpc<{ reply: string }>(
 			"turn.submit",
 			{
-				chatKey: "root",
+				chatKey: "bot:a",
 				text: `[tool:message_bot ${JSON.stringify({
 					to: ["b", "c"],
 					topic: "fan",
@@ -229,7 +228,7 @@ describe("group chats with more than two bots", () => {
 		expect(turn.frame.result?.reply).toContain('"status":"pending"');
 		await waitFor(() => holdReady(scope, "fb"));
 		expect(
-			(await userTexts(scope, "root")).some((message) =>
+			(await userTexts(scope, "bot:a")).some((message) =>
 				message.text.includes("reply from @"),
 			),
 		).toBe(false);
@@ -240,16 +239,16 @@ describe("group chats with more than two bots", () => {
 		});
 		await waitFor(() => holdReady(scope, "fb"));
 		expect(
-			(await userTexts(scope, "root")).some((message) =>
+			(await userTexts(scope, "bot:a")).some((message) =>
 				message.text.includes("reply from @"),
 			),
 		).toBe(false);
 		await releaseHold(scope, "fb", "from-c");
 		await waitFor(async () => {
-			const messages = await userTexts(scope, "root");
+			const messages = await userTexts(scope, "bot:a");
 			return messages.some((message) => message.text.includes("reply from @"));
 		});
-		const woken = (await userTexts(scope, "root")).filter((message) =>
+		const woken = (await userTexts(scope, "bot:a")).filter((message) =>
 			message.text.includes("reply from @"),
 		);
 		expect(woken).toHaveLength(1);
@@ -269,7 +268,7 @@ describe("group chats with more than two bots", () => {
 		const capped = await sendRpc<{ reply: string }>(
 			"turn.submit",
 			{
-				chatKey: "root",
+				chatKey: "bot:a",
 				text: `[tool:message_bot ${JSON.stringify({
 					to: ["b", "c"],
 					topic: "cap",
@@ -288,7 +287,7 @@ describe("group chats with more than two bots", () => {
 		const pending = sendRpc<{ reply: string }>(
 			"turn.submit",
 			{
-				chatKey: "root",
+				chatKey: "bot:a",
 				text: `[tool:message_bot ${JSON.stringify({
 					to: ["b", "c"],
 					topic: "hang",
@@ -342,7 +341,7 @@ describe("group chats with more than two bots", () => {
 		const missing = await sendRpc<{ reply: string }>(
 			"turn.submit",
 			{
-				chatKey: "root",
+				chatKey: "bot:a",
 				text: `[tool:message_bot ${JSON.stringify({
 					to: ["b", "other-family"],
 					topic: "x",
@@ -364,7 +363,7 @@ describe("group chats with more than two bots", () => {
 		const cycle = await sendRpc<{ reply: string }>(
 			"turn.submit",
 			{
-				chatKey: "root",
+				chatKey: "bot:a",
 				text: `[tool:message_bot ${JSON.stringify({
 					to: ["b", "c"],
 					topic: "loop",
@@ -378,7 +377,7 @@ describe("group chats with more than two bots", () => {
 		const depth = await sendRpc<{ reply: string }>(
 			"turn.submit",
 			{
-				chatKey: "root",
+				chatKey: "bot:a",
 				text: `[tool:message_bot ${JSON.stringify({
 					to: ["b", "c", "d", "e"],
 					topic: "deep",

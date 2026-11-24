@@ -40,11 +40,6 @@ async function setupBot(
 		},
 		scope,
 	);
-	await sendRpc(
-		"chat.create",
-		{ botId: "worker", key: opts?.key ?? "main" },
-		scope,
-	);
 }
 
 function addTools(n: number): string {
@@ -61,11 +56,15 @@ describe("chat tasks DO internals", () => {
 			familyId: "default",
 		};
 		await setupBot(scope);
-		await sendRpc("turn.submit", { chatKey: "main", text: addTools(1) }, scope);
+		await sendRpc(
+			"turn.submit",
+			{ chatKey: "bot:worker", text: addTools(1) },
+			scope,
+		);
 		await waitFor(async () => {
 			const viewed = await sendRpc<{
 				messages: { role: string; text: string }[];
-			}>("chat.get", { chatKey: "main" }, scope);
+			}>("chat.get", { chatKey: "bot:worker" }, scope);
 			return (viewed.frame.result?.messages ?? []).some(
 				(message) =>
 					message.role === "user" &&
@@ -75,7 +74,7 @@ describe("chat tasks DO internals", () => {
 		await abortAllDurableObjects();
 		const viewed = await sendRpc<{
 			messages: { role: string; text: string }[];
-		}>("chat.get", { chatKey: "main" }, scope);
+		}>("chat.get", { chatKey: "bot:worker" }, scope);
 		const continues = (viewed.frame.result?.messages ?? []).filter(
 			(message) =>
 				message.role === "user" &&
@@ -92,19 +91,19 @@ describe("chat tasks DO internals", () => {
 		await setupBot(scope);
 		const tooBig = await sendRpc(
 			"chat.update",
-			{ chatKey: "main", deadlines: { turnMs: 25 * 60 * 60 * 1000 } },
+			{ chatKey: "bot:worker", deadlines: { turnMs: 25 * 60 * 60 * 1000 } },
 			scope,
 		);
 		expect(tooBig.frame.ok).toBe(false);
 
 		await sendRpc(
 			"chat.update",
-			{ chatKey: "main", deadlines: { turnMs: 80 } },
+			{ chatKey: "bot:worker", deadlines: { turnMs: 80 } },
 			scope,
 		);
 		const pending = sendRpc<{ reply: string }>(
 			"turn.submit",
-			{ chatKey: "main", text: "[[hold:turn-deadline]]" },
+			{ chatKey: "bot:worker", text: "[[hold:turn-deadline]]" },
 			scope,
 		);
 		await waitFor(async () => {
@@ -122,7 +121,7 @@ describe("chat tasks DO internals", () => {
 
 		await sendRpc(
 			"chat.update",
-			{ chatKey: "main", deadlines: { turnMs: 0, runMs: 50 } },
+			{ chatKey: "bot:worker", deadlines: { turnMs: 0, runMs: 50 } },
 			scope,
 		);
 		const got = await sendRpc<{
@@ -130,18 +129,22 @@ describe("chat tasks DO internals", () => {
 				deadlines?: { turnMs?: number; runMs?: number };
 				effectiveDeadlines?: { turnMs: number; runMs: number };
 			};
-		}>("chat.get", { chatKey: "main" }, scope);
+		}>("chat.get", { chatKey: "bot:worker" }, scope);
 		expect(got.frame.result?.chat.deadlines?.turnMs).toBe(0);
 		expect(got.frame.result?.chat.effectiveDeadlines?.turnMs).toBe(0);
 		expect(got.frame.result?.chat.effectiveDeadlines?.runMs).toBe(50);
 
-		await sendRpc("turn.submit", { chatKey: "main", text: addTools(2) }, scope);
+		await sendRpc(
+			"turn.submit",
+			{ chatKey: "bot:worker", text: addTools(2) },
+			scope,
+		);
 		const stub = stubFor(scope);
 		await waitFor(async () => {
 			return runInDurableObject(stub, async (_instance, state) => {
 				const rows = state.storage.sql
 					.exec<{ run_deadline: number | null }>(
-						`SELECT run_deadline FROM cadmus_chats WHERE key = 'main'`,
+						`SELECT run_deadline FROM cadmus_chats WHERE key = 'bot:worker'`,
 					)
 					.toArray();
 				return Boolean(rows[0]?.run_deadline);
@@ -149,7 +152,7 @@ describe("chat tasks DO internals", () => {
 		});
 		await runInDurableObject(stub, async (_instance, state) => {
 			state.storage.sql.exec(
-				`UPDATE cadmus_chats SET run_deadline = 1 WHERE key = 'main'`,
+				`UPDATE cadmus_chats SET run_deadline = 1 WHERE key = 'bot:worker'`,
 			);
 			await state.storage.setAlarm(Date.now());
 		});
@@ -157,7 +160,7 @@ describe("chat tasks DO internals", () => {
 		await waitFor(async () => {
 			const viewed = await sendRpc<{ taskLoop?: { state: string } }>(
 				"chat.get",
-				{ chatKey: "main" },
+				{ chatKey: "bot:worker" },
 				scope,
 			);
 			return viewed.frame.result?.taskLoop?.state === "capped";
@@ -165,22 +168,26 @@ describe("chat tasks DO internals", () => {
 
 		await sendRpc(
 			"chat.update",
-			{ chatKey: "main", deadlines: { turnMs: 1000 } },
+			{ chatKey: "bot:worker", deadlines: { turnMs: 1000 } },
 			scope,
 		);
 		const merged = await sendRpc<{
 			chat: { deadlines?: { turnMs?: number; runMs?: number } };
-		}>("chat.get", { chatKey: "main" }, scope);
+		}>("chat.get", { chatKey: "bot:worker" }, scope);
 		expect(merged.frame.result?.chat.deadlines?.runMs).toBe(50);
 		expect(merged.frame.result?.chat.deadlines?.turnMs).toBe(1000);
 
-		await sendRpc("chat.update", { chatKey: "main", deadlines: null }, scope);
+		await sendRpc(
+			"chat.update",
+			{ chatKey: "bot:worker", deadlines: null },
+			scope,
+		);
 		const reset = await sendRpc<{
 			chat: {
 				deadlines?: unknown;
 				effectiveDeadlines?: { turnMs: number; runMs: number };
 			};
-		}>("chat.get", { chatKey: "main" }, scope);
+		}>("chat.get", { chatKey: "bot:worker" }, scope);
 		expect(reset.frame.result?.chat.deadlines).toBeUndefined();
 		expect(reset.frame.result?.chat.effectiveDeadlines?.turnMs).toBe(0);
 	}, 40_000);
@@ -194,7 +201,7 @@ describe("chat tasks DO internals", () => {
 		await sendRpc(
 			"turn.submit",
 			{
-				chatKey: "main",
+				chatKey: "bot:worker",
 				text: '[tool:task_add {"title":"[[no-progress]]","details":"leave it"}]',
 			},
 			scope,
@@ -202,21 +209,21 @@ describe("chat tasks DO internals", () => {
 		await waitFor(async () => {
 			const viewed = await sendRpc<{ taskLoop?: { state: string } }>(
 				"chat.get",
-				{ chatKey: "main" },
+				{ chatKey: "bot:worker" },
 				scope,
 			);
 			return viewed.frame.result?.taskLoop?.state === "capped";
 		});
 		const viewed = await sendRpc<{
 			tasks?: { status: string; title: string }[];
-		}>("chat.get", { chatKey: "main" }, scope);
+		}>("chat.get", { chatKey: "bot:worker" }, scope);
 		expect(viewed.frame.result?.tasks?.[0]?.status).toBe("pending");
 		const stuck = await runInDurableObject(
 			stubFor(scope),
 			(_instance, state) => {
 				const rows = state.storage.sql
 					.exec<{ stuck_rounds: number }>(
-						`SELECT stuck_rounds FROM cadmus_chats WHERE key = 'main'`,
+						`SELECT stuck_rounds FROM cadmus_chats WHERE key = 'bot:worker'`,
 					)
 					.toArray();
 				return Number(rows[0]?.stuck_rounds ?? 0);

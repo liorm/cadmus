@@ -182,18 +182,11 @@ describe("Bots, Virtual Files (/.cadmus/SOUL.md, /.cadmus/MEMORY.md, /.cadmus/sk
 			scope,
 		);
 
-		const chatRes = await sendRpc<{ chat: ChatRecord }>(
-			"chat.create",
-			{ botId: "reader-only", key: "reader-chat" },
-			scope,
-		);
-		expect(chatRes.status).toBe(200);
-
 		// Attempt to call `write` via tool directive: tool-gate must block it!
 		const blockedTurn = await sendRpc<{ reply: string }>(
 			"turn.submit",
 			{
-				chatKey: "reader-chat",
+				chatKey: "bot:reader-only",
 				text: 'Try updating memory [tool:write {"path":"/.cadmus/MEMORY.md","content":"secret"}]',
 			},
 			scope,
@@ -225,7 +218,7 @@ describe("Bots, Virtual Files (/.cadmus/SOUL.md, /.cadmus/MEMORY.md, /.cadmus/sk
 		const writeMemTurn = await sendRpc<{ reply: string }>(
 			"turn.submit",
 			{
-				chatKey: "reader-chat",
+				chatKey: "bot:reader-only",
 				text: 'Write memory [tool:write {"path":"/.cadmus/MEMORY.md","content":"Allowed memory line\\nSecond line"}]',
 			},
 			scope,
@@ -239,7 +232,7 @@ describe("Bots, Virtual Files (/.cadmus/SOUL.md, /.cadmus/MEMORY.md, /.cadmus/sk
 		const editMemTurn = await sendRpc<{ reply: string }>(
 			"turn.submit",
 			{
-				chatKey: "reader-chat",
+				chatKey: "bot:reader-only",
 				text: 'Edit memory [tool:edit {"path":"/.cadmus/MEMORY.md","edits":[{"oldText":"Second line","newText":"Edited second line"}]}]',
 			},
 			scope,
@@ -261,7 +254,7 @@ describe("Bots, Virtual Files (/.cadmus/SOUL.md, /.cadmus/MEMORY.md, /.cadmus/sk
 		const writeSkill = await sendRpc<{ reply: string }>(
 			"turn.submit",
 			{
-				chatKey: "reader-chat",
+				chatKey: "bot:reader-only",
 				text: `Create skill [tool:write ${JSON.stringify({
 					path: "/.cadmus/skills/deploy/SKILL.md",
 					content:
@@ -277,7 +270,7 @@ describe("Bots, Virtual Files (/.cadmus/SOUL.md, /.cadmus/MEMORY.md, /.cadmus/sk
 		const readSkill = await sendRpc<{ reply: string }>(
 			"turn.submit",
 			{
-				chatKey: "reader-chat",
+				chatKey: "bot:reader-only",
 				text: 'Read skill [tool:read {"path":"/.cadmus/skills/deploy/SKILL.md"}]',
 			},
 			scope,
@@ -287,7 +280,7 @@ describe("Bots, Virtual Files (/.cadmus/SOUL.md, /.cadmus/MEMORY.md, /.cadmus/sk
 		const editSkill = await sendRpc<{ reply: string }>(
 			"turn.submit",
 			{
-				chatKey: "reader-chat",
+				chatKey: "bot:reader-only",
 				text: `Edit skill [tool:edit ${JSON.stringify({
 					path: "/.cadmus/skills/deploy/SKILL.md",
 					edits: [
@@ -305,7 +298,7 @@ describe("Bots, Virtual Files (/.cadmus/SOUL.md, /.cadmus/MEMORY.md, /.cadmus/sk
 		const deleteSkill = await sendRpc<{ reply: string }>(
 			"turn.submit",
 			{
-				chatKey: "reader-chat",
+				chatKey: "bot:reader-only",
 				text: 'Delete skill [tool:delete {"path":"/.cadmus/skills/deploy/SKILL.md"}]',
 			},
 			scope,
@@ -318,7 +311,7 @@ describe("Bots, Virtual Files (/.cadmus/SOUL.md, /.cadmus/MEMORY.md, /.cadmus/sk
 		const writeSoul = await sendRpc<{ reply: string }>(
 			"turn.submit",
 			{
-				chatKey: "reader-chat",
+				chatKey: "bot:reader-only",
 				text: 'Write soul [tool:write {"path":"/.cadmus/SOUL.md","content":"hijacked"}]',
 			},
 			scope,
@@ -329,7 +322,7 @@ describe("Bots, Virtual Files (/.cadmus/SOUL.md, /.cadmus/MEMORY.md, /.cadmus/sk
 		const workspaceRead = await sendRpc<{ reply: string }>(
 			"turn.submit",
 			{
-				chatKey: "reader-chat",
+				chatKey: "bot:reader-only",
 				text: 'Read workspace [tool:read {"path":"README.md"}]',
 			},
 			scope,
@@ -364,25 +357,19 @@ describe("Bots, Virtual Files (/.cadmus/SOUL.md, /.cadmus/MEMORY.md, /.cadmus/sk
 			scope,
 		);
 
-		// 2. Create chats for "scribe" and submit a turn that arms harvest + peer message
+		// 2. Submit a turn on scribe's primary chat that arms harvest + peer message
 		const firstChatRes = await sendRpc<{ chat: ChatRecord }>(
-			"chat.create",
-			{ botId: "scribe", key: "scribe-chat-1", title: "Old Scribe Chat" },
+			"chat.get",
+			{ chatKey: "bot:scribe" },
 			scope,
 		);
 		expect(firstChatRes.status).toBe(200);
 		const oldConversationId = firstChatRes.frame.result?.chat.conversationId;
 
 		await sendRpc(
-			"chat.create",
-			{ botId: "scribe", key: "scribe-chat-2" },
-			scope,
-		);
-
-		await sendRpc(
 			"turn.submit",
 			{
-				chatKey: "scribe-chat-1",
+				chatKey: "bot:scribe",
 				text: `Hello V1 [remember: Scribe V1 secret fact] [tool:message_bot ${JSON.stringify(
 					{
 						botId: "helper",
@@ -403,7 +390,7 @@ describe("Bots, Virtual Files (/.cadmus/SOUL.md, /.cadmus/MEMORY.md, /.cadmus/sk
 				kind: "cron",
 				input: "0 9 * * *",
 				text: "Morning check",
-				target: { mode: "chat", chatKey: "scribe-chat-1" },
+				target: { mode: "chat", chatKey: "bot:scribe" },
 			},
 			scope,
 		);
@@ -425,11 +412,13 @@ describe("Bots, Virtual Files (/.cadmus/SOUL.md, /.cadmus/MEMORY.md, /.cadmus/sk
 			{},
 			scope,
 		);
-		expect(allChatsAfterDelete.frame.result?.chats).toEqual([]);
+		expect(allChatsAfterDelete.frame.result?.chats.map((c) => c.key)).toEqual([
+			"bot:helper",
+		]);
 
 		const deletedChatGet = await sendRpc(
 			"chat.get",
-			{ chatKey: "scribe-chat-1" },
+			{ chatKey: "bot:scribe" },
 			scope,
 		);
 		expect(deletedChatGet.status).toBe(400);
@@ -447,45 +436,37 @@ describe("Bots, Virtual Files (/.cadmus/SOUL.md, /.cadmus/MEMORY.md, /.cadmus/sk
 		);
 		expect(recreateRes.status).toBe(200);
 
-		// Recreated bot must have 0 chats
+		// Recreated bot has 1 fresh primary chat with new conversationId, empty transcript & 0 harvest watermark/notes
 		const chatsAfterRecreate = await sendRpc<{ chats: ChatRecord[] }>(
 			"chat.list",
 			{ botId: "scribe" },
 			scope,
 		);
-		expect(chatsAfterRecreate.frame.result?.chats).toEqual([]);
-
-		// Creating a chat with the same key "scribe-chat-1" must create a brand new chat with empty transcript & 0 harvest watermark/notes
-		const recreatedChatRes = await sendRpc<{ chat: ChatRecord }>(
-			"chat.create",
-			{ botId: "scribe", key: "scribe-chat-1", title: "New Scribe Chat" },
-			scope,
-		);
-		expect(recreatedChatRes.status).toBe(200);
-		expect(recreatedChatRes.frame.result?.chat.conversationId).not.toBe(
+		expect(chatsAfterRecreate.frame.result?.chats).toHaveLength(1);
+		expect(chatsAfterRecreate.frame.result?.chats[0]?.conversationId).not.toBe(
 			oldConversationId,
 		);
-		expect(recreatedChatRes.frame.result?.chat.title).toBe("New Scribe Chat");
+		expect(chatsAfterRecreate.frame.result?.chats[0]?.title).toBe("Scribe V2");
 
 		const freshChatGet = await sendRpc<{
 			chat: ChatRecord;
 			messages: unknown[];
-			entries: unknown[];
+			entries?: unknown[];
 			notes: HarvestNote[];
-		}>("chat.get", { chatKey: "scribe-chat-1" }, scope);
+		}>("chat.get", { chatKey: "bot:scribe" }, scope);
 		expect(freshChatGet.status).toBe(200);
 		expect(freshChatGet.frame.result?.messages).toEqual([]);
 		expect(freshChatGet.frame.result?.notes).toEqual([]);
 
 		const statusRes = await sendRpc<{
 			status: { harvestWatermark: number; entryCount: number };
-		}>("chat.status", { chatKey: "scribe-chat-1" }, scope);
+		}>("chat.status", { chatKey: "bot:scribe" }, scope);
 		expect(statusRes.status).toBe(200);
 		expect(statusRes.frame.result?.status.harvestWatermark).toBe(0);
 		expect(statusRes.frame.result?.status.entryCount).toBe(0);
 	});
 
-	it("enforces strict chat-to-bot ownership across chat.create, schedule.create, schedule.update, schedule_create, and message_bot", async () => {
+	it("enforces strict chat-to-bot ownership across schedule.create, schedule.update, schedule_create, and message_bot", async () => {
 		const scope = await adminScope("default");
 
 		await sendRpc(
@@ -499,26 +480,7 @@ describe("Bots, Virtual Files (/.cadmus/SOUL.md, /.cadmus/MEMORY.md, /.cadmus/sk
 			scope,
 		);
 
-		// Create "alpha-chat" owned by "alpha"
-		const alphaChat = await sendRpc<{ chat: ChatRecord }>(
-			"chat.create",
-			{ botId: "alpha", key: "alpha-chat" },
-			scope,
-		);
-		expect(alphaChat.status).toBe(200);
-		expect(alphaChat.frame.result?.chat.botId).toBe("alpha");
-
-		// 1. Calling chat.create for "beta" with key "alpha-chat" must fail with conflict
-		const crossChatCreate = await sendRpc(
-			"chat.create",
-			{ botId: "beta", key: "alpha-chat" },
-			scope,
-		);
-		expect(crossChatCreate.status).toBe(400);
-		expect(crossChatCreate.frame.ok).toBe(false);
-		expect(crossChatCreate.frame.error?.code).toBe("conflict");
-
-		// 2. Calling schedule.create for "beta" targeting "alpha-chat" (mode: "chat" and mode: "fork") must fail with conflict
+		// 1. Calling schedule.create for "beta" targeting "bot:alpha" (mode: "chat" and mode: "fork") must fail with conflict
 		const crossSchedChat = await sendRpc(
 			"schedule.create",
 			{
@@ -526,7 +488,7 @@ describe("Bots, Virtual Files (/.cadmus/SOUL.md, /.cadmus/MEMORY.md, /.cadmus/sk
 				kind: "relative",
 				input: "10m",
 				text: "Intrude",
-				target: { mode: "chat", chatKey: "alpha-chat" },
+				target: { mode: "chat", chatKey: "bot:alpha" },
 			},
 			scope,
 		);
@@ -540,14 +502,14 @@ describe("Bots, Virtual Files (/.cadmus/SOUL.md, /.cadmus/MEMORY.md, /.cadmus/sk
 				kind: "relative",
 				input: "10m",
 				text: "Intrude fork",
-				target: { mode: "fork", chatKey: "alpha-chat" },
+				target: { mode: "fork", chatKey: "bot:alpha" },
 			},
 			scope,
 		);
 		expect(crossSchedFork.status).toBe(400);
 		expect(crossSchedFork.frame.error?.code).toBe("conflict");
 
-		// 3. Calling schedule.update to retarget a "beta" schedule onto "alpha-chat" must fail with conflict
+		// 2. Calling schedule.update to retarget a "beta" schedule onto "bot:alpha" must fail with conflict
 		const validBetaSched = await sendRpc<{ schedule: { id: string } }>(
 			"schedule.create",
 			{
@@ -566,34 +528,32 @@ describe("Bots, Virtual Files (/.cadmus/SOUL.md, /.cadmus/MEMORY.md, /.cadmus/sk
 			"schedule.update",
 			{
 				id: "beta-sched",
-				target: { mode: "chat", chatKey: "alpha-chat" },
+				target: { mode: "chat", chatKey: "bot:alpha" },
 			},
 			scope,
 		);
 		expect(crossSchedUpdate.status).toBe(400);
 		expect(crossSchedUpdate.frame.error?.code).toBe("conflict");
 
-		// 4. Agent tools schedule_create and message_bot must reject cross-bot chat keys
-		await sendRpc("chat.create", { botId: "beta", key: "beta-chat" }, scope);
-
+		// 3. Agent tools schedule_create and message_bot must reject cross-bot chat keys
 		const badScheduleToolTurn = await sendRpc<{ reply: string }>(
 			"turn.submit",
 			{
-				chatKey: "beta-chat",
-				text: 'Schedule on alpha chat [tool:schedule_create {"kind":"relative","input":"5m","text":"hi","target":{"mode":"chat","chatKey":"alpha-chat"}}]',
+				chatKey: "bot:beta",
+				text: 'Schedule on alpha chat [tool:schedule_create {"kind":"relative","input":"5m","text":"hi","target":{"mode":"chat","chatKey":"bot:alpha"}}]',
 			},
 			scope,
 		);
 		expect(badScheduleToolTurn.status).toBe(200);
 		expect(badScheduleToolTurn.frame.result?.reply).toContain(
-			"Chat 'alpha-chat' belongs to bot 'alpha', not 'beta'",
+			"Chat 'bot:alpha' belongs to bot 'alpha', not 'beta'",
 		);
 
 		const badMessageBotTurn = await sendRpc<{ reply: string }>(
 			"turn.submit",
 			{
-				chatKey: "alpha-chat",
-				text: 'Message beta using alpha-chat [tool:message_bot {"botId":"beta","topic":"cross","chatKey":"alpha-chat","text":"hello"}]',
+				chatKey: "bot:alpha",
+				text: 'Message beta using alpha-chat [tool:message_bot {"botId":"beta","topic":"cross","chatKey":"bot:alpha","text":"hello"}]',
 			},
 			scope,
 		);

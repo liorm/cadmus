@@ -177,22 +177,17 @@ describe("Principal plumbing (issue #3 phase 1)", () => {
 			{ slug: "echo-bot", name: "Echo", model: "faux/echo" },
 			aliceOpts,
 		);
-		await sendRpc(
-			"chat.create",
-			{ botId: "echo-bot", key: "shared" },
-			aliceOpts,
-		);
 
 		const first = await sendRpc(
 			"turn.submit",
-			{ chatKey: "shared", text: "from alice" },
+			{ chatKey: "bot:echo-bot", text: "from alice" },
 			aliceOpts,
 		);
 		expect(first.frame.ok).toBe(true);
 		const second = await sendRpc(
 			"turn.submit",
 			{
-				chatKey: "shared",
+				chatKey: "bot:echo-bot",
 				text: "from bob",
 				// A payload cannot name its own author.
 				authorUserId: "alice",
@@ -203,7 +198,7 @@ describe("Principal plumbing (issue #3 phase 1)", () => {
 
 		const reread = await sendRpc<ChatGetResult>(
 			"chat.get",
-			{ chatKey: "shared" },
+			{ chatKey: "bot:echo-bot" },
 			aliceOpts,
 		);
 		const users = (reread.frame.result?.messages ?? []).filter(

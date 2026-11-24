@@ -221,7 +221,6 @@ describe("CadmusClient against the worker", () => {
 			name: "Speaker",
 			model: "faux/echo",
 		});
-		await client.call("chat.create", { botId: "speaker", key: "main" });
 
 		const statuses: string[] = [];
 		const events: string[] = [];
@@ -240,7 +239,7 @@ describe("CadmusClient against the worker", () => {
 		expect(statuses).toContain("connecting");
 		expect(statuses).toContain("connected");
 
-		await client.call("turn.submit", { chatKey: "main", text: "Hello" });
+		await client.call("turn.submit", { chatKey: "bot:speaker", text: "Hello" });
 		await waitFor(() => events.length > 0, "a websocket event");
 
 		const protocol = new ProtocolClient({

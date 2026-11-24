@@ -226,6 +226,24 @@ export const API_ROUTES = {
 		allow: "POST",
 		readOnly: false,
 	},
+	"system.metrics": {
+		method: "GET",
+		path: "/api/system/metrics",
+		allow: "GET, HEAD",
+		readOnly: true,
+	},
+	"system.accounts.get": {
+		method: "GET",
+		path: "/api/system/accounts/get",
+		allow: "GET, HEAD",
+		readOnly: true,
+	},
+	"system.sessions.revoke": {
+		method: "POST",
+		path: "/api/system/sessions/revoke",
+		allow: "POST",
+		readOnly: false,
+	},
 	"auth.elevate": {
 		method: "POST",
 		path: "/api/auth/elevate",
@@ -376,12 +394,6 @@ export const API_ROUTES = {
 		allow: "POST",
 		readOnly: false,
 	},
-	"chat.create": {
-		method: "POST",
-		path: "/api/chat/create",
-		allow: "POST",
-		readOnly: false,
-	},
 	"chat.list": {
 		method: "GET",
 		path: "/api/chat/list",
@@ -394,53 +406,17 @@ export const API_ROUTES = {
 		allow: "GET, HEAD",
 		readOnly: true,
 	},
-	"chat.rename": {
-		method: "POST",
-		path: "/api/chat/rename",
-		allow: "POST",
-		readOnly: false,
-	},
-	"chat.close": {
-		method: "POST",
-		path: "/api/chat/close",
-		allow: "POST",
-		readOnly: false,
-	},
-	"chat.delete": {
-		method: "POST",
-		path: "/api/chat/delete",
-		allow: "POST",
-		readOnly: false,
-	},
 	"chat.reset": {
 		method: "POST",
 		path: "/api/chat/reset",
 		allow: "POST",
 		readOnly: false,
 	},
-	"chat.messages": {
-		method: "GET",
-		path: "/api/chat/messages",
-		allow: "GET, HEAD",
-		readOnly: true,
-	},
-	"chat.entries": {
-		method: "GET",
-		path: "/api/chat/entries",
-		allow: "GET, HEAD",
-		readOnly: true,
-	},
 	"chat.status": {
 		method: "GET",
 		path: "/api/chat/status",
 		allow: "GET, HEAD",
 		readOnly: true,
-	},
-	"chat.subscribe": {
-		method: "POST",
-		path: "/api/chat/subscribe",
-		allow: "POST",
-		readOnly: false,
 	},
 	"chat.update": {
 		method: "POST",

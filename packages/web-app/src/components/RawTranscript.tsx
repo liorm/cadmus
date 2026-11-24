@@ -12,18 +12,36 @@ export function RawTranscript({ entries }: { entries: RawTranscriptEntry[] }) {
 	}
 	return (
 		<ol className="rounded-lg border border-border bg-surface px-3 py-2 font-mono text-[length:var(--fs-sm)]">
-			{lines.map((line) => (
-				<li key={line.id} className="mb-3 whitespace-pre-wrap">
-					<p>
-						<span className="text-accent">{line.role}</span>
-						{line.name ? <span className="text-text"> {line.name}</span> : null}
-						{line.time ? (
-							<span className="text-text-muted"> {line.time}</span>
-						) : null}
-					</p>
-					<p className="text-text">{line.body}</p>
-				</li>
-			))}
+			{lines.map((line) => {
+				const boundary = line.role === "compaction" || line.role === "reset";
+				return (
+					<li
+						key={line.id}
+						className={
+							boundary
+								? "mb-3 rounded-md border border-accent/30 bg-accent/8 px-2.5 py-2 whitespace-pre-wrap"
+								: "mb-3 whitespace-pre-wrap"
+						}
+					>
+						<p>
+							<span
+								className={
+									boundary ? "font-semibold text-accent" : "text-accent"
+								}
+							>
+								{line.role}
+							</span>
+							{line.name ? (
+								<span className="text-text"> {line.name}</span>
+							) : null}
+							{line.time ? (
+								<span className="text-text-muted"> {line.time}</span>
+							) : null}
+						</p>
+						<p className="text-text">{line.body}</p>
+					</li>
+				);
+			})}
 		</ol>
 	);
 }

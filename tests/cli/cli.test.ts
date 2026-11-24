@@ -268,22 +268,10 @@ describe("cadmus CLI", () => {
 				])
 			).code,
 		).toBe(0);
-		expect(
-			(
-				await run([
-					...(await baseArgs(accountId)),
-					"chat.create",
-					"--botId",
-					"echo",
-					"--key",
-					"main",
-				])
-			).code,
-		).toBe(0);
 		const quiet = await run([
 			...(await baseArgs(accountId)),
 			"send",
-			"main",
+			"bot:echo",
 			"Hello",
 		]);
 		expect(quiet.code, quiet.stderr).toBe(0);
@@ -292,7 +280,7 @@ describe("cadmus CLI", () => {
 		const streamed = await run([
 			...(await baseArgs(accountId)),
 			"send",
-			"main",
+			"bot:echo",
 			"Hello",
 			"--stream",
 		]);
@@ -335,18 +323,6 @@ describe("cadmus CLI", () => {
 				])
 			).code,
 		).toBe(0);
-		expect(
-			(
-				await run([
-					...(await baseArgs(accountId)),
-					"chat.create",
-					"--botId",
-					"coordinator",
-					"--key",
-					"coord",
-				])
-			).code,
-		).toBe(0);
 		const events = await start([
 			...(await baseArgs(accountId)),
 			"events",
@@ -363,7 +339,7 @@ describe("cadmus CLI", () => {
 			...(await baseArgs(accountId)),
 			"turn.submit",
 			"--chatKey",
-			"coord",
+			"bot:coordinator",
 			"--text",
 			text,
 		]);
@@ -405,18 +381,6 @@ describe("cadmus CLI", () => {
 				])
 			).code,
 		).toBe(0);
-		expect(
-			(
-				await run([
-					...(await baseArgs(accountId)),
-					"chat.create",
-					"--botId",
-					"timer",
-					"--key",
-					"ticks",
-				])
-			).code,
-		).toBe(0);
 		const created = await run([
 			...(await baseArgs(accountId)),
 			"schedule.create",
@@ -433,7 +397,7 @@ describe("cadmus CLI", () => {
 			"--target.mode",
 			"chat",
 			"--target.chatKey",
-			"ticks",
+			"bot:timer",
 		]);
 		expect(created.code, created.stderr).toBe(0);
 		expect(JSON.parse(created.stdout).schedule.id).toBe("wake");

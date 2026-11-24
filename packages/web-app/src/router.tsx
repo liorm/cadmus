@@ -3,38 +3,69 @@ import {
 	createRoute,
 	createRouter,
 	Outlet,
+	useNavigate,
+	useRouterState,
 } from "@tanstack/react-router";
+import { useEffect } from "react";
 import { AccountResetNotice } from "@/components/AccountResetNotice";
-import { DesktopCockpitShell } from "@/components/desktop/CommandCockpit";
-import { CommandPaletteHost } from "@/components/desktop/CommandPalette";
-import { useDesktopViewport } from "@/components/desktop/use-desktop-viewport";
 import { CadmusProvider } from "@/context/CadmusContext";
 import { ElevationProvider } from "@/context/ElevationContext";
 import { useSession } from "@/context/SessionContext";
-import { isBotTab } from "@/lib/profile-tabs";
-import { ArchivePage } from "@/routes/archive";
-import { NewBotPage } from "@/routes/bot-new";
-import { ChatPage } from "@/routes/chat";
-import { ChatStatusPage } from "@/routes/chat-status";
-import { DocPage } from "@/routes/doc";
-import { HarvestPage } from "@/routes/harvest";
-import { HomePage } from "@/routes/home";
-import { NewTaskPage } from "@/routes/new";
-import { ProfilePage } from "@/routes/profile";
-import { SchedulePage } from "@/routes/schedule";
-import { SearchPage } from "@/routes/search";
-import { SettingsPage } from "@/routes/settings";
-import { AccountSettingsPage } from "@/routes/settings-account";
-import { FamilySettingsPage } from "@/routes/settings-family";
-import { ProvidersSettingsPage } from "@/routes/settings-providers";
-import { AllSchedulesPage } from "@/routes/settings-schedules";
-import { SecuritySettingsPage } from "@/routes/settings-security";
-import { ToolsSettingsPage } from "@/routes/settings-tools";
-import { SystemConsolePage } from "@/routes/system";
-import { ToolsPage } from "@/routes/tools";
+import {
+	defaultRouteForRole,
+	isRouteAllowedForRole,
+} from "@/lib/persona-routing";
+import { AdminAuditPage } from "@/surfaces/account-admin/AdminAuditPage";
+import { AdminMembersPage } from "@/surfaces/account-admin/AdminMembersPage";
+import { AdminOverviewPage } from "@/surfaces/account-admin/AdminOverviewPage";
+import { AdminProvidersPage } from "@/surfaces/account-admin/AdminProvidersPage";
+import { SystemAuditPage } from "@/surfaces/super-admin/SystemAuditPage";
+import { SystemMetricsPage } from "@/surfaces/super-admin/SystemMetricsPage";
+import { SystemTenantDetailPage } from "@/surfaces/super-admin/SystemTenantDetailPage";
+import { SystemTenantsPage } from "@/surfaces/super-admin/SystemTenantsPage";
+import { BotStreamPage } from "@/surfaces/user/BotStreamPage";
+import { BotsHomePage } from "@/surfaces/user/BotsHomePage";
+import { BotsSidebarPanel } from "@/surfaces/user/BotsSidebarPanel";
+import { EnvsPage } from "@/surfaces/user/EnvsPage";
+import { SchedulesPage } from "@/surfaces/user/SchedulesPage";
+import { SearchPage } from "@/surfaces/user/SearchPage";
+import { SkillsPage } from "@/surfaces/user/SkillsPage";
+import { UserShell } from "@/surfaces/user/UserShell";
+
+function PersonaRouteGuard() {
+	const session = useSession();
+	const navigate = useNavigate();
+	const pathname = useRouterState({
+		select: (state) => state.location.pathname,
+	});
+
+	useEffect(() => {
+		if (!session.principal) return;
+		const role = session.principal.role;
+		if (
+			pathname === "/" ||
+			pathname === "/app" ||
+			!isRouteAllowedForRole(pathname, role)
+		) {
+			void navigate({
+				to: defaultRouteForRole(role),
+				replace: true,
+			});
+		}
+	}, [navigate, pathname, session.principal]);
+
+	if (!session.principal) {
+		return (
+			<div className="flex h-[100dvh] w-full items-center justify-center bg-bg text-xs text-text-muted">
+				Loading session…
+			</div>
+		);
+	}
+
+	return <Outlet />;
+}
 
 function RootComponent() {
-	const desktop = useDesktopViewport();
 	const session = useSession();
 	if (!session.signedIn || !session.tokens || session.principal?.provisional) {
 		return null;
@@ -43,10 +74,7 @@ function RootComponent() {
 		<CadmusProvider
 			key="signed-in"
 			sessionMode
-			skipTenantSync={
-				session.principal?.role === "super-admin" ||
-				(!session.principal && session.tokens.accountId === "system")
-			}
+			skipTenantSync={session.principal?.role !== "user"}
 			initialConfig={{
 				token: session.tokens.accessToken,
 				accountId:
@@ -58,14 +86,7 @@ function RootComponent() {
 				{session.notice ? (
 					<AccountResetNotice message={session.notice} />
 				) : null}
-				<CommandPaletteHost />
-				{desktop ? (
-					<DesktopCockpitShell>
-						<Outlet />
-					</DesktopCockpitShell>
-				) : (
-					<Outlet />
-				)}
+				<PersonaRouteGuard />
 			</ElevationProvider>
 		</CadmusProvider>
 	);
@@ -78,163 +99,53 @@ const rootRoute = createRootRoute({
 const indexRoute = createRoute({
 	getParentRoute: () => rootRoute,
 	path: "/",
-	component: HomePage,
-});
-
-const chatRoute = createRoute({
-	getParentRoute: () => rootRoute,
-	path: "/chat/$chatKey",
-	validateSearch: (
-		search: Record<string, unknown>,
-	): { view: "chat" | "raw" } => ({
-		view: search.view === "raw" ? "raw" : "chat",
-	}),
-	component: function ChatRoutePage() {
-		const { view } = chatRoute.useSearch();
-		return <ChatPage view={view} />;
+	component: function RoleIndexPage() {
+		return null;
 	},
 });
 
-const chatStatusRoute = createRoute({
+// ---------------------------------------------------------------------------
+// User surface
+// ---------------------------------------------------------------------------
+const botsRoute = createRoute({
 	getParentRoute: () => rootRoute,
-	path: "/chat/$chatKey/status",
-	component: ChatStatusPage,
-});
-
-const newTaskRoute = createRoute({
-	getParentRoute: () => rootRoute,
-	path: "/new",
-	validateSearch: (search: Record<string, unknown>): { bot?: string } => ({
-		bot: typeof search.bot === "string" ? search.bot : undefined,
-	}),
-	component: function NewTaskRoutePage() {
-		const { bot } = newTaskRoute.useSearch();
-		return <NewTaskPage key={bot} botId={bot} />;
-	},
-});
-
-const newBotRoute = createRoute({
-	getParentRoute: () => rootRoute,
-	path: "/bot/new",
-	component: NewBotPage,
+	path: "/bots",
+	component: BotsHomePage,
 });
 
 const botRoute = createRoute({
 	getParentRoute: () => rootRoute,
 	path: "/bot/$botId",
-	component: function BotDefaultRoutePage() {
+	component: function BotDetailRoutePage() {
 		const { botId } = botRoute.useParams();
-		return <ProfilePage botId={botId} tab="schedules" />;
-	},
-});
-
-const botTabRoute = createRoute({
-	getParentRoute: () => rootRoute,
-	path: "/bot/$botId/$tab",
-	component: function BotTabPage() {
-		const { botId, tab } = botTabRoute.useParams();
 		return (
-			<ProfilePage botId={botId} tab={isBotTab(tab) ? tab : "schedules"} />
+			<UserShell
+				activeTab="bots"
+				hideMobileChrome
+				sidepanel={<BotsSidebarPanel activeBotId={botId} />}
+			>
+				<BotStreamPage botId={botId} />
+			</UserShell>
 		);
 	},
 });
 
-const scheduleRoute = createRoute({
+const schedulesRoute = createRoute({
 	getParentRoute: () => rootRoute,
-	path: "/bot/$botId/schedule/$id",
-	validateSearch: (search: Record<string, unknown>): { from?: "all" } => ({
-		from: search.from === "all" ? "all" : undefined,
-	}),
-	component: function ScheduleRoutePage() {
-		const { botId, id } = scheduleRoute.useParams();
-		const { from } = scheduleRoute.useSearch();
-		return <SchedulePage botId={botId} id={id} from={from} />;
-	},
+	path: "/schedules",
+	component: SchedulesPage,
 });
 
-const toolsRoute = createRoute({
+const envsRoute = createRoute({
 	getParentRoute: () => rootRoute,
-	path: "/bot/$botId/tools",
-	component: function ToolsRoutePage() {
-		const { botId } = toolsRoute.useParams();
-		return <ToolsPage botId={botId} />;
-	},
+	path: "/envs",
+	component: EnvsPage,
 });
 
-const harvestRoute = createRoute({
+const skillsRoute = createRoute({
 	getParentRoute: () => rootRoute,
-	path: "/bot/$botId/harvest",
-	component: function HarvestRoutePage() {
-		const { botId } = harvestRoute.useParams();
-		return <HarvestPage botId={botId} />;
-	},
-});
-
-const docRoute = createRoute({
-	getParentRoute: () => rootRoute,
-	path: "/bot/$botId/doc",
-	validateSearch: (search: Record<string, unknown>): { path: string } => ({
-		path: typeof search.path === "string" ? search.path : "/.cadmus/MEMORY.md",
-	}),
-	component: function DocRoutePage() {
-		const { botId } = docRoute.useParams();
-		const { path } = docRoute.useSearch();
-		return <DocPage botId={botId} path={path} />;
-	},
-});
-
-const systemRoute = createRoute({
-	getParentRoute: () => rootRoute,
-	path: "/system",
-	component: SystemConsolePage,
-});
-
-const settingsRoute = createRoute({
-	getParentRoute: () => rootRoute,
-	path: "/settings",
-	component: SettingsPage,
-});
-
-const accountSettingsRoute = createRoute({
-	getParentRoute: () => rootRoute,
-	path: "/settings/account",
-	component: AccountSettingsPage,
-});
-
-const securitySettingsRoute = createRoute({
-	getParentRoute: () => rootRoute,
-	path: "/settings/security",
-	component: SecuritySettingsPage,
-});
-
-const familySettingsRoute = createRoute({
-	getParentRoute: () => rootRoute,
-	path: "/settings/family",
-	component: FamilySettingsPage,
-});
-
-const providersSettingsRoute = createRoute({
-	getParentRoute: () => rootRoute,
-	path: "/settings/providers",
-	component: ProvidersSettingsPage,
-});
-
-const toolsSettingsRoute = createRoute({
-	getParentRoute: () => rootRoute,
-	path: "/settings/tools",
-	component: ToolsSettingsPage,
-});
-
-const allSchedulesRoute = createRoute({
-	getParentRoute: () => rootRoute,
-	path: "/settings/schedules",
-	component: AllSchedulesPage,
-});
-
-const archiveRoute = createRoute({
-	getParentRoute: () => rootRoute,
-	path: "/settings/archive",
-	component: ArchivePage,
+	path: "/skills",
+	component: SkillsPage,
 });
 
 const searchRoute = createRoute({
@@ -243,28 +154,79 @@ const searchRoute = createRoute({
 	component: SearchPage,
 });
 
+// ---------------------------------------------------------------------------
+// Account-Admin surface
+// ---------------------------------------------------------------------------
+const adminRoute = createRoute({
+	getParentRoute: () => rootRoute,
+	path: "/admin",
+	component: AdminOverviewPage,
+});
+
+const adminMembersRoute = createRoute({
+	getParentRoute: () => rootRoute,
+	path: "/admin/members",
+	component: AdminMembersPage,
+});
+
+const adminProvidersRoute = createRoute({
+	getParentRoute: () => rootRoute,
+	path: "/admin/providers",
+	component: AdminProvidersPage,
+});
+
+const adminAuditRoute = createRoute({
+	getParentRoute: () => rootRoute,
+	path: "/admin/audit",
+	component: AdminAuditPage,
+});
+
+// ---------------------------------------------------------------------------
+// Super-Admin surface
+// ---------------------------------------------------------------------------
+const systemRoute = createRoute({
+	getParentRoute: () => rootRoute,
+	path: "/system",
+	component: SystemMetricsPage,
+});
+
+const systemTenantsRoute = createRoute({
+	getParentRoute: () => rootRoute,
+	path: "/system/tenants",
+	component: SystemTenantsPage,
+});
+
+const systemTenantDetailRoute = createRoute({
+	getParentRoute: () => rootRoute,
+	path: "/system/tenants/$accountId",
+	component: function SystemTenantDetailRoutePage() {
+		const { accountId } = systemTenantDetailRoute.useParams();
+		return <SystemTenantDetailPage accountId={accountId} />;
+	},
+});
+
+const systemAuditRoute = createRoute({
+	getParentRoute: () => rootRoute,
+	path: "/system/audit",
+	component: SystemAuditPage,
+});
+
 const routeTree = rootRoute.addChildren([
 	indexRoute,
-	chatRoute,
-	chatStatusRoute,
-	newTaskRoute,
-	newBotRoute,
+	botsRoute,
 	botRoute,
-	botTabRoute,
-	scheduleRoute,
-	toolsRoute,
-	harvestRoute,
-	docRoute,
-	settingsRoute,
-	systemRoute,
-	securitySettingsRoute,
-	accountSettingsRoute,
-	familySettingsRoute,
-	providersSettingsRoute,
-	toolsSettingsRoute,
-	allSchedulesRoute,
-	archiveRoute,
+	schedulesRoute,
+	envsRoute,
+	skillsRoute,
 	searchRoute,
+	adminRoute,
+	adminMembersRoute,
+	adminProvidersRoute,
+	adminAuditRoute,
+	systemRoute,
+	systemTenantsRoute,
+	systemTenantDetailRoute,
+	systemAuditRoute,
 ]);
 
 export const router = createRouter({

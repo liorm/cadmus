@@ -70,11 +70,14 @@ import {
 import {
 	accountCreateAudit,
 	cleanName,
+	getSystemAccountDetail,
+	getSystemMetrics,
 	listAccountAudit,
 	listAccountMembers,
 	listSystemAccounts,
 	listSystemAudit,
 	renameAccount,
+	revokeSystemSession,
 	revokeUserSessions,
 	type SystemAccount,
 	type SystemAuditEvent,
@@ -1542,6 +1545,25 @@ export class D1AdminStore implements AdminStore {
 		return listSystemAudit(this.#db, input);
 	}
 
+	async getSystemMetrics() {
+		await this.initialize();
+		return getSystemMetrics(this.#db);
+	}
+
+	async getSystemAccountDetail(accountId: string) {
+		await this.initialize();
+		return getSystemAccountDetail(this.#db, accountId);
+	}
+
+	async revokeSystemSession(input: {
+		sessionId: string;
+		accountId?: string;
+		actor: string;
+	}) {
+		await this.initialize();
+		return revokeSystemSession(this.#db, input);
+	}
+
 	async listAccountAudit(input: {
 		accountId: string;
 		limit: number;
@@ -1741,9 +1763,13 @@ export class D1AdminStore implements AdminStore {
 		const { results } = await this.#db
 			.prepare(
 				`SELECT m.account_id, m.user_id, m.created_at,
+                u.name AS user_name,
+                COALESCE(u.primary_email, u.email) AS user_email,
+                u.disabled_at AS disabled_at,
                 (SELECT json_group_array(r.role) FROM cadmus_member_roles r
                   WHERE r.account_id = m.account_id AND r.user_id = m.user_id) AS roles
          FROM cadmus_account_members m
+         LEFT JOIN cadmus_users u ON u.id = m.user_id
          WHERE m.account_id = ?1
          ORDER BY m.created_at ASC, m.user_id ASC`,
 			)
@@ -1751,14 +1777,22 @@ export class D1AdminStore implements AdminStore {
 			.all<{
 				account_id: string;
 				user_id: string;
+				user_name: string | null;
+				user_email: string | null;
+				disabled_at: number | null;
 				roles: string;
 				created_at: number;
 			}>();
 		return results.map((r) => ({
 			accountId: r.account_id,
 			userId: r.user_id,
+			...(r.user_name ? { name: r.user_name } : {}),
+			...(r.user_email ? { email: r.user_email } : {}),
 			roles: parseStoredRoles(r.roles),
 			createdAt: r.created_at,
+			...(r.disabled_at !== null && r.disabled_at !== undefined
+				? { disabledAt: r.disabled_at }
+				: {}),
 		}));
 	}
 

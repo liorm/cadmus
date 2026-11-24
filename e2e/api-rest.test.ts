@@ -52,7 +52,7 @@ describe("REST /api command translation", () => {
 			]),
 		);
 		expect(byType.get("file.read")?.readOnly).toBe(true);
-		expect(byType.get("chat.messages")?.readOnly).toBe(true);
+		expect(byType.get("chat.get")?.readOnly).toBe(true);
 		expect(byType.get("file.write")?.readOnly).toBeUndefined();
 		expect(byType.get("turn.submit")?.readOnly).toBeUndefined();
 	});
@@ -63,9 +63,7 @@ describe("REST /api command translation", () => {
 		const get = (path: string) =>
 			workerFetch(`http://example.com${path}`, { headers });
 
-		const listed = await get(
-			"/api/chat/list?includeDeleted=FALSE&kinds=direct&botId=%7B",
-		);
+		const listed = await get("/api/chat/list?kinds=direct&botId=%7B");
 		expect(listed.status).toBe(200);
 		const listedBody = (await listed.json()) as { chats?: unknown[] };
 		expect(Array.isArray(listedBody.chats)).toBe(true);
@@ -84,9 +82,7 @@ describe("REST /api command translation", () => {
 			error: { code: "invalid_command" },
 		});
 
-		const repeated = await get(
-			"/api/chat/list?includeDeleted=true&includeDeleted=false",
-		);
+		const repeated = await get("/api/chat/list?botId=a&botId=b");
 		expect(repeated.status).toBe(400);
 		const repeatedBody = (await repeated.json()) as {
 			error?: { message?: string };

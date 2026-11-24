@@ -1,10 +1,6 @@
 import { env, runDurableObjectAlarm } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
-import type {
-	ChatRecord,
-	HarvestNote,
-	ScheduleRecord,
-} from "../src/protocol.js";
+import type { HarvestNote, ScheduleRecord } from "../src/protocol.js";
 import { sendRpc, uniqueAccountId } from "./helpers.js";
 
 describe("Unified ScheduleTask (Cron, When & Idle Harvest Forks) & DO Alarm Driver", () => {
@@ -21,12 +17,6 @@ describe("Unified ScheduleTask (Cron, When & Idle Harvest Forks) & DO Alarm Driv
 			scope,
 		);
 
-		await sendRpc(
-			"chat.create",
-			{ botId: "timer-bot", key: "timer-chat" },
-			scope,
-		);
-
 		const schedRes = await sendRpc<{ schedule: ScheduleRecord }>(
 			"schedule.create",
 			{
@@ -36,7 +26,7 @@ describe("Unified ScheduleTask (Cron, When & Idle Harvest Forks) & DO Alarm Driv
 				kind: "absolute",
 				input: Date.now() - 10,
 				text: "Scheduled ping!",
-				target: { mode: "chat", chatKey: "timer-chat" },
+				target: { mode: "chat", chatKey: "bot:timer-bot" },
 			},
 			scope,
 		);
@@ -53,7 +43,7 @@ describe("Unified ScheduleTask (Cron, When & Idle Harvest Forks) & DO Alarm Driv
 
 		const chatGet = await sendRpc<{
 			messages: { role: string; text: string }[];
-		}>("chat.get", { chatKey: "timer-chat" }, scope);
+		}>("chat.get", { chatKey: "bot:timer-bot" }, scope);
 
 		expect(chatGet.status).toBe(200);
 		const texts = chatGet.frame.result?.messages.map((m) => m.text) ?? [];
@@ -84,16 +74,10 @@ describe("Unified ScheduleTask (Cron, When & Idle Harvest Forks) & DO Alarm Driv
 			scope,
 		);
 
-		await sendRpc<{ chat: ChatRecord }>(
-			"chat.create",
-			{ botId: "harvester", key: "harvest-chat" },
-			scope,
-		);
-
 		const turn1 = await sendRpc<{ reply: string; entryId: number }>(
 			"turn.submit",
 			{
-				chatKey: "harvest-chat",
+				chatKey: "bot:harvester",
 				text: "Hello! [remember: User prefers dark roast espresso]",
 			},
 			scope,
@@ -106,20 +90,20 @@ describe("Unified ScheduleTask (Cron, When & Idle Harvest Forks) & DO Alarm Driv
 			scope,
 		);
 		const harvestSched = internalSchedules.frame.result?.schedules.find(
-			(s) => s.id === "harvest:harvest-chat",
+			(s) => s.id === "harvest:bot:harvester",
 		);
 		expect(harvestSched).toBeDefined();
 		expect(harvestSched?.internal).toBe(true);
 		expect(harvestSched?.target).toMatchObject({
 			mode: "fork",
-			chatKey: "harvest-chat",
+			chatKey: "bot:harvester",
 			harvest: true,
 		});
 
 		await sendRpc(
 			"schedule.update",
 			{
-				id: "harvest:harvest-chat",
+				id: "harvest:bot:harvester",
 				kind: "absolute",
 				input: Date.now() - 10,
 			},
@@ -144,7 +128,7 @@ describe("Unified ScheduleTask (Cron, When & Idle Harvest Forks) & DO Alarm Driv
 		const chatAfter = await sendRpc<{
 			messages: { role: string; text: string }[];
 			notes: HarvestNote[];
-		}>("chat.get", { chatKey: "harvest-chat" }, scope);
+		}>("chat.get", { chatKey: "bot:harvester" }, scope);
 
 		expect(chatAfter.frame.result?.messages).toHaveLength(2);
 		expect(chatAfter.frame.result?.notes).toHaveLength(1);
@@ -157,7 +141,7 @@ describe("Unified ScheduleTask (Cron, When & Idle Harvest Forks) & DO Alarm Driv
 
 		const statusRes = await sendRpc<{
 			status: { harvestWatermark: number };
-		}>("chat.status", { chatKey: "harvest-chat" }, scope);
+		}>("chat.status", { chatKey: "bot:harvester" }, scope);
 		expect(statusRes.frame.result?.status.harvestWatermark).toBeGreaterThan(0);
 	});
 
@@ -180,29 +164,9 @@ describe("Unified ScheduleTask (Cron, When & Idle Harvest Forks) & DO Alarm Driv
 		);
 
 		await sendRpc(
-			"chat.create",
-			{ botId: "doomed-bot", key: "doomed-chat-1", title: "Doomed Chat 1" },
-			scope,
-		);
-		await sendRpc(
-			"chat.create",
-			{ botId: "doomed-bot", key: "doomed-chat-2", title: "Doomed Chat 2" },
-			scope,
-		);
-		await sendRpc(
-			"chat.create",
-			{
-				botId: "survivor-bot",
-				key: "survivor-chat-1",
-				title: "Survivor Chat 1",
-			},
-			scope,
-		);
-
-		await sendRpc(
 			"turn.submit",
 			{
-				chatKey: "doomed-chat-1",
+				chatKey: "bot:doomed-bot",
 				text: "Remember this [remember: Doomed bot fact]",
 			},
 			scope,
@@ -210,7 +174,7 @@ describe("Unified ScheduleTask (Cron, When & Idle Harvest Forks) & DO Alarm Driv
 		await sendRpc(
 			"schedule.update",
 			{
-				id: "harvest:doomed-chat-1",
+				id: "harvest:bot:doomed-bot",
 				kind: "absolute",
 				input: Date.now() - 10,
 			},
@@ -225,7 +189,7 @@ describe("Unified ScheduleTask (Cron, When & Idle Harvest Forks) & DO Alarm Driv
 		await sendRpc(
 			"turn.submit",
 			{
-				chatKey: "doomed-chat-1",
+				chatKey: "bot:doomed-bot",
 				text: "Second message to arm a fresh harvest schedule",
 			},
 			scope,
@@ -239,7 +203,7 @@ describe("Unified ScheduleTask (Cron, When & Idle Harvest Forks) & DO Alarm Driv
 				kind: "cron",
 				input: "0 9 * * *",
 				text: "Doomed report",
-				target: { mode: "chat", chatKey: "doomed-chat-1" },
+				target: { mode: "chat", chatKey: "bot:doomed-bot" },
 			},
 			scope,
 		);
@@ -251,7 +215,7 @@ describe("Unified ScheduleTask (Cron, When & Idle Harvest Forks) & DO Alarm Driv
 				kind: "cron",
 				input: "0 10 * * *",
 				text: "Survivor report",
-				target: { mode: "chat", chatKey: "survivor-chat-1" },
+				target: { mode: "chat", chatKey: "bot:survivor-bot" },
 			},
 			scope,
 		);
@@ -266,12 +230,12 @@ describe("Unified ScheduleTask (Cron, When & Idle Harvest Forks) & DO Alarm Driv
 			scope,
 		);
 		expect(allChats.frame.result?.chats.map((c) => c.key)).toEqual([
-			"survivor-chat-1",
+			"bot:survivor-bot",
 		]);
 
 		const doomedChatGet = await sendRpc(
 			"chat.get",
-			{ chatKey: "doomed-chat-1" },
+			{ chatKey: "bot:doomed-bot" },
 			scope,
 		);
 		expect(doomedChatGet.frame.ok).toBe(false);

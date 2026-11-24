@@ -22,21 +22,16 @@ describe("Inter-Bot Co-Location Tools (create_bot, search_bot, message_bot)", ()
 				model: "faux/echo",
 			});
 
-			await wsClient.send("chat.create", {
-				botId: "coordinator",
-				key: "coord-chat",
-			});
-
 			// 2. Have coordinator invoke `create_bot` during a turn to spawn a specialist bot `chef`
 			const createTurn = await wsClient.send<{ reply: string }>("turn.submit", {
-				chatKey: "coord-chat",
+				chatKey: "bot:coordinator",
 				text: 'Spawn chef bot [tool:create_bot {"slug":"chef","name":"Master Chef","soul":"Expert in Italian pasta and espresso recipes."}]',
 			});
 			expect(createTurn.ok).toBe(true);
 			expect(createTurn.result?.reply).toContain('"id":"chef"');
 
 			const seeded = await wsClient.send<{ reply: string }>("turn.submit", {
-				chatKey: "coord-chat",
+				chatKey: "bot:coordinator",
 				text: `Seed a peer with its own skills [tool:create_bot ${JSON.stringify(
 					{
 						slug: "ha",
@@ -80,7 +75,7 @@ describe("Inter-Bot Co-Location Tools (create_bot, search_bot, message_bot)", ()
 
 			// 3. Have coordinator invoke `search_bot` to find the bot that knows about pasta & espresso
 			const searchTurn = await wsClient.send<{ reply: string }>("turn.submit", {
-				chatKey: "coord-chat",
+				chatKey: "bot:coordinator",
 				text: 'Find pasta specialist [tool:search_bot {"query":"Italian pasta recipes"}]',
 			});
 			expect(searchTurn.ok).toBe(true);
@@ -88,7 +83,7 @@ describe("Inter-Bot Co-Location Tools (create_bot, search_bot, message_bot)", ()
 
 			// 3b. Have coordinator invoke `list_bots` to list all bots in the family
 			const listTurn = await wsClient.send<{ reply: string }>("turn.submit", {
-				chatKey: "coord-chat",
+				chatKey: "bot:coordinator",
 				text: "List all bots [tool:list_bots {}]",
 			});
 			expect(listTurn.ok).toBe(true);
@@ -107,7 +102,7 @@ describe("Inter-Bot Co-Location Tools (create_bot, search_bot, message_bot)", ()
 				text: '[[group-reply]][tool:end_conversation {"response":"al dente"}][[/group-reply]]',
 			})}]`;
 			const msgTurn = await wsClient.send<{ reply: string }>("turn.submit", {
-				chatKey: "coord-chat",
+				chatKey: "bot:coordinator",
 				text: `Ask chef ${ask}`,
 			});
 			expect(msgTurn.ok).toBe(true);
@@ -188,7 +183,6 @@ describe("Inter-Bot Co-Location Tools (create_bot, search_bot, message_bot)", ()
 				scope,
 			);
 		}
-		await sendRpc("chat.create", { botId: slugs[0], key: "root" }, scope);
 	}
 
 	it("caps a ping-pong at 10 turns", async () => {
@@ -197,7 +191,7 @@ describe("Inter-Bot Co-Location Tools (create_bot, search_bot, message_bot)", ()
 		const turn = await sendRpc<{ reply: string }>(
 			"turn.submit",
 			{
-				chatKey: "root",
+				chatKey: "bot:a",
 				text: `[tool:message_bot ${JSON.stringify({
 					botId: "b",
 					topic: "ping",
@@ -231,7 +225,7 @@ describe("Inter-Bot Co-Location Tools (create_bot, search_bot, message_bot)", ()
 		const cycle = await sendRpc<{ reply: string }>(
 			"turn.submit",
 			{
-				chatKey: "root",
+				chatKey: "bot:a",
 				text: `[tool:message_bot ${JSON.stringify({
 					botId: "b",
 					topic: "loop",
@@ -250,7 +244,7 @@ describe("Inter-Bot Co-Location Tools (create_bot, search_bot, message_bot)", ()
 		const depth = await sendRpc<{ reply: string }>(
 			"turn.submit",
 			{
-				chatKey: "root",
+				chatKey: "bot:a",
 				text: nest("b", nest("c", nest("d", nest("e", "too deep")))),
 			},
 			scope,
@@ -268,7 +262,7 @@ describe("Inter-Bot Co-Location Tools (create_bot, search_bot, message_bot)", ()
 			})}]`;
 		const budget = await sendRpc<{ reply: string }>(
 			"turn.submit",
-			{ chatKey: "root", text: [1, 2, 3, 4, 5, 6].map(call).join(" ") },
+			{ chatKey: "bot:a", text: [1, 2, 3, 4, 5, 6].map(call).join(" ") },
 			scope,
 		);
 		expect(budget.frame.result?.reply).toContain("peer action 6");
@@ -285,14 +279,9 @@ describe("Inter-Bot Co-Location Tools (create_bot, search_bot, message_bot)", ()
 		const scope = await adminScope("default");
 		await bots(["a", "b"], scope);
 		await sendRpc(
-			"chat.create",
-			{ botId: "b", key: "direct-1", title: "User Chat" },
-			scope,
-		);
-		await sendRpc(
 			"turn.submit",
 			{
-				chatKey: "direct-1",
+				chatKey: "bot:b",
 				text: `[tool:message_bot ${JSON.stringify({
 					botId: "a",
 					topic: "discuss",
@@ -307,7 +296,7 @@ describe("Inter-Bot Co-Location Tools (create_bot, search_bot, message_bot)", ()
 			chats: { key: string; kind?: string }[];
 		}>("chat.list", {}, scope);
 		expect(defaultListed.frame.result?.chats.map((c) => c.key).sort()).toEqual(
-			["direct-1", "root"].sort(),
+			["bot:a", "bot:b"].sort(),
 		);
 		expect(
 			defaultListed.frame.result?.chats.every((c) => c.kind === "direct"),
@@ -348,14 +337,14 @@ describe("Inter-Bot Co-Location Tools (create_bot, search_bot, message_bot)", ()
 			chats: { key: string; kind?: string }[];
 		}>("chat.list", { kinds: ["direct", "group"] }, scope);
 		expect(bothListed.frame.result?.chats.map((c) => c.key).sort()).toEqual(
-			["direct-1", "root", groupKey].sort(),
+			["bot:a", "bot:b", groupKey].sort(),
 		);
 	});
 
 	it("drops an armed harvest schedule when harvest is turned off", async () => {
 		const scope = await adminScope("default");
 		await bots(["a"], scope);
-		await sendRpc("turn.submit", { chatKey: "root", text: "hello" }, scope);
+		await sendRpc("turn.submit", { chatKey: "bot:a", text: "hello" }, scope);
 		const armed = await sendRpc<{ schedules: { id: string }[] }>(
 			"schedule.list",
 			{ botId: "a", includeInternal: true },
@@ -363,10 +352,10 @@ describe("Inter-Bot Co-Location Tools (create_bot, search_bot, message_bot)", ()
 		);
 		expect(
 			armed.frame.result?.schedules.some(
-				(schedule) => schedule.id === "harvest:root",
+				(schedule) => schedule.id === "harvest:bot:a",
 			),
 		).toBe(true);
-		await sendRpc("chat.update", { chatKey: "root", harvest: false }, scope);
+		await sendRpc("chat.update", { chatKey: "bot:a", harvest: false }, scope);
 		const disarmed = await sendRpc<{ schedules: { id: string }[] }>(
 			"schedule.list",
 			{ botId: "a", includeInternal: true },
@@ -374,7 +363,7 @@ describe("Inter-Bot Co-Location Tools (create_bot, search_bot, message_bot)", ()
 		);
 		expect(
 			disarmed.frame.result?.schedules.some(
-				(schedule) => schedule.id === "harvest:root",
+				(schedule) => schedule.id === "harvest:bot:a",
 			),
 		).toBe(false);
 	});

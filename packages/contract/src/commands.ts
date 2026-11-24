@@ -25,6 +25,7 @@ import {
 	ConfinementPolicySchema,
 	CredentialInputSchema,
 	DeadlinesSchema,
+	ScheduleTargetInputSchema,
 	ScheduleTargetSchema,
 	ThinkingLevelSchema,
 	ToolsEnvBindingSchema,
@@ -1196,66 +1197,6 @@ export const BotDeleteCommandSchema = Type.Object(
 export type BotDeleteCommand = Static<typeof BotDeleteCommandSchema>;
 
 /**
- * Command to create a new chat conversation session with a specified bot.
- */
-export const ChatCreateCommandSchema = Type.Object(
-	{
-		id: Type.String({
-			minLength: 1,
-			description:
-				"Non-empty unique correlation identifier for this command request.",
-		}),
-		type: Type.Literal("chat.create", {
-			description: "Command type identifier.",
-		}),
-		payload: Type.Object(
-			{
-				botId: Type.String({
-					minLength: 1,
-					description: "Identifier of the bot to converse with.",
-				}),
-				key: Type.Optional(
-					Type.String({
-						description:
-							"Optional custom chat routing key / slug. Generated if omitted.",
-					}),
-				),
-				chatId: Type.Optional(
-					Type.String({
-						description: "Deprecated alias for key.",
-					}),
-				),
-				title: Type.Optional(
-					Type.String({
-						description: "Optional title or topic label for the chat session.",
-					}),
-				),
-				thinking: Type.Optional(ThinkingLevelSchema),
-				toolsEnv: Type.Optional(ToolsEnvSettingSchema),
-				harvest: Type.Optional(
-					Type.Boolean({
-						description:
-							"Idle harvest switch for this chat. Omitted or true arms harvest after turns. False leaves harvest off. Group-chat sessions are created off.",
-					}),
-				),
-				kind: Type.Optional(
-					Type.Union([Type.Literal("direct"), Type.Literal("scheduled")], {
-						description: "Kind of chat to create. Defaults to 'direct'.",
-					}),
-				),
-			},
-			{ description: "Parameters for creating a new chat session." },
-		),
-	},
-	{
-		grant: "chat.use",
-		description:
-			"Create a new chat conversation thread with a bot, returning its unique routing key.",
-	},
-);
-export type ChatCreateCommand = Static<typeof ChatCreateCommandSchema>;
-
-/**
  * Command to list chat conversation sessions in this family, optionally filtered by bot.
  */
 export const ChatListCommandSchema = Type.Object(
@@ -1279,13 +1220,7 @@ export const ChatListCommandSchema = Type.Object(
 					kinds: Type.Optional(
 						Type.Array(ChatKindSchema, {
 							description:
-								"Kinds of chat sessions to include. Defaults to ['direct'] (user-created chats).",
-						}),
-					),
-					includeDeleted: Type.Optional(
-						Type.Boolean({
-							description:
-								"Whether to include soft-deleted chat sessions. Defaults to false.",
+								"Kinds of chat sessions to include. Defaults to ['direct'] (primary bot chats).",
 						}),
 					),
 				},
@@ -1303,7 +1238,7 @@ export const ChatListCommandSchema = Type.Object(
 export type ChatListCommand = Static<typeof ChatListCommandSchema>;
 
 /**
- * Command to retrieve full chat session details, active busy status, recent messages, transcript entries, and harvest notes.
+ * Command to retrieve full chat session details, active busy status, compaction state, continuous transcript messages, optional raw entries, and harvest notes.
  */
 export const ChatGetCommandSchema = Type.Object(
 	{
@@ -1321,21 +1256,42 @@ export const ChatGetCommandSchema = Type.Object(
 					minLength: 1,
 					description: "Unique routing key of the chat session to retrieve.",
 				}),
+				raw: Type.Optional(
+					Type.Boolean({
+						description:
+							"Include non-user-visible internal messages (compaction summaries, system prompt updates, reset markers) and raw durable transcript entries. Defaults to false.",
+					}),
+				),
+				limit: Type.Optional(
+					Type.Integer({
+						minimum: 1,
+						maximum: 500,
+						description:
+							"Maximum number of transcript items to return (newest page by default). Integer 1..500; defaults to 100.",
+					}),
+				),
+				beforeEntryId: Type.Optional(
+					Type.Integer({
+						minimum: 1,
+						description:
+							"Pagination cursor: return history with entry ID strictly less than beforeEntryId.",
+					}),
+				),
 			},
-			{ description: "Parameters identifying the chat session." },
+			{ description: "Parameters identifying the chat session and page." },
 		),
 	},
 	{
 		readOnly: true,
 		grant: "chat.use",
 		description:
-			"Retrieve chat session metadata, active busy flag, recent messages, entries, and harvest notes.",
+			"Retrieve chat session metadata, compaction status, paginated continuous transcript messages, optional raw entries, and harvest notes.",
 	},
 );
 export type ChatGetCommand = Static<typeof ChatGetCommandSchema>;
 
 /**
- * Command to set or clear a chat's tools env setting. Title changes stay on chat.rename.
+ * Command to set or clear a chat's tools env setting, harvest switch, or deadline overrides.
  */
 export const ChatUpdateCommandSchema = Type.Object(
 	{
@@ -1569,100 +1525,6 @@ export type AccountToolsEnvsDeleteCommand = Static<
 >;
 
 /**
- * Command to update the title or topic of a chat session.
- */
-export const ChatRenameCommandSchema = Type.Object(
-	{
-		id: Type.String({
-			minLength: 1,
-			description:
-				"Non-empty unique correlation identifier for this command request.",
-		}),
-		type: Type.Literal("chat.rename", {
-			description: "Command type identifier.",
-		}),
-		payload: Type.Object(
-			{
-				chatKey: Type.String({
-					minLength: 1,
-					description: "Chat routing key to rename.",
-				}),
-				title: Type.String({
-					description: "New title string for the conversation.",
-				}),
-			},
-			{ description: "Parameters for renaming a chat session." },
-		),
-	},
-	{
-		grant: "chat.use",
-		description: "Rename the title or topic of an existing chat session.",
-	},
-);
-export type ChatRenameCommand = Static<typeof ChatRenameCommandSchema>;
-
-/**
- * Command to close or archive a chat session.
- */
-export const ChatCloseCommandSchema = Type.Object(
-	{
-		id: Type.String({
-			minLength: 1,
-			description:
-				"Non-empty unique correlation identifier for this command request.",
-		}),
-		type: Type.Literal("chat.close", {
-			description: "Command type identifier.",
-		}),
-		payload: Type.Object(
-			{
-				chatKey: Type.String({
-					minLength: 1,
-					description: "Chat routing key to close.",
-				}),
-			},
-			{ description: "Parameters identifying the chat session to close." },
-		),
-	},
-	{
-		grant: "chat.use",
-		description: "Close and archive a chat conversation session.",
-	},
-);
-export type ChatCloseCommand = Static<typeof ChatCloseCommandSchema>;
-
-/**
- * Command to soft-delete a chat session, preserving its history and token costs.
- */
-export const ChatDeleteCommandSchema = Type.Object(
-	{
-		id: Type.String({
-			minLength: 1,
-			description:
-				"Non-empty unique correlation identifier for this command request.",
-		}),
-		type: Type.Literal("chat.delete", {
-			description: "Command type identifier.",
-		}),
-		payload: Type.Object(
-			{
-				chatKey: Type.String({
-					minLength: 1,
-					description: "Chat routing key to soft-delete.",
-				}),
-			},
-			{ description: "Parameters identifying the chat session to delete." },
-		),
-	},
-	{
-		grant: "chat.use",
-		description:
-			"Soft-delete a chat conversation session, preserving conversation history and bot token/cost accounting.",
-	},
-);
-export type ChatDeleteCommand = Static<typeof ChatDeleteCommandSchema>;
-
-/**
  * Command to reset a chat conversation transcript while preserving the chat routing key, optionally providing handoff summary text.
  */
 export const ChatResetCommandSchema = Type.Object(
@@ -1700,70 +1562,6 @@ export const ChatResetCommandSchema = Type.Object(
 export type ChatResetCommand = Static<typeof ChatResetCommandSchema>;
 
 /**
- * Command to fetch the message exchange history of a chat session.
- */
-export const ChatMessagesCommandSchema = Type.Object(
-	{
-		id: Type.String({
-			minLength: 1,
-			description:
-				"Non-empty unique correlation identifier for this command request.",
-		}),
-		type: Type.Literal("chat.messages", {
-			description: "Command type identifier.",
-		}),
-		payload: Type.Object(
-			{
-				chatKey: Type.String({
-					minLength: 1,
-					description: "Chat routing key whose messages to fetch.",
-				}),
-			},
-			{ description: "Parameters identifying the chat session." },
-		),
-	},
-	{
-		readOnly: true,
-		grant: "chat.use",
-		description:
-			"Fetch the user and assistant message exchange history for a chat session.",
-	},
-);
-export type ChatMessagesCommand = Static<typeof ChatMessagesCommandSchema>;
-
-/**
- * Command to fetch the raw durable transcript entries for a chat session.
- */
-export const ChatEntriesCommandSchema = Type.Object(
-	{
-		id: Type.String({
-			minLength: 1,
-			description:
-				"Non-empty unique correlation identifier for this command request.",
-		}),
-		type: Type.Literal("chat.entries", {
-			description: "Command type identifier.",
-		}),
-		payload: Type.Object(
-			{
-				chatKey: Type.String({
-					minLength: 1,
-					description: "Chat routing key whose transcript entries to fetch.",
-				}),
-			},
-			{ description: "Parameters identifying the chat session." },
-		),
-	},
-	{
-		readOnly: true,
-		grant: "chat.use",
-		description:
-			"Fetch the underlying durable transcript entries (including tool calls and state records) for a chat session.",
-	},
-);
-export type ChatEntriesCommand = Static<typeof ChatEntriesCommandSchema>;
-
-/**
  * Command to retrieve live runtime status for a chat (busy state, active model, thinking budget, tool access, usage, and next scheduled alarm).
  */
 export const ChatStatusCommandSchema = Type.Object(
@@ -1794,37 +1592,6 @@ export const ChatStatusCommandSchema = Type.Object(
 	},
 );
 export type ChatStatusCommand = Static<typeof ChatStatusCommandSchema>;
-
-/**
- * Command to subscribe the active WebSocket or SSE connection to real-time events emitted by this chat session.
- */
-export const ChatSubscribeCommandSchema = Type.Object(
-	{
-		id: Type.String({
-			minLength: 1,
-			description:
-				"Non-empty unique correlation identifier for this command request.",
-		}),
-		type: Type.Literal("chat.subscribe", {
-			description: "Command type identifier.",
-		}),
-		payload: Type.Object(
-			{
-				chatKey: Type.String({
-					minLength: 1,
-					description: "Chat routing key to subscribe to.",
-				}),
-			},
-			{ description: "Parameters identifying the chat session." },
-		),
-	},
-	{
-		grant: "chat.use",
-		description:
-			"Subscribe the current connection (WebSocket or SSE) to real-time streaming deltas, tool calls, and state events for a chat.",
-	},
-);
-export type ChatSubscribeCommand = Static<typeof ChatSubscribeCommandSchema>;
 
 /**
  * Command to submit a user message turn to a chat session, initiating model reasoning and tool execution.
@@ -2307,7 +2074,7 @@ export const ScheduleCreateCommandSchema = Type.Object(
 					description:
 						"Prompt text delivered to the bot when the schedule triggers.",
 				}),
-				target: ScheduleTargetSchema,
+				target: Type.Optional(ScheduleTargetInputSchema),
 				thinking: Type.Optional(ThinkingLevelSchema),
 				enabled: Type.Optional(
 					Type.Boolean({
@@ -2897,6 +2664,76 @@ export type SystemUsersRevokeSessionsCommand = Static<
 	typeof SystemUsersRevokeSessionsCommandSchema
 >;
 
+export const SystemMetricsCommandSchema = Type.Object(
+	{
+		id: Type.String({ minLength: 1 }),
+		type: Type.Literal("system.metrics"),
+		payload: Type.Optional(Type.Object({}, { additionalProperties: false })),
+	},
+	{
+		readOnly: true,
+		grant: "system.accounts.read",
+		description:
+			"Return platform-wide tenant, user, family, session, and 24h audit metrics. Super-admin only, never tenant chat data.",
+	},
+);
+export type SystemMetricsCommand = Static<typeof SystemMetricsCommandSchema>;
+
+export const SystemAccountsGetCommandSchema = Type.Object(
+	{
+		id: Type.String({ minLength: 1 }),
+		type: Type.Literal("system.accounts.get"),
+		payload: Type.Object(
+			{
+				accountId: Type.String({
+					minLength: 1,
+					description: "Target tenant account ID.",
+				}),
+			},
+			{ additionalProperties: false },
+		),
+	},
+	{
+		readOnly: true,
+		grant: "system.accounts.read",
+		description:
+			"Retrieve detailed operational metadata for one tenant account (counts, connected providers, active sign-ins). Super-admin only.",
+	},
+);
+export type SystemAccountsGetCommand = Static<
+	typeof SystemAccountsGetCommandSchema
+>;
+
+export const SystemSessionsRevokeCommandSchema = Type.Object(
+	{
+		id: Type.String({ minLength: 1 }),
+		type: Type.Literal("system.sessions.revoke"),
+		payload: Type.Object(
+			{
+				sessionId: Type.String({
+					minLength: 1,
+					description: "Session ID to revoke.",
+				}),
+				accountId: Type.Optional(
+					Type.String({
+						minLength: 1,
+						description: "Optional tenant account ID guard.",
+					}),
+				),
+			},
+			{ additionalProperties: false },
+		),
+	},
+	{
+		grant: "system.users.manage",
+		description:
+			"Force-revoke a specific active sign-in session. Needs admin mode.",
+	},
+);
+export type SystemSessionsRevokeCommand = Static<
+	typeof SystemSessionsRevokeCommandSchema
+>;
+
 export const ClientCommandSchema = Type.Union(
 	[
 		AccountGetCommandSchema,
@@ -2937,6 +2774,9 @@ export const ClientCommandSchema = Type.Union(
 		SystemUsersDisableCommandSchema,
 		SystemUsersEnableCommandSchema,
 		SystemUsersRevokeSessionsCommandSchema,
+		SystemMetricsCommandSchema,
+		SystemAccountsGetCommandSchema,
+		SystemSessionsRevokeCommandSchema,
 		AuthMethodsListCommandSchema,
 		AuthMembershipsListCommandSchema,
 		AuthMethodsDeleteCommandSchema,
@@ -2960,17 +2800,10 @@ export const ClientCommandSchema = Type.Union(
 		BotGetCommandSchema,
 		BotUpdateCommandSchema,
 		BotDeleteCommandSchema,
-		ChatCreateCommandSchema,
 		ChatListCommandSchema,
 		ChatGetCommandSchema,
-		ChatRenameCommandSchema,
-		ChatCloseCommandSchema,
-		ChatDeleteCommandSchema,
 		ChatResetCommandSchema,
-		ChatMessagesCommandSchema,
-		ChatEntriesCommandSchema,
 		ChatStatusCommandSchema,
-		ChatSubscribeCommandSchema,
 		TurnSubmitCommandSchema,
 		TurnSteerCommandSchema,
 		TurnInterruptCommandSchema,

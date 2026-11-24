@@ -4,10 +4,13 @@ import type {
 	ChatRecord,
 	ChatStatusRecord,
 	ChatTask,
+	ChatTaskLoopState,
+	FamilyRecord,
+	HarvestNote,
+	RawTranscriptEntry,
 	ServerEvent,
 	TranscriptMessageView,
 } from "@cadmus/contract/types";
-import { useNavigate } from "@tanstack/react-router";
 import {
 	createContext,
 	type ReactNode,
@@ -51,6 +54,7 @@ export interface DevAuthConfig {
 const STORAGE_KEY = "cadmus.dev.config";
 const REFRESH_RETRY_MS = 30_000;
 const DEFAULT_FAMILY_ID = "default";
+const CHAT_PAGE_LIMIT = 100;
 
 /** Family choice only. Credentials are never stored or invented here. */
 function loadStoredFamilyId(): string {
@@ -87,7 +91,31 @@ export type ChatLiveState = ChatLiveSlice & {
 export interface ActiveChatState {
 	chatKey: string | null;
 	messages: TranscriptMessageView[];
+	entries: RawTranscriptEntry[];
 	tasks: ChatTask[];
+	notes: HarvestNote[];
+	taskLoop?: ChatTaskLoopState;
+	hasMore: boolean;
+	oldestEntryId?: number;
+	loadingOlder: boolean;
+}
+
+const EMPTY_ACTIVE_CHAT: ActiveChatState = {
+	chatKey: null,
+	messages: [],
+	entries: [],
+	tasks: [],
+	notes: [],
+	hasMore: false,
+	oldestEntryId: undefined,
+	loadingOlder: false,
+};
+
+export interface CreateFamilyInput {
+	familyId: string;
+	name: string;
+	description?: string;
+	timezone?: string;
 }
 
 export interface CadmusContextValue {
@@ -96,7 +124,9 @@ export interface CadmusContextValue {
 	connectionStatus: ConnectionStatus;
 	bots: BotRecord[];
 	chats: ChatRecord[];
+	families: FamilyRecord[];
 	chatStates: Record<string, ChatLiveState>;
+	compactingChats: Record<string, boolean>;
 	lastSeen: LastSeenMap;
 	collapsed: CollapsedMap;
 	lastBotId?: string;
@@ -112,14 +142,23 @@ export interface CadmusContextValue {
 	setLastBotId: (id: string) => void;
 	familyId: string;
 	switchFamily: (familyId: string) => Promise<void>;
-	archiveChat: (chatKey: string) => Promise<void>;
-	deleteChat: (chatKey: string) => Promise<void>;
+	createFamily: (input: CreateFamilyInput) => Promise<FamilyRecord | null>;
+	updateFamily: (
+		familyId: string,
+		patch: {
+			name?: string;
+			timezone?: string;
+			teamLeaderBotId?: string | null;
+		},
+	) => Promise<boolean>;
+	deleteFamily: (familyId: string) => Promise<boolean>;
 	retryChat: (chatKey: string) => Promise<void>;
 	noteUserText: (chatKey: string, text: string) => void;
 	markFailed: (chatKey: string, reason: string) => void;
-	createChatAndSubmit: (botId: string, text: string) => Promise<string | null>;
 	queueTurn: (turn: OutboundTurn) => void;
 	refreshChatStatus: (chatKey: string) => Promise<void>;
+	loadBotChat: (chatKey: string) => Promise<void>;
+	loadOlderMessages: (chatKey: string) => Promise<void>;
 	activeChat: ActiveChatState;
 	setActiveChatTranscript: (
 		chatKey: string,
@@ -137,12 +176,31 @@ export interface OutboundTurn {
 	whenBusy?: "queue" | "steer" | "reject";
 }
 
+interface ChatGetResponse {
+	chat: ChatRecord;
+	busy: boolean;
+	compacting?: boolean;
+	messages: TranscriptMessageView[];
+	entries?: RawTranscriptEntry[];
+	hasMore?: boolean;
+	oldestEntryId?: number;
+	notes?: HarvestNote[];
+	tasks?: ChatTask[];
+	taskLoop?: ChatTaskLoopState;
+}
+
 const CadmusContext = createContext<CadmusContextValue | null>(null);
 
 function isFailedTurn(status?: string, reason?: string): boolean {
 	if (status === "unanswered") return true;
 	if (!reason) return false;
 	return /abort|error|fail/i.test(reason);
+}
+
+function dedupeById<T extends { id: number }>(older: T[], current: T[]): T[] {
+	const seen = new Set(older.map((item) => item.id));
+	const tail = current.filter((item) => !seen.has(item.id));
+	return [...older, ...tail];
 }
 
 export function CadmusProvider({
@@ -157,10 +215,9 @@ export function CadmusProvider({
 	initialConfig?: Partial<DevAuthConfig>;
 	/** A Cadmus session is active: keep its access token fresh. */
 	sessionMode?: boolean;
-	/** True for system-only principals (super-admin) without tenant grants. */
+	/** True for non-workspace personas (super-admin & account-admin). */
 	skipTenantSync?: boolean;
 }) {
-	// Set before any stored state is read below; idempotent per render.
 	setStorageScope(sessionMode ? initialConfig?.accountId : undefined);
 	const [authConfig] = useState<DevAuthConfig>(() => ({
 		userId: initialConfig?.userId ?? "",
@@ -173,9 +230,6 @@ export function CadmusProvider({
 		return new CadmusClient({
 			baseUrl: "",
 			userId: authConfig.userId,
-			// A signed-in session never sends the dev default account: the server
-			// treats an account id as a membership selection and refuses a foreign
-			// one. Only an account this tab chose is sent.
 			accountId: sessionMode ? selectedAccountId() : authConfig.accountId,
 			familyId: authConfig.familyId,
 			token: authConfig.token,
@@ -183,8 +237,6 @@ export function CadmusProvider({
 		});
 	}, [authConfig, clientOverride, sessionMode]);
 
-	// Silent refresh. The socket keeps its connection; only the token that the
-	// next reconnect or request uses changes.
 	useEffect(() => {
 		if (!sessionMode || clientOverride) return;
 		let timer: ReturnType<typeof setTimeout> | undefined;
@@ -198,18 +250,14 @@ export function CadmusProvider({
 					client.setToken(next.accessToken, { reconnect: false });
 					schedule(next.expiresAt);
 				} else {
-					// A transient failure must not end silent refresh for good: the
-					// access token lasts 15 minutes, so retry soon while it is valid.
 					schedule(Date.now() + REFRESH_MARGIN_MS + REFRESH_RETRY_MS);
 				}
 			}, wait);
 		};
 		schedule(Date.now() + 15 * 60_000);
-		// A refresh in another tab rotated the access token: use the new one.
 		const unsubscribe = onSessionTokens((tokens) => {
 			client.setToken(tokens.accessToken, { reconnect: false });
 		});
-		// Another tab signed this session out: leave the signed-in view.
 		const unsubscribeEnded = onSessionEnded(() => {
 			window.location.assign("/login");
 		});
@@ -221,12 +269,15 @@ export function CadmusProvider({
 		};
 	}, [sessionMode, clientOverride, client]);
 
-	const navigate = useNavigate();
 	const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>(
 		client.getStatus(),
 	);
 	const [bots, setBots] = useState<BotRecord[]>([]);
 	const [chats, setChats] = useState<ChatRecord[]>([]);
+	const [families, setFamilies] = useState<FamilyRecord[]>([]);
+	const [compactingChats, setCompactingChats] = useState<
+		Record<string, boolean>
+	>({});
 	const [chatStates, setChatStates] = useState<Record<string, ChatLiveState>>(
 		() => {
 			const failed = loadFailed();
@@ -251,19 +302,15 @@ export function CadmusProvider({
 	const [directoryReady, setDirectoryReady] = useState(false);
 	const [directoryDetailReady, setDirectoryDetailReady] = useState(false);
 	const [directoryError, setDirectoryError] = useState<string | undefined>();
-	// Same expression refreshDirectory compares against. In session mode the
-	// client's account is the selected one, not authConfig.accountId, and a
-	// mismatch makes the first refresh wipe the failed turns read at init.
 	const directoryScopeRef = useRef(
 		`${client.getAccountId()}:${authConfig.familyId}`,
 	);
 	const directoryDetailRef = useRef(false);
 
-	const [activeChat, setActiveChat] = useState<ActiveChatState>({
-		chatKey: null,
-		messages: [],
-		tasks: [],
-	});
+	const [activeChat, setActiveChat] =
+		useState<ActiveChatState>(EMPTY_ACTIVE_CHAT);
+	const activeChatKeyRef = useRef<string | null>(null);
+	activeChatKeyRef.current = activeChat.chatKey;
 
 	const setActiveChatTranscript = useCallback(
 		(
@@ -272,6 +319,7 @@ export function CadmusProvider({
 			tasks?: ChatTask[],
 		) => {
 			setActiveChat((prev) => ({
+				...prev,
 				chatKey,
 				messages,
 				tasks: tasks ?? (prev.chatKey === chatKey ? prev.tasks : []),
@@ -293,12 +341,10 @@ export function CadmusProvider({
 	const clearActiveChat = useCallback((chatKey?: string) => {
 		setActiveChat((prev) => {
 			if (chatKey && prev.chatKey !== chatKey) return prev;
-			return { chatKey: null, messages: [], tasks: [] };
+			return EMPTY_ACTIVE_CHAT;
 		});
 	}, []);
 
-	// Stop clears busy before `turn.interrupt` finishes. A chat.status read
-	// that started while the turn was still running must not put Working back.
 	const holdIdle = useRef(new Set<string>());
 	const statusEpoch = useRef(new Map<string, number>());
 	const bumpStatusEpoch = useCallback((chatKey: string) => {
@@ -364,9 +410,94 @@ export function CadmusProvider({
 					status: busy === reported.busy ? reported : { ...reported, busy },
 					busy,
 				});
+				setCompactingChats((prev) => ({
+					...prev,
+					[chatKey]: Boolean(reported.compaction?.active),
+				}));
 			}
 		},
 		[bumpStatusEpoch, client, patchState],
+	);
+
+	const loadBotChat = useCallback(
+		async (chatKey: string) => {
+			const [res] = await Promise.all([
+				client.callRpc<ChatGetResponse>("chat.get", {
+					chatKey,
+					raw: true,
+					limit: CHAT_PAGE_LIMIT,
+				}),
+				refreshChatStatus(chatKey),
+			]);
+			if (!res.ok || !res.result) return;
+			const data = res.result;
+			setActiveChat({
+				chatKey,
+				messages: data.messages ?? [],
+				entries: data.entries ?? [],
+				tasks: data.tasks ?? [],
+				notes: data.notes ?? [],
+				taskLoop: data.taskLoop,
+				hasMore: Boolean(data.hasMore),
+				oldestEntryId: data.oldestEntryId,
+				loadingOlder: false,
+			});
+			setCompactingChats((prev) => ({
+				...prev,
+				[chatKey]: Boolean(data.compacting),
+			}));
+			const lastAssistant = (data.messages ?? []).findLast(
+				(m) => m.role === "assistant" && m.text.trim(),
+			);
+			if (lastAssistant) {
+				patchState(chatKey, {
+					lastBotText: lastAssistant.text,
+					...(lastAssistant.timestamp
+						? { lastBotAt: lastAssistant.timestamp }
+						: {}),
+				});
+			}
+		},
+		[client, patchState, refreshChatStatus],
+	);
+
+	const loadOlderMessages = useCallback(
+		async (chatKey: string) => {
+			let beforeId: number | undefined;
+			let canLoad = false;
+			setActiveChat((prev) => {
+				if (prev.chatKey !== chatKey || prev.loadingOlder || !prev.hasMore) {
+					return prev;
+				}
+				beforeId = prev.oldestEntryId;
+				canLoad = beforeId !== undefined;
+				return canLoad ? { ...prev, loadingOlder: true } : prev;
+			});
+			if (!canLoad || beforeId === undefined) return;
+			const res = await client.callRpc<ChatGetResponse>("chat.get", {
+				chatKey,
+				raw: true,
+				limit: CHAT_PAGE_LIMIT,
+				beforeEntryId: beforeId,
+			});
+			setActiveChat((prev) => {
+				if (prev.chatKey !== chatKey) return prev;
+				if (!res.ok || !res.result) {
+					return { ...prev, loadingOlder: false };
+				}
+				const olderMessages = res.result.messages ?? [];
+				const olderEntries = res.result.entries ?? [];
+				return {
+					...prev,
+					messages: dedupeById(olderMessages, prev.messages),
+					entries: dedupeById(olderEntries, prev.entries),
+					hasMore: Boolean(res.result.hasMore),
+					oldestEntryId: res.result.oldestEntryId ?? prev.oldestEntryId,
+					loadingOlder: false,
+				};
+			});
+		},
+		[client],
 	);
 
 	const clearDirectory = useCallback((scope: string) => {
@@ -378,7 +509,9 @@ export function CadmusProvider({
 		setBots([]);
 		setChats([]);
 		setChatStates({});
+		setCompactingChats({});
 		setTeamLeaderBotId(undefined);
+		setActiveChat(EMPTY_ACTIVE_CHAT);
 	}, []);
 
 	const refreshDirectory = useCallback(async () => {
@@ -388,12 +521,13 @@ export function CadmusProvider({
 		}
 		const keep = directoryDetailRef.current;
 		try {
-			const [botRes, chatRes, familyRes] = await Promise.all([
+			const [botRes, chatRes, familyRes, familiesRes] = await Promise.all([
 				client.callRpc<{ bots: BotRecord[] }>("bot.list"),
 				client.callRpc<{ chats: ChatRecord[] }>("chat.list", {
 					kinds: ["direct"],
 				}),
-				client.callRpc<{ family?: { teamLeaderBotId?: string } }>("family.get"),
+				client.callRpc<{ family?: FamilyRecord }>("family.get"),
+				client.callRpc<{ families?: FamilyRecord[] }>("family.list"),
 			]);
 			if (`${client.getAccountId()}:${client.getFamilyId()}` !== scope) return;
 			if (!botRes.ok || !chatRes.ok) {
@@ -407,10 +541,11 @@ export function CadmusProvider({
 				? familyRes.result?.family?.teamLeaderBotId
 				: undefined;
 			setTeamLeaderBotId(leader && leader.length > 0 ? leader : undefined);
+			if (familiesRes.ok && familiesRes.result?.families) {
+				setFamilies(familiesRes.result.families);
+			}
 			setBots(botRes.result?.bots ?? []);
-			const listed = (chatRes.result?.chats ?? []).filter(
-				(chat) => !chat.closed,
-			);
+			const listed = chatRes.result?.chats ?? [];
 			setChats(listed);
 			setDirectoryReady(true);
 			setDirectoryError(undefined);
@@ -420,14 +555,21 @@ export function CadmusProvider({
 						const [, detail] = await Promise.all([
 							refreshChatStatus(chat.key),
 							client.callRpc<{
+								compacting?: boolean;
 								messages?: Array<{
 									role: string;
 									text: string;
 									timestamp?: number;
 								}>;
-							}>("chat.get", { chatKey: chat.key }),
+							}>("chat.get", { chatKey: chat.key, limit: 20 }),
 						]);
 						if (!detail.ok) return;
+						if (detail.result?.compacting !== undefined) {
+							setCompactingChats((prev) => ({
+								...prev,
+								[chat.key]: Boolean(detail.result?.compacting),
+							}));
+						}
 						const messages = detail.result?.messages;
 						const lastAssistant = messages?.findLast(
 							(message) => message.role === "assistant" && message.text.trim(),
@@ -483,6 +625,8 @@ export function CadmusProvider({
 			client.close();
 			setBots([]);
 			setChats([]);
+			setFamilies([]);
+			setCompactingChats({});
 			setDirectoryReady(true);
 			setDirectoryDetailReady(true);
 			setDirectoryError(undefined);
@@ -537,8 +681,6 @@ export function CadmusProvider({
 	useEffect(() => {
 		return client.subscribe((event: ServerEvent) => {
 			if (event.type === "chat.state") {
-				// A chat.status read that started before this event is stale.
-				// Drop it so it cannot clear a turn that has already started.
 				bumpStatusEpoch(event.payload.chatKey);
 				if (!event.payload.busy) holdIdle.current.delete(event.payload.chatKey);
 				if (event.payload.busy && holdIdle.current.has(event.payload.chatKey)) {
@@ -560,6 +702,18 @@ export function CadmusProvider({
 						},
 					};
 				});
+				return;
+			}
+			if (event.type === "chat.compaction") {
+				const { chatKey, phase } = event.payload;
+				const active = phase === "started";
+				setCompactingChats((prev) => ({ ...prev, [chatKey]: active }));
+				if (!active) {
+					void refreshChatStatus(chatKey);
+					if (activeChatKeyRef.current === chatKey) {
+						void loadBotChat(chatKey);
+					}
+				}
 				return;
 			}
 			if (event.type === "turn.delta") {
@@ -691,6 +845,9 @@ export function CadmusProvider({
 					persistFailed(failedMap);
 					return { ...prev, [event.payload.chatKey]: next };
 				});
+				if (activeChatKeyRef.current === event.payload.chatKey) {
+					void loadBotChat(event.payload.chatKey);
+				}
 				void refreshDirectory();
 				return;
 			}
@@ -731,7 +888,15 @@ export function CadmusProvider({
 				});
 			}
 		});
-	}, [bumpStatusEpoch, client, patchState, persistFailed, refreshDirectory]);
+	}, [
+		bumpStatusEpoch,
+		client,
+		loadBotChat,
+		patchState,
+		persistFailed,
+		refreshChatStatus,
+		refreshDirectory,
+	]);
 
 	const toggleCollapsed = useCallback((botId: string) => {
 		setCollapsed((prev) => {
@@ -774,20 +939,53 @@ export function CadmusProvider({
 		[clearDirectory, client, refreshDirectory],
 	);
 
-	const archiveChat = useCallback(
-		async (chatKey: string) => {
-			await client.callRpc("chat.close", { chatKey });
-			setChats((prev) => prev.filter((chat) => chat.key !== chatKey));
+	const createFamily = useCallback(
+		async (input: CreateFamilyInput): Promise<FamilyRecord | null> => {
+			const res = await client.callRpc<{ family: FamilyRecord }>(
+				"family.create",
+				input as unknown as Record<string, unknown>,
+			);
+			if (!res.ok || !res.result?.family) return null;
+			await refreshDirectory();
+			return res.result.family;
 		},
-		[client],
+		[client, refreshDirectory],
 	);
 
-	const deleteChat = useCallback(
-		async (chatKey: string) => {
-			await client.callRpc("chat.delete", { chatKey });
-			setChats((prev) => prev.filter((chat) => chat.key !== chatKey));
+	const updateFamily = useCallback(
+		async (
+			targetFamilyId: string,
+			patch: {
+				name?: string;
+				timezone?: string;
+				teamLeaderBotId?: string | null;
+			},
+		): Promise<boolean> => {
+			const res = await client.callRpc("family.update", {
+				familyId: targetFamilyId,
+				...patch,
+			});
+			if (!res.ok) return false;
+			await refreshDirectory();
+			return true;
 		},
-		[client],
+		[client, refreshDirectory],
+	);
+
+	const deleteFamily = useCallback(
+		async (targetFamilyId: string): Promise<boolean> => {
+			const res = await client.callRpc("family.delete", {
+				familyId: targetFamilyId,
+			});
+			if (!res.ok) return false;
+			if (targetFamilyId === familyId) {
+				await switchFamily(DEFAULT_FAMILY_ID);
+			} else {
+				await refreshDirectory();
+			}
+			return true;
+		},
+		[client, familyId, refreshDirectory, switchFamily],
 	);
 
 	const retryChat = useCallback(
@@ -825,36 +1023,6 @@ export function CadmusProvider({
 		[patchState],
 	);
 
-	const createChatAndSubmit = useCallback(
-		async (botId: string, text: string) => {
-			setLastBotId(botId);
-			const created = await client.callRpc<{ chat: { key: string } }>(
-				"chat.create",
-				{ botId },
-			);
-			if (!created.ok || !created.result?.chat) return null;
-			const chatKey = created.result.chat.key;
-			noteUserText(chatKey, text);
-			patchState(chatKey, { busy: true });
-			void client.callRpc("turn.submit", { chatKey, text });
-			await refreshDirectory();
-			await navigate({
-				to: "/chat/$chatKey",
-				params: { chatKey },
-				search: { view: "chat" },
-			});
-			return chatKey;
-		},
-		[
-			client,
-			navigate,
-			noteUserText,
-			patchState,
-			refreshDirectory,
-			setLastBotId,
-		],
-	);
-
 	const markFailed = useCallback(
 		(chatKey: string, reason: string) => {
 			holdIdle.current.add(chatKey);
@@ -890,13 +1058,18 @@ export function CadmusProvider({
 			connectionStatus,
 			bots,
 			chats,
+			families,
 			chatStates,
+			compactingChats,
 			lastSeen,
 			collapsed,
 			lastBotId,
 			teamLeaderBotId,
 			familyId,
 			switchFamily,
+			createFamily,
+			updateFamily,
+			deleteFamily,
 			directoryReady,
 			directoryDetailReady,
 			directoryError,
@@ -906,33 +1079,34 @@ export function CadmusProvider({
 			toggleCollapsed,
 			markChatSeen,
 			setLastBotId,
-			archiveChat,
-			deleteChat,
 			retryChat,
 			noteUserText,
 			markFailed,
-			createChatAndSubmit,
 			queueTurn,
 			refreshChatStatus,
+			loadBotChat,
+			loadOlderMessages,
 			activeChat,
 			setActiveChatTranscript,
 			setActiveChatTasks,
 			clearActiveChat,
 		}),
 		[
-			archiveChat,
-			deleteChat,
-			createChatAndSubmit,
 			authConfig,
 			bots,
 			chatStates,
 			chats,
+			families,
+			compactingChats,
 			client,
 			collapsed,
 			connectionStatus,
 			familyId,
 			lastBotId,
 			switchFamily,
+			createFamily,
+			updateFamily,
+			deleteFamily,
 			teamLeaderBotId,
 			directoryReady,
 			directoryDetailReady,
@@ -945,6 +1119,8 @@ export function CadmusProvider({
 			refreshDirectory,
 			queueTurn,
 			refreshChatStatus,
+			loadBotChat,
+			loadOlderMessages,
 			retryChat,
 			setLastBotId,
 			toggleCollapsed,

@@ -45,9 +45,29 @@ export function scheduledWakeTime(
 }
 
 /**
- * Computes the earliest next wake timestamp across all live `cadmus.schedule` tasks
- * in `harness.inspect(BACKGROUND_CONTEXT)` and enabled schedules in `familyStore`,
- * then programs or deletes the Durable Object storage alarm accordingly.
+ * Returns the scheduled retry wake time for a `pi.compaction` task sleeping
+ * in `phase: "retry"`, or undefined otherwise.
+ */
+export function compactionRetryWakeTime(
+	inspection: TaskInspection,
+): number | undefined {
+	const { record } = inspection;
+	if (record.kind !== "pi.compaction") return undefined;
+	if (record.state.status !== "running") return undefined;
+	const checkpoint = record.state.checkpoint as
+		| { phase?: string; until?: number }
+		| undefined;
+	if (checkpoint?.phase === "retry" && typeof checkpoint.until === "number") {
+		return checkpoint.until;
+	}
+	return undefined;
+}
+
+/**
+ * Computes the earliest next wake timestamp across all live `cadmus.schedule`
+ * and `pi.compaction` tasks in `harness.inspect(BACKGROUND_CONTEXT)` and enabled
+ * schedules in `familyStore`, then programs or deletes the Durable Object
+ * storage alarm accordingly.
  */
 export async function syncDurableObjectAlarm(
 	storage: DurableObjectStorage,
@@ -60,7 +80,8 @@ export async function syncDurableObjectAlarm(
 	let earliest: number | undefined = extraWake;
 
 	for (const task of inspection.tasks) {
-		const wake = scheduledWakeTime(task, familyStore);
+		const wake =
+			scheduledWakeTime(task, familyStore) ?? compactionRetryWakeTime(task);
 		if (wake !== undefined && (earliest === undefined || wake < earliest)) {
 			earliest = wake;
 		}

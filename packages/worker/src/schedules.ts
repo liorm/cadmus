@@ -5,6 +5,7 @@ import {
 	defineExtension,
 	defineTask,
 	type EntryId,
+	UserEntry,
 } from "@earendil-works/pi-durable";
 import { type CadmusServices, requireCadmusServices } from "./context.js";
 import { nextCron } from "./cron.js";
@@ -500,7 +501,7 @@ async function hasUserAfter(
 		for (const entry of page.items) {
 			const id = entry.id as unknown as number;
 			if (id <= after || id > through) continue;
-			if (entry.model?.[0]?.role === "user") return true;
+			if (UserEntry.is(entry)) return true;
 		}
 		if (page.next === undefined) return false;
 		cursor = page.next;

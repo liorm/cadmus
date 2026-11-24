@@ -306,21 +306,20 @@ export async function runToolsEnvUserFlow(input: {
 		if (!bot.frame.ok) {
 			throw new Error(`bot create failed: ${JSON.stringify(bot.frame.error)}`);
 		}
-		const chat = await sendRpc(
-			"chat.create",
-			{
-				botId: "assistant",
-				key: "main",
-				...(input.pin === "chat"
-					? { toolsEnv: { enabled: true, binding } }
-					: {}),
-			},
-			options,
-		);
-		if (!chat.frame.ok) {
-			throw new Error(
-				`chat create failed: ${JSON.stringify(chat.frame.error)}`,
+		if (input.pin === "chat") {
+			const updated = await sendRpc(
+				"chat.update",
+				{
+					chatKey: "bot:assistant",
+					toolsEnv: { enabled: true, binding },
+				},
+				options,
 			);
+			if (!updated.frame.ok) {
+				throw new Error(
+					`chat update failed: ${JSON.stringify(updated.frame.error)}`,
+				);
+			}
 		}
 
 		const marker = `cadmus-flow-${testId.slice(0, 8)}`;
@@ -331,7 +330,7 @@ export async function runToolsEnvUserFlow(input: {
 		try {
 			ws.events.length = 0;
 			const turn = await ws.send("turn.submit", {
-				chatKey: "main",
+				chatKey: "bot:assistant",
 				text: `[tool:bash ${JSON.stringify({ command })}]`,
 			});
 			if (!turn.ok) {
@@ -345,9 +344,9 @@ export async function runToolsEnvUserFlow(input: {
 		} finally {
 			ws.close();
 		}
-		const entries = await sendRpc<{ entries: unknown[] }>(
-			"chat.entries",
-			{ chatKey: "main" },
+		const entries = await sendRpc<{ entries?: unknown[] }>(
+			"chat.get",
+			{ chatKey: "bot:assistant", raw: true },
 			options,
 		);
 		return {

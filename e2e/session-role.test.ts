@@ -300,8 +300,8 @@ describe("session hats", () => {
 		expect((await whoami(old)).frame.ok).toBe(false);
 		const token = next.body.accessToken ?? "";
 		const blocked = await sendRpc(
-			"bot.delete",
-			{ botId: "bot_missing" },
+			"account.update",
+			{ name: "Blocked Update" },
 			{ token, accountId: member.accountId },
 		);
 		expect(blocked.frame.error?.code).toBe("elevation_required");

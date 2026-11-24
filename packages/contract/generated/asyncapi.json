@@ -1921,161 +1921,85 @@
 				"grant": "bot.write",
 				"description": "Update an existing bot's model, thinking budget, tool access, display name, soul, timezone, or metadata."
 			},
-			"ChatCloseCommand": {
+			"ChatCompactionEvent": {
 				"type": "object",
-				"required": ["id", "type", "payload"],
+				"required": ["type", "payload"],
 				"properties": {
-					"id": {
-						"type": "string",
-						"minLength": 1,
-						"description": "Non-empty unique correlation identifier for this command request."
-					},
 					"type": {
 						"type": "string",
-						"const": "chat.close",
-						"description": "Command type identifier."
+						"const": "chat.compaction",
+						"description": "Event type identifier for compaction lifecycle updates."
 					},
 					"payload": {
 						"type": "object",
-						"required": ["chatKey"],
+						"required": [
+							"chatKey",
+							"botId",
+							"conversationId",
+							"phase",
+							"taskId",
+							"reason"
+						],
 						"properties": {
 							"chatKey": {
 								"type": "string",
-								"minLength": 1,
-								"description": "Chat routing key to close."
-							}
-						},
-						"description": "Parameters identifying the chat session to close."
-					}
-				},
-				"grant": "chat.use",
-				"description": "Close and archive a chat conversation session."
-			},
-			"ChatCreateCommand": {
-				"type": "object",
-				"required": ["id", "type", "payload"],
-				"properties": {
-					"id": {
-						"type": "string",
-						"minLength": 1,
-						"description": "Non-empty unique correlation identifier for this command request."
-					},
-					"type": {
-						"type": "string",
-						"const": "chat.create",
-						"description": "Command type identifier."
-					},
-					"payload": {
-						"type": "object",
-						"required": ["botId"],
-						"properties": {
+								"description": "Routing key of the affected chat."
+							},
 							"botId": {
 								"type": "string",
-								"minLength": 1,
-								"description": "Identifier of the bot to converse with."
+								"description": "Owning bot identifier."
 							},
-							"key": {
-								"type": "string",
-								"description": "Optional custom chat routing key / slug. Generated if omitted."
+							"conversationId": {
+								"type": "number",
+								"description": "Durable conversation ID."
 							},
-							"chatId": {
-								"type": "string",
-								"description": "Deprecated alias for key."
-							},
-							"title": {
-								"type": "string",
-								"description": "Optional title or topic label for the chat session."
-							},
-							"thinking": {
-								"$ref": "#/components/schemas/ThinkingLevel"
-							},
-							"toolsEnv": {
-								"$ref": "#/components/schemas/ToolsEnvSetting"
-							},
-							"harvest": {
-								"type": "boolean",
-								"description": "Idle harvest switch for this chat. Omitted or true arms harvest after turns. False leaves harvest off. Group-chat sessions are created off."
-							},
-							"kind": {
+							"phase": {
 								"anyOf": [
 									{
 										"type": "string",
-										"const": "direct"
+										"const": "started"
 									},
 									{
 										"type": "string",
-										"const": "scheduled"
+										"const": "completed"
+									},
+									{
+										"type": "string",
+										"const": "failed"
 									}
-								],
-								"description": "Kind of chat to create. Defaults to 'direct'."
+								]
+							},
+							"taskId": {
+								"type": "number",
+								"description": "Durable compaction task ID."
+							},
+							"reason": {
+								"anyOf": [
+									{
+										"type": "string",
+										"const": "manual"
+									},
+									{
+										"type": "string",
+										"const": "threshold"
+									},
+									{
+										"type": "string",
+										"const": "overflow"
+									}
+								]
+							},
+							"blocking": {
+								"type": "boolean"
+							},
+							"error": {
+								"type": "string"
 							}
 						},
-						"description": "Parameters for creating a new chat session."
+						"description": "Compaction event payload."
 					}
 				},
-				"grant": "chat.use",
-				"description": "Create a new chat conversation thread with a bot, returning its unique routing key."
-			},
-			"ChatDeleteCommand": {
-				"type": "object",
-				"required": ["id", "type", "payload"],
-				"properties": {
-					"id": {
-						"type": "string",
-						"minLength": 1,
-						"description": "Non-empty unique correlation identifier for this command request."
-					},
-					"type": {
-						"type": "string",
-						"const": "chat.delete",
-						"description": "Command type identifier."
-					},
-					"payload": {
-						"type": "object",
-						"required": ["chatKey"],
-						"properties": {
-							"chatKey": {
-								"type": "string",
-								"minLength": 1,
-								"description": "Chat routing key to soft-delete."
-							}
-						},
-						"description": "Parameters identifying the chat session to delete."
-					}
-				},
-				"grant": "chat.use",
-				"description": "Soft-delete a chat conversation session, preserving conversation history and bot token/cost accounting."
-			},
-			"ChatEntriesCommand": {
-				"type": "object",
-				"required": ["id", "type", "payload"],
-				"properties": {
-					"id": {
-						"type": "string",
-						"minLength": 1,
-						"description": "Non-empty unique correlation identifier for this command request."
-					},
-					"type": {
-						"type": "string",
-						"const": "chat.entries",
-						"description": "Command type identifier."
-					},
-					"payload": {
-						"type": "object",
-						"required": ["chatKey"],
-						"properties": {
-							"chatKey": {
-								"type": "string",
-								"minLength": 1,
-								"description": "Chat routing key whose transcript entries to fetch."
-							}
-						},
-						"description": "Parameters identifying the chat session."
-					}
-				},
-				"readOnly": true,
-				"grant": "chat.use",
-				"description": "Fetch the underlying durable transcript entries (including tool calls and state records) for a chat session."
+				"description": "Broadcast event emitted when background or blocking compaction starts, completes, or fails."
 			},
 			"ChatGetCommand": {
 				"type": "object",
@@ -2099,14 +2023,29 @@
 								"type": "string",
 								"minLength": 1,
 								"description": "Unique routing key of the chat session to retrieve."
+							},
+							"raw": {
+								"type": "boolean",
+								"description": "Include non-user-visible internal messages (compaction summaries, system prompt updates, reset markers) and raw durable transcript entries. Defaults to false."
+							},
+							"limit": {
+								"type": "integer",
+								"minimum": 1,
+								"maximum": 500,
+								"description": "Maximum number of transcript items to return (newest page by default). Integer 1..500; defaults to 100."
+							},
+							"beforeEntryId": {
+								"type": "integer",
+								"minimum": 1,
+								"description": "Pagination cursor: return history with entry ID strictly less than beforeEntryId."
 							}
 						},
-						"description": "Parameters identifying the chat session."
+						"description": "Parameters identifying the chat session and page."
 					}
 				},
 				"readOnly": true,
 				"grant": "chat.use",
-				"description": "Retrieve chat session metadata, active busy flag, recent messages, entries, and harvest notes."
+				"description": "Retrieve chat session metadata, compaction status, paginated continuous transcript messages, optional raw entries, and harvest notes."
 			},
 			"ChatKind": {
 				"anyOf": [
@@ -2155,11 +2094,7 @@
 								"items": {
 									"$ref": "#/components/schemas/ChatKind"
 								},
-								"description": "Kinds of chat sessions to include. Defaults to ['direct'] (user-created chats)."
-							},
-							"includeDeleted": {
-								"type": "boolean",
-								"description": "Whether to include soft-deleted chat sessions. Defaults to false."
+								"description": "Kinds of chat sessions to include. Defaults to ['direct'] (primary bot chats)."
 							}
 						},
 						"description": "Filters for listing chat sessions."
@@ -2168,71 +2103,6 @@
 				"readOnly": true,
 				"grant": "chat.use",
 				"description": "List chat conversation sessions in this bot family, optionally filtered by botId and kinds."
-			},
-			"ChatMessagesCommand": {
-				"type": "object",
-				"required": ["id", "type", "payload"],
-				"properties": {
-					"id": {
-						"type": "string",
-						"minLength": 1,
-						"description": "Non-empty unique correlation identifier for this command request."
-					},
-					"type": {
-						"type": "string",
-						"const": "chat.messages",
-						"description": "Command type identifier."
-					},
-					"payload": {
-						"type": "object",
-						"required": ["chatKey"],
-						"properties": {
-							"chatKey": {
-								"type": "string",
-								"minLength": 1,
-								"description": "Chat routing key whose messages to fetch."
-							}
-						},
-						"description": "Parameters identifying the chat session."
-					}
-				},
-				"readOnly": true,
-				"grant": "chat.use",
-				"description": "Fetch the user and assistant message exchange history for a chat session."
-			},
-			"ChatRenameCommand": {
-				"type": "object",
-				"required": ["id", "type", "payload"],
-				"properties": {
-					"id": {
-						"type": "string",
-						"minLength": 1,
-						"description": "Non-empty unique correlation identifier for this command request."
-					},
-					"type": {
-						"type": "string",
-						"const": "chat.rename",
-						"description": "Command type identifier."
-					},
-					"payload": {
-						"type": "object",
-						"required": ["chatKey", "title"],
-						"properties": {
-							"chatKey": {
-								"type": "string",
-								"minLength": 1,
-								"description": "Chat routing key to rename."
-							},
-							"title": {
-								"type": "string",
-								"description": "New title string for the conversation."
-							}
-						},
-						"description": "Parameters for renaming a chat session."
-					}
-				},
-				"grant": "chat.use",
-				"description": "Rename the title or topic of an existing chat session."
 			},
 			"ChatResetCommand": {
 				"type": "object",
@@ -2348,36 +2218,6 @@
 				"readOnly": true,
 				"grant": "chat.use",
 				"description": "Fetch live runtime execution status for a chat session without invoking the model or modifying history."
-			},
-			"ChatSubscribeCommand": {
-				"type": "object",
-				"required": ["id", "type", "payload"],
-				"properties": {
-					"id": {
-						"type": "string",
-						"minLength": 1,
-						"description": "Non-empty unique correlation identifier for this command request."
-					},
-					"type": {
-						"type": "string",
-						"const": "chat.subscribe",
-						"description": "Command type identifier."
-					},
-					"payload": {
-						"type": "object",
-						"required": ["chatKey"],
-						"properties": {
-							"chatKey": {
-								"type": "string",
-								"minLength": 1,
-								"description": "Chat routing key to subscribe to."
-							}
-						},
-						"description": "Parameters identifying the chat session."
-					}
-				},
-				"grant": "chat.use",
-				"description": "Subscribe the current connection (WebSocket or SSE) to real-time streaming deltas, tool calls, and state events for a chat."
 			},
 			"ChatTaskLoop": {
 				"type": "object",
@@ -2708,6 +2548,15 @@
 						"$ref": "#/components/schemas/SystemUsersRevokeSessionsCommand"
 					},
 					{
+						"$ref": "#/components/schemas/SystemMetricsCommand"
+					},
+					{
+						"$ref": "#/components/schemas/SystemAccountsGetCommand"
+					},
+					{
+						"$ref": "#/components/schemas/SystemSessionsRevokeCommand"
+					},
+					{
 						"$ref": "#/components/schemas/AuthMethodsListCommand"
 					},
 					{
@@ -2777,37 +2626,16 @@
 						"$ref": "#/components/schemas/BotDeleteCommand"
 					},
 					{
-						"$ref": "#/components/schemas/ChatCreateCommand"
-					},
-					{
 						"$ref": "#/components/schemas/ChatListCommand"
 					},
 					{
 						"$ref": "#/components/schemas/ChatGetCommand"
 					},
 					{
-						"$ref": "#/components/schemas/ChatRenameCommand"
-					},
-					{
-						"$ref": "#/components/schemas/ChatCloseCommand"
-					},
-					{
-						"$ref": "#/components/schemas/ChatDeleteCommand"
-					},
-					{
 						"$ref": "#/components/schemas/ChatResetCommand"
 					},
 					{
-						"$ref": "#/components/schemas/ChatMessagesCommand"
-					},
-					{
-						"$ref": "#/components/schemas/ChatEntriesCommand"
-					},
-					{
 						"$ref": "#/components/schemas/ChatStatusCommand"
-					},
-					{
-						"$ref": "#/components/schemas/ChatSubscribeCommand"
 					},
 					{
 						"$ref": "#/components/schemas/TurnSubmitCommand"
@@ -3657,7 +3485,7 @@
 					},
 					"payload": {
 						"type": "object",
-						"required": ["botId", "kind", "input", "text", "target"],
+						"required": ["botId", "kind", "input", "text"],
 						"properties": {
 							"id": {
 								"type": "string",
@@ -3709,7 +3537,7 @@
 								"description": "Prompt text delivered to the bot when the schedule triggers."
 							},
 							"target": {
-								"$ref": "#/components/schemas/ScheduleTarget"
+								"$ref": "#/components/schemas/ScheduleTargetInput"
 							},
 							"thinking": {
 								"$ref": "#/components/schemas/ThinkingLevel"
@@ -3847,6 +3675,65 @@
 				],
 				"description": "Target execution destination and mode for a scheduled task or idle harvest."
 			},
+			"ScheduleTargetInput": {
+				"anyOf": [
+					{
+						"type": "object",
+						"required": ["mode"],
+						"properties": {
+							"mode": {
+								"type": "string",
+								"const": "chat",
+								"description": "Deliver the scheduled prompt to an existing chat session (defaults to primary bot chat)."
+							},
+							"chatKey": {
+								"type": "string",
+								"minLength": 1,
+								"description": "Target chat session routing key. Defaults to bot:<botId> when omitted."
+							}
+						},
+						"description": "Target an existing persistent chat session."
+					},
+					{
+						"type": "object",
+						"required": ["mode"],
+						"properties": {
+							"mode": {
+								"type": "string",
+								"const": "new-chat",
+								"description": "Create a brand new chat session for each scheduled trigger."
+							}
+						},
+						"description": "Spawn a new chat session per schedule execution."
+					},
+					{
+						"type": "object",
+						"required": ["mode", "chatKey"],
+						"properties": {
+							"mode": {
+								"type": "string",
+								"const": "fork",
+								"description": "Fork from an existing chat session at a given transcript entry watermark."
+							},
+							"chatKey": {
+								"type": "string",
+								"minLength": 1,
+								"description": "Source chat session routing key to fork from."
+							},
+							"at": {
+								"type": "number",
+								"description": "Optional transcript entry sequence number watermark up to which conversation is forked."
+							},
+							"harvest": {
+								"type": "boolean",
+								"description": "True if this fork is an internal idle harvest task inspecting conversation history."
+							}
+						},
+						"description": "Fork an existing chat at a specific watermark, typically for background memory/knowledge harvesting."
+					}
+				],
+				"description": "Target execution destination and mode when creating a scheduled task."
+			},
 			"ScheduleUpdateCommand": {
 				"type": "object",
 				"required": ["id", "type", "payload"],
@@ -3942,6 +3829,9 @@
 					},
 					{
 						"$ref": "#/components/schemas/ChatStateEvent"
+					},
+					{
+						"$ref": "#/components/schemas/ChatCompactionEvent"
 					},
 					{
 						"$ref": "#/components/schemas/HarvestNoteEvent"
@@ -4056,6 +3946,35 @@
 				},
 				"grant": "system.accounts.manage",
 				"description": "Create a tenant account and an account-admin membership for ownerEmail. Needs admin mode. Does not create a login method or a session."
+			},
+			"SystemAccountsGetCommand": {
+				"type": "object",
+				"required": ["id", "type", "payload"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1
+					},
+					"type": {
+						"type": "string",
+						"const": "system.accounts.get"
+					},
+					"payload": {
+						"type": "object",
+						"required": ["accountId"],
+						"properties": {
+							"accountId": {
+								"type": "string",
+								"minLength": 1,
+								"description": "Target tenant account ID."
+							}
+						},
+						"additionalProperties": false
+					}
+				},
+				"readOnly": true,
+				"grant": "system.accounts.read",
+				"description": "Retrieve detailed operational metadata for one tenant account (counts, connected providers, active sign-ins). Super-admin only."
 			},
 			"SystemAccountsListCommand": {
 				"type": "object",
@@ -4403,6 +4322,61 @@
 				},
 				"grant": "system.members.manage",
 				"description": "Grant or revoke one tenant role. The last account-admin and the member's last role cannot be revoked. Needs admin mode."
+			},
+			"SystemMetricsCommand": {
+				"type": "object",
+				"required": ["id", "type"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1
+					},
+					"type": {
+						"type": "string",
+						"const": "system.metrics"
+					},
+					"payload": {
+						"type": "object",
+						"properties": {},
+						"additionalProperties": false
+					}
+				},
+				"readOnly": true,
+				"grant": "system.accounts.read",
+				"description": "Return platform-wide tenant, user, family, session, and 24h audit metrics. Super-admin only, never tenant chat data."
+			},
+			"SystemSessionsRevokeCommand": {
+				"type": "object",
+				"required": ["id", "type", "payload"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1
+					},
+					"type": {
+						"type": "string",
+						"const": "system.sessions.revoke"
+					},
+					"payload": {
+						"type": "object",
+						"required": ["sessionId"],
+						"properties": {
+							"sessionId": {
+								"type": "string",
+								"minLength": 1,
+								"description": "Session ID to revoke."
+							},
+							"accountId": {
+								"type": "string",
+								"minLength": 1,
+								"description": "Optional tenant account ID guard."
+							}
+						},
+						"additionalProperties": false
+					}
+				},
+				"grant": "system.users.manage",
+				"description": "Force-revoke a specific active sign-in session. Needs admin mode."
 			},
 			"SystemUsersDisableCommand": {
 				"type": "object",

@@ -138,14 +138,9 @@ describe("Structured Logging System (`src/log.ts`)", () => {
 			await sendRpc("family.update", { harvestDelayMs: 5000 }, scope);
 			await sendRpc("bot.create", { slug: "log-bot", name: "Log Bot" }, scope);
 			await sendRpc(
-				"chat.create",
-				{ botId: "log-bot", key: "log-chat" },
-				scope,
-			);
-			await sendRpc(
 				"turn.submit",
 				{
-					chatKey: "log-chat",
+					chatKey: "bot:log-bot",
 					text: "Hello logger [remember: Structured logs work]",
 				},
 				scope,
@@ -154,7 +149,7 @@ describe("Structured Logging System (`src/log.ts`)", () => {
 			await sendRpc(
 				"turn.submit",
 				{
-					chatKey: "log-chat",
+					chatKey: "bot:log-bot",
 					text: "Second turn before harvest",
 				},
 				scope,
@@ -164,12 +159,12 @@ describe("Structured Logging System (`src/log.ts`)", () => {
 			).length;
 			expect(armedCount).toBe(1);
 
-			await sendRpc("chat.status", { chatKey: "log-chat" }, scope);
+			await sendRpc("chat.status", { chatKey: "bot:log-bot" }, scope);
 
 			await sendRpc(
 				"schedule.update",
 				{
-					id: "harvest:log-chat",
+					id: "harvest:bot:log-bot",
 					kind: "absolute",
 					input: Date.now() - 10,
 				},
@@ -192,8 +187,7 @@ describe("Structured Logging System (`src/log.ts`)", () => {
 			const combined = lines.join("");
 			expect(combined).toContain("INFO  bot created");
 			expect(combined).toContain("bot=log-bot");
-			expect(combined).toContain("INFO  chat created");
-			expect(combined).toContain("chat=log-chat");
+			expect(combined).toContain("chat=bot:log-bot");
 			expect(combined).toContain("DEBUG chat input admitted");
 			expect(combined).toContain("DEBUG chat turn settled");
 			expect(combined).toContain("DEBUG harvest armed");

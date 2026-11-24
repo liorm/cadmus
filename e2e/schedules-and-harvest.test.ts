@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
 	adminScope,
-	type ChatRecord,
 	type ScheduleRecord,
 	sendRpc,
 	useWorkerFixture,
@@ -21,12 +20,6 @@ describe("Unified ScheduleTask (Cron, Relative, Absolute & Idle Harvest Schedule
 			scope,
 		);
 
-		await sendRpc(
-			"chat.create",
-			{ botId: "timer-bot", key: "timer-chat" },
-			scope,
-		);
-
 		const schedRes = await sendRpc<{ schedule: ScheduleRecord }>(
 			"schedule.create",
 			{
@@ -36,7 +29,7 @@ describe("Unified ScheduleTask (Cron, Relative, Absolute & Idle Harvest Schedule
 				kind: "absolute",
 				input: Date.now() - 10,
 				text: "Scheduled ping!",
-				target: { mode: "chat", chatKey: "timer-chat" },
+				target: { mode: "chat", chatKey: "bot:timer-bot" },
 			},
 			scope,
 		);
@@ -53,7 +46,7 @@ describe("Unified ScheduleTask (Cron, Relative, Absolute & Idle Harvest Schedule
 				kind: "relative",
 				input: 10,
 				text: "Delta ping!",
-				target: { mode: "chat", chatKey: "timer-chat" },
+				target: { mode: "chat", chatKey: "bot:timer-bot" },
 			},
 			scope,
 		);
@@ -74,7 +67,7 @@ describe("Unified ScheduleTask (Cron, Relative, Absolute & Idle Harvest Schedule
 				kind: "relative",
 				input: "1s4m",
 				text: "Complex duration ping!",
-				target: { mode: "chat", chatKey: "timer-chat" },
+				target: { mode: "chat", chatKey: "bot:timer-bot" },
 			},
 			scope,
 		);
@@ -93,7 +86,7 @@ describe("Unified ScheduleTask (Cron, Relative, Absolute & Idle Harvest Schedule
 				kind: "relative",
 				input: "100ms",
 				text: "MS ping!",
-				target: { mode: "chat", chatKey: "timer-chat" },
+				target: { mode: "chat", chatKey: "bot:timer-bot" },
 			},
 			scope,
 		);
@@ -110,7 +103,7 @@ describe("Unified ScheduleTask (Cron, Relative, Absolute & Idle Harvest Schedule
 				kind: "absolute",
 				input: futureIso,
 				text: "ISO ping!",
-				target: { mode: "chat", chatKey: "timer-chat" },
+				target: { mode: "chat", chatKey: "bot:timer-bot" },
 			},
 			scope,
 		);
@@ -150,16 +143,10 @@ describe("Unified ScheduleTask (Cron, Relative, Absolute & Idle Harvest Schedule
 			scope,
 		);
 
-		await sendRpc<{ chat: ChatRecord }>(
-			"chat.create",
-			{ botId: "harvester", key: "harvest-chat" },
-			scope,
-		);
-
 		const turn1 = await sendRpc<{ reply: string; entryId: number }>(
 			"turn.submit",
 			{
-				chatKey: "harvest-chat",
+				chatKey: "bot:harvester",
 				text: "Hello! [remember: User prefers dark roast espresso]",
 			},
 			scope,
@@ -172,13 +159,13 @@ describe("Unified ScheduleTask (Cron, Relative, Absolute & Idle Harvest Schedule
 			scope,
 		);
 		const harvestSched = internalSchedules.frame.result?.schedules.find(
-			(s) => s.id === "harvest:harvest-chat",
+			(s) => s.id === "harvest:bot:harvester",
 		);
 		expect(harvestSched).toBeDefined();
 		expect(harvestSched?.internal).toBe(true);
 		expect(harvestSched?.target).toMatchObject({
 			mode: "fork",
-			chatKey: "harvest-chat",
+			chatKey: "bot:harvester",
 			harvest: true,
 		});
 	});
@@ -198,20 +185,9 @@ describe("Unified ScheduleTask (Cron, Relative, Absolute & Idle Harvest Schedule
 		);
 
 		await sendRpc(
-			"chat.create",
-			{ botId: "doomed-bot", key: "doomed-chat-1" },
-			scope,
-		);
-		await sendRpc(
-			"chat.create",
-			{ botId: "survivor-bot", key: "survivor-chat-1" },
-			scope,
-		);
-
-		await sendRpc(
 			"turn.submit",
 			{
-				chatKey: "doomed-chat-1",
+				chatKey: "bot:doomed-bot",
 				text: "Hello doomed! [remember: Doomed secret]",
 			},
 			scope,
@@ -219,7 +195,7 @@ describe("Unified ScheduleTask (Cron, Relative, Absolute & Idle Harvest Schedule
 		await sendRpc(
 			"turn.submit",
 			{
-				chatKey: "survivor-chat-1",
+				chatKey: "bot:survivor-bot",
 				text: "Hello survivor!",
 			},
 			scope,
@@ -233,7 +209,7 @@ describe("Unified ScheduleTask (Cron, Relative, Absolute & Idle Harvest Schedule
 				kind: "cron",
 				input: "0 9 * * *",
 				text: "Doomed report",
-				target: { mode: "chat", chatKey: "doomed-chat-1" },
+				target: { mode: "chat", chatKey: "bot:doomed-bot" },
 			},
 			scope,
 		);
@@ -245,7 +221,7 @@ describe("Unified ScheduleTask (Cron, Relative, Absolute & Idle Harvest Schedule
 				kind: "cron",
 				input: "0 10 * * *",
 				text: "Survivor report",
-				target: { mode: "chat", chatKey: "survivor-chat-1" },
+				target: { mode: "chat", chatKey: "bot:survivor-bot" },
 			},
 			scope,
 		);
@@ -260,12 +236,12 @@ describe("Unified ScheduleTask (Cron, Relative, Absolute & Idle Harvest Schedule
 			scope,
 		);
 		expect(allChats.frame.result?.chats.map((c) => c.key)).toEqual([
-			"survivor-chat-1",
+			"bot:survivor-bot",
 		]);
 
 		const doomedChatGet = await sendRpc(
 			"chat.get",
-			{ chatKey: "doomed-chat-1" },
+			{ chatKey: "bot:doomed-bot" },
 			scope,
 		);
 		expect(doomedChatGet.frame.ok).toBe(false);

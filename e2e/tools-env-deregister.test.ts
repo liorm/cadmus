@@ -3,6 +3,7 @@ import {
 	addMemberBearer,
 	adminScope,
 	connectTestWs,
+	loginDevPassword,
 	ScriptedDaemon,
 	sendRpc,
 	useWorkerFixture,
@@ -49,11 +50,10 @@ describe("tools env deregister", () => {
 			},
 			options,
 		);
-		await sendRpc("chat.create", { botId: "assistant", key: "main" }, options);
 		const ws = await connectTestWs(options);
 		try {
 			const wrote = await ws.send("turn.submit", {
-				chatKey: "main",
+				chatKey: "bot:assistant",
 				text: '[tool:write {"path":"note.txt","content":"keep"}]',
 			});
 			expect(wrote.ok).toBe(true);
@@ -61,16 +61,14 @@ describe("tools env deregister", () => {
 			ws.close();
 		}
 
-		const added = await addMemberBearer({ accountId: options.accountId });
-		expect(added.userId).toBeTruthy();
-
+		const other = await adminScope();
 		const denied = await sendRpc(
 			"account.toolsEnvs.deregister",
 			{ envId },
-			{ token: added.token },
+			{ accountId: other.accountId, token: other.token },
 		);
 		expect(denied.frame.ok).toBe(false);
-		expect(denied.frame.error?.code).toBe("forbidden");
+		expect(denied.frame.error?.code).toBe("not_found");
 
 		const stillThere = await sendRpc<{
 			envs: Array<{ envId: string }>;
@@ -162,7 +160,7 @@ describe("tools env deregister", () => {
 		expect(again.status).toBe(401);
 	});
 
-	it("removes a never-connected daemon and forbids members", async () => {
+	it("removes a never-connected daemon as user member without elevation and forbids super-admin", async () => {
 		const options = await adminScope("default");
 		await sendRpc("family.update", { harvestDelayMs: 0 }, options);
 		const created = await sendRpc<{
@@ -182,13 +180,11 @@ describe("tools env deregister", () => {
 		const envId = created.frame.result?.env.envId ?? "";
 		expect(created.frame.result?.env.connection?.status).toBe("disconnected");
 
-		const added = await addMemberBearer({ accountId: options.accountId });
-		expect(added.userId).toBeTruthy();
-
+		const boss = await loginDevPassword();
 		const denied = await sendRpc(
 			"account.toolsEnvs.deregister",
 			{ envId },
-			{ token: added.token },
+			{ token: boss.accessToken },
 		);
 		expect(denied.frame.ok).toBe(false);
 		expect(denied.frame.error?.code).toBe("forbidden");
@@ -200,10 +196,12 @@ describe("tools env deregister", () => {
 			stillThere.frame.result?.envs.some((row) => row.envId === envId),
 		).toBe(true);
 
+		const member = await addMemberBearer({ accountId: options.accountId });
+		expect(member.userId).toBeTruthy();
 		const removed = await sendRpc<{ deregistered: string }>(
 			"account.toolsEnvs.deregister",
 			{ envId },
-			options,
+			{ token: member.token },
 		);
 		expect(removed.frame.ok).toBe(true);
 		expect(removed.frame.result?.deregistered).toBe(envId);

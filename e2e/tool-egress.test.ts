@@ -75,11 +75,10 @@ describe("egress and virtual file tools on a turn", () => {
 				},
 				account,
 			);
-			await sendRpc("chat.create", { botId: "fetcher", key: "main" }, account);
 
 			const page = await tool(
 				account,
-				"main",
+				"bot:fetcher",
 				'[tool:web.fetch {"url":"https://cadmus-coverage.test/page"}]',
 			);
 			expect(page).toContain("Hello world");
@@ -88,35 +87,35 @@ describe("egress and virtual file tools on a turn", () => {
 
 			const plain = await tool(
 				account,
-				"main",
+				"bot:fetcher",
 				'[tool:web.fetch {"url":"http://cadmus-coverage.test/plain"}]',
 			);
 			expect(plain).toContain("plain body");
 
 			const missing = await tool(
 				account,
-				"main",
+				"bot:fetcher",
 				'[tool:web.fetch {"url":"https://cadmus-coverage.test/missing"}]',
 			);
 			expect(missing).toContain("HTTP 404");
 
 			const boom = await tool(
 				account,
-				"main",
+				"bot:fetcher",
 				'[tool:web.fetch {"url":"https://cadmus-coverage.test/boom"}]',
 			);
 			expect(boom).toContain("network down");
 
 			const badUrl = await tool(
 				account,
-				"main",
+				"bot:fetcher",
 				'[tool:web.fetch {"url":"not a url"}]',
 			);
 			expect(badUrl).toContain("Invalid URL");
 
 			const ftp = await tool(
 				account,
-				"main",
+				"bot:fetcher",
 				'[tool:web.fetch {"url":"ftp://cadmus-coverage.test/file"}]',
 			);
 			expect(ftp).toContain("Only http: and https:");
@@ -126,7 +125,7 @@ describe("egress and virtual file tools on a turn", () => {
 				'[tool:x.search {"query":"cadmus"}]',
 				'[tool:code.execute {"code":"print(1)"}]',
 			]) {
-				const reply = await tool(account, "main", call);
+				const reply = await tool(account, "bot:fetcher", call);
 				expect(reply).toContain('is not available on provider "faux"');
 			}
 		} finally {
@@ -141,25 +140,24 @@ describe("egress and virtual file tools on a turn", () => {
 			{ slug: "scribe", name: "Scribe", model: "faux/echo" },
 			account,
 		);
-		await sendRpc("chat.create", { botId: "scribe", key: "main" }, account);
 
 		const missing = await tool(
 			account,
-			"main",
+			"bot:scribe",
 			'[tool:read {"path":"/.cadmus/skills/missing/SKILL.md"}]',
 		);
 		expect(missing).toContain("not found");
 
 		const badSlug = await tool(
 			account,
-			"main",
+			"bot:scribe",
 			'[tool:read {"path":"/.cadmus/skills/Bad Slug/SKILL.md"}]',
 		);
 		expect(badSlug).toContain("Invalid skill slug");
 
 		const created = await tool(
 			account,
-			"main",
+			"bot:scribe",
 			`[tool:write ${JSON.stringify({
 				path: "/.cadmus/skills/note/SKILL.md",
 				content: "---\nname: note\ndescription: A note\n---\n\nhello",
@@ -171,7 +169,7 @@ describe("egress and virtual file tools on a turn", () => {
 
 		const withCategory = await tool(
 			account,
-			"main",
+			"bot:scribe",
 			`[tool:write ${JSON.stringify({
 				path: "/.cadmus/skills/note/SKILL.md",
 				content:
@@ -182,7 +180,7 @@ describe("egress and virtual file tools on a turn", () => {
 
 		const read = await tool(
 			account,
-			"main",
+			"bot:scribe",
 			'[tool:read {"path":"/.cadmus/skills/note/SKILL.md"}]',
 		);
 		expect(read).toContain("category: ops");
@@ -190,7 +188,7 @@ describe("egress and virtual file tools on a turn", () => {
 
 		const edited = await tool(
 			account,
-			"main",
+			"bot:scribe",
 			`[tool:edit ${JSON.stringify({
 				path: "/.cadmus/skills/note/SKILL.md",
 				edits: [{ oldText: "hello 2", newText: "edited body" }],
@@ -200,14 +198,14 @@ describe("egress and virtual file tools on a turn", () => {
 
 		const readEdited = await tool(
 			account,
-			"main",
+			"bot:scribe",
 			'[tool:read {"path":"/.cadmus/skills/note/SKILL.md"}]',
 		);
 		expect(readEdited).toContain("edited body");
 
 		const deleted = await tool(
 			account,
-			"main",
+			"bot:scribe",
 			'[tool:delete {"path":"/.cadmus/skills/note/SKILL.md"}]',
 		);
 		expect(deleted).toContain(
@@ -216,28 +214,28 @@ describe("egress and virtual file tools on a turn", () => {
 
 		const gone = await tool(
 			account,
-			"main",
+			"bot:scribe",
 			'[tool:read {"path":"/.cadmus/skills/note/SKILL.md"}]',
 		);
 		expect(gone).toContain("not found");
 
 		const remembered = await tool(
 			account,
-			"main",
+			"bot:scribe",
 			'[tool:write {"path":"/.cadmus/MEMORY.md","content":"remember this"}]',
 		);
 		expect(remembered).toContain("Successfully wrote to /.cadmus/MEMORY.md");
 
 		const readMem = await tool(
 			account,
-			"main",
+			"bot:scribe",
 			'[tool:read {"path":"/.cadmus/MEMORY.md"}]',
 		);
 		expect(readMem).toContain("remember this");
 
 		const badMemFrontmatter = await tool(
 			account,
-			"main",
+			"bot:scribe",
 			'[tool:write {"path":"/.cadmus/MEMORY.md","content":"---\\nfoo: bar\\n---\\n"}]',
 		);
 		expect(badMemFrontmatter).toContain("YAML frontmatter");

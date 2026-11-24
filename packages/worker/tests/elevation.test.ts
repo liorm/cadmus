@@ -35,13 +35,18 @@ type Frame = {
 	error?: { code: string };
 };
 
-const rpc = (token: string, type: string, payload?: Record<string, unknown>) =>
+const rpc = (
+	token: string,
+	type: string,
+	payload?: Record<string, unknown>,
+	familyId?: string,
+) =>
 	sendRpc<{
 		elevatedUntil?: number;
 		ended?: boolean;
 		ticket?: string;
 		principal?: { elevatedUntil?: number };
-	}>(type, payload, { token });
+	}>(type, payload, { token, ...(familyId ? { familyId } : {}) });
 
 async function audit(sessionId: string): Promise<string[]> {
 	return (
@@ -53,18 +58,18 @@ async function audit(sessionId: string): Promise<string[]> {
 	).results.map((r) => r.action);
 }
 
-async function familyIds(accountId: string): Promise<string[]> {
+async function invitedEmails(accountId: string): Promise<string[]> {
 	return (
 		await env.CADMUS_ADMIN_DB.prepare(
-			`SELECT family_id FROM cadmus_families WHERE account_id = ?1`,
+			`SELECT email FROM cadmus_invites WHERE account_id = ?1`,
 		)
 			.bind(accountId)
-			.all<{ family_id: string }>()
-	).results.map((r) => r.family_id);
+			.all<{ email: string }>()
+	).results.map((r) => r.email);
 }
 
-const createFamily = (token: string, familyId: string) =>
-	rpc(token, "family.create", { familyId, name: familyId });
+const inviteMember = (token: string, email: string, familyId?: string) =>
+	rpc(token, "account.members.invite", { email }, familyId);
 
 async function ops(sessionId: string) {
 	const rows = (
@@ -80,11 +85,14 @@ async function ops(sessionId: string) {
 describe("admin mode (issue #3 phase 6)", () => {
 	it("refuses an elevated command until the admin turns admin mode on", async () => {
 		const { accountId, session } = await seed("account-admin");
-		const denied = await createFamily(session.accessToken, "locked");
+		const denied = await inviteMember(
+			session.accessToken,
+			"locked@example.com",
+		);
 		expect(denied.frame.ok).toBe(false);
 		expect(denied.frame.error?.code).toBe("elevation_required");
 		// State is unchanged on denial and no elevated command was recorded.
-		expect(await familyIds(accountId)).not.toContain("locked");
+		expect(await invitedEmails(accountId)).not.toContain("locked@example.com");
 		expect(await audit(session.sessionId)).toEqual(["session.create"]);
 		// Commands that do not need admin mode keep working.
 		const list = await rpc(session.accessToken, "family.list");
@@ -103,10 +111,11 @@ describe("admin mode (issue #3 phase 6)", () => {
 		const who = await rpc(session.accessToken, "auth.whoami");
 		expect(who.frame.result?.principal?.elevatedUntil).toBe(until);
 
-		expect((await createFamily(session.accessToken, "unlocked")).frame.ok).toBe(
-			true,
-		);
-		expect(await familyIds(accountId)).toContain("unlocked");
+		expect(
+			(await inviteMember(session.accessToken, "unlocked@example.com")).frame
+				.ok,
+		).toBe(true);
+		expect(await invitedEmails(accountId)).toContain("unlocked@example.com");
 		expect(await audit(session.sessionId)).toEqual([
 			"session.create",
 			"auth.elevate",
@@ -120,7 +129,10 @@ describe("admin mode (issue #3 phase 6)", () => {
 		await rpc(session.accessToken, "auth.elevate");
 		const off = await rpc(session.accessToken, "auth.elevation.end");
 		expect(off.frame.result?.ended).toBe(true);
-		const denied = await createFamily(session.accessToken, "after-end");
+		const denied = await inviteMember(
+			session.accessToken,
+			"after-end@example.com",
+		);
 		expect(denied.frame.error?.code).toBe("elevation_required");
 		const who = await rpc(session.accessToken, "auth.whoami");
 		expect(who.frame.result?.principal?.elevatedUntil).toBeUndefined();
@@ -142,7 +154,10 @@ describe("admin mode (issue #3 phase 6)", () => {
 		)
 			.bind(session.sessionId, Date.now() - 1_000)
 			.run();
-		const denied = await createFamily(session.accessToken, "expired");
+		const denied = await inviteMember(
+			session.accessToken,
+			"expired@example.com",
+		);
 		expect(denied.frame.error?.code).toBe("elevation_required");
 		const who = await rpc(session.accessToken, "auth.whoami");
 		expect(who.frame.result?.principal?.elevatedUntil).toBeUndefined();
@@ -155,7 +170,7 @@ describe("admin mode (issue #3 phase 6)", () => {
 		const op = { id: "op-1", familyId: "f1" };
 		await s.auditElevatedCommand(
 			session.sessionId,
-			"family.create",
+			"account.members.invite",
 			"attempt",
 			op,
 		);
@@ -165,7 +180,12 @@ describe("admin mode (issue #3 phase 6)", () => {
 		)
 			.bind(session.sessionId, Date.now() - 1_000)
 			.run();
-		await s.auditElevatedCommand(session.sessionId, "family.create", "ok", op);
+		await s.auditElevatedCommand(
+			session.sessionId,
+			"account.members.invite",
+			"ok",
+			op,
+		);
 		expect(await audit(session.sessionId)).toEqual([
 			"session.create",
 			"auth.elevate",
@@ -178,7 +198,7 @@ describe("admin mode (issue #3 phase 6)", () => {
 			.bind(session.sessionId)
 			.first<{ data: string }>();
 		expect(JSON.parse(row?.data ?? "{}")).toEqual({
-			command: "family.create",
+			command: "account.members.invite",
 			op: "op-1",
 			family: "f1",
 			outcome: "completed",
@@ -195,12 +215,16 @@ describe("admin mode (issue #3 phase 6)", () => {
 			)
 			.run();
 		try {
-			// The edge path has no handler to turn the failure into a frame, so the
-			// request errors out; what matters is that nothing was created.
-			await expect(
-				createFamily(session.accessToken, "no-audit"),
-			).rejects.toThrow();
-			expect(await familyIds(accountId)).not.toContain("no-audit");
+			const res = await inviteMember(
+				session.accessToken,
+				"no-audit@example.com",
+			).catch(() => undefined);
+			if (res) {
+				expect(res.frame.ok).toBe(false);
+			}
+			expect(await invitedEmails(accountId)).not.toContain(
+				"no-audit@example.com",
+			);
 		} finally {
 			await db.prepare(`DROP TRIGGER zz_fail_attempt`).run();
 		}
@@ -216,9 +240,14 @@ describe("admin mode (issue #3 phase 6)", () => {
 			)
 			.run();
 		try {
-			const res = await createFamily(session.accessToken, "result-lost");
+			const res = await inviteMember(
+				session.accessToken,
+				"result-lost@example.com",
+			);
 			expect(res.frame.ok).toBe(true);
-			expect(await familyIds(accountId)).toContain("result-lost");
+			expect(await invitedEmails(accountId)).toContain(
+				"result-lost@example.com",
+			);
 			const rows = await audit(session.sessionId);
 			expect(rows).toContain("elevated.command");
 			expect(rows).not.toContain("elevated.command.result");
@@ -238,9 +267,12 @@ describe("admin mode (issue #3 phase 6)", () => {
 			)
 			.run();
 		try {
-			const res = await createFamily(session.accessToken, "in-flight");
+			const res = await inviteMember(
+				session.accessToken,
+				"in-flight@example.com",
+			);
 			expect(res.frame.ok).toBe(true);
-			expect(await familyIds(accountId)).toContain("in-flight");
+			expect(await invitedEmails(accountId)).toContain("in-flight@example.com");
 			const rows = await ops(session.sessionId);
 			expect(rows.map((r) => r.action)).toEqual([
 				"elevated.command",
@@ -248,7 +280,7 @@ describe("admin mode (issue #3 phase 6)", () => {
 			]);
 			expect(rows[0]?.op).toBe(rows[1]?.op);
 			expect(rows[1]?.outcome).toBe("completed");
-			expect(rows[1]?.family).toBe("in-flight");
+			expect(rows[1]?.family).toBe("default");
 		} finally {
 			await db.prepare(`DROP TRIGGER zz_expire`).run();
 		}
@@ -285,14 +317,30 @@ describe("admin mode (issue #3 phase 6)", () => {
 
 	it("keeps two concurrent same-command operations apart by family", async () => {
 		const { accountId, session } = await seed("account-admin");
+		expect(
+			(
+				await rpc(session.accessToken, "family.create", {
+					familyId: "conc-a",
+					name: "conc-a",
+				})
+			).frame.ok,
+		).toBe(true);
+		expect(
+			(
+				await rpc(session.accessToken, "family.create", {
+					familyId: "conc-b",
+					name: "conc-b",
+				})
+			).frame.ok,
+		).toBe(true);
 		await rpc(session.accessToken, "auth.elevate");
 		const [a, b] = await Promise.all([
-			createFamily(session.accessToken, "conc-a"),
-			createFamily(session.accessToken, "conc-b"),
+			inviteMember(session.accessToken, "conc-a@example.com", "conc-a"),
+			inviteMember(session.accessToken, "conc-b@example.com", "conc-b"),
 		]);
 		expect(a.frame.ok && b.frame.ok).toBe(true);
-		expect(await familyIds(accountId)).toEqual(
-			expect.arrayContaining(["conc-a", "conc-b"]),
+		expect(await invitedEmails(accountId)).toEqual(
+			expect.arrayContaining(["conc-a@example.com", "conc-b@example.com"]),
 		);
 		const rows = await ops(session.sessionId);
 		for (const family of ["conc-a", "conc-b"]) {
@@ -344,7 +392,7 @@ describe("admin mode (issue #3 phase 6)", () => {
 				ws.send(JSON.stringify({ id, type, payload }));
 			});
 		const make = (id: string) =>
-			send("family.create", { familyId: id, name: id });
+			send("account.members.invite", { email: `${id}@example.com` });
 
 		expect((await make("ws-before")).error?.code).toBe("elevation_required");
 		await rpc(session.accessToken, "auth.elevate");

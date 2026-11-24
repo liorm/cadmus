@@ -147,17 +147,18 @@ describe("daemon websocket tools env", () => {
 			options,
 		);
 		await sendRpc(
-			"chat.create",
+			"bot.create",
 			{
-				botId: "assistant",
-				key: "plan",
+				slug: "plan",
+				name: "Plan",
+				model: "faux/echo",
+				tools: CODING_TOOLS,
 				toolsEnv: { enabled: true, binding: { envId: "jb_default" } },
 			},
 			options,
 		);
-		await sendRpc("chat.create", { botId: "assistant", key: "main" }, options);
 
-		const plan = await toolTurn(options, "plan", "bash", {
+		const plan = await toolTurn(options, "bot:plan", "bash", {
 			command: "echo plan",
 		});
 		expect(plan.payload?.isError).toBe(false);
@@ -175,7 +176,7 @@ describe("daemon websocket tools env", () => {
 		try {
 			family.events.length = 0;
 			const bash = await family.send("turn.submit", {
-				chatKey: "main",
+				chatKey: "bot:assistant",
 				text: '[tool:bash {"command":"echo daemon"}]',
 			});
 			expect(bash.ok).toBe(true);
@@ -197,11 +198,13 @@ describe("daemon websocket tools env", () => {
 			family.close();
 		}
 
-		const read = await toolTurn(options, "main", "read", { path: "notes.txt" });
+		const read = await toolTurn(options, "bot:assistant", "read", {
+			path: "notes.txt",
+		});
 		expect(read.payload?.isError).toBe(false);
 		expect(read.payload?.content ?? "").toContain("hello-daemon");
 
-		const write = await toolTurn(options, "main", "write", {
+		const write = await toolTurn(options, "bot:assistant", "write", {
 			path: "out.txt",
 			content: "written",
 		});
@@ -209,7 +212,7 @@ describe("daemon websocket tools env", () => {
 		expect(write.payload?.content ?? "").toContain("Successfully wrote");
 
 		peer.seed(`${WORKSPACE}/edit.txt`, "alpha");
-		const edit = await toolTurn(options, "main", "edit", {
+		const edit = await toolTurn(options, "bot:assistant", "edit", {
 			path: "edit.txt",
 			edits: [{ oldText: "alpha", newText: "beta" }],
 		});
@@ -303,11 +306,6 @@ describe("daemon websocket tools env", () => {
 				},
 				options,
 			);
-			await sendRpc(
-				"chat.create",
-				{ botId: "assistant", key: "main" },
-				options,
-			);
 		}
 		const upgraded = await ScriptedDaemon.upgrade({
 			token: secret.token,
@@ -326,8 +324,12 @@ describe("daemon websocket tools env", () => {
 			await held;
 			return "manual";
 		};
-		const first = toolTurn(alpha, "main", "bash", { command: "echo a" });
-		const second = toolTurn(beta, "main", "bash", { command: "echo b" });
+		const first = toolTurn(alpha, "bot:assistant", "bash", {
+			command: "echo a",
+		});
+		const second = toolTurn(beta, "bot:assistant", "bash", {
+			command: "echo b",
+		});
 		expect(await waitFor(() => started === 2, 5_000)).toBe(true);
 		peer.close();
 		release();
@@ -415,7 +417,6 @@ describe("daemon websocket tools env", () => {
 			},
 			options,
 		);
-		await sendRpc("chat.create", { botId: "assistant", key: "main" }, options);
 		const live = await ScriptedDaemon.upgrade({ token: target.token, envId });
 		const kept = await ScriptedDaemon.upgrade({
 			token: keptDaemon.token,
@@ -434,7 +435,9 @@ describe("daemon websocket tools env", () => {
 			}
 			return "default";
 		};
-		const running = toolTurn(options, "main", "bash", { command: "echo hold" });
+		const running = toolTurn(options, "bot:assistant", "bash", {
+			command: "echo hold",
+		});
 		expect(await waitFor(() => holding, 5_000)).toBe(true);
 		const removed = await sendRpc(
 			"account.toolsEnvs.deregister",
@@ -450,7 +453,7 @@ describe("daemon websocket tools env", () => {
 		await peer.closed;
 		expect(peer.closeCode).toBe(1008);
 		expect(peer.closeReason).toContain("Daemon deregistered");
-		const next = await toolTurn(options, "main", "bash", {
+		const next = await toolTurn(options, "bot:assistant", "bash", {
 			command: "echo later",
 		});
 		expect(next.payload?.content ?? "").toContain("Tool bash is not available");
@@ -486,12 +489,13 @@ describe("daemon websocket tools env", () => {
 			},
 			options,
 		);
-		await sendRpc("chat.create", { botId: "assistant", key: "main" }, options);
 		await sendRpc(
-			"chat.create",
+			"bot.create",
 			{
-				botId: "assistant",
-				key: "plan",
+				slug: "plan",
+				name: "Plan",
+				model: "faux/echo",
+				tools: ["bash"],
 				toolsEnv: { enabled: true, binding: { envId: "jb_default" } },
 			},
 			options,
@@ -513,13 +517,13 @@ describe("daemon websocket tools env", () => {
 			peer.send({ id: request.id, ok: true, value: { exitCode: 1 } });
 			return "manual";
 		};
-		const failed = await toolTurn(options, "main", "bash", {
+		const failed = await toolTurn(options, "bot:assistant", "bash", {
 			command: "false",
 		});
 		expect(failed.payload?.isError).toBe(true);
 		expect(failed.payload?.content ?? "").toContain("nope");
 		expect((await connection(options, envId)).status).toBe("connected");
-		const plan = await toolTurn(options, "plan", "bash", {
+		const plan = await toolTurn(options, "bot:plan", "bash", {
 			command: "echo plan",
 		});
 		expect(plan.payload?.isError).toBe(false);
@@ -532,14 +536,14 @@ describe("daemon websocket tools env", () => {
 			),
 		).toBe(true);
 		const before = peer.requests.length;
-		const offline = await toolTurn(options, "main", "bash", {
+		const offline = await toolTurn(options, "bot:assistant", "bash", {
 			command: "echo later",
 		});
 		expect(offline.payload?.content ?? "").toContain("reconnects on its own");
 		expect(peer.requests.length).toBe(before);
 		const echo = await sendRpc<{ reply?: string }>(
 			"turn.submit",
-			{ chatKey: "main", text: "Hello" },
+			{ chatKey: "bot:assistant", text: "Hello" },
 			options,
 		);
 		expect(echo.frame.ok).toBe(true);
@@ -583,11 +587,6 @@ describe("daemon websocket tools env", () => {
 				},
 				options,
 			);
-			await sendRpc(
-				"chat.create",
-				{ botId: "assistant", key: "main" },
-				options,
-			);
 		}
 		const upgraded = await ScriptedDaemon.upgrade({
 			token: secret.token,
@@ -606,8 +605,14 @@ describe("daemon websocket tools env", () => {
 			return "default";
 		};
 		await Promise.all([
-			toolTurn(alpha, "main", "write", { path: "same.txt", content: "one" }),
-			toolTurn(beta, "main", "write", { path: "same.txt", content: "two" }),
+			toolTurn(alpha, "bot:assistant", "write", {
+				path: "same.txt",
+				content: "one",
+			}),
+			toolTurn(beta, "bot:assistant", "write", {
+				path: "same.txt",
+				content: "two",
+			}),
 		]);
 		expect(writes).toHaveLength(2);
 
@@ -622,8 +627,8 @@ describe("daemon websocket tools env", () => {
 			return "default";
 		};
 		await Promise.all([
-			toolTurn(alpha, "main", "bash", { command: "echo a" }),
-			toolTurn(beta, "main", "bash", { command: "echo b" }),
+			toolTurn(alpha, "bot:assistant", "bash", { command: "echo a" }),
+			toolTurn(beta, "bot:assistant", "bash", { command: "echo b" }),
 		]);
 		expect(overlapped).toBe(true);
 		peer.close();
@@ -645,7 +650,6 @@ describe("daemon websocket tools env", () => {
 			},
 			options,
 		);
-		await sendRpc("chat.create", { botId: "assistant", key: "main" }, options);
 		const upgraded = await ScriptedDaemon.upgrade({
 			token: secret.token,
 			envId,
@@ -667,7 +671,9 @@ describe("daemon websocket tools env", () => {
 			}
 			return "default";
 		};
-		const shell = await toolTurn(options, "main", "bash", { command: "true" });
+		const shell = await toolTurn(options, "bot:assistant", "bash", {
+			command: "true",
+		});
 		expect(shell.payload?.content ?? "").not.toContain("tools-env transport:");
 		expect((await connection(options, envId)).status).toBe("connected");
 		peer.onFrame = async (request) => {
@@ -685,7 +691,7 @@ describe("daemon websocket tools env", () => {
 			}
 			return "default";
 		};
-		await toolTurn(options, "main", "read", { path: "missing.txt" });
+		await toolTurn(options, "bot:assistant", "read", { path: "missing.txt" });
 		expect((await connection(options, envId)).status).toBe("connected");
 		peer.onFrame = async (request) => {
 			if (request.method === "openBinaryReader") {
@@ -698,7 +704,7 @@ describe("daemon websocket tools env", () => {
 			}
 			return "default";
 		};
-		await toolTurn(options, "main", "read", { path: "gone.txt" });
+		await toolTurn(options, "bot:assistant", "read", { path: "gone.txt" });
 		expect((await connection(options, envId)).status).toBe("connected");
 		peer.onFrame = async (request) => {
 			if (request.method === "exec") {
@@ -711,10 +717,12 @@ describe("daemon websocket tools env", () => {
 			}
 			return "default";
 		};
-		await toolTurn(options, "main", "bash", { command: "sleep 1" });
+		await toolTurn(options, "bot:assistant", "bash", { command: "sleep 1" });
 		expect((await connection(options, envId)).status).toBe("connected");
 		peer.onFrame = async () => "manual";
-		const timed = await toolTurn(options, "main", "read", { path: "slow.txt" });
+		const timed = await toolTurn(options, "bot:assistant", "read", {
+			path: "slow.txt",
+		});
 		expect(timed.payload?.content ?? "").toContain(
 			"tools-env transport: env disconnected",
 		);
@@ -744,11 +752,6 @@ describe("daemon websocket tools env", () => {
 				},
 				options,
 			);
-			await sendRpc(
-				"chat.create",
-				{ botId: "assistant", key: "main" },
-				options,
-			);
 		}
 		const upgraded = await ScriptedDaemon.upgrade({
 			token: secret.token,
@@ -767,7 +770,9 @@ describe("daemon websocket tools env", () => {
 			}
 			return "default";
 		};
-		const running = toolTurn(alpha, "main", "bash", { command: "echo hold" });
+		const running = toolTurn(alpha, "bot:assistant", "bash", {
+			command: "echo hold",
+		});
 		expect(await waitFor(() => heldExec, 5_000)).toBe(true);
 		await sendRpc(
 			"bot.update",
@@ -777,21 +782,25 @@ describe("daemon websocket tools env", () => {
 		release();
 		const finished = await running;
 		expect(finished.payload?.isError).toBe(false);
-		const later = await toolTurn(alpha, "main", "bash", {
+		const later = await toolTurn(alpha, "bot:assistant", "bash", {
 			command: "echo later",
 		});
 		expect(later.payload?.content ?? "").toContain(
 			"Tool bash is not available",
 		);
 		expect((await connection(alpha, envId)).status).toBe("connected");
-		const sibling = await toolTurn(beta, "main", "bash", {
+		const sibling = await toolTurn(beta, "bot:assistant", "bash", {
 			command: "echo sib",
 		});
 		expect(sibling.payload?.isError).toBe(false);
 		const cleanups = peer.requests.filter(
 			(request) => request.method === "cleanup",
 		);
-		await sendRpc("chat.update", { chatKey: "main", toolsEnv: null }, beta);
+		await sendRpc(
+			"chat.update",
+			{ chatKey: "bot:assistant", toolsEnv: null },
+			beta,
+		);
 		expect(
 			peer.requests.filter((request) => request.method === "cleanup"),
 		).toEqual(cleanups);
@@ -808,10 +817,9 @@ describe("daemon websocket tools env", () => {
 			alpha,
 		);
 		await sendRpc(
-			"chat.create",
+			"chat.update",
 			{
-				botId: "planner",
-				key: "scratch",
+				chatKey: "bot:planner",
 				toolsEnv: { enabled: true, binding: { envId } },
 			},
 			alpha,
@@ -819,16 +827,20 @@ describe("daemon websocket tools env", () => {
 		const cleanupCount = peer.requests.filter(
 			(request) => request.method === "cleanup",
 		).length;
-		const pinned = await toolTurn(alpha, "scratch", "bash", {
+		const pinned = await toolTurn(alpha, "bot:planner", "bash", {
 			command: "echo pinned",
 		});
 		expect(pinned.payload?.content ?? "").toContain("ok");
-		await sendRpc("chat.update", { chatKey: "scratch", toolsEnv: null }, alpha);
+		await sendRpc(
+			"chat.update",
+			{ chatKey: "bot:planner", toolsEnv: null },
+			alpha,
+		);
 		expect(
 			peer.requests.filter((request) => request.method === "cleanup").length,
 		).toBe(cleanupCount);
 		expect(peer.closeCode).toBe(0);
-		const inherited = await toolTurn(alpha, "scratch", "bash", {
+		const inherited = await toolTurn(alpha, "bot:planner", "bash", {
 			command: "echo inherited",
 		});
 		expect(inherited.payload?.content ?? "").toContain("inherited");
@@ -950,24 +962,25 @@ describe("daemon websocket tools env", () => {
 			},
 			options,
 		);
-		await sendRpc("chat.create", { botId: "assistant", key: "main" }, options);
 		peer.seed(`${WORKSPACE}/notes.txt`, "inside");
 		for (const path of ["../escape", "/etc/passwd", "leak"]) {
-			const read = await toolTurn(options, "main", "read", { path });
+			const read = await toolTurn(options, "bot:assistant", "read", { path });
 			expect(read.payload?.content ?? "").toContain("permission_denied");
-			const write = await toolTurn(options, "main", "write", {
+			const write = await toolTurn(options, "bot:assistant", "write", {
 				path,
 				content: "x",
 			});
 			expect(write.payload?.content ?? "").toContain("permission_denied");
 		}
-		const edited = await toolTurn(options, "main", "edit", {
+		const edited = await toolTurn(options, "bot:assistant", "edit", {
 			path: "../escape",
 			edits: [{ oldText: "a", newText: "b" }],
 		});
 		expect(edited.payload?.content ?? "").toContain("permission_denied");
 		const cwd = peer.requests.find((request) => request.method === "exec");
-		const bash = await toolTurn(options, "main", "bash", { command: "pwd" });
+		const bash = await toolTurn(options, "bot:assistant", "bash", {
+			command: "pwd",
+		});
 		expect(bash.payload?.isError).toBe(false);
 		const exec = [...peer.requests]
 			.reverse()
@@ -994,7 +1007,6 @@ describe("daemon websocket tools env", () => {
 			},
 			options,
 		);
-		await sendRpc("chat.create", { botId: "assistant", key: "main" }, options);
 		const upgraded = await ScriptedDaemon.upgrade({
 			token: secret.token,
 			envId,
@@ -1023,7 +1035,7 @@ describe("daemon websocket tools env", () => {
 					nextProbeAt?: unknown;
 				};
 			};
-		}>("chat.status", { chatKey: "main" }, options);
+		}>("chat.status", { chatKey: "bot:assistant" }, options);
 		expect(status.frame.result?.status.toolsEnv?.status).toBe("connected");
 		expect(typeof status.frame.result?.status.toolsEnv?.connectedAt).toBe(
 			"number",

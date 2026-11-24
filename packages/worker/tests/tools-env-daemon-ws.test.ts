@@ -227,7 +227,9 @@ describe("daemon websocket DO internals (generation, alarms, fork routes, heartb
 			}
 			return "default";
 		};
-		const running = toolTurn(options, "main", "bash", { command: "echo old" });
+		const running = toolTurn(options, "bot:assistant", "bash", {
+			command: "echo old",
+		});
 		expect(await waitFor(() => holding, 5_000)).toBe(true);
 		const second = await ScriptedDaemon.upgrade({ token: secret.token, envId });
 		const newer = second.peer;
@@ -243,7 +245,7 @@ describe("daemon websocket DO internals (generation, alarms, fork routes, heartb
 		const snap = await connection(options.accountId, envId);
 		expect(snap.status).toBe("connected");
 		expect(snap.generation).toBe(2);
-		const again = await toolTurn(options, "main", "bash", {
+		const again = await toolTurn(options, "bot:assistant", "bash", {
 			command: "echo new",
 		});
 		expect(again.payload?.isError).toBe(false);
@@ -267,19 +269,18 @@ describe("daemon websocket DO internals (generation, alarms, fork routes, heartb
 			},
 			options,
 		);
-		await sendRpc("chat.create", { botId: "assistant", key: "main" }, options);
 		const hello = await sendRpc<{ reply?: string }>(
 			"turn.submit",
-			{ chatKey: "main", text: "Hello" },
+			{ chatKey: "bot:assistant", text: "Hello" },
 			options,
 		);
 		expect(JSON.stringify(hello.frame.result)).toContain("Hello");
-		const memory = await toolTurn(options, "main", "write", {
+		const memory = await toolTurn(options, "bot:assistant", "write", {
 			path: "/.cadmus/MEMORY.md",
 			content: "kept",
 		});
 		expect(memory.payload?.isError).toBe(false);
-		const skill = await toolTurn(options, "main", "write", {
+		const skill = await toolTurn(options, "bot:assistant", "write", {
 			path: "/.cadmus/skills/note/SKILL.md",
 			content: "---\nname: note\ndescription: A note\n---\n\nbody",
 		});
@@ -293,7 +294,7 @@ describe("daemon websocket DO internals (generation, alarms, fork routes, heartb
 				kind: "absolute",
 				input: Date.now() - 1000,
 				text: '[tool:bash {"command":"echo forked"}]',
-				target: { mode: "fork", chatKey: "main" },
+				target: { mode: "fork", chatKey: "bot:assistant" },
 			},
 			options,
 		);
@@ -307,12 +308,12 @@ describe("daemon websocket DO internals (generation, alarms, fork routes, heartb
 				await new Promise((resolve) => setTimeout(resolve, 20));
 			}
 			const routes = await familyStub(options.accountId).listConversationRoutes(
-				"main",
+				"bot:assistant",
 			);
 			expect(routes.length).toBe(2);
 			const parent = await sendRpc<{ chat: { conversationId: number } }>(
 				"chat.get",
-				{ chatKey: "main" },
+				{ chatKey: "bot:assistant" },
 				options,
 			);
 			const child = routes.find(
@@ -332,7 +333,7 @@ describe("daemon websocket DO internals (generation, alarms, fork routes, heartb
 		}
 		const status = await sendRpc<{
 			status: { toolsEnv?: Record<string, unknown>; nextProbeAt?: unknown };
-		}>("chat.status", { chatKey: "main" }, options);
+		}>("chat.status", { chatKey: "bot:assistant" }, options);
 		expect(status.frame.result?.status.toolsEnv).toMatchObject({
 			status: "disconnected",
 		});
@@ -361,15 +362,12 @@ describe("daemon websocket DO internals (generation, alarms, fork routes, heartb
 				options,
 			);
 			await sendRpc(
-				"chat.create",
-				{ botId: "assistant", key: "main" },
-				options,
-			);
-			await sendRpc(
-				"chat.create",
+				"bot.create",
 				{
-					botId: "assistant",
-					key: "plan",
+					slug: "plan",
+					name: "Plan",
+					model: "faux/echo",
+					tools: ["bash"],
 					toolsEnv: { enabled: true, binding: { envId: "jb_default" } },
 				},
 				options,
@@ -380,7 +378,7 @@ describe("daemon websocket DO internals (generation, alarms, fork routes, heartb
 			});
 			const peer = upgraded.peer;
 			if (!peer) throw new Error("missing peer");
-			const plan = await toolTurn(options, "plan", "bash", {
+			const plan = await toolTurn(options, "bot:plan", "bash", {
 				command: "echo plan",
 			});
 			expect(plan.payload?.isError).toBe(false);
@@ -396,7 +394,7 @@ describe("daemon websocket DO internals (generation, alarms, fork routes, heartb
 				});
 				return "default";
 			};
-			const running = toolTurn(options, "main", "bash", {
+			const running = toolTurn(options, "bot:assistant", "bash", {
 				command: "echo slow",
 			});
 			const sawBeat = await waitFor(
@@ -413,7 +411,7 @@ describe("daemon websocket DO internals (generation, alarms, fork routes, heartb
 			expect(await envStub(options.accountId, envId).readAlarm()).toBeNull();
 			peer.ignoreHeartbeat = true;
 			peer.onFrame = async () => "manual";
-			const missed = toolTurn(options, "main", "bash", {
+			const missed = toolTurn(options, "bot:assistant", "bash", {
 				command: "echo miss",
 			});
 			const failed = await missed;
@@ -423,7 +421,7 @@ describe("daemon websocket DO internals (generation, alarms, fork routes, heartb
 			const snap = await connection(options.accountId, envId);
 			expect(snap.status).toBe("disconnected");
 			expect(snap.lastError).toBe("heartbeat_timeout");
-			const planAfter = await toolTurn(options, "plan", "bash", {
+			const planAfter = await toolTurn(options, "bot:plan", "bash", {
 				command: "echo still",
 			});
 			expect(planAfter.payload?.isError).toBe(false);
@@ -608,7 +606,6 @@ describe("daemon websocket DO internals (generation, alarms, fork routes, heartb
 			},
 			options,
 		);
-		await sendRpc("chat.create", { botId: "assistant", key: "main" }, options);
 
 		const ws = await connectTestWs(options);
 		try {
@@ -676,7 +673,7 @@ describe("daemon websocket DO internals (generation, alarms, fork routes, heartb
 		const options = scope("prompt-fresh");
 		const secret = await registerDaemon(options);
 		const envId = secret.envId;
-		await sendRpc(
+		const createdBot = await sendRpc<{ bot: { rootConversationId: number } }>(
 			"bot.create",
 			{
 				slug: "assistant",
@@ -687,12 +684,7 @@ describe("daemon websocket DO internals (generation, alarms, fork routes, heartb
 			},
 			options,
 		);
-		const created = await sendRpc<{ chat: { conversationId: number } }>(
-			"chat.create",
-			{ botId: "assistant", key: "main" },
-			options,
-		);
-		const conversationId = created.frame.result?.chat.conversationId ?? 0;
+		const conversationId = createdBot.frame.result?.bot.rootConversationId ?? 0;
 		const familyStub = env.CADMUS_BOT_FAMILY.getByName(
 			`cadmus:${options.accountId}:default`,
 		);
@@ -747,7 +739,7 @@ describe("daemon websocket DO internals (generation, alarms, fork routes, heartb
 			},
 		);
 		expect((await readPromptSection())?.name).toBe("tools-env-unavailable");
-		const offlineTurn = await toolTurn(options, "main", "bash", {
+		const offlineTurn = await toolTurn(options, "bot:assistant", "bash", {
 			command: "echo offline",
 		});
 		expect(offlineTurn.payload?.content ?? "").toContain(

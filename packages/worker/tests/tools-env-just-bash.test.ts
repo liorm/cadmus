@@ -70,11 +70,10 @@ describe("just-bash tools env DO & D1 internals", () => {
 			},
 			options,
 		);
-		await sendRpc("chat.create", { botId: "assistant", key: "main" }, options);
 		const ws = await connectTestWs(options);
 		try {
 			const wrote = await ws.send("turn.submit", {
-				chatKey: "main",
+				chatKey: "bot:assistant",
 				text: '[tool:write {"path":"note.txt","content":"keep"}]',
 			});
 			expect(wrote.ok).toBe(true);
@@ -133,11 +132,6 @@ describe("just-bash tools env DO & D1 internals", () => {
 					model: "faux/echo",
 					tools: CODING_TOOLS,
 				},
-				options,
-			);
-			await sendRpc(
-				"chat.create",
-				{ botId: "assistant", key: "main" },
 				options,
 			);
 		}
@@ -201,12 +195,12 @@ describe("just-bash tools env DO & D1 internals", () => {
 		const wsB2 = await connectTestWs(beta);
 		try {
 			await wsA2.send("turn.submit", {
-				chatKey: "main",
+				chatKey: "bot:assistant",
 				text: '[tool:write {"path":"shared.txt","content":"both"}]',
 			});
 			wsB2.events.length = 0;
 			await wsB2.send("turn.submit", {
-				chatKey: "main",
+				chatKey: "bot:assistant",
 				text: '[tool:read {"path":"shared.txt"}]',
 			});
 			const payload = toolResults(wsB2.events)[0]?.payload as {
@@ -282,24 +276,19 @@ describe("just-bash tools env DO & D1 internals", () => {
 				},
 				options,
 			);
-			await sendRpc(
-				"chat.create",
-				{ botId: "assistant", key: "main" },
-				options,
-			);
 		}
 		const ws = await connectTestWs(alpha);
 		try {
 			await ws.send("turn.submit", {
-				chatKey: "main",
+				chatKey: "bot:assistant",
 				text: '[tool:write {"path":"usage.txt","content":"bytes"}]',
 			});
 			await ws.send("turn.submit", {
-				chatKey: "main",
+				chatKey: "bot:assistant",
 				text: '[tool:bash {"command":"echo ran"}]',
 			});
 			await ws.send("turn.submit", {
-				chatKey: "main",
+				chatKey: "bot:assistant",
 				text: '[tool:read {"path":"missing.txt"}]',
 			});
 		} finally {
@@ -346,17 +335,16 @@ describe("just-bash tools env DO & D1 internals", () => {
 			options,
 		);
 		await sendRpc(
-			"chat.create",
+			"chat.update",
 			{
-				botId: "assistant",
-				key: "pinned",
+				chatKey: "bot:assistant",
 				toolsEnv: { enabled: true, binding: { envId: "jb_default" } },
 			},
 			options,
 		);
 		await sendRpc(
 			"turn.submit",
-			{ chatKey: "pinned", text: "hello before the fork" },
+			{ chatKey: "bot:assistant", text: "hello before the fork" },
 			options,
 		);
 		const scheduled = await sendRpc(
@@ -368,14 +356,14 @@ describe("just-bash tools env DO & D1 internals", () => {
 				kind: "absolute",
 				input: Date.now() - 1000,
 				text: '[tool:bash {"command":"echo forked > /workspace/forked.txt"}]',
-				target: { mode: "fork", chatKey: "pinned" },
+				target: { mode: "fork", chatKey: "bot:assistant" },
 			},
 			options,
 		);
 		expect(scheduled.frame.ok).toBe(true);
 		await runDurableObjectAlarm(familyStub(options.accountId));
 		const routes = await familyStub(options.accountId).listConversationRoutes(
-			"pinned",
+			"bot:assistant",
 		);
 		expect(routes.length).toBeGreaterThanOrEqual(2);
 		expect(routes.every((route) => route.toolsEnvEnabled)).toBe(true);
@@ -384,7 +372,7 @@ describe("just-bash tools env DO & D1 internals", () => {
 		try {
 			ws.events.length = 0;
 			await ws.send("turn.submit", {
-				chatKey: "pinned",
+				chatKey: "bot:assistant",
 				text: '[tool:read {"path":"forked.txt"}]',
 			});
 			const payload = toolResults(ws.events)[0]?.payload as {
@@ -403,19 +391,22 @@ describe("just-bash tools env DO & D1 internals", () => {
 			),
 		).toBeGreaterThan(0);
 		expect(
-			await envStub(options.accountId).namespaceBytes("default", "chat:pinned"),
+			await envStub(options.accountId).namespaceBytes(
+				"default",
+				"chat:bot:assistant",
+			),
 		).toBe(0);
 
 		await sendRpc("family.update", { harvestDelayMs: 5000 }, options);
 		await sendRpc(
 			"turn.submit",
-			{ chatKey: "pinned", text: "please harvest this" },
+			{ chatKey: "bot:assistant", text: "please harvest this" },
 			options,
 		);
 		await sendRpc(
 			"schedule.update",
 			{
-				id: "harvest:pinned",
+				id: "harvest:bot:assistant",
 				kind: "absolute",
 				input: Date.now() - 1000,
 				text: '[tool:bash {"command":"echo harvested > /workspace/harvested.txt"}]',
@@ -424,11 +415,11 @@ describe("just-bash tools env DO & D1 internals", () => {
 		);
 		const beforeHarvest = await familyStub(
 			options.accountId,
-		).listConversationRoutes("pinned");
+		).listConversationRoutes("bot:assistant");
 		await runDurableObjectAlarm(familyStub(options.accountId));
 		let afterHarvest = await familyStub(
 			options.accountId,
-		).listConversationRoutes("pinned");
+		).listConversationRoutes("bot:assistant");
 		const deadline = Date.now() + 2_000;
 		while (
 			afterHarvest.length !== beforeHarvest.length + 1 &&
@@ -436,7 +427,7 @@ describe("just-bash tools env DO & D1 internals", () => {
 		) {
 			await new Promise((resolve) => setTimeout(resolve, 25));
 			afterHarvest = await familyStub(options.accountId).listConversationRoutes(
-				"pinned",
+				"bot:assistant",
 			);
 		}
 		expect(afterHarvest).toHaveLength(beforeHarvest.length + 1);
@@ -449,7 +440,7 @@ describe("just-bash tools env DO & D1 internals", () => {
 		try {
 			ws2.events.length = 0;
 			await ws2.send("turn.submit", {
-				chatKey: "pinned",
+				chatKey: "bot:assistant",
 				text: '[tool:read {"path":"harvested.txt"}]',
 			});
 			expect(toolIsError(ws2.events)).toBe(true);
@@ -480,20 +471,14 @@ describe("just-bash tools env DO & D1 internals", () => {
 				options,
 			);
 		}
-		await sendRpc("chat.create", { botId: "assistant", key: "main" }, options);
-		await sendRpc(
-			"chat.create",
-			{ botId: "doomed", key: "doom-main" },
-			options,
-		);
 		const ws = await connectTestWs(options);
 		try {
 			await ws.send("turn.submit", {
-				chatKey: "main",
+				chatKey: "bot:assistant",
 				text: '[tool:write {"path":"disk.txt","content":"on-disk"}]',
 			});
 			await ws.send("turn.submit", {
-				chatKey: "doom-main",
+				chatKey: "bot:doomed",
 				text: '[tool:write {"path":"doom.txt","content":"gone"}]',
 			});
 		} finally {
@@ -526,7 +511,7 @@ describe("just-bash tools env DO & D1 internals", () => {
 		const ws2 = await connectTestWs(options);
 		try {
 			await ws2.send("turn.submit", {
-				chatKey: "main",
+				chatKey: "bot:assistant",
 				text: '[tool:write {"path":"memory.txt","content":"ram"}]',
 			});
 		} finally {

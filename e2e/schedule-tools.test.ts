@@ -68,17 +68,11 @@ describe("schedule tools over a bot turn", () => {
 			{ slug: "other", name: "Other", model: "faux/echo" },
 			account,
 		);
-		await sendRpc("chat.create", { botId: "timer", key: "main" }, account);
-		await sendRpc(
-			"chat.create",
-			{ botId: "other", key: "other-chat" },
-			account,
-		);
 
 		const created = await tool(
 			account,
-			"main",
-			'[tool:schedule_create {"name":"Standup","kind":"relative","input":"5m","text":"Stand up","thinking":"high","target":{"mode":"chat","chatKey":"main"}}]',
+			"bot:timer",
+			'[tool:schedule_create {"name":"Standup","kind":"relative","input":"5m","text":"Stand up","thinking":"high","target":{"mode":"chat","chatKey":"bot:timer"}}]',
 		);
 		const id = scheduleId(created);
 		expect(created).toContain('"recurring":false');
@@ -86,28 +80,28 @@ describe("schedule tools over a bot turn", () => {
 
 		const numeric = await tool(
 			account,
-			"main",
+			"bot:timer",
 			'[tool:schedule_create {"kind":"relative","input":45,"text":"forty five seconds"}]',
 		);
 		expect(scheduleId(numeric)).toMatch(/^sched-/);
 
 		const duration = await tool(
 			account,
-			"main",
+			"bot:timer",
 			'[tool:schedule_create {"kind":"relative","input":"30","text":"thirty seconds"}]',
 		);
 		expect(duration).toContain('"kind":"relative"');
 
 		const natural = await tool(
 			account,
-			"main",
+			"bot:timer",
 			'[tool:schedule_create {"kind":"absolute","input":"tomorrow at 5pm","text":"tomorrow"}]',
 		);
 		expect(natural).toContain('"kind":"absolute"');
 
 		const epoch = await tool(
 			account,
-			"main",
+			"bot:timer",
 			'[tool:schedule_create {"kind":"absolute","input":"1893456000","text":"epoch seconds"}]',
 		);
 		expect(epoch).toContain('"kind":"absolute"');
@@ -115,14 +109,14 @@ describe("schedule tools over a bot turn", () => {
 		const epochMs = Date.now() + 3_600_000;
 		const epochNumber = await tool(
 			account,
-			"main",
+			"bot:timer",
 			`[tool:schedule_create ${JSON.stringify({ kind: "absolute", input: epochMs, text: "epoch ms" })}]`,
 		);
 		expect(epochNumber).toContain('"kind":"absolute"');
 
 		const hourly = await tool(
 			account,
-			"main",
+			"bot:timer",
 			'[tool:schedule_create {"name":"Hourly","kind":"cron","input":"@hourly","text":"hour","target":{"mode":"new-chat"}}]',
 		);
 		const hourlyId = scheduleId(hourly);
@@ -130,25 +124,29 @@ describe("schedule tools over a bot turn", () => {
 
 		const forkAt = await tool(
 			account,
-			"main",
+			"bot:timer",
 			`[tool:schedule_create ${JSON.stringify({
 				kind: "relative",
 				input: "10m",
 				text: "fork later",
-				target: { mode: "fork", chatKey: "main", at: 4 },
+				target: { mode: "fork", chatKey: "bot:timer", at: 4 },
 			})}]`,
 		);
 		expect(forkAt).toContain('"mode":"fork"');
 		expect(forkAt).toContain('"at":4');
 
-		const listedReply = await tool(account, "main", "[tool:schedule_list {}]");
+		const listedReply = await tool(
+			account,
+			"bot:timer",
+			"[tool:schedule_list {}]",
+		);
 		expect(listedReply).toContain(id);
 		expect(listedReply).toContain(hourlyId);
-		expect(listedReply).not.toContain("harvest:main");
+		expect(listedReply).not.toContain("harvest:bot:timer");
 
 		const renamed = await tool(
 			account,
-			"main",
+			"bot:timer",
 			`[tool:schedule_update ${JSON.stringify({
 				id,
 				name: "Renamed",
@@ -169,7 +167,7 @@ describe("schedule tools over a bot turn", () => {
 
 		const resumed = await tool(
 			account,
-			"main",
+			"bot:timer",
 			`[tool:schedule_update ${JSON.stringify({
 				id,
 				enabled: true,
@@ -182,7 +180,7 @@ describe("schedule tools over a bot turn", () => {
 
 		const asCron = await tool(
 			account,
-			"main",
+			"bot:timer",
 			`[tool:schedule_update ${JSON.stringify({
 				id,
 				kind: "cron",
@@ -194,7 +192,7 @@ describe("schedule tools over a bot turn", () => {
 
 		const asAbsolute = await tool(
 			account,
-			"main",
+			"bot:timer",
 			`[tool:schedule_update ${JSON.stringify({
 				id,
 				kind: "absolute",
@@ -206,7 +204,7 @@ describe("schedule tools over a bot turn", () => {
 
 		const removed = await tool(
 			account,
-			"main",
+			"bot:timer",
 			`[tool:schedule_delete ${JSON.stringify({ id: hourlyId })}]`,
 		);
 		expect(removed).toContain(`"deleted":"${hourlyId}"`);
@@ -214,10 +212,14 @@ describe("schedule tools over a bot turn", () => {
 			(await listed(account, "timer")).some((item) => item.id === hourlyId),
 		).toBe(false);
 
-		await sendRpc("turn.submit", { chatKey: "main", text: "Hello" }, account);
+		await sendRpc(
+			"turn.submit",
+			{ chatKey: "bot:timer", text: "Hello" },
+			account,
+		);
 		const internal = await listed(account, "timer", true);
 		expect(
-			internal.some((item) => item.id === "harvest:main" && item.internal),
+			internal.some((item) => item.id === "harvest:bot:timer" && item.internal),
 		).toBe(true);
 	}, 60_000);
 
@@ -234,142 +236,140 @@ describe("schedule tools over a bot turn", () => {
 			{ slug: "other", name: "Other", model: "faux/echo" },
 			account,
 		);
-		await sendRpc("chat.create", { botId: "timer", key: "main" }, account);
-		await sendRpc(
-			"chat.create",
-			{ botId: "other", key: "other-chat" },
-			account,
-		);
 
 		const created = await tool(
 			account,
-			"main",
+			"bot:timer",
 			'[tool:schedule_create {"kind":"relative","input":"5m","text":"keep"}]',
 		);
 		const id = scheduleId(created);
 
 		const badCron = await tool(
 			account,
-			"main",
+			"bot:timer",
 			'[tool:schedule_create {"kind":"cron","input":"not a cron","text":"nope"}]',
 		);
 		expect(badCron).toContain("Invalid cron expression");
 
 		const emptyCron = await tool(
 			account,
-			"main",
+			"bot:timer",
 			'[tool:schedule_create {"kind":"cron","input":"","text":"nope"}]',
 		);
 		expect(emptyCron).toContain("Invalid cron expression");
 
 		const reboot = await tool(
 			account,
-			"main",
+			"bot:timer",
 			'[tool:schedule_create {"kind":"cron","input":"@reboot","text":"nope"}]',
 		);
 		expect(reboot).toContain("Invalid cron expression");
 
 		const never = await tool(
 			account,
-			"main",
+			"bot:timer",
 			'[tool:schedule_create {"kind":"cron","input":"0 0 31 2 *","text":"feb 31"}]',
 		);
 		expect(never).toContain("no upcoming occurrence");
 
 		const badDuration = await tool(
 			account,
-			"main",
+			"bot:timer",
 			'[tool:schedule_create {"kind":"relative","input":"nope","text":"nope"}]',
 		);
 		expect(badDuration).toContain("Could not parse duration");
 
 		const emptyDuration = await tool(
 			account,
-			"main",
+			"bot:timer",
 			'[tool:schedule_create {"kind":"relative","input":"","text":"nope"}]',
 		);
 		expect(emptyDuration).toContain("Duration cannot be empty");
 
 		const badWhen = await tool(
 			account,
-			"main",
+			"bot:timer",
 			'[tool:schedule_create {"kind":"absolute","input":"!!!","text":"nope"}]',
 		);
 		expect(badWhen).toContain("Could not parse date/time");
 
 		const emptyWhen = await tool(
 			account,
-			"main",
+			"bot:timer",
 			'[tool:schedule_create {"kind":"absolute","input":"","text":"nope"}]',
 		);
 		expect(emptyWhen).toContain("Date/time cannot be empty");
 
 		const foreign = await tool(
 			account,
-			"main",
-			'[tool:schedule_create {"kind":"relative","input":"5m","text":"nope","target":{"mode":"chat","chatKey":"other-chat"}}]',
+			"bot:timer",
+			'[tool:schedule_create {"kind":"relative","input":"5m","text":"nope","target":{"mode":"chat","chatKey":"bot:other"}}]',
 		);
 		expect(foreign).toContain("belongs to bot 'other'");
 
 		const foreignFork = await tool(
 			account,
-			"main",
-			'[tool:schedule_create {"kind":"relative","input":"5m","text":"nope","target":{"mode":"fork","chatKey":"other-chat"}}]',
+			"bot:timer",
+			'[tool:schedule_create {"kind":"relative","input":"5m","text":"nope","target":{"mode":"fork","chatKey":"bot:other"}}]',
 		);
 		expect(foreignFork).toContain("belongs to bot 'other'");
 
 		const kindOnly = await tool(
 			account,
-			"main",
+			"bot:timer",
 			`[tool:schedule_update ${JSON.stringify({ id, kind: "cron" })}]`,
 		);
 		expect(kindOnly).toContain("without specifying new timing input");
 
 		const badUpdate = await tool(
 			account,
-			"main",
+			"bot:timer",
 			`[tool:schedule_update ${JSON.stringify({ id, kind: "cron", input: "nope" })}]`,
 		);
 		expect(badUpdate).toContain("Invalid cron expression");
 
 		const missing = await tool(
 			account,
-			"main",
+			"bot:timer",
 			'[tool:schedule_update {"id":"sched-missing","text":"nope"}]',
 		);
 		expect(missing).toContain("not found");
 
 		const fromOther = await tool(
 			account,
-			"other-chat",
+			"bot:other",
 			`[tool:schedule_update ${JSON.stringify({ id, text: "stolen" })}]`,
 		);
 		expect(fromOther).toContain("not found");
 
-		await sendRpc("turn.submit", { chatKey: "main", text: "Hello" }, account);
+		await sendRpc(
+			"turn.submit",
+			{ chatKey: "bot:timer", text: "Hello" },
+			account,
+		);
 		const harvestUpdate = await tool(
 			account,
-			"main",
-			'[tool:schedule_update {"id":"harvest:main","text":"nope"}]',
+			"bot:timer",
+			'[tool:schedule_update {"id":"harvest:bot:timer","text":"nope"}]',
 		);
 		expect(harvestUpdate).toContain("not found");
 		const harvestDelete = await tool(
 			account,
-			"main",
-			'[tool:schedule_delete {"id":"harvest:main"}]',
+			"bot:timer",
+			'[tool:schedule_delete {"id":"harvest:bot:timer"}]',
 		);
 		expect(harvestDelete).toContain("not found");
 
 		const missingDelete = await tool(
 			account,
-			"main",
+			"bot:timer",
 			'[tool:schedule_delete {"id":"sched-missing"}]',
 		);
 		expect(missingDelete).toContain("not found");
 
 		const otherDelete = await tool(
 			account,
-			"other-chat",
+			"bot:other",
 			`[tool:schedule_delete ${JSON.stringify({ id })}]`,
 		);
 		expect(otherDelete).toContain("not found");

@@ -33,17 +33,10 @@ import type {
 	BotGetCommand,
 	BotListCommand,
 	BotUpdateCommand,
-	ChatCloseCommand,
-	ChatCreateCommand,
-	ChatDeleteCommand,
-	ChatEntriesCommand,
 	ChatGetCommand,
 	ChatListCommand,
-	ChatMessagesCommand,
-	ChatRenameCommand,
 	ChatResetCommand,
 	ChatStatusCommand,
-	ChatSubscribeCommand,
 	ChatTasksGetCommand,
 	ChatTasksListCommand,
 	ChatUpdateCommand,
@@ -63,6 +56,7 @@ import type {
 	ScheduleUpdateCommand,
 	SkillSearchCommand,
 	SystemAccountsCreateCommand,
+	SystemAccountsGetCommand,
 	SystemAccountsListCommand,
 	SystemAccountsRenameCommand,
 	SystemAccountsResumeCommand,
@@ -72,6 +66,8 @@ import type {
 	SystemMembersListCommand,
 	SystemMembersRemoveCommand,
 	SystemMembersUpdateCommand,
+	SystemMetricsCommand,
+	SystemSessionsRevokeCommand,
 	SystemUsersDisableCommand,
 	SystemUsersEnableCommand,
 	SystemUsersRevokeSessionsCommand,
@@ -148,17 +144,10 @@ import type {
 	BotGetResult,
 	BotListResult,
 	BotUpdateResult,
-	ChatCloseResult,
-	ChatCreateResult,
-	ChatDeleteResult,
-	ChatEntriesResult,
 	ChatGetResult,
 	ChatListResult,
-	ChatMessagesResult,
-	ChatRenameResult,
 	ChatResetResult,
 	ChatStatusResult,
-	ChatSubscribeResult,
 	ChatTasksGetResult,
 	ChatTasksListResult,
 	ChatUpdateResult,
@@ -177,12 +166,15 @@ import type {
 	ScheduleUpdateResult,
 	SkillSearchResults,
 	SystemAccountsCreateResult,
+	SystemAccountsGetResult,
 	SystemAccountsListResult,
 	SystemAccountsRenameResult,
 	SystemAccountsResumeResult,
 	SystemAccountsSuspendResult,
 	SystemAuditListResult,
 	SystemMembersListResult,
+	SystemMetricsResult,
+	SystemSessionsRevokeResult,
 	SystemUsersDisableResult,
 	SystemUsersEnableResult,
 	SystemUsersRevokeSessionsResult,
@@ -366,6 +358,15 @@ export type SystemUsersRevokeSessionsRpc = Rpc<
 	SystemUsersRevokeSessionsCommand,
 	SystemUsersRevokeSessionsResult
 >;
+export type SystemMetricsRpc = Rpc<SystemMetricsCommand, SystemMetricsResult>;
+export type SystemAccountsGetRpc = Rpc<
+	SystemAccountsGetCommand,
+	SystemAccountsGetResult
+>;
+export type SystemSessionsRevokeRpc = Rpc<
+	SystemSessionsRevokeCommand,
+	SystemSessionsRevokeResult
+>;
 export type AuthElevateRpc = Rpc<AuthElevateCommand, AuthElevateResult>;
 export type AuthElevationEndRpc = Rpc<
 	AuthElevationEndCommand,
@@ -456,38 +457,17 @@ export type BotUpdateRpc = Rpc<BotUpdateCommand, BotUpdateResult>;
 /** RPC contract for `bot.delete`: deletes a bot persona. */
 export type BotDeleteRpc = Rpc<BotDeleteCommand, BotDeleteResult>;
 
-/** RPC contract for `chat.create`: creates a new conversation thread with a bot. */
-export type ChatCreateRpc = Rpc<ChatCreateCommand, ChatCreateResult>;
-
 /** RPC contract for `chat.list`: lists conversation threads in the family. */
 export type ChatListRpc = Rpc<ChatListCommand, ChatListResult>;
 
-/** RPC contract for `chat.get`: retrieves full chat state, busy flag, messages, entries, and harvest notes. */
+/** RPC contract for `chat.get`: retrieves full chat state, busy flag, compaction snapshot, continuous messages, optional raw entries, and harvest notes. */
 export type ChatGetRpc = Rpc<ChatGetCommand, ChatGetResult>;
-
-/** RPC contract for `chat.rename`: renames a chat conversation title. */
-export type ChatRenameRpc = Rpc<ChatRenameCommand, ChatRenameResult>;
-
-/** RPC contract for `chat.close`: closes and archives a chat conversation. */
-export type ChatCloseRpc = Rpc<ChatCloseCommand, ChatCloseResult>;
-
-/** RPC contract for `chat.delete`: soft-deletes a chat conversation. */
-export type ChatDeleteRpc = Rpc<ChatDeleteCommand, ChatDeleteResult>;
 
 /** RPC contract for `chat.reset`: resets conversation history while keeping the routing key. */
 export type ChatResetRpc = Rpc<ChatResetCommand, ChatResetResult>;
 
-/** RPC contract for `chat.messages`: retrieves the message history of a chat. */
-export type ChatMessagesRpc = Rpc<ChatMessagesCommand, ChatMessagesResult>;
-
-/** RPC contract for `chat.entries`: retrieves transcript entries of a chat. */
-export type ChatEntriesRpc = Rpc<ChatEntriesCommand, ChatEntriesResult>;
-
 /** RPC contract for `chat.status`: retrieves live runtime execution status. */
 export type ChatStatusRpc = Rpc<ChatStatusCommand, ChatStatusResult>;
-
-/** RPC contract for `chat.subscribe`: subscribes the active connection to real-time chat events. */
-export type ChatSubscribeRpc = Rpc<ChatSubscribeCommand, ChatSubscribeResult>;
 
 /** RPC contract for `turn.submit`: submits a user message turn to run through the model. */
 export type TurnSubmitRpc = Rpc<TurnSubmitCommand, TurnSubmitResult>;
@@ -606,6 +586,9 @@ export interface RpcMap {
 	"system.users.disable": SystemUsersDisableRpc;
 	"system.users.enable": SystemUsersEnableRpc;
 	"system.users.revokeSessions": SystemUsersRevokeSessionsRpc;
+	"system.metrics": SystemMetricsRpc;
+	"system.accounts.get": SystemAccountsGetRpc;
+	"system.sessions.revoke": SystemSessionsRevokeRpc;
 	"auth.elevation.end": AuthElevationEndRpc;
 	"auth.memberships.list": AuthMembershipsListRpc;
 	"auth.methods.list": AuthMethodsListRpc;
@@ -630,17 +613,10 @@ export interface RpcMap {
 	"bot.get": BotGetRpc;
 	"bot.update": BotUpdateRpc;
 	"bot.delete": BotDeleteRpc;
-	"chat.create": ChatCreateRpc;
 	"chat.list": ChatListRpc;
 	"chat.get": ChatGetRpc;
-	"chat.rename": ChatRenameRpc;
-	"chat.close": ChatCloseRpc;
-	"chat.delete": ChatDeleteRpc;
 	"chat.reset": ChatResetRpc;
-	"chat.messages": ChatMessagesRpc;
-	"chat.entries": ChatEntriesRpc;
 	"chat.status": ChatStatusRpc;
-	"chat.subscribe": ChatSubscribeRpc;
 	"turn.submit": TurnSubmitRpc;
 	"turn.steer": TurnSteerRpc;
 	"turn.interrupt": TurnInterruptRpc;

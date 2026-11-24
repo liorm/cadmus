@@ -1,4 +1,10 @@
 import { SYSTEM_ACCOUNT_ID } from "@cadmus/contract/grants";
+import type {
+	SystemAccountMetrics,
+	SystemAccountsGetResult,
+	SystemMetricsResult,
+	SystemSessionRecord,
+} from "../protocol.js";
 import { randomId } from "./random-id.js";
 import { parseStoredRoles } from "./roles.js";
 
@@ -469,4 +475,238 @@ export async function revokeUserSessions(
 			.bind(input.userId, now),
 	]);
 	return { ok: true, revoked: update?.meta?.changes ?? 0 };
+}
+
+export async function getSystemMetrics(
+	db: D1Database,
+	now = Date.now(),
+): Promise<SystemMetricsResult> {
+	const cutoff24h = now - 86_400_000;
+	const [
+		accountsRes,
+		usersRes,
+		familiesRes,
+		sessionsRes,
+		invitesRes,
+		auditRes,
+	] = await db.batch([
+		db
+			.prepare(
+				`SELECT a.id, a.name, a.status,
+                (SELECT COUNT(*) FROM cadmus_account_members m WHERE m.account_id = a.id) AS member_count,
+                (SELECT COUNT(*) FROM cadmus_families f WHERE f.account_id = a.id) AS family_count,
+                (SELECT COUNT(*) FROM cadmus_sessions s WHERE s.account_id = a.id AND s.revoked_at IS NULL AND s.idle_expires_at > ?1 AND s.absolute_expires_at > ?1) AS active_session_count,
+                (SELECT COUNT(*) FROM cadmus_account_credentials c WHERE c.account_id = a.id) AS credential_count,
+                (SELECT COUNT(*) FROM cadmus_audit au WHERE (au.account_id = a.id OR au.target_account_id = a.id) AND au.at >= ?2) AS audit_24h
+         FROM cadmus_accounts a
+         WHERE a.id != '${SYSTEM_ACCOUNT_ID}'
+         ORDER BY a.created_at, a.id`,
+			)
+			.bind(now, cutoff24h),
+		db.prepare(
+			`SELECT COUNT(*) AS total_users,
+                SUM(CASE WHEN disabled_at IS NOT NULL THEN 1 ELSE 0 END) AS disabled_users
+         FROM cadmus_users`,
+		),
+		db.prepare(
+			`SELECT COUNT(*) AS total_families FROM cadmus_families WHERE account_id != '${SYSTEM_ACCOUNT_ID}'`,
+		),
+		db
+			.prepare(
+				`SELECT COUNT(*) AS active_sessions FROM cadmus_sessions WHERE revoked_at IS NULL AND idle_expires_at > ?1 AND absolute_expires_at > ?1`,
+			)
+			.bind(now),
+		db
+			.prepare(
+				`SELECT COUNT(*) AS pending_invites FROM cadmus_invites WHERE accepted_at IS NULL AND revoked_at IS NULL AND expires_at > ?1`,
+			)
+			.bind(now),
+		db
+			.prepare(`SELECT COUNT(*) AS audit_24h FROM cadmus_audit WHERE at >= ?1`)
+			.bind(cutoff24h),
+	]);
+
+	const accountRows = (accountsRes?.results ?? []) as Array<{
+		id: string;
+		name: string;
+		status: string;
+		member_count: number;
+		family_count: number;
+		active_session_count: number;
+		credential_count: number;
+		audit_24h: number;
+	}>;
+	const perAccount: SystemAccountMetrics[] = accountRows.map((row) => ({
+		accountId: row.id,
+		name: row.name,
+		status: row.status === "suspended" ? "suspended" : "active",
+		memberCount: Number(row.member_count ?? 0),
+		familyCount: Number(row.family_count ?? 0),
+		activeSessionCount: Number(row.active_session_count ?? 0),
+		credentialCount: Number(row.credential_count ?? 0),
+		auditEvents24h: Number(row.audit_24h ?? 0),
+	}));
+	const usersRow = (usersRes?.results?.[0] ?? {}) as {
+		total_users?: number;
+		disabled_users?: number | null;
+	};
+	const familiesRow = (familiesRes?.results?.[0] ?? {}) as {
+		total_families?: number;
+	};
+	const sessionsRow = (sessionsRes?.results?.[0] ?? {}) as {
+		active_sessions?: number;
+	};
+	const invitesRow = (invitesRes?.results?.[0] ?? {}) as {
+		pending_invites?: number;
+	};
+	const auditRow = (auditRes?.results?.[0] ?? {}) as {
+		audit_24h?: number;
+	};
+
+	const activeAccounts = perAccount.filter((a) => a.status === "active").length;
+	return {
+		totalAccounts: perAccount.length,
+		activeAccounts,
+		suspendedAccounts: perAccount.length - activeAccounts,
+		totalUsers: Number(usersRow.total_users ?? 0),
+		disabledUsers: Number(usersRow.disabled_users ?? 0),
+		totalFamilies: Number(familiesRow.total_families ?? 0),
+		activeSessions: Number(sessionsRow.active_sessions ?? 0),
+		pendingInvites: Number(invitesRow.pending_invites ?? 0),
+		auditEvents24h: Number(auditRow.audit_24h ?? 0),
+		perAccount,
+	};
+}
+
+export async function getSystemAccountDetail(
+	db: D1Database,
+	accountId: string,
+	now = Date.now(),
+): Promise<SystemResult<SystemAccountsGetResult>> {
+	const account = await getTenant(db, accountId);
+	if (!account) {
+		return { ok: false, code: "not_found", message: "Account not found" };
+	}
+	const cutoff24h = now - 86_400_000;
+	const [countsRes, providersRes, sessionsRes] = await db.batch([
+		db
+			.prepare(
+				`SELECT
+           (SELECT COUNT(*) FROM cadmus_families WHERE account_id = ?1) AS family_count,
+           (SELECT COUNT(*) FROM cadmus_invites WHERE account_id = ?1 AND accepted_at IS NULL AND revoked_at IS NULL AND expires_at > ?2) AS pending_invite_count,
+           (SELECT COUNT(*) FROM cadmus_audit WHERE (account_id = ?1 OR target_account_id = ?1) AND at >= ?3) AS audit_24h`,
+			)
+			.bind(accountId, now, cutoff24h),
+		db
+			.prepare(
+				`SELECT provider_id FROM cadmus_account_credentials WHERE account_id = ?1 ORDER BY provider_id ASC`,
+			)
+			.bind(accountId),
+		db
+			.prepare(
+				`SELECT s.id, s.user_id, u.name AS user_name, COALESCE(u.primary_email, u.email) AS user_email,
+                s.client, s.ip_country, s.user_agent, s.created_at, s.last_used_at
+         FROM cadmus_sessions s
+         LEFT JOIN cadmus_users u ON u.id = s.user_id
+         WHERE s.account_id = ?1 AND s.revoked_at IS NULL AND s.idle_expires_at > ?2 AND s.absolute_expires_at > ?2
+         ORDER BY s.last_used_at DESC, s.id ASC`,
+			)
+			.bind(accountId, now),
+	]);
+
+	const countsRow = (countsRes?.results?.[0] ?? {}) as {
+		family_count?: number;
+		pending_invite_count?: number;
+		audit_24h?: number;
+	};
+	const connectedProviders = (
+		(providersRes?.results ?? []) as Array<{ provider_id: string }>
+	).map((r) => r.provider_id);
+	const activeSessions: SystemSessionRecord[] = (
+		(sessionsRes?.results ?? []) as Array<{
+			id: string;
+			user_id: string;
+			user_name: string | null;
+			user_email: string | null;
+			client: string | null;
+			ip_country: string | null;
+			user_agent: string | null;
+			created_at: number;
+			last_used_at: number;
+		}>
+	).map((r) => ({
+		id: r.id,
+		userId: r.user_id,
+		...(r.user_name ? { userName: r.user_name } : {}),
+		...(r.user_email ? { userEmail: r.user_email } : {}),
+		client: r.client ?? "web",
+		...(r.ip_country ? { ipCountry: r.ip_country } : {}),
+		...(r.user_agent ? { userAgent: r.user_agent } : {}),
+		createdAt: Number(r.created_at),
+		lastUsedAt: Number(r.last_used_at),
+	}));
+
+	return {
+		ok: true,
+		account,
+		familyCount: Number(countsRow.family_count ?? 0),
+		pendingInviteCount: Number(countsRow.pending_invite_count ?? 0),
+		activeSessionCount: activeSessions.length,
+		connectedProviders,
+		auditEvents24h: Number(countsRow.audit_24h ?? 0),
+		activeSessions,
+	};
+}
+
+export async function revokeSystemSession(
+	db: D1Database,
+	input: { sessionId: string; accountId?: string; actor: string },
+	now = Date.now(),
+): Promise<SystemResult<{ revoked: boolean; sessionId: string }>> {
+	const existing = await db
+		.prepare(
+			`SELECT id, user_id, account_id, revoked_at FROM cadmus_sessions WHERE id = ?1`,
+		)
+		.bind(input.sessionId)
+		.first<{
+			id: string;
+			user_id: string;
+			account_id: string;
+			revoked_at: number | null;
+		}>();
+	if (
+		!existing ||
+		(input.accountId && existing.account_id !== input.accountId)
+	) {
+		return { ok: false, code: "not_found", message: "Session not found" };
+	}
+	if (existing.revoked_at !== null) {
+		return { ok: true, revoked: false, sessionId: input.sessionId };
+	}
+	const [update] = await db.batch([
+		db
+			.prepare(
+				`UPDATE cadmus_sessions SET revoked_at = ?2 WHERE id = ?1 AND revoked_at IS NULL`,
+			)
+			.bind(input.sessionId, now),
+		db
+			.prepare(
+				`INSERT INTO cadmus_audit (id, account_id, actor_user_id, actor_kind, action, target_account_id, target, data, at)
+         SELECT ?1, '${SYSTEM_ACCOUNT_ID}', ?2, 'user', 'session.revoke', ?3, ?4, ?5, ?6
+         WHERE changes() > 0`,
+			)
+			.bind(
+				randomId("aud_"),
+				input.actor,
+				existing.account_id,
+				input.sessionId,
+				JSON.stringify({ userId: existing.user_id }),
+				now,
+			),
+	]);
+	return {
+		ok: true,
+		revoked: (update?.meta?.changes ?? 0) > 0,
+		sessionId: input.sessionId,
+	};
 }

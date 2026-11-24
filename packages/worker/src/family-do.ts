@@ -5,7 +5,10 @@ import {
 	extractModelProvider,
 	readOnlyGroupToolNames,
 } from "@cadmus/contract/tools";
-import type { Context } from "@earendil-works/chord/context";
+import {
+	BACKGROUND_CONTEXT,
+	type Context,
+} from "@earendil-works/chord/context";
 import type {
 	AssistantMessage,
 	Message,
@@ -16,15 +19,23 @@ import {
 	AgentDoc,
 	type AgentEvent,
 	type AgentEventStream,
+	AssistantEntry,
+	CompactionEntry,
 	type Conversation,
 	type ConversationId,
 	type Cursor,
 	createRegistry,
+	type EntryId,
+	type EntryRecord,
 	Harness,
 	LiveDoc,
+	ResetEntry,
+	SystemEntry,
 	type TaskId,
 	type ToolRegistration,
+	ToolResultEntry,
 	UsageDoc,
+	UserEntry,
 	watchEvents,
 } from "@earendil-works/pi-durable";
 import { openDurableObjectSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/cloudflare";
@@ -65,6 +76,11 @@ import {
 	type ExtensionActivationContext,
 	resolveConversationExtensionsAndTools,
 } from "./extensions/cadmus-tools.js";
+import {
+	DEFAULT_CADMUS_COMPACTION_POLICY,
+	estimateViewContextTokens,
+	stripCompactionSummaryWrapper,
+} from "./extensions/compaction.js";
 import { DEFAULT_SOUL } from "./extensions/identity.js";
 import {
 	MEMORY_VFS_PATH,
@@ -97,12 +113,14 @@ import {
 import { OAuthFlowManager } from "./oauth.js";
 import {
 	type BotRecord,
+	type ChatCompactionSnapshot,
 	type ChatKind,
 	type ChatRecord,
 	type ChatTaskLoop,
 	type ClientCommand,
 	type CommandResultFrame,
 	type CommandType,
+	type CompactionTaskView,
 	type ModelInfo,
 	ProtocolValidationError,
 	type RawTranscriptEntry,
@@ -126,7 +144,11 @@ import {
 } from "./schedules.js";
 import { defaultJsonShim, type ProtocolShim } from "./shim.js";
 import { D1AdminStore, toDoName } from "./store/d1-admin.js";
-import type { FamilyStore, GroupChatRecord } from "./store/family-interface.js";
+import {
+	type FamilyStore,
+	type GroupChatRecord,
+	primaryChatKey,
+} from "./store/family-interface.js";
 import {
 	CasConflictError,
 	formatSkillMarkdown,
@@ -208,6 +230,7 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 	private lastAuthSweepAt = 0;
 	private activeWatches = new Map<number, AgentEventStream>();
 	private streamedAssistantContent = new Map<number, Map<number, string>>();
+	private trackedCompactionTasks = new Set<number>();
 
 	constructor(ctx: DurableObjectState, env: Env) {
 		super(ctx, env);
@@ -608,6 +631,7 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 				registry,
 				settings: {
 					extensions: cadmusDefaultExtensions(),
+					compaction: { ...DEFAULT_CADMUS_COMPACTION_POLICY },
 					contextRetentionMs: 0,
 					documentRetentionMs: 0,
 				},
@@ -868,6 +892,8 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 		}
 
 		await this.drainDueSchedules(harness, context);
+		await this.trackBackgroundCompactions(harness);
+		await this.drainDueCompactions(harness, context);
 
 		const staleOneShots = this.familyStore.schedules
 			.listSchedules(undefined, true)
@@ -913,6 +939,68 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 			await new Promise((r) => setTimeout(r, 25));
 		}
 		await harness.waitForIdle(context);
+	}
+
+	private async trackBackgroundCompactions(harness: Harness): Promise<void> {
+		const inspection = await harness.inspect(BACKGROUND_CONTEXT);
+		const now = Date.now();
+		for (const t of inspection.tasks) {
+			if (t.record.kind !== "pi.compaction") continue;
+			if (t.record.state.status !== "running") continue;
+			const cp = t.record.state.checkpoint as
+				| { phase?: string; until?: number }
+				| undefined;
+			if (
+				cp?.phase === "retry" &&
+				typeof cp.until === "number" &&
+				cp.until > now
+			) {
+				continue;
+			}
+			const taskIdNum = Number(t.record.id);
+			if (this.trackedCompactionTasks.has(taskIdNum)) continue;
+			this.trackedCompactionTasks.add(taskIdNum);
+			harness.resume();
+			this.ctx.waitUntil(
+				harness
+					.waitForTask(t.record.id, BACKGROUND_CONTEXT)
+					.catch((error) => {
+						this.log().warn("background compaction wait failed", {
+							taskId: taskIdNum,
+							error,
+						});
+					})
+					.finally(() => {
+						this.trackedCompactionTasks.delete(taskIdNum);
+						void this.syncAlarmInternal().catch(() => {});
+					}),
+			);
+		}
+	}
+
+	private async drainDueCompactions(
+		harness: Harness,
+		context: Context,
+	): Promise<void> {
+		for (let i = 0; i < 200; i++) {
+			const inspection = await harness.inspect(context);
+			const now = Date.now();
+			const dueOrRunning = inspection.tasks.some((t) => {
+				if (t.record.kind !== "pi.compaction") return false;
+				if (t.record.state.status !== "running") return false;
+				const cp = t.record.state.checkpoint as
+					| { phase?: string; until?: number }
+					| undefined;
+				if (cp?.phase === "retry" && typeof cp.until === "number") {
+					return cp.until <= now;
+				}
+				return true;
+			});
+			if (!dueOrRunning) {
+				break;
+			}
+			await new Promise((r) => setTimeout(r, 25));
+		}
 	}
 
 	// ─── RPC & Streaming Event Helpers ─────────────────────────────────────────
@@ -1317,32 +1405,28 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 	private commandHandlers(caller: CallerMeta): CommandHandlerMap {
 		const meta = this.getFamilyMeta();
 		const readChatSnapshot = async (
-			command: Extract<
-				ClientCommand,
-				{
-					type:
-						| "chat.get"
-						| "chat.messages"
-						| "chat.entries"
-						| "chat.subscribe";
-				}
-			>,
+			command: Extract<ClientCommand, { type: "chat.get" }>,
 		) => {
 			const group = this.familyStore.groups.getById(command.payload.chatKey);
 			if (group) {
+				const raw = Boolean(command.payload.raw);
 				return {
 					chat: this.groupAsChat(group),
 					busy: group.status === "open",
+					compacting: false,
 					messages: this.familyStore.groups
 						.listMessages(group.id)
 						.map((message) => ({
 							id: message.seq,
 							role: "user" as const,
+							visibleToUser: true,
+							visibleToModel: true,
 							text: message.text,
 							fromBotId: message.fromBotId,
 							timestamp: message.at,
 						})),
-					entries: [],
+					...(raw ? { entries: [] } : {}),
+					hasMore: false,
 					notes: [],
 				};
 			}
@@ -1353,6 +1437,9 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 					"not_found",
 				);
 			}
+			const raw = Boolean(command.payload.raw);
+			const limit = Math.max(1, Math.min(500, command.payload.limit ?? 100));
+			const beforeEntryId = command.payload.beforeEntryId;
 			const { harness, context } = await this.ensureHarness();
 			const conv = await harness.conversation(
 				chat.conversationId as ConversationId,
@@ -1362,34 +1449,54 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 				await this.attachConversationWatch(chat, conv, context);
 			}
 			const transcript = conv
-				? await this.readTranscriptData(conv, context)
-				: { messages: [], entries: [] };
+				? await this.readTranscriptData(conv, context, {
+						raw,
+						limit,
+						beforeEntryId,
+					})
+				: {
+						messages: [],
+						entries: [] as RawTranscriptEntry[],
+						hasMore: false,
+						oldestEntryId: undefined,
+						headEntryId: undefined,
+						firstKeptEntryId: undefined,
+					};
 			const authors = this.familyStore.chats.listEntryAuthors(chat.key);
 			const messages = transcript.messages.map((message) => {
 				const authorUserId =
 					message.role === "user" ? authors.get(message.id) : undefined;
 				return authorUserId ? { ...message, authorUserId } : message;
 			});
-			const { entries } = transcript;
 			const live = await harness.snapshot(
 				LiveDoc,
 				chat.conversationId as ConversationId,
 				context,
 			);
+			const compaction = buildCompactionSnapshot(
+				live,
+				transcript.headEntryId,
+				transcript.firstKeptEntryId,
+			);
 			const notes = this.familyStore.harvest.listNotes(chat.key);
 			const bot = this.familyStore.bots.getBot(chat.botId);
-			const resolved =
-				command.type === "chat.get" && bot
-					? await this.toolsEnvController.resolvedFields(
-							bot,
-							chat.toolsEnv ?? null,
-						)
-					: {};
+			const resolved = bot
+				? await this.toolsEnvController.resolvedFields(
+						bot,
+						chat.toolsEnv ?? null,
+					)
+				: {};
 			return {
 				chat: this.decorateChat(chat),
 				busy: Boolean(live?.run),
+				compacting: compaction.active,
+				compaction,
 				messages,
-				entries,
+				...(raw ? { entries: transcript.entries } : {}),
+				hasMore: transcript.hasMore,
+				...(transcript.oldestEntryId !== undefined
+					? { oldestEntryId: transcript.oldestEntryId }
+					: {}),
 				notes,
 				tasks: this.familyStore.tasks.list(chat.key),
 				taskLoop: this.taskLoopSnapshot(chat.key),
@@ -1932,6 +2039,40 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 					}),
 				};
 			},
+			"system.metrics": async () => {
+				return this.adminStore.getSystemMetrics();
+			},
+			"system.accounts.get": async (command) => {
+				const result = await this.adminStore.getSystemAccountDetail(
+					command.payload.accountId,
+				);
+				if (!result.ok) {
+					throw new ProtocolValidationError(result.message, result.code);
+				}
+				return {
+					account: result.account,
+					familyCount: result.familyCount,
+					pendingInviteCount: result.pendingInviteCount,
+					activeSessionCount: result.activeSessionCount,
+					connectedProviders: result.connectedProviders,
+					auditEvents24h: result.auditEvents24h,
+					activeSessions: result.activeSessions,
+				};
+			},
+			"system.sessions.revoke": async (command) => {
+				const result = await this.adminStore.revokeSystemSession({
+					sessionId: command.payload.sessionId,
+					accountId: command.payload.accountId,
+					actor: caller.userId ?? "unknown",
+				});
+				if (!result.ok) {
+					throw new ProtocolValidationError(result.message, result.code);
+				}
+				return {
+					revoked: result.revoked,
+					sessionId: result.sessionId,
+				};
+			},
 			"auth.elevate": async (_command) => {
 				const sessionId = requireSession(caller);
 				const elevatedUntil = await this.adminStore.startElevation(
@@ -2238,6 +2379,17 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 					else delete updated.toolsEnv;
 				}
 				this.familyStore.bots.upsertBot(updated);
+				if (updated.name !== existing.name) {
+					const primary = this.familyStore.chats.getChat(
+						primaryChatKey(updated.id),
+					);
+					if (primary) {
+						this.familyStore.chats.upsertChat({
+							...primary,
+							title: updated.name,
+						});
+					}
+				}
 				if (
 					command.payload.timezone !== undefined &&
 					command.payload.timezone !== existing.timezone
@@ -2266,11 +2418,13 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 				}
 
 				const { harness, context } = await this.ensureHarness();
+				const configuredConvs = new Set<number>();
 				const rootConv = await harness.conversation(
 					updated.rootConversationId as ConversationId,
 					context,
 				);
 				if (rootConv) {
+					configuredConvs.add(updated.rootConversationId);
 					await rootConv.configure(
 						{
 							model: modelRef,
@@ -2281,6 +2435,8 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 					);
 				}
 				for (const chat of this.familyStore.chats.listChats(updated.id)) {
+					if (configuredConvs.has(chat.conversationId)) continue;
+					configuredConvs.add(chat.conversationId);
 					const conv = await harness.conversation(
 						chat.conversationId as ConversationId,
 						context,
@@ -2340,8 +2496,10 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 
 				const { harness, context } = await this.ensureHarness();
 				const conversationIds = [
-					existing.rootConversationId,
-					...chatsToDelete.map((chat) => chat.conversationId),
+					...new Set([
+						existing.rootConversationId,
+						...chatsToDelete.map((chat) => chat.conversationId),
+					]),
 				];
 				for (const convId of conversationIds) {
 					const watch = this.activeWatches.get(convId);
@@ -2391,7 +2549,6 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 						...this.familyStore.chats.listChats({
 							botId,
 							kinds: storeKinds,
-							includeDeleted: command.payload?.includeDeleted,
 						}),
 					);
 				}
@@ -2403,20 +2560,6 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 					chats.push(...groups);
 				}
 				return { chats: chats.map((chat) => this.decorateChat(chat)) };
-			},
-			"chat.create": async (command) => {
-				const chat = await this.createChatInternal({
-					botId: command.payload.botId,
-					key: command.payload.key ?? command.payload.chatId,
-					title: command.payload.title,
-					thinking: command.payload.thinking,
-					toolsEnv: command.payload.toolsEnv,
-					...(command.payload.harvest !== undefined
-						? { harvest: command.payload.harvest }
-						: {}),
-					kind: command.payload.kind,
-				});
-				return { chat: this.decorateChat(chat) };
 			},
 			"chat.update": async (command) => {
 				const chat = this.familyStore.chats.getChat(command.payload.chatKey);
@@ -2479,9 +2622,6 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 				return { chat: this.decorateChat(updated) };
 			},
 			"chat.get": readChatSnapshot,
-			"chat.messages": readChatSnapshot,
-			"chat.entries": readChatSnapshot,
-			"chat.subscribe": readChatSnapshot,
 			"chat.status": async (command) => {
 				return this.readChatStatus(command.payload.chatKey);
 			},
@@ -2503,21 +2643,6 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 				}
 				return { task };
 			},
-			"chat.rename": async (command) => {
-				const chat = this.familyStore.chats.getChat(command.payload.chatKey);
-				if (!chat) {
-					throw new ProtocolValidationError(
-						`Chat '${command.payload.chatKey}' not found`,
-						"not_found",
-					);
-				}
-				const updated: ChatRecord = {
-					...chat,
-					title: command.payload.title,
-				};
-				this.familyStore.chats.upsertChat(updated);
-				return { chat: this.decorateChat(updated) };
-			},
 			"chat.reset": async (command) => {
 				const chat = this.familyStore.chats.getChat(command.payload.chatKey);
 				if (!chat) {
@@ -2537,40 +2662,6 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 				this.familyStore.tasks.clear(chat.key);
 				this.broadcastChatTasksInternal(chat.key);
 				return { chat: this.decorateChat(chat), reset: true };
-			},
-			"chat.close": async (command) => {
-				const chat = this.familyStore.chats.getChat(command.payload.chatKey);
-				if (!chat) {
-					throw new ProtocolValidationError(
-						`Chat '${command.payload.chatKey}' not found`,
-						"not_found",
-					);
-				}
-				const updated: ChatRecord = { ...chat, closed: true };
-				this.familyStore.chats.upsertChat(updated);
-				this.familyStore.tasks.clear(chat.key);
-				this.broadcastChatTasksInternal(chat.key);
-				return { chat: this.decorateChat(updated) };
-			},
-			"chat.delete": async (command) => {
-				const chat = this.familyStore.chats.getChat(command.payload.chatKey);
-				if (!chat) {
-					throw new ProtocolValidationError(
-						`Chat '${command.payload.chatKey}' not found`,
-						"not_found",
-					);
-				}
-				const now = Date.now();
-				this.familyStore.chats.softDeleteChat(chat.key, now);
-				this.familyStore.tasks.clear(chat.key);
-				this.broadcastChatTasksInternal(chat.key);
-				const deletedRecord: ChatRecord = {
-					...chat,
-					deleted: true,
-					deletedAt: now,
-					closed: true,
-				};
-				return { deleted: true, chat: this.decorateChat(deletedRecord) };
 			},
 			"turn.submit": async (command) => {
 				this.rejectUserPost(command.payload.chatKey);
@@ -2834,7 +2925,17 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 						"not_found",
 					);
 				}
-				this.assertScheduleTargetOwnership(botId, target);
+				const resolvedTarget: ScheduleTarget =
+					!target || target.mode === "chat"
+						? {
+								mode: "chat",
+								chatKey:
+									target?.mode === "chat" && target.chatKey
+										? target.chatKey
+										: primaryChatKey(botId),
+							}
+						: target;
+				this.assertScheduleTargetOwnership(botId, resolvedTarget);
 				const timezone = bot.timezone ?? this.getFamilyMeta().timezone;
 
 				let nextRun: number;
@@ -2890,7 +2991,7 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 					inSeconds,
 					recurring: kind === "cron",
 					text,
-					target,
+					target: resolvedTarget,
 					...(thinking ? { thinking } : {}),
 					enabled: enabled ?? true,
 				};
@@ -3293,6 +3394,35 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 		);
 		const ctxView = conv ? await conv.context(context) : undefined;
 		const entryCount = ctxView ? ctxView.entries.length : 0;
+		const totalEntryCount = conv
+			? await this.countConversationEntries(conv, context)
+			: 0;
+		const contextTokens = ctxView ? estimateViewContextTokens(ctxView) : 0;
+		const modelRef = parseModelRef(bot.model);
+		const modelInfo =
+			modelRef && this.modelsInstance
+				? this.modelsInstance.getModel(modelRef.provider, modelRef.modelId)
+				: undefined;
+		const contextWindow = modelInfo?.contextWindow ?? 128_000;
+		const headEntryId =
+			ctxView?.head && CompactionEntry.is(ctxView.head)
+				? Number(ctxView.head.id)
+				: undefined;
+		const firstKeptEntryId =
+			ctxView?.head && CompactionEntry.is(ctxView.head)
+				? Number(ctxView.head.head)
+				: undefined;
+		const compactionSnapshot = buildCompactionSnapshot(
+			live,
+			headEntryId,
+			firstKeptEntryId,
+		);
+		const compaction = {
+			...compactionSnapshot,
+			contextTokens,
+			contextWindow,
+			policy: { ...DEFAULT_CADMUS_COMPACTION_POLICY },
+		};
 		const watermark = this.familyStore.harvest.getWatermark(chatKey);
 
 		const allSchedules = this.familyStore.schedules
@@ -3355,6 +3485,8 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 			tools: effectiveTools ? [...effectiveTools] : ("all" as const),
 			busy: Boolean(live?.run),
 			entryCount,
+			totalEntryCount,
+			compaction,
 			harvestWatermark: watermark,
 			nextWakeAt,
 			usage: chatUsage,
@@ -3428,6 +3560,7 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 		}
 		const thinkingStr: ThinkingLevel = input.thinking ?? "off";
 
+		const createdAt = Date.now();
 		const preview: BotRecord = {
 			id: slug,
 			name: input.name,
@@ -3437,7 +3570,8 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 			...(input.tools !== undefined ? { tools: input.tools } : {}),
 			...(toolsEnv ? { toolsEnv } : {}),
 			rootConversationId: 0,
-			createdAt: Date.now(),
+			primaryChatKey: primaryChatKey(slug),
+			createdAt,
 		};
 		const offerCoding = await this.toolsEnvController.willOffer(preview, null);
 
@@ -3487,10 +3621,28 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 				? { metadata: input.metadata }
 				: {}),
 			rootConversationId: rootConv.id as unknown as number,
-			createdAt: Date.now(),
+			primaryChatKey: primaryChatKey(slug),
+			createdAt,
 		};
 
 		this.familyStore.bots.upsertBot(bot);
+		const primaryChat: ChatRecord = {
+			key: bot.primaryChatKey,
+			botId: bot.id,
+			conversationId: bot.rootConversationId,
+			title: bot.name,
+			kind: "direct",
+			createdAt,
+		};
+		this.familyStore.chats.upsertChat(primaryChat);
+		this.familyStore.chats.recordConversationRoute({
+			conversationId: bot.rootConversationId,
+			chatKey: primaryChat.key,
+			botId: bot.id,
+			toolsEnvEnabled: true,
+			kind: "direct",
+		});
+		await this.attachConversationWatch(primaryChat, rootConv, context);
 		this.familyStore.files.setSoul(slug, input.soul ?? DEFAULT_SOUL);
 
 		if (input.memory !== undefined && input.memory !== "") {
@@ -3635,8 +3787,9 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 		const view = await conv.context(context);
 		let text = "";
 		for (const entry of view.entries) {
+			if (!UserEntry.is(entry)) continue;
 			const msg = entry.model?.[0];
-			if (msg?.role !== "user") continue;
+			if (!msg) continue;
 			text = messageContentToText((msg as { content?: unknown }).content);
 		}
 		const match = /· chat ([^\]\s]+)\]/.exec(text);
@@ -4144,6 +4297,40 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 				});
 				break;
 			}
+			case "compaction_start": {
+				this.broadcastEvent({
+					type: "chat.compaction",
+					payload: {
+						chatKey: chat.key,
+						botId: chat.botId,
+						conversationId: chat.conversationId,
+						phase: "started",
+						taskId: Number(ev.taskId),
+						reason: ev.reason,
+						blocking: ev.blocking,
+					},
+				});
+				if (!ev.blocking && this.harnessInstance) {
+					void this.trackBackgroundCompactions(this.harnessInstance);
+				}
+				break;
+			}
+			case "compaction_end": {
+				this.broadcastEvent({
+					type: "chat.compaction",
+					payload: {
+						chatKey: chat.key,
+						botId: chat.botId,
+						conversationId: chat.conversationId,
+						phase: ev.error ? "failed" : "completed",
+						taskId: Number(ev.taskId),
+						reason: ev.reason,
+						...(ev.error ? { error: ev.error } : {}),
+					},
+				});
+				void this.syncAlarmInternal().catch(() => {});
+				break;
+			}
 		}
 	}
 
@@ -4281,6 +4468,7 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 			throw error;
 		}
 		await conv.waitForIdle(context);
+		await this.trackBackgroundCompactions(harness);
 
 		log.debug("chat turn settled", { status: settled.status });
 
@@ -4288,7 +4476,7 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 		if (input.authorUserId) {
 			for (const entry of view.entries) {
 				const entryId = Number(entry.id);
-				if (entryId > lastEntryBefore && entry.model?.[0]?.role === "user") {
+				if (entryId > lastEntryBefore && UserEntry.is(entry)) {
 					this.familyStore.chats.setEntryAuthor(
 						chat.key,
 						entryId,
@@ -4799,51 +4987,138 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 		return this.ctx.getWebSockets().length + this.sseControllers.size > 0;
 	}
 
+	private async countConversationEntries(
+		conv: Conversation,
+		context: Context,
+	): Promise<number> {
+		let total = 0;
+		let cursor: Cursor | undefined;
+		for (;;) {
+			const page = await conv.entries(
+				{ order: "descending" },
+				500,
+				cursor,
+				context,
+			);
+			total += page.items.length;
+			if (page.next === undefined) return total;
+			cursor = page.next;
+		}
+	}
+
 	private async readTranscriptData(
 		conv: Conversation,
 		context: Context,
+		options: { raw: boolean; limit: number; beforeEntryId?: number },
 	): Promise<{
 		messages: TranscriptMessageView[];
 		entries: RawTranscriptEntry[];
+		hasMore: boolean;
+		oldestEntryId?: number;
+		headEntryId?: number;
+		firstKeptEntryId?: number;
 	}> {
-		const view = await conv.context(context);
-		const toolResults = new Map<string, ToolCallResultSummary>();
-		for (const entry of view.entries) {
-			const msg = entry.model?.[0];
-			if (msg && msg.role === "toolResult") {
-				const toolResultMsg = msg as ToolResultMessage;
-				toolResults.set(toolResultMsg.toolCallId, {
-					content: messageContentToText(toolResultMsg.content),
-					isError: Boolean(toolResultMsg.isError),
-					...(typeof toolResultMsg.durationMs === "number"
-						? { durationMs: toolResultMsg.durationMs }
-						: {}),
-				});
+		const activeView = await conv.context(context);
+		const activeModelEntryIds = new Set<number>();
+		for (let i = 0; i < activeView.entries.length; i++) {
+			const entry = activeView.entries[i];
+			const contribs = activeView.contributions[i];
+			if (entry && contribs && contribs.length > 0) {
+				activeModelEntryIds.add(Number(entry.id));
 			}
 		}
+		if (activeView.head?.model && activeView.head.model.length > 0) {
+			activeModelEntryIds.add(Number(activeView.head.id));
+		}
+		const headEntryId =
+			activeView.head && CompactionEntry.is(activeView.head)
+				? Number(activeView.head.id)
+				: undefined;
+		const firstKeptEntryId =
+			activeView.head && CompactionEntry.is(activeView.head)
+				? Number(activeView.head.head)
+				: undefined;
+
+		const toolResults = new Map<string, ToolCallResultSummary>();
+		const collected: EntryRecord[] = [];
+		const batchSize = Math.min(200, Math.max(50, options.limit + 1));
+		let cursor: Cursor | undefined;
+		for (;;) {
+			const page = await conv.entries(
+				{
+					order: "descending",
+					...(options.beforeEntryId !== undefined
+						? { maxEntryId: (options.beforeEntryId - 1) as EntryId }
+						: {}),
+				},
+				batchSize,
+				cursor,
+				context,
+			);
+			for (const entry of page.items) {
+				if (ToolResultEntry.is(entry)) {
+					const toolResultMsg = entry.model?.[0] as
+						| ToolResultMessage
+						| undefined;
+					if (toolResultMsg) {
+						toolResults.set(toolResultMsg.toolCallId, {
+							content: messageContentToText(toolResultMsg.content),
+							isError: Boolean(toolResultMsg.isError),
+							...(typeof toolResultMsg.durationMs === "number"
+								? { durationMs: toolResultMsg.durationMs }
+								: {}),
+						});
+					}
+				}
+				const userVisible =
+					UserEntry.is(entry) ||
+					AssistantEntry.is(entry) ||
+					ToolResultEntry.is(entry) ||
+					CompactionEntry.is(entry) ||
+					ResetEntry.is(entry);
+				if (options.raw || userVisible) {
+					collected.push(entry);
+					if (collected.length >= options.limit + 1) break;
+				}
+			}
+			if (collected.length >= options.limit + 1 || page.next === undefined) {
+				break;
+			}
+			cursor = page.next;
+		}
+
+		const hasMore = collected.length > options.limit;
+		const pageEntries = collected.slice(0, options.limit).reverse();
+		const oldestEntryId =
+			pageEntries.length > 0 ? Number(pageEntries[0]?.id) : undefined;
 
 		let lastUserEntryId: number | undefined;
 		const messages: TranscriptMessageView[] = [];
 
-		for (const entry of view.entries) {
-			const msg = entry.model?.[0];
-			if (!msg) continue;
+		for (const entry of pageEntries) {
 			const id = Number(entry.id);
+			const visibleToModel = activeModelEntryIds.has(id);
 
-			if (msg.role === "user") {
+			if (UserEntry.is(entry)) {
+				const msg = entry.model?.[0];
+				if (!msg) continue;
 				lastUserEntryId = id;
 				const blocks = extractUserBlocks(msg.content);
 				messages.push({
 					id,
 					role: "user",
+					entryKind: entry.kind,
+					visibleToUser: true,
+					visibleToModel,
 					text: messageContentToText(msg.content),
 					...(blocks.length > 0 ? { blocks } : {}),
 					...(typeof msg.timestamp === "number"
 						? { timestamp: msg.timestamp }
 						: {}),
 				});
-			} else if (msg.role === "assistant") {
-				const assistant = msg as AssistantMessage;
+			} else if (AssistantEntry.is(entry)) {
+				const assistant = entry.model?.[0] as AssistantMessage | undefined;
+				if (!assistant) continue;
 				const blocks: TranscriptContentBlock[] = [];
 				const toolCalls: TranscriptToolCallView[] = [];
 				const thinkingParts: string[] = [];
@@ -4913,6 +5188,9 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 				messages.push({
 					id,
 					role: "assistant",
+					entryKind: entry.kind,
+					visibleToUser: true,
+					visibleToModel,
 					text: messageContentToText(assistant.content),
 					...(lastUserEntryId !== undefined
 						? { replyToEntryId: lastUserEntryId }
@@ -4933,11 +5211,15 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 						? { durationMs: assistant.durationMs }
 						: {}),
 				});
-			} else if (msg.role === "toolResult") {
-				const toolResultMsg = msg as ToolResultMessage;
+			} else if (ToolResultEntry.is(entry)) {
+				const toolResultMsg = entry.model?.[0] as ToolResultMessage | undefined;
+				if (!toolResultMsg) continue;
 				messages.push({
 					id,
 					role: "toolResult",
+					entryKind: entry.kind,
+					visibleToUser: true,
+					visibleToModel,
 					text: messageContentToText(toolResultMsg.content),
 					...(lastUserEntryId !== undefined
 						? { replyToEntryId: lastUserEntryId }
@@ -4952,24 +5234,117 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 						? { durationMs: toolResultMsg.durationMs }
 						: {}),
 				});
+			} else if (CompactionEntry.is(entry)) {
+				const msg = entry.model?.[0] as { content?: unknown } | undefined;
+				messages.push({
+					id,
+					role: "compaction",
+					entryKind: entry.kind,
+					visibleToUser: true,
+					visibleToModel,
+					text: stripCompactionSummaryWrapper(
+						messageContentToText(msg?.content),
+					),
+					...(entry.data?.reason
+						? { compactionReason: entry.data.reason }
+						: {}),
+					firstKeptEntryId: Number(entry.head),
+				});
+			} else if (ResetEntry.is(entry)) {
+				const msg = entry.model?.[0] as { content?: unknown } | undefined;
+				messages.push({
+					id,
+					role: "reset",
+					entryKind: entry.kind,
+					visibleToUser: true,
+					visibleToModel,
+					text: messageContentToText(msg?.content),
+				});
+			} else if (SystemEntry.is(entry)) {
+				const msg = entry.model?.[0] as { content?: unknown } | undefined;
+				messages.push({
+					id,
+					role: "system",
+					entryKind: entry.kind,
+					visibleToUser: false,
+					visibleToModel,
+					text: messageContentToText(msg?.content),
+				});
 			}
 		}
 
-		const entries: RawTranscriptEntry[] = view.entries.map((entry) => ({
-			id: Number(entry.id),
-			conversationId: Number(entry.conversationId),
-			kind: entry.kind,
-			...(entry.model !== undefined ? { model: entry.model as unknown[] } : {}),
-			...(entry.data !== undefined ? { data: entry.data } : {}),
-			...(entry.head !== undefined ? { head: Number(entry.head) } : {}),
-			...(entry.edits !== undefined ? { edits: entry.edits as unknown[] } : {}),
-			...(entry.byTaskId !== undefined
-				? { byTaskId: Number(entry.byTaskId) }
-				: {}),
-		}));
+		const entries: RawTranscriptEntry[] = options.raw
+			? pageEntries.map((entry) => ({
+					id: Number(entry.id),
+					conversationId: Number(entry.conversationId),
+					kind: entry.kind,
+					...(entry.model !== undefined
+						? { model: entry.model as unknown[] }
+						: {}),
+					...(entry.data !== undefined ? { data: entry.data } : {}),
+					...(entry.head !== undefined ? { head: Number(entry.head) } : {}),
+					...(entry.edits !== undefined
+						? { edits: entry.edits as unknown[] }
+						: {}),
+					...(entry.byTaskId !== undefined
+						? { byTaskId: Number(entry.byTaskId) }
+						: {}),
+				}))
+			: [];
 
-		return { messages, entries };
+		return {
+			messages,
+			entries,
+			hasMore,
+			...(oldestEntryId !== undefined ? { oldestEntryId } : {}),
+			...(headEntryId !== undefined ? { headEntryId } : {}),
+			...(firstKeptEntryId !== undefined ? { firstKeptEntryId } : {}),
+		};
 	}
+}
+
+function buildCompactionSnapshot(
+	live:
+		| {
+				compactions?: readonly {
+					taskId: unknown;
+					reason: "manual" | "threshold" | "overflow";
+					blocking: boolean;
+					attempt: number;
+					retry?: { at: number; error: string };
+				}[];
+				compactionFailure?: {
+					taskId: unknown;
+					reason: "manual" | "threshold" | "overflow";
+					error: string;
+				};
+		  }
+		| undefined,
+	headEntryId: number | undefined,
+	firstKeptEntryId: number | undefined,
+): ChatCompactionSnapshot {
+	const tasks: CompactionTaskView[] = (live?.compactions ?? []).map((c) => ({
+		taskId: Number(c.taskId),
+		reason: c.reason,
+		blocking: c.blocking,
+		attempt: c.attempt,
+		...(c.retry ? { retryAt: c.retry.at, retryError: c.retry.error } : {}),
+	}));
+	return {
+		active: tasks.length > 0,
+		tasks,
+		...(live?.compactionFailure
+			? {
+					lastFailure: {
+						taskId: Number(live.compactionFailure.taskId),
+						reason: live.compactionFailure.reason,
+						error: live.compactionFailure.error,
+					},
+				}
+			: {}),
+		...(headEntryId !== undefined ? { headEntryId } : {}),
+		...(firstKeptEntryId !== undefined ? { firstKeptEntryId } : {}),
+	};
 }
 
 function extractUserBlocks(content: unknown): TranscriptContentBlock[] {

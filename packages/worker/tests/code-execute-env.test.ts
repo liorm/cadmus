@@ -56,14 +56,13 @@ describe("code.execute while the bash tools env is on", () => {
 		);
 		expect(created.frame.ok).toBe(true);
 		expect(created.frame.result?.bot.tools).toEqual(BOTH);
-		await sendRpc("chat.create", { botId, key: "main" }, options);
 
 		const sink = installProviderToolCapture();
 		const ws = await connectTestWs(options);
 		try {
 			ws.events.length = 0;
 			const turn = await ws.send("turn.submit", {
-				chatKey: "main",
+				chatKey: `bot:${botId}`,
 				text: `[tool:${CODE_EXECUTE_TOOL_NAME} {"code":"print(1)"}]`,
 			});
 			expect(turn.ok).toBe(true);
@@ -94,7 +93,7 @@ describe("code.execute while the bash tools env is on", () => {
 		expect(stored.frame.result?.bot.tools).toEqual(BOTH);
 		const status = await sendRpc<{
 			status: { tools: string[] | "all" };
-		}>("chat.status", { chatKey: "main" }, options);
+		}>("chat.status", { chatKey: `bot:${botId}` }, options);
 		expect(status.frame.result?.status.tools).toEqual(
 			BOTH.filter((name) => name !== CODE_EXECUTE_TOOL_NAME),
 		);
@@ -102,9 +101,9 @@ describe("code.execute while the bash tools env is on", () => {
 			CODE_EXECUTE_TOOL_NAME,
 		);
 
-		const entries = await sendRpc<{ entries: unknown[] }>(
-			"chat.entries",
-			{ chatKey: "main" },
+		const entries = await sendRpc<{ entries?: unknown[] }>(
+			"chat.get",
+			{ chatKey: `bot:${botId}`, raw: true },
 			options,
 		);
 		const blob = JSON.stringify(entries.frame.result?.entries);
@@ -129,10 +128,9 @@ describe("code.execute while the bash tools env is on", () => {
 			options,
 		);
 		await sendRpc(
-			"chat.create",
+			"chat.update",
 			{
-				botId,
-				key: "main",
+				chatKey: `bot:${botId}`,
 				toolsEnv: { enabled: false },
 			},
 			options,
@@ -142,7 +140,7 @@ describe("code.execute while the bash tools env is on", () => {
 		const ws = await connectTestWs(options);
 		try {
 			const turn = await ws.send("turn.submit", {
-				chatKey: "main",
+				chatKey: `bot:${botId}`,
 				text: "Hello",
 			});
 			expect(turn.ok).toBe(true);
@@ -158,7 +156,7 @@ describe("code.execute while the bash tools env is on", () => {
 
 		const status = await sendRpc<{ status: { tools: string[] | "all" } }>(
 			"chat.status",
-			{ chatKey: "main" },
+			{ chatKey: `bot:${botId}` },
 			options,
 		);
 		expect(status.frame.result?.status.tools).toEqual(BOTH);
@@ -183,13 +181,12 @@ describe("code.execute while the bash tools env is on", () => {
 			},
 			options,
 		);
-		await sendRpc("chat.create", { botId, key: "main" }, options);
 
 		const sink = installProviderToolCapture();
 		const ws = await connectTestWs(options);
 		try {
 			const turn = await ws.send("turn.submit", {
-				chatKey: "main",
+				chatKey: `bot:${botId}`,
 				text: "Hello",
 			});
 			expect(turn.ok).toBe(true);

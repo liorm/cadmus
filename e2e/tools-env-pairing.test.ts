@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-	addMemberBearer,
 	adminScope,
+	loginDevPassword,
 	ScriptedDaemon,
 	sendRpc,
 	useWorkerFixture,
@@ -200,15 +200,14 @@ describe("tools-env automated pairing and registration", () => {
 		const peer = upgraded.peer;
 		if (!peer) throw new Error("missing peer");
 
-		const added = await addMemberBearer({ accountId: rpcOpts.accountId });
-		expect(added.userId).toBeTruthy();
+		const superAdmin = await loginDevPassword();
 
 		const denied = await workerFetch(
 			"http://example.com/api/account/toolsEnvs/deregister",
 			{
 				method: "POST",
 				headers: {
-					Authorization: `Bearer ${added.token}`,
+					Authorization: `Bearer ${superAdmin.accessToken}`,
 					"Content-Type": "application/json",
 				},
 				body: JSON.stringify({ envId }),
@@ -225,7 +224,7 @@ describe("tools-env automated pairing and registration", () => {
 		const rpcDenied = await sendRpc(
 			"account.toolsEnvs.deregister",
 			{ envId },
-			{ token: added.token },
+			{ token: superAdmin.accessToken },
 		);
 		expect(rpcDenied.status).toBe(400);
 		expect(rpcDenied.frame.error).toEqual({

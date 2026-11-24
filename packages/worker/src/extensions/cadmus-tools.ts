@@ -10,6 +10,7 @@ import type { ReadToolOptions } from "@earendil-works/pi-durable/tools";
 import type { BotRecord, ChatRecord } from "../protocol.js";
 import { scheduleTaskExtensionDescriptor } from "../schedules.js";
 import { codingToolsExtensionDescriptor } from "./coding-tools.js";
+import { compactionExtensionDescriptor } from "./compaction.js";
 import { filesExtensionDescriptor } from "./file-tools.js";
 import { groupCallerExtensionDescriptor } from "./group-caller-tools.js";
 import { identityExtensionDescriptor } from "./identity.js";
@@ -66,6 +67,7 @@ export function cadmusExtensionDescriptors(options?: {
 		xaiToolsExtensionDescriptor(),
 		codingToolsExtensionDescriptor(),
 		toolGateExtensionDescriptor(),
+		compactionExtensionDescriptor(),
 		scheduleTaskExtensionDescriptor(),
 	];
 }

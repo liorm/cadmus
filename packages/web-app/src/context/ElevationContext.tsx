@@ -8,6 +8,10 @@ import {
 	useRef,
 	useState,
 } from "react";
+import {
+	InlineElevationDialog,
+	type PendingProtectedAction,
+} from "@/components/chrome/InlineElevationDialog";
 import { useCadmus } from "@/context/CadmusContext";
 import { useSession } from "@/context/SessionContext";
 import { currentAccessToken, fetchPrincipal } from "@/lib/session";
@@ -30,9 +34,18 @@ export interface ElevationState {
 	recheck: () => void;
 	/**
 	 * True when the mode was last known to be on and the server has not since
-	 * confirmed that it is off. The banner stays up while this holds.
+	 * confirmed that it is off. The pill stays armed while this holds.
 	 */
 	maybeOn: boolean;
+	/**
+	 * Runs a protected mutation: executes immediately if armed, or prompts
+	 * inline to arm admin mode and immediately continues upon confirmation.
+	 */
+	runProtected: <T>(
+		label: string,
+		description: string,
+		action: () => Promise<T>,
+	) => Promise<T | undefined>;
 }
 
 const inert: ElevationState = {
@@ -45,6 +58,7 @@ const inert: ElevationState = {
 	refresh: async () => false,
 	recheck: () => {},
 	maybeOn: false,
+	runProtected: async () => undefined,
 };
 
 const ElevationContext = createContext<ElevationState>(inert);
@@ -54,11 +68,8 @@ export function useElevation(): ElevationState {
 }
 
 /**
- * The one place that holds this session's admin-mode state, so the settings
- * control and the app-wide banner always agree. The server owns the state;
- * it is read on mount and on window focus and after any uncertain change.
- * Every read and write takes a ticket and only the newest may update the
- * state, so a slow earlier answer cannot overwrite a later result.
+ * Holds admin-mode state and coordinates inline step-up prompts for protected
+ * mutations in `account-admin` and `super-admin` surfaces.
  */
 export function ElevationProvider({ children }: { children: ReactNode }) {
 	const session = useSession();
@@ -74,6 +85,10 @@ export function ElevationProvider({ children }: { children: ReactNode }) {
 			{children}
 		</LiveElevation>
 	);
+}
+
+interface PendingPrompt extends PendingProtectedAction {
+	resolve: (confirmed: boolean) => void;
 }
 
 function LiveElevation({
@@ -95,9 +110,10 @@ function LiveElevation({
 	const [now, setNow] = useState(() => Date.now());
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | null>(null);
+	const [prompt, setPrompt] = useState<PendingPrompt | null>(null);
 	const ticket = useRef(0);
-	// Set while the server last said On, cleared only when it says Off.
 	const wasOn = useRef(false);
+
 	if (prevEligible !== eligible) {
 		setPrevEligible(eligible);
 		const next =
@@ -157,9 +173,6 @@ function LiveElevation({
 			const current = Date.now();
 			setNow(current);
 			if (current >= until) {
-				// The deadline this tab knows may have been extended by another tab
-				// on the same session, so only the server can say it is over. Stay
-				// "maybe on" until it does.
 				setUntil("unknown");
 				void refresh();
 			}
@@ -191,7 +204,6 @@ function LiveElevation({
 				}
 				return true;
 			} catch {
-				// The request may or may not have reached the server.
 				setError(
 					"Could not confirm the change. Check the state and try again.",
 				);
@@ -210,6 +222,42 @@ function LiveElevation({
 		void refresh();
 	}, [refresh]);
 
+	const runProtected = useCallback(
+		async <T,>(
+			label: string,
+			description: string,
+			action: () => Promise<T>,
+		): Promise<T | undefined> => {
+			if (!eligible) return undefined;
+			const armed = typeof until === "number" && until > Date.now();
+			if (armed) {
+				return await action();
+			}
+			const confirmed = await new Promise<boolean>((resolve) => {
+				setPrompt({ label, description, resolve });
+			});
+			if (!confirmed) return undefined;
+			return await action();
+		},
+		[eligible, until],
+	);
+
+	const handleCancel = useCallback(() => {
+		setPrompt((prev) => {
+			prev?.resolve(false);
+			return null;
+		});
+	}, []);
+
+	const handleConfirm = useCallback(async () => {
+		const ok = await toggle(true);
+		if (!ok) return;
+		setPrompt((prev) => {
+			prev?.resolve(true);
+			return null;
+		});
+	}, [toggle]);
+
 	const value = useMemo<ElevationState>(
 		() =>
 			eligible
@@ -223,13 +271,37 @@ function LiveElevation({
 						refresh,
 						recheck,
 						maybeOn,
+						runProtected,
 					}
 				: inert,
-		[eligible, until, now, busy, error, toggle, refresh, recheck, maybeOn],
+		[
+			eligible,
+			until,
+			now,
+			busy,
+			error,
+			toggle,
+			refresh,
+			recheck,
+			maybeOn,
+			runProtected,
+		],
 	);
+
 	return (
 		<ElevationContext.Provider value={value}>
 			{children}
+			<InlineElevationDialog
+				pending={
+					prompt
+						? { label: prompt.label, description: prompt.description }
+						: null
+				}
+				busy={busy}
+				error={error}
+				onCancel={handleCancel}
+				onConfirm={() => void handleConfirm()}
+			/>
 		</ElevationContext.Provider>
 	);
 }

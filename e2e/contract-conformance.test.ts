@@ -33,6 +33,7 @@ const MAY_FAIL_OFFLINE = new Set<CommandType>([
 	"auth.elevation.end",
 	// System console: the master secret maps to account-admin, so these answer forbidden.
 	"system.accounts.list",
+	"system.accounts.get",
 	"system.accounts.create",
 	"system.accounts.suspend",
 	"system.accounts.resume",
@@ -42,6 +43,8 @@ const MAY_FAIL_OFFLINE = new Set<CommandType>([
 	"system.members.invite",
 	"system.members.update",
 	"system.members.remove",
+	"system.metrics",
+	"system.sessions.revoke",
 	"system.users.disable",
 	"system.users.enable",
 	"system.users.revokeSessions",
@@ -253,6 +256,7 @@ describe("contract conformance", () => {
 		await call("auth.elevate");
 		await call("auth.elevation.end");
 		await call("system.accounts.list");
+		await call("system.accounts.get", { accountId: "acc_missing" });
 		await call("system.accounts.create", {
 			name: "Conformance",
 			ownerEmail: `owner-${suffix}@example.com`,
@@ -264,6 +268,8 @@ describe("contract conformance", () => {
 			name: "x",
 		});
 		await call("system.audit.list");
+		await call("system.metrics");
+		await call("system.sessions.revoke", { sessionId: "ses_missing" });
 		await call("system.members.list", { accountId: "acc_missing" });
 		await call("system.members.invite", {
 			accountId: "acc_missing",
@@ -321,28 +327,24 @@ describe("contract conformance", () => {
 		await call("bot.update", { botId: "scribe", name: "Scribe Updated" });
 
 		await call("chat.list", { botId: "scribe" });
-		await call("chat.create", { botId: "scribe", key: "main", title: "Main" });
-		await call("chat.get", { chatKey: "main" });
-		await call("chat.messages", { chatKey: "main" });
-		await call("chat.entries", { chatKey: "main" });
-		await call("chat.status", { chatKey: "main" });
+		const chatKey = "bot:scribe";
+		await call("chat.get", { chatKey, raw: true, limit: 50 });
+		await call("chat.status", { chatKey });
 		await call("turn.submit", {
-			chatKey: "main",
+			chatKey,
 			text: '[tool:task_add {"title":"Contract","details":"seed"}]',
 		});
-		await call("chat.tasks.list", { chatKey: "main" });
-		await call("chat.tasks.get", { chatKey: "main", index: 1 });
-		await call("chat.subscribe", { chatKey: "main" });
-		await call("chat.rename", { chatKey: "main", title: "Renamed" });
+		await call("chat.tasks.list", { chatKey });
+		await call("chat.tasks.get", { chatKey, index: 1 });
 		await call("chat.update", {
-			chatKey: "main",
+			chatKey,
 			toolsEnv: { enabled: false },
 		});
 
-		await call("turn.submit", { chatKey: "main", text: "Hello" });
-		await call("turn.steer", { chatKey: "main", text: "Continue" });
-		await call("turn.interrupt", { chatKey: "main" });
-		await call("turn.abort", { chatKey: "main" });
+		await call("turn.submit", { chatKey, text: "Hello" });
+		await call("turn.steer", { chatKey, text: "Continue" });
+		await call("turn.interrupt", { chatKey });
+		await call("turn.abort", { chatKey });
 
 		await call("file.list", { botId: "scribe", category: "notes" });
 		await call("file.write", {
@@ -373,16 +375,14 @@ describe("contract conformance", () => {
 			kind: "absolute",
 			input: Date.now() + 86_400_000,
 			text: "Ping",
-			target: { mode: "chat", chatKey: "main" },
+			target: { mode: "chat", chatKey },
 		});
 		expect(requireString(schedule, ["schedule", "id"])).toBe("sched-1");
 		await call("schedule.list", { botId: "scribe", includeInternal: false });
 		await call("schedule.update", { id: "sched-1", enabled: false });
 		await call("schedule.delete", { id: "sched-1" });
 
-		await call("chat.reset", { chatKey: "main", handoff: "reset" });
-		await call("chat.close", { chatKey: "main" });
-		await call("chat.delete", { chatKey: "main" });
+		await call("chat.reset", { chatKey, handoff: "reset" });
 		await call("bot.delete", { botId: "scribe" });
 		await call("account.toolsEnvs.delete", { envId });
 
@@ -473,16 +473,6 @@ describe("contract conformance", () => {
 			},
 			token,
 		);
-		await callContractApi(
-			accountId,
-			familyId,
-			"chat.create",
-			{
-				botId: "echo",
-				key: "live",
-			},
-			token,
-		);
 
 		const ticket = await sendRpc<{ ticket: string }>(
 			"auth.ticket",
@@ -516,7 +506,7 @@ describe("contract conformance", () => {
 			familyId,
 			"turn.submit",
 			{
-				chatKey: "live",
+				chatKey: "bot:echo",
 				text: "Hello",
 			},
 			token,

@@ -298,6 +298,16 @@ export const AccountMemberSchema = Type.Object(
 		userId: Type.String({
 			description: "Identifier of the user member.",
 		}),
+		name: Type.Optional(
+			Type.String({
+				description: "Display name of the member.",
+			}),
+		),
+		email: Type.Optional(
+			Type.String({
+				description: "Primary email address of the member.",
+			}),
+		),
 		roles: Type.Array(
 			Type.Union([
 				Type.Literal("user"),
@@ -313,6 +323,12 @@ export const AccountMemberSchema = Type.Object(
 			description:
 				"Epoch timestamp in milliseconds when the membership was created.",
 		}),
+		disabledAt: Type.Optional(
+			Type.Number({
+				description:
+					"Epoch timestamp in milliseconds when the user was disabled.",
+			}),
+		),
 	},
 	{
 		description:
@@ -320,6 +336,56 @@ export const AccountMemberSchema = Type.Object(
 	},
 );
 export type AccountMember = Static<typeof AccountMemberSchema>;
+
+export const SystemAccountMetricsSchema = Type.Object(
+	{
+		accountId: Type.String({ description: "Tenant account identifier." }),
+		name: Type.String({ description: "Display name of the tenant account." }),
+		status: Type.Union([Type.Literal("active"), Type.Literal("suspended")]),
+		memberCount: Type.Number({
+			description: "Number of members in the tenant.",
+		}),
+		familyCount: Type.Number({
+			description: "Number of bot families in the tenant.",
+		}),
+		activeSessionCount: Type.Number({
+			description: "Number of currently active user sessions in the tenant.",
+		}),
+		credentialCount: Type.Number({
+			description: "Number of connected BYOK AI provider credentials.",
+		}),
+		auditEvents24h: Type.Number({
+			description:
+				"Audit events recorded for this tenant in the last 24 hours.",
+		}),
+	},
+	{ description: "Operational metrics summary for a single tenant account." },
+);
+export type SystemAccountMetrics = Static<typeof SystemAccountMetricsSchema>;
+
+export const SystemSessionRecordSchema = Type.Object(
+	{
+		id: Type.String({ description: "Session identifier." }),
+		userId: Type.String({ description: "User identifier." }),
+		userName: Type.Optional(Type.String({ description: "User display name." })),
+		userEmail: Type.Optional(
+			Type.String({ description: "User primary email." }),
+		),
+		client: Type.String({ description: "Client surface (e.g. web, cli)." }),
+		ipCountry: Type.Optional(
+			Type.String({ description: "Country code of last request." }),
+		),
+		userAgent: Type.Optional(
+			Type.String({ description: "Reported user-agent." }),
+		),
+		createdAt: Type.Number({ description: "Epoch ms when the session began." }),
+		lastUsedAt: Type.Number({
+			description: "Epoch ms when the session was last used.",
+		}),
+	},
+	{ description: "Active sign-in session belonging to a tenant account." },
+);
+export type SystemSessionRecord = Static<typeof SystemSessionRecordSchema>;
 
 /**
  * Bot family record representing an isolated Durable Object cluster of bots, chats, files, and schedules.
@@ -451,6 +517,10 @@ export const BotRecordSchema = Type.Object(
 		rootConversationId: Type.Number({
 			description:
 				"Internal numeric ID of the primary root conversation associated with the bot.",
+		}),
+		primaryChatKey: Type.String({
+			description:
+				'Primary continuous direct chat routing key ("bot:<botId>").',
 		}),
 		createdAt: Type.Number({
 			description: "Epoch timestamp in milliseconds when the bot was created.",
@@ -673,17 +743,6 @@ export const ChatRecordSchema = Type.Object(
 				{ additionalProperties: false },
 			),
 		),
-		deleted: Type.Optional(
-			Type.Boolean({
-				description: "Whether this chat has been soft-deleted.",
-			}),
-		),
-		deletedAt: Type.Optional(
-			Type.Number({
-				description:
-					"Epoch timestamp in milliseconds when the chat was soft-deleted.",
-			}),
-		),
 		originChatKey: Type.Optional(
 			Type.String({
 				description:
@@ -845,6 +904,72 @@ export const ScheduleTargetSchema = Type.Union(
 	},
 );
 export type ScheduleTarget = Static<typeof ScheduleTargetSchema>;
+
+/**
+ * Input target accepted by schedule.create when targeting a chat (chatKey optional; defaults to bot:<botId>).
+ */
+export const ScheduleTargetInputSchema = Type.Union(
+	[
+		Type.Object(
+			{
+				mode: Type.Literal("chat", {
+					description:
+						"Deliver the scheduled prompt to an existing chat session (defaults to primary bot chat).",
+				}),
+				chatKey: Type.Optional(
+					Type.String({
+						minLength: 1,
+						description:
+							"Target chat session routing key. Defaults to bot:<botId> when omitted.",
+					}),
+				),
+			},
+			{ description: "Target an existing persistent chat session." },
+		),
+		Type.Object(
+			{
+				mode: Type.Literal("new-chat", {
+					description:
+						"Create a brand new chat session for each scheduled trigger.",
+				}),
+			},
+			{ description: "Spawn a new chat session per schedule execution." },
+		),
+		Type.Object(
+			{
+				mode: Type.Literal("fork", {
+					description:
+						"Fork from an existing chat session at a given transcript entry watermark.",
+				}),
+				chatKey: Type.String({
+					minLength: 1,
+					description: "Source chat session routing key to fork from.",
+				}),
+				at: Type.Optional(
+					Type.Number({
+						description:
+							"Optional transcript entry sequence number watermark up to which conversation is forked.",
+					}),
+				),
+				harvest: Type.Optional(
+					Type.Boolean({
+						description:
+							"True if this fork is an internal idle harvest task inspecting conversation history.",
+					}),
+				),
+			},
+			{
+				description:
+					"Fork an existing chat at a specific watermark, typically for background memory/knowledge harvesting.",
+			},
+		),
+	],
+	{
+		description:
+			"Target execution destination and mode when creating a scheduled task.",
+	},
+);
+export type ScheduleTargetInput = Static<typeof ScheduleTargetInputSchema>;
 
 /**
  * Scheduled task record for cron jobs, one-shot timers, or internal idle harvest tasks.
@@ -1114,6 +1239,101 @@ export type TranscriptContentBlock = Static<
 	typeof TranscriptContentBlockSchema
 >;
 
+export const CompactionReasonSchema = Type.Union(
+	[Type.Literal("manual"), Type.Literal("threshold"), Type.Literal("overflow")],
+	{ description: "Reason compaction was triggered." },
+);
+export type CompactionReason = Static<typeof CompactionReasonSchema>;
+
+export const CompactionTaskViewSchema = Type.Object(
+	{
+		taskId: Type.Number({ description: "Durable compaction task ID." }),
+		reason: CompactionReasonSchema,
+		blocking: Type.Boolean({
+			description: "Whether this compaction blocks active turns.",
+		}),
+		attempt: Type.Number({ description: "Current summarization attempt." }),
+		retryAt: Type.Optional(
+			Type.Number({ description: "Epoch ms for next retry if sleeping." }),
+		),
+		retryError: Type.Optional(
+			Type.String({ description: "Error from previous attempt if retrying." }),
+		),
+	},
+	{ description: "Active compaction task snapshot." },
+);
+export type CompactionTaskView = Static<typeof CompactionTaskViewSchema>;
+
+export const CompactionFailureViewSchema = Type.Object(
+	{
+		taskId: Type.Number({ description: "Failed compaction task ID." }),
+		reason: CompactionReasonSchema,
+		error: Type.String({ description: "Failure message." }),
+	},
+	{ description: "Last compaction failure recorded on the conversation." },
+);
+export type CompactionFailureView = Static<typeof CompactionFailureViewSchema>;
+
+export const CompactionPolicySchema = Type.Object(
+	{
+		enabled: Type.Boolean(),
+		reserveTokens: Type.Number(),
+		keepRecentTokens: Type.Number(),
+		backgroundTokens: Type.Number(),
+	},
+	{ description: "Automatic compaction thresholds in tokens." },
+);
+export type CompactionPolicy = Static<typeof CompactionPolicySchema>;
+
+export const ChatCompactionSnapshotSchema = Type.Object(
+	{
+		active: Type.Boolean({
+			description: "True while one or more compaction tasks are running.",
+		}),
+		tasks: Type.Array(CompactionTaskViewSchema),
+		lastFailure: Type.Optional(CompactionFailureViewSchema),
+		headEntryId: Type.Optional(
+			Type.Number({ description: "Latest compaction entry ID if compacted." }),
+		),
+		firstKeptEntryId: Type.Optional(
+			Type.Number({
+				description: "Earliest verbatim entry ID retained after compaction.",
+			}),
+		),
+	},
+	{ description: "Compaction state snapshot for a chat." },
+);
+export type ChatCompactionSnapshot = Static<
+	typeof ChatCompactionSnapshotSchema
+>;
+
+export const ChatStatusCompactionSchema = Type.Object(
+	{
+		active: Type.Boolean({
+			description: "True while one or more compaction tasks are running.",
+		}),
+		tasks: Type.Array(CompactionTaskViewSchema),
+		lastFailure: Type.Optional(CompactionFailureViewSchema),
+		headEntryId: Type.Optional(
+			Type.Number({ description: "Latest compaction entry ID if compacted." }),
+		),
+		firstKeptEntryId: Type.Optional(
+			Type.Number({
+				description: "Earliest verbatim entry ID retained after compaction.",
+			}),
+		),
+		contextTokens: Type.Number({
+			description: "Estimated token count in the active model context window.",
+		}),
+		contextWindow: Type.Number({
+			description: "Model context window limit in tokens.",
+		}),
+		policy: CompactionPolicySchema,
+	},
+	{ description: "Extended compaction and context usage telemetry." },
+);
+export type ChatStatusCompaction = Static<typeof ChatStatusCompactionSchema>;
+
 /**
  * Projected view of a message entry in a conversation transcript.
  */
@@ -1124,7 +1344,29 @@ export const TranscriptMessageViewSchema = Type.Object({
 		Type.Literal("assistant"),
 		Type.Literal("system"),
 		Type.Literal("toolResult"),
+		Type.Literal("compaction"),
+		Type.Literal("reset"),
 	]),
+	entryKind: Type.Optional(
+		Type.String({
+			description:
+				"Underlying durable entry kind (e.g. pi.user, pi.assistant, pi.toolResult, pi.compaction, pi.system, pi.reset).",
+		}),
+	),
+	visibleToUser: Type.Boolean({
+		description:
+			"Whether this entry belongs to the user-visible continuous stream.",
+	}),
+	visibleToModel: Type.Boolean({
+		description:
+			"Whether this entry is currently included in the active LLM context.",
+	}),
+	compactionReason: Type.Optional(CompactionReasonSchema),
+	firstKeptEntryId: Type.Optional(
+		Type.Number({
+			description: "First entry ID retained verbatim by this compaction entry.",
+		}),
+	),
 	text: Type.String({
 		description: "Rendered plain text content of the message.",
 	}),

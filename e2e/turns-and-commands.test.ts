@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import {
 	adminScope,
 	type ChatGetResult,
-	type ChatRecord,
 	connectTestWs,
 	sendRpc,
 	type TurnBlock,
@@ -35,15 +34,9 @@ describe("Turns, Streaming Protocol Events & chat.status", () => {
 			});
 			expect(botRes.ok).toBe(true);
 
-			const chatRes = await wsClient.send<{ chat: ChatRecord }>("chat.create", {
-				botId: "echo-bot",
-				key: "ws-chat-1",
-			});
-			expect(chatRes.ok).toBe(true);
-
 			// Submit a turn with a tool call directive
 			const turnRes = await wsClient.send<{ reply: string }>("turn.submit", {
-				chatKey: "ws-chat-1",
+				chatKey: "bot:echo-bot",
 				text: 'Read soul please [tool:read {"path":"/.cadmus/SOUL.md"}]',
 			});
 			expect(turnRes.ok).toBe(true);
@@ -76,15 +69,9 @@ describe("Turns, Streaming Protocol Events & chat.status", () => {
 			scope,
 		);
 
-		await sendRpc(
-			"chat.create",
-			{ botId: "status-bot", key: "status-chat" },
-			scope,
-		);
-
 		const firstTurn = await sendRpc<{ reply: string }>(
 			"turn.submit",
-			{ chatKey: "status-chat", text: "First message" },
+			{ chatKey: "bot:status-bot", text: "First message" },
 			scope,
 		);
 		expect(firstTurn.frame.result?.reply).toBe("echo(1): First message");
@@ -97,7 +84,7 @@ describe("Turns, Streaming Protocol Events & chat.status", () => {
 				entryCount: number;
 				busy: boolean;
 			};
-		}>("chat.status", { chatKey: "status-chat" }, scope);
+		}>("chat.status", { chatKey: "bot:status-bot" }, scope);
 		expect(statusRes.status).toBe(200);
 		expect(statusRes.frame.result?.status.botId).toBe("status-bot");
 		expect(statusRes.frame.result?.status.model).toBe("faux/echo");
@@ -110,7 +97,7 @@ describe("Turns, Streaming Protocol Events & chat.status", () => {
 
 		const unsupported = await sendRpc(
 			"turn.submit",
-			{ chatKey: "status-chat", text: "/clear" },
+			{ chatKey: "bot:status-bot", text: "/clear" },
 			scope,
 		);
 		expect(unsupported.status).toBe(400);
@@ -118,7 +105,7 @@ describe("Turns, Streaming Protocol Events & chat.status", () => {
 
 		const secondTurn = await sendRpc<{ reply: string }>(
 			"turn.submit",
-			{ chatKey: "status-chat", text: "Second message" },
+			{ chatKey: "bot:status-bot", text: "Second message" },
 			scope,
 		);
 		expect(secondTurn.frame.result?.reply).toBe("echo(2): Second message");
@@ -136,15 +123,9 @@ describe("Turns, Streaming Protocol Events & chat.status", () => {
 			});
 			expect(botRes.ok).toBe(true);
 
-			const chatRes = await wsClient.send<{ chat: ChatRecord }>("chat.create", {
-				botId: "xai",
-				key: "xai:71aa0dae",
-			});
-			expect(chatRes.ok).toBe(true);
-
 			// Recreate user request "what can you do?"
 			const turnRes = await wsClient.send<{ reply: string }>("turn.submit", {
-				chatKey: "xai:71aa0dae",
+				chatKey: "bot:xai",
 				text: "what can you do?",
 			});
 			expect(turnRes.ok).toBe(true);
@@ -153,7 +134,7 @@ describe("Turns, Streaming Protocol Events & chat.status", () => {
 
 			// Verify server events
 			const deltaEvents = wsClient.events.filter(
-				(e) => e.type === "turn.delta" && e.payload.chatKey === "xai:71aa0dae",
+				(e) => e.type === "turn.delta" && e.payload.chatKey === "bot:xai",
 			);
 			expect(deltaEvents.length).toBeGreaterThan(0);
 
@@ -164,8 +145,7 @@ describe("Turns, Streaming Protocol Events & chat.status", () => {
 
 			// Verify turn.completed event has complete text
 			const completedEvent = wsClient.events.find(
-				(e) =>
-					e.type === "turn.completed" && e.payload.chatKey === "xai:71aa0dae",
+				(e) => e.type === "turn.completed" && e.payload.chatKey === "bot:xai",
 			);
 			expect(completedEvent).toBeDefined();
 			if (completedEvent && completedEvent.type === "turn.completed") {
@@ -187,17 +167,12 @@ describe("Turns, Streaming Protocol Events & chat.status", () => {
 				model: "faux/echo",
 			});
 
-			await wsClient.send<{ chat: ChatRecord }>("chat.create", {
-				botId: "chip-bot",
-				key: "chip-chat-1",
-			});
-
 			// Submit a turn with both thinking and tool call directives
 			const turnRes = await wsClient.send<{
 				reply: string;
 				blocks: TurnBlock[];
 			}>("turn.submit", {
-				chatKey: "chip-chat-1",
+				chatKey: "bot:chip-bot",
 				text: 'Analyze my memory [think: reasoning deeply] [tool:read {"path":"/.cadmus/MEMORY.md"}]',
 			});
 
@@ -215,7 +190,7 @@ describe("Turns, Streaming Protocol Events & chat.status", () => {
 			// Check WebSocket events
 			const completedEvent = wsClient.events.find(
 				(e) =>
-					e.type === "turn.completed" && e.payload.chatKey === "chip-chat-1",
+					e.type === "turn.completed" && e.payload.chatKey === "bot:chip-bot",
 			);
 			expect(completedEvent).toBeDefined();
 			if (completedEvent && completedEvent.type === "turn.completed") {
@@ -267,23 +242,11 @@ describe("Turns, Streaming Protocol Events & chat.status", () => {
 		expect(directFrame.command).toBe("bot.create");
 		expect(directFrame.ok).toBe(true);
 
-		const chatCreate = await sendRpc<{ chat: ChatRecord }>(
-			"chat.create",
-			{
-				botId: "enrich-bot",
-				key: "enrich-chat",
-			},
-			scope,
-		);
-		expect(chatCreate.status).toBe(200);
-		expect(chatCreate.frame.command).toBe("chat.create");
-		expect(chatCreate.frame.ok).toBe(true);
-
 		// 2. Submit turn with thinking and tool call
 		const turnRes = await sendRpc<{ reply: string }>(
 			"turn.submit",
 			{
-				chatKey: "enrich-chat",
+				chatKey: "bot:enrich-bot",
 				text: 'Check memory [think: checking memory first] [tool:read {"path":"/.cadmus/SOUL.md"}]',
 			},
 			scope,
@@ -292,27 +255,17 @@ describe("Turns, Streaming Protocol Events & chat.status", () => {
 		expect(turnRes.frame.command).toBe("turn.submit");
 		expect(turnRes.frame.ok).toBe(true);
 
-		// 3. Call chat.get via sendRpc
+		// 3. Call chat.get via sendRpc (with raw: true for raw entries)
 		const chatGet = await sendRpc<ChatGetResult>(
 			"chat.get",
-			{ chatKey: "enrich-chat" },
+			{ chatKey: "bot:enrich-bot", raw: true },
 			scope,
 		);
 		expect(chatGet.status).toBe(200);
 		expect(chatGet.frame.command).toBe("chat.get");
 		expect(chatGet.frame.ok).toBe(true);
 
-		// 4. Call chat.entries via sendRpc
-		const chatEntries = await sendRpc<ChatGetResult>(
-			"chat.entries",
-			{ chatKey: "enrich-chat" },
-			scope,
-		);
-		expect(chatEntries.status).toBe(200);
-		expect(chatEntries.frame.command).toBe("chat.entries");
-		expect(chatEntries.frame.ok).toBe(true);
-
-		// 5. Verify messages in chat.get
+		// 4. Verify messages in chat.get
 		const messages = chatGet.frame.result?.messages ?? [];
 		const userMsg = messages.find((m) => m.role === "user");
 		expect(userMsg).toBeDefined();
@@ -350,8 +303,8 @@ describe("Turns, Streaming Protocol Events & chat.status", () => {
 			);
 		}
 
-		// 6. Verify entries in chat.entries
-		const entries = chatEntries.frame.result?.entries ?? [];
+		// 5. Verify raw entries in chat.get({ raw: true })
+		const entries = chatGet.frame.result?.entries ?? [];
 		expect(entries.length).toBeGreaterThanOrEqual(4);
 
 		const systemEntry = entries.find((e) => {

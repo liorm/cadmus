@@ -4,7 +4,6 @@ import {
 	adminScope,
 	type BotCreateResult,
 	type BotUpdateResult,
-	type ChatCreateResult,
 	type ChatStatusResult,
 	type ScheduleCreateResult,
 	type ScheduleUpdateResult,
@@ -92,10 +91,9 @@ describe("Thinking Levels in Models, Bots, Chats, and Schedules", () => {
 		expect(updateRes.frame.result?.bot.thinking).toBe("high");
 	});
 
-	it("supports optional thinking on chat.create and defaults to bot thinking", async () => {
+	it("inherits bot thinking on primary chat status and updates with bot.update", async () => {
 		const scope = await adminScope("default");
 
-		// Create bot with default thinking "low"
 		await sendRpc(
 			"bot.create",
 			{
@@ -106,57 +104,28 @@ describe("Thinking Levels in Models, Bots, Chats, and Schedules", () => {
 			scope,
 		);
 
-		// 1. Chat without thinking: should inherit bot thinking "low"
-		const chat1Res = await sendRpc<ChatCreateResult>(
-			"chat.create",
-			{
-				botId: "thinker-chat",
-				key: "chat-default",
-			},
-			scope,
-		);
-		expect(chat1Res.status).toBe(200);
-		expect(chat1Res.frame.result?.chat.thinking).toBeUndefined();
-
 		const status1Res = await sendRpc<ChatStatusResult>(
 			"chat.status",
-			{ chatKey: "chat-default" },
+			{ chatKey: "bot:thinker-chat" },
 			scope,
 		);
 		expect(status1Res.frame.result?.status.thinking).toBe("low");
 
-		// 2. Chat with explicit thinking override "high"
-		const chat2Res = await sendRpc<ChatCreateResult>(
-			"chat.create",
+		await sendRpc(
+			"bot.update",
 			{
 				botId: "thinker-chat",
-				key: "chat-custom",
 				thinking: "high",
 			},
 			scope,
 		);
-		expect(chat2Res.status).toBe(200);
-		expect(chat2Res.frame.result?.chat.thinking).toBe("high");
 
 		const status2Res = await sendRpc<ChatStatusResult>(
 			"chat.status",
-			{ chatKey: "chat-custom" },
+			{ chatKey: "bot:thinker-chat" },
 			scope,
 		);
 		expect(status2Res.frame.result?.status.thinking).toBe("high");
-
-		// 3. Reject invalid thinking level on chat.create
-		const invalidChat = await sendRpc(
-			"chat.create",
-			{
-				botId: "thinker-chat",
-				key: "chat-invalid",
-				thinking: "ultra",
-			},
-			scope,
-		);
-		expect(invalidChat.status).toBe(400);
-		expect(invalidChat.frame.ok).toBe(false);
 	});
 
 	it("supports optional thinking on schedule.create and schedule.update", async () => {

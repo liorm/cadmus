@@ -66,16 +66,10 @@ describe("just-bash tools env through the bot", () => {
 					})
 				).ok,
 			).toBe(true);
-			expect(
-				(await ws.send("chat.create", { botId: "assistant", key: "left" })).ok,
-			).toBe(true);
-			expect(
-				(await ws.send("chat.create", { botId: "assistant", key: "right" })).ok,
-			).toBe(true);
 
 			ws.events.length = 0;
 			const turn = await ws.send<{ reply: string }>("turn.submit", {
-				chatKey: "left",
+				chatKey: "bot:assistant",
 				text: '[tool:bash {"command":"echo hi > /workspace/hello.txt"}]',
 			});
 			expect(turn.ok).toBe(true);
@@ -91,7 +85,7 @@ describe("just-bash tools env through the bot", () => {
 
 			ws.events.length = 0;
 			const seen = await ws.send("turn.submit", {
-				chatKey: "right",
+				chatKey: "bot:assistant",
 				text: '[tool:read {"path":"hello.txt"}]',
 			});
 			expect(seen.ok).toBe(true);
@@ -105,8 +99,8 @@ describe("just-bash tools env through the bot", () => {
 			expect(cat.content ?? "").toContain("hi");
 
 			const entries = await sendRpc<{
-				entries: unknown[];
-			}>("chat.entries", { chatKey: "left" }, options);
+				entries?: unknown[];
+			}>("chat.get", { chatKey: "bot:assistant", raw: true }, options);
 			expect(JSON.stringify(entries.frame.result?.entries)).toContain(
 				"Use bash, read, write, and edit",
 			);
@@ -126,10 +120,9 @@ describe("just-bash tools env through the bot", () => {
 				model: "faux/echo",
 				tools: CODING_TOOLS,
 			});
-			await ws.send("chat.create", { botId: "assistant", key: "main" });
 			ws.events.length = 0;
 			const turn = await ws.send("turn.submit", {
-				chatKey: "main",
+				chatKey: "bot:assistant",
 				text: '[tool:write {"path":"note.txt","content":"a } b"}]',
 			});
 			expect(turn.ok).toBe(true);
@@ -144,7 +137,7 @@ describe("just-bash tools env through the bot", () => {
 		}
 	});
 
-	it("runs read end to end against a file another inheriting chat wrote", async () => {
+	it("runs read end to end against a file written earlier on the bot", async () => {
 		const options = await scope("read");
 		await sendRpc("family.update", { harvestDelayMs: 0 }, options);
 		const ws = await connectTestWs(options);
@@ -155,15 +148,13 @@ describe("just-bash tools env through the bot", () => {
 				model: "faux/echo",
 				tools: CODING_TOOLS,
 			});
-			await ws.send("chat.create", { botId: "assistant", key: "left" });
-			await ws.send("chat.create", { botId: "assistant", key: "right" });
 			await ws.send("turn.submit", {
-				chatKey: "left",
+				chatKey: "bot:assistant",
 				text: '[tool:write {"path":"shared.txt","content":"from-left"}]',
 			});
 			ws.events.length = 0;
 			await ws.send("turn.submit", {
-				chatKey: "right",
+				chatKey: "bot:assistant",
 				text: '[tool:read {"path":"shared.txt"}]',
 			});
 			const payload = toolResults(ws.events)[0]?.payload as {
@@ -190,14 +181,13 @@ describe("just-bash tools env through the bot", () => {
 				model: "faux/echo",
 				tools: CODING_TOOLS,
 			});
-			await ws.send("chat.create", { botId: "assistant", key: "main" });
 			await ws.send("turn.submit", {
-				chatKey: "main",
+				chatKey: "bot:assistant",
 				text: '[tool:write {"path":"edit.txt","content":"alpha beta"}]',
 			});
 			ws.events.length = 0;
 			await ws.send("turn.submit", {
-				chatKey: "main",
+				chatKey: "bot:assistant",
 				text: '[tool:edit {"path":"edit.txt","edits":[{"oldText":"alpha","newText":"gamma"}]}]',
 			});
 			const edited = toolResults(ws.events)[0]?.payload as {
@@ -208,7 +198,7 @@ describe("just-bash tools env through the bot", () => {
 			expect(edited.isError).toBe(false);
 			ws.events.length = 0;
 			await ws.send("turn.submit", {
-				chatKey: "main",
+				chatKey: "bot:assistant",
 				text: '[tool:read {"path":"edit.txt"}]',
 			});
 			const read = toolResults(ws.events)[0]?.payload as { content?: string };
@@ -229,9 +219,8 @@ describe("just-bash tools env through the bot", () => {
 				model: "faux/echo",
 				tools: CODING_TOOLS,
 			});
-			await ws.send("chat.create", { botId: "assistant", key: "main" });
 			await ws.send("turn.submit", {
-				chatKey: "main",
+				chatKey: "bot:assistant",
 				text: '[tool:write {"path":"disp.md","content":"hello world"}] [tool:bash {"command":"ls -ltr disp.md"}]',
 			});
 			const results = toolResults(ws.events);
@@ -285,61 +274,50 @@ describe("just-bash tools env through the bot", () => {
 			},
 			options,
 		);
-		await sendRpc(
-			"chat.create",
-			{ botId: "assistant", key: "inherit" },
-			options,
-		);
-		await sendRpc(
-			"chat.create",
-			{
-				botId: "assistant",
-				key: "pinned",
-				toolsEnv: { enabled: true, binding: { envId } },
-			},
-			options,
-		);
-		await sendRpc(
-			"chat.create",
-			{
-				botId: "assistant",
-				key: "same-default",
-				toolsEnv: { enabled: true, binding: { envId: "jb_default" } },
-			},
-			options,
-		);
 
 		const ws = await connectTestWs(options);
 		try {
 			await ws.send("turn.submit", {
-				chatKey: "inherit",
+				chatKey: "bot:assistant",
 				text: '[tool:write {"path":"bot-only.txt","content":"bot"}]',
 			});
+			await ws.send("chat.update", {
+				chatKey: "bot:assistant",
+				toolsEnv: { enabled: true, binding: { envId } },
+			});
 			await ws.send("turn.submit", {
-				chatKey: "pinned",
+				chatKey: "bot:assistant",
 				text: '[tool:write {"path":"chat-only.txt","content":"chat"}]',
 			});
 			ws.events.length = 0;
 			await ws.send("turn.submit", {
-				chatKey: "pinned",
+				chatKey: "bot:assistant",
 				text: '[tool:read {"path":"bot-only.txt"}]',
 			});
 			expect(toolIsError(ws.events)).toBe(true);
+			await ws.send("chat.update", {
+				chatKey: "bot:assistant",
+				toolsEnv: { enabled: true, binding: { envId: "jb_default" } },
+			});
 			ws.events.length = 0;
 			await ws.send("turn.submit", {
-				chatKey: "inherit",
+				chatKey: "bot:assistant",
 				text: '[tool:read {"path":"chat-only.txt"}]',
 			});
 			expect(toolIsError(ws.events)).toBe(true);
 			ws.events.length = 0;
 			await ws.send("turn.submit", {
-				chatKey: "same-default",
+				chatKey: "bot:assistant",
 				text: '[tool:read {"path":"bot-only.txt"}]',
 			});
 			expect(toolIsError(ws.events)).toBe(false);
 
+			await ws.send("chat.update", {
+				chatKey: "bot:assistant",
+				toolsEnv: { enabled: true, binding: { envId } },
+			});
 			const again = await ws.send("turn.submit", {
-				chatKey: "pinned",
+				chatKey: "bot:assistant",
 				text: '[tool:read {"path":"chat-only.txt"}]',
 			});
 			expect(again.ok).toBe(true);
@@ -361,14 +339,13 @@ describe("just-bash tools env through the bot", () => {
 			},
 			options,
 		);
-		await sendRpc("chat.create", { botId: "assistant", key: "main" }, options);
 		const before = await sendRpc<{
 			status: { nextWakeAt: number | null; toolsEnv?: { status?: string } };
-		}>("chat.status", { chatKey: "main" }, options);
+		}>("chat.status", { chatKey: "bot:assistant" }, options);
 		const ws = await connectTestWs(options);
 		try {
 			await ws.send("turn.submit", {
-				chatKey: "main",
+				chatKey: "bot:assistant",
 				text: '[tool:bash {"command":"exit 3"}]',
 			});
 		} finally {
@@ -379,7 +356,7 @@ describe("just-bash tools env through the bot", () => {
 				nextWakeAt: number | null;
 				toolsEnv?: { status?: string; nextProbeAt?: number };
 			};
-		}>("chat.status", { chatKey: "main" }, options);
+		}>("chat.status", { chatKey: "bot:assistant" }, options);
 		expect(after.frame.result?.status.toolsEnv?.status).toBe("connected");
 		expect(after.frame.result?.status.toolsEnv).not.toHaveProperty(
 			"nextProbeAt",
@@ -476,28 +453,21 @@ describe("just-bash tools env through the bot", () => {
 			options,
 		);
 		await sendRpc(
-			"chat.create",
+			"chat.update",
 			{
-				botId: "memory-only",
-				key: "memory-chat",
+				chatKey: "bot:memory-only",
 				toolsEnv: { enabled: true, binding: { envId: "jb_default" } },
 			},
-			options,
-		);
-		await sendRpc(
-			"chat.create",
-			{ botId: "unguided", key: "unguided-chat" },
-			options,
-		);
-		await sendRpc(
-			"chat.create",
-			{ botId: "all-tools", key: "all-chat" },
 			options,
 		);
 
 		const ws = await connectTestWs(options);
 		try {
-			for (const chatKey of ["unguided-chat", "memory-chat", "all-chat"]) {
+			for (const chatKey of [
+				"bot:unguided",
+				"bot:memory-only",
+				"bot:all-tools",
+			]) {
 				ws.events.length = 0;
 				await ws.send("turn.submit", {
 					chatKey,
@@ -536,30 +506,38 @@ describe("just-bash tools env through the bot", () => {
 			options,
 		);
 		await sendRpc(
-			"chat.create",
+			"bot.create",
 			{
-				botId: "assistant",
-				key: "chat-on",
-				toolsEnv: { enabled: true, binding: { envId: "jb_default" } },
+				slug: "sibling-off",
+				name: "Sibling Off",
+				model: "faux/echo",
+				tools: CODING_TOOLS,
+				toolsEnv: {
+					enabled: false,
+					binding: { envId: "jb_default" },
+				},
 			},
 			options,
 		);
 		await sendRpc(
-			"chat.create",
-			{ botId: "assistant", key: "inherit-off" },
+			"chat.update",
+			{
+				chatKey: "bot:assistant",
+				toolsEnv: { enabled: true, binding: { envId: "jb_default" } },
+			},
 			options,
 		);
 		const ws = await connectTestWs(options);
 		try {
 			ws.events.length = 0;
 			await ws.send("turn.submit", {
-				chatKey: "chat-on",
+				chatKey: "bot:assistant",
 				text: '[tool:bash {"command":"echo chat-on > /workspace/on.txt"}]',
 			});
 			expect(toolIsError(ws.events)).toBe(false);
 			ws.events.length = 0;
 			await ws.send("turn.submit", {
-				chatKey: "inherit-off",
+				chatKey: "bot:sibling-off",
 				text: '[tool:bash {"command":"echo no"}]',
 			});
 			await untilToolResult(ws.events);
@@ -570,7 +548,7 @@ describe("just-bash tools env through the bot", () => {
 
 		const off = await sendRpc<{
 			status: { toolsEnv: { enabled: boolean; status?: string } };
-		}>("chat.status", { chatKey: "inherit-off" }, options);
+		}>("chat.status", { chatKey: "bot:sibling-off" }, options);
 		expect(off.frame.result?.status.toolsEnv.enabled).toBe(false);
 		expect(off.frame.result?.status.toolsEnv.status).toBeUndefined();
 
@@ -583,7 +561,7 @@ describe("just-bash tools env through the bot", () => {
 					envId?: string;
 				};
 			};
-		}>("chat.status", { chatKey: "chat-on" }, options);
+		}>("chat.status", { chatKey: "bot:assistant" }, options);
 		expect(on.frame.result?.status.toolsEnv).toMatchObject({
 			enabled: true,
 			status: "connected",
@@ -607,38 +585,42 @@ describe("just-bash tools env through the bot", () => {
 			options,
 		);
 		await sendRpc(
-			"chat.create",
+			"chat.update",
 			{
-				botId: "assistant",
-				key: "main",
+				chatKey: "bot:assistant",
 				toolsEnv: { enabled: true, binding: { envId: "jb_default" } },
 			},
 			options,
 		);
 		await sendRpc(
-			"chat.create",
-			{ botId: "assistant", key: "sibling" },
+			"bot.create",
+			{
+				slug: "sibling",
+				name: "Sibling",
+				model: "faux/echo",
+				tools: CODING_TOOLS,
+			},
 			options,
 		);
 		const before = await sendRpc<{ status: { nextWakeAt: number | null } }>(
 			"chat.status",
-			{ chatKey: "main" },
+			{ chatKey: "bot:sibling" },
 			options,
 		);
 		const ws = await connectTestWs(options);
 		try {
 			await ws.send("turn.submit", {
-				chatKey: "main",
+				chatKey: "bot:assistant",
 				text: '[tool:write {"path":"kept.txt","content":"kept"}]',
 			});
 			ws.events.length = 0;
 			const running = ws.send("turn.submit", {
-				chatKey: "main",
+				chatKey: "bot:assistant",
 				text: '[tool:bash {"command":"sleep 1"}]',
 			});
 			await waitForEvent(ws.events, "turn.tool_call");
 			const updated = await ws.send("chat.update", {
-				chatKey: "main",
+				chatKey: "bot:assistant",
 				toolsEnv: { enabled: false, binding: { envId: "jb_default" } },
 			});
 			expect(updated.ok).toBe(true);
@@ -653,7 +635,7 @@ describe("just-bash tools env through the bot", () => {
 
 			ws.events.length = 0;
 			await ws.send("turn.submit", {
-				chatKey: "main",
+				chatKey: "bot:assistant",
 				text: '[tool:bash {"command":"echo later"}]',
 			});
 			await untilToolResult(ws.events);
@@ -661,7 +643,7 @@ describe("just-bash tools env through the bot", () => {
 
 			ws.events.length = 0;
 			await ws.send("turn.submit", {
-				chatKey: "sibling",
+				chatKey: "bot:sibling",
 				text: '[tool:bash {"command":"echo sibling"}]',
 			});
 			expect(toolIsError(ws.events)).toBe(false);
@@ -670,7 +652,7 @@ describe("just-bash tools env through the bot", () => {
 		}
 		const after = await sendRpc<{ status: { nextWakeAt: number | null } }>(
 			"chat.status",
-			{ chatKey: "sibling" },
+			{ chatKey: "bot:sibling" },
 			options,
 		);
 		expect(after.frame.result?.status.nextWakeAt).toBe(
@@ -680,7 +662,7 @@ describe("just-bash tools env through the bot", () => {
 		await sendRpc(
 			"chat.update",
 			{
-				chatKey: "main",
+				chatKey: "bot:assistant",
 				toolsEnv: { enabled: true, binding: { envId: "jb_default" } },
 			},
 			options,
@@ -689,7 +671,7 @@ describe("just-bash tools env through the bot", () => {
 		try {
 			ws2.events.length = 0;
 			await ws2.send("turn.submit", {
-				chatKey: "main",
+				chatKey: "bot:assistant",
 				text: '[tool:read {"path":"kept.txt"}]',
 			});
 			const payload = toolResults(ws2.events)[0]?.payload as {
@@ -782,22 +764,17 @@ describe("just-bash tools env through the bot", () => {
 				},
 				options,
 			);
-			await sendRpc(
-				"chat.create",
-				{ botId: "assistant", key: "main" },
-				options,
-			);
 		}
 		const wsA = await connectTestWs(alpha);
 		const wsB = await connectTestWs(beta);
 		try {
 			await wsA.send("turn.submit", {
-				chatKey: "main",
+				chatKey: "bot:assistant",
 				text: '[tool:write {"path":"private.txt","content":"alpha"}]',
 			});
 			wsB.events.length = 0;
 			await wsB.send("turn.submit", {
-				chatKey: "main",
+				chatKey: "bot:assistant",
 				text: '[tool:read {"path":"private.txt"}]',
 			});
 			expect(toolIsError(wsB.events)).toBe(true);
@@ -832,12 +809,12 @@ describe("just-bash tools env through the bot", () => {
 		const wsB2 = await connectTestWs(beta);
 		try {
 			await wsA2.send("turn.submit", {
-				chatKey: "main",
+				chatKey: "bot:assistant",
 				text: '[tool:write {"path":"shared.txt","content":"both"}]',
 			});
 			wsB2.events.length = 0;
 			await wsB2.send("turn.submit", {
-				chatKey: "main",
+				chatKey: "bot:assistant",
 				text: '[tool:read {"path":"shared.txt"}]',
 			});
 			const payload = toolResults(wsB2.events)[0]?.payload as {
@@ -861,7 +838,7 @@ describe("just-bash tools env through the bot", () => {
 		try {
 			wsA3.events.length = 0;
 			await wsA3.send("turn.submit", {
-				chatKey: "main",
+				chatKey: "bot:assistant",
 				text: '[tool:read {"path":"shared.txt"}]',
 			});
 			expect(toolIsError(wsA3.events)).toBe(true);
@@ -883,23 +860,18 @@ describe("just-bash tools env through the bot", () => {
 			},
 			options,
 		);
-		await sendRpc(
-			"chat.create",
-			{ botId: "caller", key: "caller-chat" },
-			options,
-		);
 		const ws = await connectTestWs(options);
 		try {
 			await ws.send("turn.submit", {
-				chatKey: "caller-chat",
+				chatKey: "bot:caller",
 				text: '[tool:create_bot {"name":"Pinned","slug":"pinned-peer","tools":["bash"],"toolsEnv":{"enabled":true,"binding":{"envId":"jb_default"}}}]',
 			});
 			await ws.send("turn.submit", {
-				chatKey: "caller-chat",
+				chatKey: "bot:caller",
 				text: '[tool:create_bot {"name":"Off","slug":"off-peer","tools":["bash"],"toolsEnv":{"enabled":false}}]',
 			});
 			await ws.send("turn.submit", {
-				chatKey: "caller-chat",
+				chatKey: "bot:caller",
 				text: '[tool:create_bot {"name":"Inherit","slug":"inherit-peer","tools":["bash"]}]',
 			});
 		} finally {
@@ -927,33 +899,28 @@ describe("just-bash tools env through the bot", () => {
 		expect(inherited.frame.result?.bot.toolsEnv).toBeUndefined();
 		expect(inherited.frame.result?.toolsEnvBindingSource).toBe("account");
 
-		await sendRpc(
-			"chat.create",
-			{
-				botId: "caller",
-				key: "pinned-chat",
-				toolsEnv: { enabled: true, binding: { envId: "jb_default" } },
-			},
-			options,
-		);
 		const ws2 = await connectTestWs(options);
 		try {
 			await ws2.send("turn.submit", {
-				chatKey: "caller-chat",
+				chatKey: "bot:caller",
 				text: '[tool:write {"path":"bot-file.txt","content":"bot-body"}]',
 			});
+			await ws2.send("chat.update", {
+				chatKey: "bot:caller",
+				toolsEnv: { enabled: true, binding: { envId: "jb_default" } },
+			});
 			await ws2.send("turn.submit", {
-				chatKey: "pinned-chat",
+				chatKey: "bot:caller",
 				text: '[tool:write {"path":"chat-file.txt","content":"chat-body"}]',
 			});
 			const cleared = await ws2.send("chat.update", {
-				chatKey: "pinned-chat",
+				chatKey: "bot:caller",
 				toolsEnv: null,
 			});
 			expect(cleared.ok).toBe(true);
 			ws2.events.length = 0;
 			await ws2.send("turn.submit", {
-				chatKey: "pinned-chat",
+				chatKey: "bot:caller",
 				text: '[tool:read {"path":"bot-file.txt"}]',
 			});
 			const payload = toolResults(ws2.events)[0]?.payload as {
@@ -981,7 +948,6 @@ describe("just-bash tools env through the bot", () => {
 			},
 			options,
 		);
-		await sendRpc("chat.create", { botId: "assistant", key: "main" }, options);
 		const created = await sendRpc<{ bot: { tools?: string[] } }>(
 			"bot.create",
 			{
@@ -994,7 +960,6 @@ describe("just-bash tools env through the bot", () => {
 		);
 		expect(created.frame.ok).toBe(true);
 		expect(created.frame.result?.bot.tools).toEqual([]);
-		await sendRpc("chat.create", { botId: "empty", key: "empty" }, options);
 
 		const ws = await connectTestWs(options);
 		const turn = async (chatKey: string, text: string) => {
@@ -1017,12 +982,13 @@ describe("just-bash tools env through the bot", () => {
 		};
 		try {
 			expect(
-				(await turn("main", '[tool:bash {"command":"echo hi"}]'))?.isError,
+				(await turn("bot:assistant", '[tool:bash {"command":"echo hi"}]'))
+					?.isError,
 			).toBe(false);
 			expect(
 				(
 					await turn(
-						"main",
+						"bot:assistant",
 						'[tool:write {"path":"/.cadmus/MEMORY.md","content":"kept"}]',
 					)
 				)?.isError,
@@ -1043,17 +1009,21 @@ describe("just-bash tools env through the bot", () => {
 			expect(afterNull.frame.result?.bot.tools).toBeUndefined();
 			const defaultStatus = await sendRpc<{
 				status: { tools: string[] | "all" };
-			}>("chat.status", { chatKey: "main" }, options);
+			}>("chat.status", { chatKey: "bot:assistant" }, options);
 			expect(defaultStatus.frame.result?.status.tools).toEqual([
 				...DEFAULT_CADMUS_TOOL_NAMES.filter((name) => name !== "code.execute"),
 				"bash",
 			]);
 			expect(
-				(await turn("main", '[tool:read {"path":"/.cadmus/MEMORY.md"}]'))
-					?.isError,
+				(
+					await turn(
+						"bot:assistant",
+						'[tool:read {"path":"/.cadmus/MEMORY.md"}]',
+					)
+				)?.isError,
 			).toBe(false);
 			const restoredSkill = await turn(
-				"main",
+				"bot:assistant",
 				`[tool:write ${JSON.stringify({
 					path: "/.cadmus/skills/restored/SKILL.md",
 					content: "---\nname: restored\ndescription: back\n---\n\ndefault",
@@ -1061,7 +1031,8 @@ describe("just-bash tools env through the bot", () => {
 			);
 			expect(restoredSkill?.isError).toBe(false);
 			expect(
-				(await turn("main", '[tool:bash {"command":"echo default"}]'))?.isError,
+				(await turn("bot:assistant", '[tool:bash {"command":"echo default"}]'))
+					?.isError,
 			).toBe(false);
 
 			const renamed = await sendRpc<{
@@ -1080,14 +1051,20 @@ describe("just-bash tools env through the bot", () => {
 			expect(replaced.frame.result?.bot.tools).toEqual(["read"]);
 			expectBlocked(
 				await turn(
-					"main",
+					"bot:assistant",
 					'[tool:write {"path":"/.cadmus/MEMORY.md","content":"nope"}]',
 				),
 			);
-			expectBlocked(await turn("main", '[tool:bash {"command":"echo no"}]'));
+			expectBlocked(
+				await turn("bot:assistant", '[tool:bash {"command":"echo no"}]'),
+			);
 			expect(
-				(await turn("main", '[tool:read {"path":"/.cadmus/MEMORY.md"}]'))
-					?.isError,
+				(
+					await turn(
+						"bot:assistant",
+						'[tool:read {"path":"/.cadmus/MEMORY.md"}]',
+					)
+				)?.isError,
 			).toBe(false);
 			const memory = await sendRpc<{ version: number; content: string }>(
 				"file.read",
@@ -1111,13 +1088,20 @@ describe("just-bash tools env through the bot", () => {
 			);
 			expect(afterClear.frame.result?.bot.tools).toEqual([]);
 			expectBlocked(
-				await turn("main", '[tool:read {"path":"/.cadmus/MEMORY.md"}]'),
+				await turn(
+					"bot:assistant",
+					'[tool:read {"path":"/.cadmus/MEMORY.md"}]',
+				),
 			);
-			expectBlocked(await turn("main", '[tool:bash {"command":"echo no"}]'));
 			expectBlocked(
-				await turn("empty", '[tool:read {"path":"/.cadmus/MEMORY.md"}]'),
+				await turn("bot:assistant", '[tool:bash {"command":"echo no"}]'),
 			);
-			expectBlocked(await turn("empty", '[tool:bash {"command":"echo no"}]'));
+			expectBlocked(
+				await turn("bot:empty", '[tool:read {"path":"/.cadmus/MEMORY.md"}]'),
+			);
+			expectBlocked(
+				await turn("bot:empty", '[tool:bash {"command":"echo no"}]'),
+			);
 		} finally {
 			ws.close();
 		}
@@ -1142,14 +1126,13 @@ describe("just-bash tools env through the bot", () => {
 			},
 			options,
 		);
-		await sendRpc("chat.create", { botId: "assistant", key: "main" }, options);
 
 		const ws = await connectTestWs(options);
 		try {
 			const turn = async (text: string) => {
 				ws.events.length = 0;
 				const submitted = await ws.send<{ reply?: string }>("turn.submit", {
-					chatKey: "main",
+					chatKey: "bot:assistant",
 					text,
 				});
 				expect(submitted.ok).toBe(true);

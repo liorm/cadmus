@@ -17,8 +17,11 @@ describe("chat.status", () => {
 			},
 			scope,
 		);
-		await sendRpc("chat.create", { botId: "status-bot", key: "main" }, scope);
-		await sendRpc("turn.submit", { chatKey: "main", text: "Hello" }, scope);
+		await sendRpc(
+			"turn.submit",
+			{ chatKey: "bot:status-bot", text: "Hello" },
+			scope,
+		);
 
 		const res = await sendRpc<{
 			status: {
@@ -34,11 +37,11 @@ describe("chat.status", () => {
 				tasks?: { open: number; done: number; loopRound: number };
 				toolsEnv?: { enabled: boolean };
 			};
-		}>("chat.status", { chatKey: "main" }, scope);
+		}>("chat.status", { chatKey: "bot:status-bot" }, scope);
 
 		expect(res.status).toBe(200);
 		const status = res.frame.result?.status;
-		expect(status?.chatKey).toBe("main");
+		expect(status?.chatKey).toBe("bot:status-bot");
 		expect(status?.botId).toBe("status-bot");
 		expect(status?.botName).toBe("Status Bot");
 		expect(status?.model).toBe("faux/echo");

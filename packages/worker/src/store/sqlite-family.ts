@@ -5,31 +5,32 @@ import type {
 	ThinkingLevel,
 	ToolsEnvSetting,
 } from "../protocol.js";
-import type {
-	BotFileStore,
-	BotRecord,
-	BotStore,
-	ChatKind,
-	ChatRecord,
-	ChatStore,
-	ChatTask,
-	ConversationRoute,
-	ConversationRouteKind,
-	Deadlines,
-	FamilyStore,
-	GroupChatRecord,
-	GroupMessage,
-	GroupStore,
-	HarvestFileDiff,
-	HarvestNote,
-	HarvestStore,
-	MemoryDoc,
-	ScheduleRecord,
-	ScheduleStore,
-	SkillDoc,
-	SkillSearchResult,
-	TaskLoopState,
-	TaskStore,
+import {
+	type BotFileStore,
+	type BotRecord,
+	type BotStore,
+	type ChatKind,
+	type ChatRecord,
+	type ChatStore,
+	type ChatTask,
+	type ConversationRoute,
+	type ConversationRouteKind,
+	type Deadlines,
+	type FamilyStore,
+	type GroupChatRecord,
+	type GroupMessage,
+	type GroupStore,
+	type HarvestFileDiff,
+	type HarvestNote,
+	type HarvestStore,
+	type MemoryDoc,
+	primaryChatKey,
+	type ScheduleRecord,
+	type ScheduleStore,
+	type SkillDoc,
+	type SkillSearchResult,
+	type TaskLoopState,
+	type TaskStore,
 } from "./family-interface.js";
 
 const CHAT_SELECT = `key, bot_id, conversation_id, title, thinking, closed, tools_env_json, created_at, harvest_enabled, kind, deadlines_json, deleted_at, origin_chat_key`;
@@ -299,6 +300,7 @@ class SqliteBotStore implements BotStore {
 			thinking: row.thinking as ThinkingLevel,
 			timezone: row.timezone ?? "UTC",
 			rootConversationId: Number(row.root_conversation_id),
+			primaryChatKey: primaryChatKey(row.id),
 			createdAt: Number(row.created_at),
 		};
 		if (row.tools_json !== null) {
@@ -678,20 +680,13 @@ class SqliteChatStore implements ChatStore {
 			| {
 					botId?: string;
 					kinds?: readonly ChatKind[];
-					includeDeleted?: boolean;
 			  },
 	): ChatRecord[] {
 		const botId = typeof filter === "string" ? filter : filter?.botId;
 		const kinds = typeof filter === "object" ? filter?.kinds : undefined;
-		const includeDeleted =
-			typeof filter === "object" ? Boolean(filter?.includeDeleted) : false;
 
 		const conditions: string[] = [];
 		const params: (string | number)[] = [];
-
-		if (!includeDeleted) {
-			conditions.push("deleted_at IS NULL");
-		}
 
 		if (botId) {
 			conditions.push("bot_id = ?");
@@ -754,14 +749,6 @@ class SqliteChatStore implements ChatStore {
 		return rows.map((r) => this.mapRow(r));
 	}
 
-	softDeleteChat(key: string, deletedAt = Date.now()): void {
-		this.sql.exec(
-			`UPDATE cadmus_chats SET deleted_at = ?, closed = 1 WHERE key = ?`,
-			deletedAt,
-			key,
-		);
-	}
-
 	upsertChat(chat: ChatRecord): void {
 		const toolsEnvJson =
 			chat.toolsEnv !== undefined && chat.toolsEnv !== null
@@ -769,12 +756,9 @@ class SqliteChatStore implements ChatStore {
 				: null;
 		const kind =
 			chat.kind ?? (chat.key.startsWith("gmem:") ? "group-member" : "direct");
-		const deletedAt = chat.deleted
-			? (chat.deletedAt ?? Date.now())
-			: (chat.deletedAt ?? null);
 		this.sql.exec(
 			`INSERT INTO cadmus_chats (key, bot_id, conversation_id, title, thinking, closed, tools_env_json, created_at, harvest_enabled, kind, deleted_at, origin_chat_key)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)
        ON CONFLICT(key) DO UPDATE SET
          bot_id = excluded.bot_id,
          conversation_id = excluded.conversation_id,
@@ -784,7 +768,7 @@ class SqliteChatStore implements ChatStore {
          tools_env_json = excluded.tools_env_json,
          harvest_enabled = excluded.harvest_enabled,
          kind = excluded.kind,
-         deleted_at = excluded.deleted_at,
+         deleted_at = NULL,
          origin_chat_key = excluded.origin_chat_key`,
 			chat.key,
 			chat.botId,
@@ -796,7 +780,6 @@ class SqliteChatStore implements ChatStore {
 			chat.createdAt,
 			chat.harvest === false ? 0 : 1,
 			kind,
-			deletedAt,
 			chat.originChatKey ?? null,
 		);
 	}
@@ -873,10 +856,6 @@ class SqliteChatStore implements ChatStore {
 		}
 		if (row.closed) {
 			rec.closed = true;
-		}
-		if (row.deleted_at !== null && row.deleted_at !== undefined) {
-			rec.deleted = true;
-			rec.deletedAt = Number(row.deleted_at);
 		}
 		if (row.origin_chat_key) {
 			rec.originChatKey = row.origin_chat_key;

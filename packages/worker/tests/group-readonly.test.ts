@@ -94,15 +94,13 @@ describe("message_bot readOnly", () => {
 			},
 			scope,
 		);
-		await sendRpc("chat.create", { botId: "a", key: "root" }, scope);
-		await sendRpc("chat.create", { botId: "b", key: "b-main" }, scope);
 
 		const sink = installProviderToolCapture();
 		try {
 			const turn = await sendRpc<{ reply: string }>(
 				"turn.submit",
 				{
-					chatKey: "root",
+					chatKey: "bot:a",
 					text: `[tool:message_bot ${JSON.stringify({
 						botId: "b",
 						topic: "spice",
@@ -201,8 +199,6 @@ describe("message_bot readOnly", () => {
 			},
 			scope,
 		);
-		await sendRpc("chat.create", { botId: "a", key: "root" }, scope);
-		await sendRpc("chat.create", { botId: "b", key: "b-main" }, scope);
 
 		const beforeChats = await sendRpc<{ chats: { key: string }[] }>(
 			"chat.list",
@@ -225,7 +221,7 @@ describe("message_bot readOnly", () => {
 		const turn = await sendRpc<{ reply: string }>(
 			"turn.submit",
 			{
-				chatKey: "root",
+				chatKey: "bot:a",
 				text: `[tool:message_bot ${JSON.stringify({
 					botId: "b",
 					topic: "forge",
@@ -287,7 +283,7 @@ describe("message_bot readOnly", () => {
 		const main = await sendRpc<{
 			messages: { text: string }[];
 			notes: unknown[];
-		}>("chat.get", { chatKey: "b-main" }, scope);
+		}>("chat.get", { chatKey: "bot:b" }, scope);
 		expect(main.frame.result?.notes).toEqual([]);
 		expect(main.frame.result?.messages ?? []).toEqual([]);
 	}, 30_000);
@@ -307,14 +303,13 @@ describe("message_bot readOnly", () => {
 			{ slug: "b", name: "b", model: "faux/echo" },
 			scope,
 		);
-		await sendRpc("chat.create", { botId: "a", key: "root" }, scope);
 
 		const sink = installProviderToolCapture();
 		try {
 			const turn = await sendRpc<{ reply: string }>(
 				"turn.submit",
 				{
-					chatKey: "root",
+					chatKey: "bot:a",
 					text: `[tool:message_bot ${JSON.stringify({
 						botId: "b",
 						topic: "later",
@@ -337,10 +332,10 @@ describe("message_bot readOnly", () => {
 
 		await releaseHold(scope, "ro-b", "cinnamon later");
 		await waitFor(async () => {
-			const messages = await userTexts(scope, "root");
+			const messages = await userTexts(scope, "bot:a");
 			return messages.some((message) => message.text.includes("reply from @b"));
 		});
-		const woken = (await userTexts(scope, "root")).filter(
+		const woken = (await userTexts(scope, "bot:a")).filter(
 			(message) =>
 				message.role === "user" && message.text.includes("reply from @b"),
 		);
@@ -368,13 +363,12 @@ describe("message_bot readOnly", () => {
 				scope,
 			);
 		}
-		await sendRpc("chat.create", { botId: "a", key: "root" }, scope);
 		const sink = installProviderToolCapture();
 		try {
 			const turn = await sendRpc<{ reply: string }>(
 				"turn.submit",
 				{
-					chatKey: "root",
+					chatKey: "bot:a",
 					text: `[tool:message_bot ${JSON.stringify({
 						to: ["b", "c"],
 						topic: "trio",
@@ -420,13 +414,12 @@ describe("message_bot readOnly", () => {
 			{ slug: "b", name: "b", model: "faux/echo" },
 			scope,
 		);
-		await sendRpc("chat.create", { botId: "a", key: "root" }, scope);
 		const sink = installProviderToolCapture();
 		try {
 			const turn = await sendRpc<{ reply: string }>(
 				"turn.submit",
 				{
-					chatKey: "root",
+					chatKey: "bot:a",
 					text: `[tool:message_bot ${JSON.stringify({
 						botId: "b",
 						topic: "open",

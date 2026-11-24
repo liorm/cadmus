@@ -292,7 +292,6 @@ describe("Bot metadata and timezone", () => {
 			},
 			scope,
 		);
-		await sendRpc("chat.create", { botId: "timer", key: "timer-chat" }, scope);
 
 		const before = await sendRpc<{ schedule: ScheduleRecord }>(
 			"schedule.create",
@@ -302,7 +301,7 @@ describe("Bot metadata and timezone", () => {
 				kind: "cron",
 				input: "0 12 * * *",
 				text: "Noon",
-				target: { mode: "chat", chatKey: "timer-chat" },
+				target: { mode: "chat", chatKey: "bot:timer" },
 			},
 			scope,
 		);

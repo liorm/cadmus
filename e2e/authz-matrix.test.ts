@@ -25,23 +25,23 @@ const USER = [
 	"chat.use",
 	"bot.read",
 	"bot.write",
+	"bot.delete",
+	"family.manage",
 	"knowledge.write",
 	"schedule.write",
 	"files.write",
 	"members.read",
 	"credentials.read",
 	"toolsEnv.read",
+	"toolsEnv.manage",
 	"tokens.self",
 	"session.assume",
 ] as const;
 
 const ACCOUNT_ADMIN = [
 	...USER,
-	"bot.delete",
-	"family.manage",
 	"members.manage",
 	"credentials.manage",
-	"toolsEnv.manage",
 	"account.manage",
 	"audit.read",
 	"admin.elevate",
@@ -59,11 +59,8 @@ const SUPER_ADMIN = [
 ] as const;
 
 const ELEVATION = new Set([
-	"bot.delete",
-	"family.manage",
 	"members.manage",
 	"credentials.manage",
-	"toolsEnv.manage",
 	"account.manage",
 	"system.accounts.manage",
 	"system.members.manage",
@@ -264,7 +261,7 @@ async function sweep(
 		([, code]) => code === "elevation_required",
 	).length;
 	const forbidden = denied.filter(([, code]) => code === "forbidden").length;
-	expect(commandTypes().length).toBe(94);
+	expect(commandTypes().length).toBe(90);
 	expect(denied.length, caller.name).toBe(caller.denied);
 	expect(elevationRequired, caller.name).toBe(caller.elevationRequired);
 	expect(forbidden, caller.name).toBe(caller.forbidden);
@@ -401,9 +398,9 @@ describe("authorization matrix over /api, /rpc, and /ws", () => {
 				held: new Set(USER),
 				elevated: false,
 				tokenCaller: false,
-				denied: 37,
+				denied: 31,
 				elevationRequired: 0,
-				forbidden: 37,
+				forbidden: 31,
 				ws: true,
 			},
 			() => tenantSnapshot(tenant.elevatedToken),
@@ -422,20 +419,18 @@ describe("authorization matrix over /api, /rpc, and /ws", () => {
 				held: new Set(ACCOUNT_ADMIN),
 				elevated: false,
 				tokenCaller: false,
-				denied: 34,
-				elevationRequired: 21,
-				forbidden: 13,
+				denied: 28,
+				elevationRequired: 12,
+				forbidden: 16,
 				ws: true,
 			},
 			() => tenantSnapshot(tenant.elevatedToken),
 			async () => {
 				expect(codeOf(await rpc(tenant.adminToken, "bot.list", {}))).toBe("ok");
-				const familyId = `mx-${crypto.randomUUID().slice(0, 8)}`;
 				expect(
 					codeOf(
-						await rpc(tenant.adminToken, "family.create", {
-							familyId,
-							name: "Matrix",
+						await rpc(tenant.adminToken, "account.update", {
+							name: "Blocked",
 						}),
 					),
 				).toBe("elevation_required");
@@ -452,9 +447,9 @@ describe("authorization matrix over /api, /rpc, and /ws", () => {
 				held: new Set(ACCOUNT_ADMIN),
 				elevated: true,
 				tokenCaller: false,
-				denied: 13,
+				denied: 16,
 				elevationRequired: 0,
-				forbidden: 13,
+				forbidden: 16,
 				ws: true,
 			},
 			() => tenantSnapshot(tenant.elevatedToken),
@@ -480,9 +475,9 @@ describe("authorization matrix over /api, /rpc, and /ws", () => {
 				held: new Set(USER),
 				elevated: false,
 				tokenCaller: false,
-				denied: 37,
+				denied: 31,
 				elevationRequired: 0,
-				forbidden: 37,
+				forbidden: 31,
 				ws: true,
 			},
 			() => tenantSnapshot(tenant.elevatedToken),
@@ -510,9 +505,9 @@ describe("authorization matrix over /api, /rpc, and /ws", () => {
 				held: new Set(SUPER_ADMIN),
 				elevated: false,
 				tokenCaller: false,
-				denied: 73,
-				elevationRequired: 11,
-				forbidden: 62,
+				denied: 67,
+				elevationRequired: 12,
+				forbidden: 55,
 				ws: false,
 			},
 			() => systemSnapshot(boss.accessToken),
@@ -546,9 +541,9 @@ describe("authorization matrix over /api, /rpc, and /ws", () => {
 				held: new Set(SUPER_ADMIN),
 				elevated: true,
 				tokenCaller: false,
-				denied: 62,
+				denied: 55,
 				elevationRequired: 0,
-				forbidden: 62,
+				forbidden: 55,
 				ws: false,
 			},
 			() => systemSnapshot(boss.accessToken),

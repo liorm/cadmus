@@ -214,9 +214,8 @@ cadmus file.read --botId scribe --path /.cadmus/SOUL.md
 ### Send and await a reply
 
 \`\`\`bash
-cadmus chat.create --botId scribe --key notes
-cadmus send notes "Hello"
-cadmus send notes - --stream < message.txt
+cadmus send bot:scribe "Hello"
+cadmus send bot:scribe - --stream < message.txt
 \`\`\`
 
 \`send\` opens \`/ws\`, runs \`turn.submit\`, and waits for \`turn.completed\` or a failed turn. \`--stream\` prints delta and tool events as NDJSON.
@@ -224,9 +223,8 @@ cadmus send notes - --stream < message.txt
 ### Read a transcript
 
 \`\`\`bash
-cadmus chat.get --chatKey notes
-cadmus chat.entries --chatKey notes
-cadmus chat.messages --chatKey notes
+cadmus chat.get --chatKey bot:scribe
+cadmus chat.get --chatKey bot:scribe --raw true
 \`\`\`
 
 ### View group chats
@@ -242,7 +240,7 @@ cadmus events --types bot.message --chat <groupKey>
 ### Schedules
 
 \`\`\`bash
-cadmus schedule.create --id wake --botId scribe --kind absolute --input 0 --text "ping" --target.mode chat --target.chatKey notes
+cadmus schedule.create --id wake --botId scribe --kind absolute --input 0 --text "ping" --target.mode chat --target.chatKey bot:scribe
 cadmus schedule.list --botId scribe
 cadmus schedule.delete --id wake
 \`\`\`

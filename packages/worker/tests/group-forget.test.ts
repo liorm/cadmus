@@ -25,7 +25,6 @@ async function bots(slugs: string[], scope: Scope) {
 			scope,
 		);
 	}
-	await sendRpc("chat.create", { botId: slugs[0], key: "root" }, scope);
 }
 
 async function waitFor(check: () => Promise<boolean>, ms = 15_000) {
@@ -78,7 +77,7 @@ describe("fire-and-forget message_bot", () => {
 		const turn = await sendRpc<{ reply: string }>(
 			"turn.submit",
 			{
-				chatKey: "root",
+				chatKey: "bot:a",
 				text: `[tool:message_bot ${JSON.stringify({
 					botId: "b",
 					topic: "ping",
@@ -109,7 +108,7 @@ describe("fire-and-forget message_bot", () => {
 		expect(group?.members?.sort()).toEqual(["a", "b"]);
 		expect(group?.groupStatus).toBe("open");
 		expect(turn.frame.result?.reply).toContain(group?.key);
-		const early = await userTexts(scope, "root");
+		const early = await userTexts(scope, "bot:a");
 		expect(early.some((message) => message.text.includes("reply from @"))).toBe(
 			false,
 		);
@@ -124,10 +123,10 @@ describe("fire-and-forget message_bot", () => {
 
 		await releaseHold(scope, "b", "pong");
 		await waitFor(async () => {
-			const messages = await userTexts(scope, "root");
+			const messages = await userTexts(scope, "bot:a");
 			return messages.some((message) => message.text.includes("reply from @b"));
 		});
-		const woken = (await userTexts(scope, "root")).filter((message) =>
+		const woken = (await userTexts(scope, "bot:a")).filter((message) =>
 			message.text.includes("reply from @b"),
 		);
 		expect(woken).toHaveLength(1);
@@ -153,7 +152,7 @@ describe("fire-and-forget message_bot", () => {
 		await sendRpc(
 			"turn.submit",
 			{
-				chatKey: "root",
+				chatKey: "bot:a",
 				text: `[tool:message_bot ${JSON.stringify({
 					botId: "b",
 					topic: "later",
@@ -165,7 +164,7 @@ describe("fire-and-forget message_bot", () => {
 		);
 		const second = sendRpc<{ reply: string }>(
 			"turn.submit",
-			{ chatKey: "root", text: "[[hold:busy-a]]" },
+			{ chatKey: "bot:a", text: "[[hold:busy-a]]" },
 			scope,
 		);
 		await waitFor(async () => {
@@ -189,17 +188,17 @@ describe("fire-and-forget message_bot", () => {
 				),
 			);
 		});
-		const during = await userTexts(scope, "root");
+		const during = await userTexts(scope, "bot:a");
 		expect(during.some((message) => message.text.includes("from-b"))).toBe(
 			false,
 		);
 		await releaseHold(scope, "busy-a", "busy-done");
 		await second;
 		await waitFor(async () => {
-			const messages = await userTexts(scope, "root");
+			const messages = await userTexts(scope, "bot:a");
 			return messages.some((message) => message.text.includes("from-b"));
 		});
-		const wakes = (await userTexts(scope, "root")).filter((message) =>
+		const wakes = (await userTexts(scope, "bot:a")).filter((message) =>
 			message.text.includes("reply from @b"),
 		);
 		expect(wakes).toHaveLength(1);
@@ -214,7 +213,7 @@ describe("fire-and-forget message_bot", () => {
 		const turn = await sendRpc<{ reply: string }>(
 			"turn.submit",
 			{
-				chatKey: "root",
+				chatKey: "bot:a",
 				text: `[tool:message_bot ${JSON.stringify({
 					botId: "b",
 					topic: "hang",
@@ -250,10 +249,10 @@ describe("fire-and-forget message_bot", () => {
 		expect(armed).toBe(true);
 		await runDurableObjectAlarm(stub);
 		await waitFor(async () => {
-			const messages = await userTexts(scope, "root");
+			const messages = await userTexts(scope, "bot:a");
 			return messages.some((message) => message.text.includes("timed_out"));
 		});
-		const wakes = (await userTexts(scope, "root")).filter((message) =>
+		const wakes = (await userTexts(scope, "bot:a")).filter((message) =>
 			message.text.includes("timed_out"),
 		);
 		expect(wakes).toHaveLength(1);
@@ -270,7 +269,7 @@ describe("fire-and-forget message_bot", () => {
 		const turn = await sendRpc<{ reply: string }>(
 			"turn.submit",
 			{
-				chatKey: "root",
+				chatKey: "bot:a",
 				text: `[tool:message_bot ${JSON.stringify({
 					botId: "b",
 					topic: "once",
@@ -300,7 +299,7 @@ describe("fire-and-forget message_bot", () => {
 			});
 		});
 		expect(
-			(await userTexts(scope, "root")).some((message) =>
+			(await userTexts(scope, "bot:a")).some((message) =>
 				message.text.includes("only-once"),
 			),
 		).toBe(false);
@@ -312,13 +311,13 @@ describe("fire-and-forget message_bot", () => {
 		await abortAllDurableObjects();
 		await sendRpc("chat.list", {}, scope);
 		await waitFor(async () => {
-			const messages = await userTexts(scope, "root");
+			const messages = await userTexts(scope, "bot:a");
 			return messages.some((message) => message.text.includes("only-once"));
 		});
 		await abortAllDurableObjects();
 		await sendRpc("chat.list", {}, scope);
 		await new Promise((resolve) => setTimeout(resolve, 200));
-		const wakes = (await userTexts(scope, "root")).filter((message) =>
+		const wakes = (await userTexts(scope, "bot:a")).filter((message) =>
 			message.text.includes("reply from @b"),
 		);
 		expect(wakes).toHaveLength(1);
@@ -340,12 +339,12 @@ describe("fire-and-forget message_bot", () => {
 			})}]`;
 		await sendRpc(
 			"turn.submit",
-			{ chatKey: "root", text: [1, 2, 3, 4, 5, 6].map(call).join(" ") },
+			{ chatKey: "bot:a", text: [1, 2, 3, 4, 5, 6].map(call).join(" ") },
 			scope,
 		);
 		const budgetView = await sendRpc<{
 			messages: { text: string }[];
-		}>("chat.get", { chatKey: "root" }, scope);
+		}>("chat.get", { chatKey: "bot:a" }, scope);
 		const budgetText = (budgetView.frame.result?.messages ?? [])
 			.map((message) => message.text)
 			.join("\n");
@@ -362,7 +361,7 @@ describe("fire-and-forget message_bot", () => {
 		await sendRpc(
 			"turn.submit",
 			{
-				chatKey: "root",
+				chatKey: "bot:a",
 				text: `[tool:message_bot ${JSON.stringify({
 					botId: "b",
 					topic: "loop",
@@ -374,7 +373,7 @@ describe("fire-and-forget message_bot", () => {
 		);
 		const cycleView = await sendRpc<{ messages: { text: string }[] }>(
 			"chat.get",
-			{ chatKey: "root" },
+			{ chatKey: "bot:a" },
 			scope,
 		);
 		expect(
@@ -383,7 +382,7 @@ describe("fire-and-forget message_bot", () => {
 			),
 		).toBe(true);
 		await waitFor(async () => {
-			const messages = await userTexts(scope, "root");
+			const messages = await userTexts(scope, "bot:a");
 			return messages.some((message) =>
 				message.text.includes("already on the hop chain"),
 			);
@@ -400,7 +399,7 @@ describe("fire-and-forget message_bot", () => {
 		const depth = await sendRpc<{ reply: string }>(
 			"turn.submit",
 			{
-				chatKey: "root",
+				chatKey: "bot:a",
 				text: `[tool:message_bot ${JSON.stringify({
 					botId: "b",
 					topic: "depth",
@@ -412,7 +411,7 @@ describe("fire-and-forget message_bot", () => {
 		);
 		expect(depth.frame.ok).toBe(true);
 		await waitFor(async () => {
-			const messages = await userTexts(scope, "root");
+			const messages = await userTexts(scope, "bot:a");
 			return messages.some((message) =>
 				message.text.includes("max depth is 3"),
 			);
@@ -433,7 +432,7 @@ describe("fire-and-forget message_bot", () => {
 		const inherited = await sendRpc<{ reply: string }>(
 			"turn.submit",
 			{
-				chatKey: "root",
+				chatKey: "bot:a",
 				text: `[tool:message_bot ${JSON.stringify({
 					botId: "b",
 					topic: "inherit",

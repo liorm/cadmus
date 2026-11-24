@@ -18,7 +18,6 @@ describe("Inter-Bot DO Internals (timeout alarm, replay, cascade delete)", () =>
 				scope,
 			);
 		}
-		await sendRpc("chat.create", { botId: slugs[0], key: "root" }, scope);
 	}
 
 	it("times out a hung reply and returns the transcript", async () => {
@@ -30,7 +29,7 @@ describe("Inter-Bot DO Internals (timeout alarm, replay, cascade delete)", () =>
 		const pending = sendRpc<{ reply: string }>(
 			"turn.submit",
 			{
-				chatKey: "root",
+				chatKey: "bot:a",
 				text: `[tool:message_bot ${JSON.stringify({
 					botId: "b",
 					topic: "wait",
@@ -93,7 +92,7 @@ describe("Inter-Bot DO Internals (timeout alarm, replay, cascade delete)", () =>
 		const turn = await sendRpc<{ reply: string }>(
 			"turn.submit",
 			{
-				chatKey: "root",
+				chatKey: "bot:a",
 				text: `[tool:message_bot ${JSON.stringify({
 					botId: "b",
 					topic: "replay",
@@ -137,7 +136,7 @@ describe("Inter-Bot DO Internals (timeout alarm, replay, cascade delete)", () =>
 				targetBotId: "b",
 				topic: group.topic,
 				text: `${group.openingText} EXTRA`,
-				originChatKey: "root",
+				originChatKey: "bot:a",
 			});
 		});
 		expect(
@@ -175,7 +174,7 @@ describe("Inter-Bot DO Internals (timeout alarm, replay, cascade delete)", () =>
 		await sendRpc(
 			"turn.submit",
 			{
-				chatKey: "root",
+				chatKey: "bot:a",
 				text: `[tool:message_bot ${JSON.stringify({
 					botId: "b",
 					topic: "bye",
