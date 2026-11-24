@@ -500,6 +500,55 @@
 				}
 			}
 		},
+		"/api/account/credentials/test": {
+			"post": {
+				"operationId": "account.credentials.test",
+				"x-cadmus-grant": "credentials.manage",
+				"summary": "Test configured credentials for an AI provider against its live API.",
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {
+							"schema": {
+								"type": "object",
+								"required": ["providerId"],
+								"properties": {
+									"providerId": {
+										"type": "string",
+										"minLength": 1,
+										"description": "Provider identifier whose active credential should be tested."
+									},
+									"modelId": {
+										"type": "string",
+										"minLength": 1,
+										"description": "Optional model identifier to use for the test request. Defaults to a fast model for the provider."
+									}
+								},
+								"description": "Parameters identifying the provider credential to test."
+							}
+						}
+					}
+				},
+				"responses": {
+					"200": {
+						"description": "Command result",
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/AccountCredentialsTestResult"
+								}
+							}
+						}
+					},
+					"400": { "$ref": "#/components/responses/ApiError" },
+					"401": { "$ref": "#/components/responses/ApiError" },
+					"404": { "$ref": "#/components/responses/ApiError" },
+					"405": { "$ref": "#/components/responses/ApiError" },
+					"409": { "$ref": "#/components/responses/ApiError" },
+					"500": { "$ref": "#/components/responses/ApiError" }
+				}
+			}
+		},
 		"/api/account/models/list": {
 			"get": {
 				"operationId": "account.models.list",
@@ -4959,6 +5008,33 @@
 					"credential": { "$ref": "#/components/schemas/CredentialSummary" }
 				},
 				"description": "Result payload returned by account.credentials.set containing the saved credential summary."
+			},
+			"AccountCredentialsTestResult": {
+				"type": "object",
+				"required": ["providerId", "modelId", "ok", "latencyMs"],
+				"properties": {
+					"providerId": {
+						"type": "string",
+						"description": "Provider identifier that was tested."
+					},
+					"modelId": {
+						"type": "string",
+						"description": "Model identifier used for the test request."
+					},
+					"ok": {
+						"type": "boolean",
+						"description": "True if the provider responded successfully using the configured credential."
+					},
+					"latencyMs": {
+						"type": "number",
+						"description": "Round-trip duration of the test request in milliseconds."
+					},
+					"error": {
+						"type": "string",
+						"description": "Error message returned by the provider when the test failed."
+					}
+				},
+				"description": "Result payload returned by account.credentials.test with verification status and latency."
 			},
 			"AccountGetResult": {
 				"type": "object",

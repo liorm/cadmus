@@ -430,6 +430,49 @@ export type AccountCredentialsDeleteCommand = Static<
 >;
 
 /**
+ * Command to test configured credentials for an AI provider by running a minimal completion request.
+ */
+export const AccountCredentialsTestCommandSchema = Type.Object(
+	{
+		id: Type.String({
+			minLength: 1,
+			description:
+				"Non-empty unique correlation identifier for this command request.",
+		}),
+		type: Type.Literal("account.credentials.test", {
+			description: "Command type identifier.",
+		}),
+		payload: Type.Object(
+			{
+				providerId: Type.String({
+					minLength: 1,
+					description:
+						"Provider identifier whose active credential should be tested.",
+				}),
+				modelId: Type.Optional(
+					Type.String({
+						minLength: 1,
+						description:
+							"Optional model identifier to use for the test request. Defaults to a fast model for the provider.",
+					}),
+				),
+			},
+			{
+				description: "Parameters identifying the provider credential to test.",
+			},
+		),
+	},
+	{
+		grant: "credentials.manage",
+		description:
+			"Test configured credentials for an AI provider against its live API.",
+	},
+);
+export type AccountCredentialsTestCommand = Static<
+	typeof AccountCredentialsTestCommandSchema
+>;
+
+/**
  * Command to list all available AI models and their capabilities, optionally filtered by provider or credential availability.
  */
 export const AccountModelsListCommandSchema = Type.Object(
@@ -2748,6 +2791,7 @@ export const ClientCommandSchema = Type.Union(
 		AccountCredentialsListCommandSchema,
 		AccountCredentialsSetCommandSchema,
 		AccountCredentialsDeleteCommandSchema,
+		AccountCredentialsTestCommandSchema,
 		AccountModelsListCommandSchema,
 		AccountOAuthProvidersCommandSchema,
 		AccountOAuthStartCommandSchema,

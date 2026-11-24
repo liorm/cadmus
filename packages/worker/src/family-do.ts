@@ -109,6 +109,8 @@ import {
 	getSupportedThinkingLevels,
 	parseModelRef,
 	parseThinkingLevel,
+	pickTestModel,
+	testProviderCredential,
 } from "./models.js";
 import { OAuthFlowManager } from "./oauth.js";
 import {
@@ -1780,6 +1782,39 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 					},
 				});
 				return { deleted: command.payload.providerId };
+			},
+			"account.credentials.test": async (command) => {
+				const models = this.ensureModels();
+				const { providerId, modelId } = command.payload;
+				const model = modelId
+					? models.getModel(providerId, modelId)
+					: pickTestModel(providerId, models.getModels(providerId));
+				if (!model) {
+					throw new ProtocolValidationError(
+						modelId
+							? `Unknown model ${providerId}/${modelId}`
+							: `Unknown provider "${providerId}" or no models available`,
+						"not_found",
+					);
+				}
+				if (providerId !== "faux") {
+					let auth: Awaited<ReturnType<MutableModels["getAuth"]>>;
+					try {
+						auth = await models.getAuth(providerId);
+					} catch (error) {
+						throw new ProtocolValidationError(
+							`Provider "${providerId}" credentials failed: ${(error as Error).message}`,
+							"not_found",
+						);
+					}
+					if (!auth) {
+						throw new ProtocolValidationError(
+							`Provider "${providerId}" has no credentials configured for this account`,
+							"not_found",
+						);
+					}
+				}
+				return testProviderCredential(models, model);
 			},
 			"account.models.list": async (command) => {
 				const models = this.ensureModels();

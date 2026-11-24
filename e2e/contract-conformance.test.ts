@@ -207,6 +207,7 @@ describe("contract conformance", () => {
 			providerId: "faux",
 			credential: { type: "api_key", apiKey: "conformance-key" },
 		});
+		await call("account.credentials.test", { providerId: "faux" });
 		await call("account.credentials.delete", { providerId: "faux" });
 		await call("account.models.list", {
 			provider: "faux",

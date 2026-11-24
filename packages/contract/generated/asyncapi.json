@@ -224,6 +224,41 @@
 				"grant": "credentials.manage",
 				"description": "Store or update encrypted provider credentials (API key or OAuth token set) for the account."
 			},
+			"AccountCredentialsTestCommand": {
+				"type": "object",
+				"required": ["id", "type", "payload"],
+				"properties": {
+					"id": {
+						"type": "string",
+						"minLength": 1,
+						"description": "Non-empty unique correlation identifier for this command request."
+					},
+					"type": {
+						"type": "string",
+						"const": "account.credentials.test",
+						"description": "Command type identifier."
+					},
+					"payload": {
+						"type": "object",
+						"required": ["providerId"],
+						"properties": {
+							"providerId": {
+								"type": "string",
+								"minLength": 1,
+								"description": "Provider identifier whose active credential should be tested."
+							},
+							"modelId": {
+								"type": "string",
+								"minLength": 1,
+								"description": "Optional model identifier to use for the test request. Defaults to a fast model for the provider."
+							}
+						},
+						"description": "Parameters identifying the provider credential to test."
+					}
+				},
+				"grant": "credentials.manage",
+				"description": "Test configured credentials for an AI provider against its live API."
+			},
 			"AccountEvent": {
 				"type": "object",
 				"required": ["type", "payload"],
@@ -2468,6 +2503,9 @@
 					},
 					{
 						"$ref": "#/components/schemas/AccountCredentialsDeleteCommand"
+					},
+					{
+						"$ref": "#/components/schemas/AccountCredentialsTestCommand"
 					},
 					{
 						"$ref": "#/components/schemas/AccountModelsListCommand"

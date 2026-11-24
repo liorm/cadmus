@@ -1,11 +1,19 @@
 import type {
+	AccountCredentialsTestResult,
 	CredentialSummary,
 	ModelInfo,
 	OAuthFlowRecord,
 	OAuthProviderInfo,
 	ServerEvent,
 } from "@cadmus/contract/types";
-import { CheckCircle2, KeyRound, Trash2 } from "lucide-react";
+import {
+	AlertCircle,
+	CheckCircle2,
+	FlaskConical,
+	KeyRound,
+	Loader2,
+	Trash2,
+} from "lucide-react";
 import { useEffect, useState } from "react";
 import { LoadGate } from "@/components/Skeleton";
 import { useCadmus } from "@/context/CadmusContext";
@@ -28,6 +36,13 @@ export function AdminProvidersPage() {
 	const { runProtected } = useElevation();
 
 	const [keys, setKeys] = useState<Record<string, string>>({});
+	const [modelFilter, setModelFilter] = useState<"available" | "all">(
+		"available",
+	);
+	const [testing, setTesting] = useState<Record<string, boolean>>({});
+	const [testResults, setTestResults] = useState<
+		Record<string, AccountCredentialsTestResult>
+	>({});
 	const [flow, setFlow] = useState<OAuthFlowRecord | null>(null);
 	const [prompt, setPrompt] = useState("");
 	const [busy, setBusy] = useState(false);
@@ -103,6 +118,13 @@ export function AdminProvidersPage() {
 	const oauthProviders = loaded.data?.oauthProviders ?? [];
 	const models = loaded.data?.models ?? [];
 
+	const isModelAvailable = (m: ModelInfo) =>
+		Boolean(m.credentialConfigured ?? m.authenticated) ||
+		credentials.some((c) => c.providerId === m.provider);
+	const availableModels = models.filter(isModelAvailable);
+	const displayedModels =
+		modelFilter === "available" ? availableModels : models;
+
 	const providerIds = Array.from(
 		new Set([
 			...KNOWN_PROVIDERS.map((p) => p.id),
@@ -130,8 +152,48 @@ export function AdminProvidersPage() {
 					return;
 				}
 				setKeys((prev) => ({ ...prev, [providerId]: "" }));
+				setTestResults((prev) => {
+					const next = { ...prev };
+					delete next[providerId];
+					return next;
+				});
 				setNote(`API key saved for ${providerId}.`);
 				retry();
+			},
+		);
+	}
+
+	async function handleTestCredential(providerId: string) {
+		setError(null);
+		setNote(null);
+		await runProtected(
+			`test ${providerId} credential`,
+			`Sends a minimal test request to ${providerId} using its active credential.`,
+			async () => {
+				setTesting((prev) => ({ ...prev, [providerId]: true }));
+				try {
+					const res = await client.callRpc<AccountCredentialsTestResult>(
+						"account.credentials.test",
+						{ providerId },
+					);
+					if (!res.ok || !res.result) {
+						setTestResults((prev) => ({
+							...prev,
+							[providerId]: {
+								providerId,
+								modelId: "",
+								ok: false,
+								latencyMs: 0,
+								error: res.error?.message ?? "Could not test credential.",
+							},
+						}));
+						return;
+					}
+					const result = res.result;
+					setTestResults((prev) => ({ ...prev, [providerId]: result }));
+				} finally {
+					setTesting((prev) => ({ ...prev, [providerId]: false }));
+				}
 			},
 		);
 	}
@@ -152,6 +214,11 @@ export function AdminProvidersPage() {
 					setError(res.error?.message ?? "Could not remove credentials.");
 					return;
 				}
+				setTestResults((prev) => {
+					const next = { ...prev };
+					delete next[providerId];
+					return next;
+				});
 				setNote(`Credentials removed for ${providerId}.`);
 				retry();
 			},
@@ -298,6 +365,8 @@ export function AdminProvidersPage() {
 							const oauth = oauthProviders.find((p) => p.providerId === id);
 							const saved = credentials.find((c) => c.providerId === id);
 							const canOAuth = Boolean(oauth) || Boolean(known?.oauth);
+							const isTesting = Boolean(testing[id]);
+							const testResult = testResults[id];
 							return (
 								<section
 									key={id}
@@ -333,6 +402,34 @@ export function AdminProvidersPage() {
 												}
 												className="min-h-tap w-full rounded-lg border border-border bg-bg px-3 text-xs text-text outline-none focus:border-accent"
 											/>
+											{testResult ? (
+												testResult.ok ? (
+													<p
+														role="status"
+														className="flex items-center gap-1.5 rounded-lg border border-status-done/40 bg-status-done/10 px-2.5 py-1.5 text-xs text-status-done"
+													>
+														<CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+														<span>
+															Working ({testResult.modelId},{" "}
+															{testResult.latencyMs} ms)
+														</span>
+													</p>
+												) : (
+													<p
+														role="alert"
+														className="flex items-start gap-1.5 rounded-lg border border-destructive/40 bg-destructive/10 px-2.5 py-1.5 text-xs text-destructive"
+													>
+														<AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+														<span className="break-words">
+															Test failed
+															{testResult.modelId
+																? ` (${testResult.modelId})`
+																: ""}
+															: {testResult.error ?? "Unknown error"}
+														</span>
+													</p>
+												)
+											) : null}
 										</div>
 									</div>
 
@@ -357,15 +454,30 @@ export function AdminProvidersPage() {
 											</button>
 										) : null}
 										{saved ? (
-											<button
-												type="button"
-												disabled={busy}
-												onClick={() => void handleDeleteCredential(id)}
-												className="inline-flex min-h-tap items-center gap-1 rounded-lg border border-destructive/40 px-2.5 text-xs font-medium text-destructive hover:bg-destructive/10 disabled:opacity-40"
-											>
-												<Trash2 className="h-3.5 w-3.5" />
-												Remove
-											</button>
+											<>
+												<button
+													type="button"
+													disabled={busy || isTesting}
+													onClick={() => void handleTestCredential(id)}
+													className="inline-flex min-h-tap items-center gap-1 rounded-lg border border-border px-3 text-xs font-medium text-text hover:bg-surface-raised disabled:opacity-40"
+												>
+													{isTesting ? (
+														<Loader2 className="h-3.5 w-3.5 animate-spin" />
+													) : (
+														<FlaskConical className="h-3.5 w-3.5" />
+													)}
+													{isTesting ? "Testing…" : "Test key"}
+												</button>
+												<button
+													type="button"
+													disabled={busy || isTesting}
+													onClick={() => void handleDeleteCredential(id)}
+													className="inline-flex min-h-tap items-center gap-1 rounded-lg border border-destructive/40 px-2.5 text-xs font-medium text-destructive hover:bg-destructive/10 disabled:opacity-40"
+												>
+													<Trash2 className="h-3.5 w-3.5" />
+													Remove
+												</button>
+											</>
 										) : null}
 									</div>
 								</section>
@@ -374,26 +486,76 @@ export function AdminProvidersPage() {
 					</div>
 
 					<section className="rounded-xl border border-border bg-surface p-4">
-						<h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-text-muted">
-							Available Models ({models.length})
-						</h2>
-						{models.length === 0 ? (
-							<p className="text-xs text-text-muted">No models listed.</p>
+						<div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+							<h2 className="text-xs font-semibold uppercase tracking-wide text-text-muted">
+								Available Models ({availableModels.length}
+								{modelFilter === "all" ? ` / ${models.length}` : ""})
+							</h2>
+							<fieldset
+								aria-label="Filter models"
+								className="inline-flex rounded-lg border border-border bg-bg p-0.5 text-xs"
+							>
+								<button
+									type="button"
+									aria-pressed={modelFilter === "available"}
+									onClick={() => setModelFilter("available")}
+									className={
+										modelFilter === "available"
+											? "rounded-md bg-accent px-2.5 py-1 font-medium text-on-accent"
+											: "rounded-md px-2.5 py-1 text-text-muted hover:text-text"
+									}
+								>
+									Show available
+								</button>
+								<button
+									type="button"
+									aria-pressed={modelFilter === "all"}
+									onClick={() => setModelFilter("all")}
+									className={
+										modelFilter === "all"
+											? "rounded-md bg-accent px-2.5 py-1 font-medium text-on-accent"
+											: "rounded-md px-2.5 py-1 text-text-muted hover:text-text"
+									}
+								>
+									Show all
+								</button>
+							</fieldset>
+						</div>
+						{displayedModels.length === 0 ? (
+							<p className="text-xs text-text-muted">
+								{models.length > 0 && modelFilter === "available"
+									? "No models available yet. Configure a provider above or switch to Show all."
+									: "No models listed."}
+							</p>
 						) : (
 							<div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-								{models.map((m) => (
-									<div
-										key={m.id}
-										className="rounded-lg border border-border bg-bg/50 px-3 py-2 text-xs"
-									>
-										<div className="truncate font-semibold text-text">
-											{m.name}
+								{displayedModels.map((m) => {
+									const available = isModelAvailable(m);
+									return (
+										<div
+											key={`${m.provider}/${m.id}`}
+											className={
+												available
+													? "rounded-lg border border-border bg-bg/50 px-3 py-2 text-xs"
+													: "rounded-lg border border-border/60 bg-bg/30 px-3 py-2 text-xs opacity-50"
+											}
+										>
+											<div className="flex items-center justify-between gap-2">
+												<div className="truncate font-semibold text-text">
+													{m.name}
+												</div>
+												{!available ? (
+													<span className="shrink-0 text-[10px] text-text-muted">
+														Not configured
+													</span>
+												) : null}
+											</div>
+											<div className="truncate font-mono text-[11px] text-text-muted">
+												{m.provider}/{m.id}
+											</div>
 										</div>
-										<div className="truncate font-mono text-[11px] text-text-muted">
-											{m.provider}/{m.id}
-										</div>
-									</div>
-								))}
+									);
+								})}
 							</div>
 						)}
 					</section>

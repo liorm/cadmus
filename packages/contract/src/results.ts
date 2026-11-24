@@ -209,6 +209,40 @@ export type AccountCredentialsDeleteResult = Static<
 >;
 
 /**
+ * Result returned by account.credentials.test indicating whether the provider credential worked.
+ */
+export const AccountCredentialsTestResultSchema = Type.Object(
+	{
+		providerId: Type.String({
+			description: "Provider identifier that was tested.",
+		}),
+		modelId: Type.String({
+			description: "Model identifier used for the test request.",
+		}),
+		ok: Type.Boolean({
+			description:
+				"True if the provider responded successfully using the configured credential.",
+		}),
+		latencyMs: Type.Number({
+			description: "Round-trip duration of the test request in milliseconds.",
+		}),
+		error: Type.Optional(
+			Type.String({
+				description:
+					"Error message returned by the provider when the test failed.",
+			}),
+		),
+	},
+	{
+		description:
+			"Result payload returned by account.credentials.test with verification status and latency.",
+	},
+);
+export type AccountCredentialsTestResult = Static<
+	typeof AccountCredentialsTestResultSchema
+>;
+
+/**
  * Result returned by account.models.list containing available models and their capabilities.
  */
 export const AccountModelsListResultSchema = Type.Object(
