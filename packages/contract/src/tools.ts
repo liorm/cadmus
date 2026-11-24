@@ -5,7 +5,15 @@
  * An explicit array replaces that set. Coding tools are opt-in and are
  * never part of the default set.
  */
-export const FILE_TOOL_NAMES = ["read", "write", "edit", "delete"] as const;
+export const FILE_TOOL_NAMES = [
+	"read",
+	"write",
+	"edit",
+	"delete",
+	"ls",
+	"find",
+	"grep",
+] as const;
 
 export const CODING_TOOL_NAMES = ["bash"] as const;
 
@@ -15,6 +23,9 @@ export const WORKSPACE_TOOL_NAMES = [
 	"write",
 	"edit",
 	"delete",
+	"ls",
+	"find",
+	"grep",
 ] as const;
 
 export const CODE_EXECUTE_TOOL_NAME = "code.execute";
@@ -94,6 +105,27 @@ export const TOOL_CATALOG: readonly ToolCatalogEntry[] = [
 		name: "delete",
 		category: "files",
 		readOnly: false,
+		codingEnv: false,
+	},
+	{
+		name: "ls",
+		category: "files",
+		readOnly: true,
+		readOnlyGroup: true,
+		codingEnv: false,
+	},
+	{
+		name: "find",
+		category: "files",
+		readOnly: true,
+		readOnlyGroup: true,
+		codingEnv: false,
+	},
+	{
+		name: "grep",
+		category: "files",
+		readOnly: true,
+		readOnlyGroup: true,
 		codingEnv: false,
 	},
 	{

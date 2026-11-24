@@ -1,11 +1,17 @@
 import { describe, expect, it } from "vitest";
 import {
 	applyVirtualEdits,
+	compileGlob,
+	findVirtualFiles,
+	grepVirtualFiles,
+	isVirtualScopePath,
+	listVirtualEntries,
 	MEMORY_VFS_PATH,
 	parseVirtualPath,
 	SOUL_VFS_PATH,
 	skillVfsPath,
 	sliceTextLines,
+	type VirtualFileEntry,
 } from "../../src/extensions/vfs.js";
 import {
 	formatSkillMarkdown,
@@ -147,5 +153,145 @@ describe("sliceTextLines", () => {
 			totalLines: 5,
 			truncated: false,
 		});
+	});
+});
+
+describe("VFS navigation & search (ls, find, grep)", () => {
+	const entries: VirtualFileEntry[] = [
+		{
+			path: MEMORY_VFS_PATH,
+			content: "- Prefers TypeScript\n- Deployment target: Cloudflare Workers",
+			bytes: 60,
+		},
+		{
+			path: SOUL_VFS_PATH,
+			content: "You are a helpful assistant.",
+			bytes: 28,
+		},
+		{
+			path: skillVfsPath("deploy-guide"),
+			content:
+				"---\nname: deploy-guide\ndescription: How to deploy\ncategory: ops\n---\n\nRun wrangler deploy.",
+			bytes: 88,
+			description: "How to deploy",
+			category: "ops",
+		},
+		{
+			path: skillVfsPath("sql-notes"),
+			content:
+				"---\nname: sql-notes\ndescription: SQLite tips\n---\n\nUse WAL mode and indexes.",
+			bytes: 76,
+			description: "SQLite tips",
+		},
+	];
+
+	it("recognizes virtual scope paths", () => {
+		expect(isVirtualScopePath("/.cadmus")).toBe(true);
+		expect(isVirtualScopePath("/.cadmus/")).toBe(true);
+		expect(isVirtualScopePath("/.cadmus/skills")).toBe(true);
+		expect(isVirtualScopePath("/.cadmus/skills/deploy-guide")).toBe(true);
+		expect(isVirtualScopePath("/workspace/src")).toBe(false);
+		expect(isVirtualScopePath("MEMORY.md")).toBe(false);
+	});
+
+	it("compiles globs with *, **, ?, and brace alternations", () => {
+		const skillsMd = compileGlob("/.cadmus/skills/**/*.md");
+		expect(skillsMd.test("/.cadmus/skills/deploy-guide/SKILL.md")).toBe(true);
+		expect(skillsMd.test("/.cadmus/MEMORY.md")).toBe(false);
+
+		const brace = compileGlob("**/{MEMORY,SOUL}.md");
+		expect(brace.test("/.cadmus/MEMORY.md")).toBe(true);
+		expect(brace.test("/.cadmus/SOUL.md")).toBe(true);
+		expect(brace.test("/.cadmus/skills/sql-notes/SKILL.md")).toBe(false);
+
+		const singleSeg = compileGlob("*{MEMORY,SOUL}.md");
+		expect(singleSeg.test("MEMORY.md")).toBe(true);
+		expect(singleSeg.test("/.cadmus/MEMORY.md")).toBe(false);
+	});
+
+	it("lists virtual directories with depth and details", () => {
+		const root = listVirtualEntries(entries, "/.cadmus");
+		expect(root).toEqual({
+			ok: true,
+			text: "MEMORY.md\nSOUL.md\nskills/",
+		});
+
+		const deep = listVirtualEntries(entries, "/.cadmus", {
+			depth: 3,
+			details: true,
+		});
+		expect(deep.ok).toBe(true);
+		if (deep.ok) {
+			expect(deep.text).toContain("MEMORY.md [file, 60 bytes]");
+			expect(deep.text).toContain("skills/ [dir]");
+			expect(deep.text).toContain("skills/deploy-guide/ [dir]");
+			expect(deep.text).toContain(
+				"skills/deploy-guide/SKILL.md [file, 88 bytes, How to deploy]",
+			);
+		}
+
+		const missing = listVirtualEntries(entries, "/.cadmus/unknown");
+		expect(missing.ok).toBe(false);
+	});
+
+	it("finds virtual files by glob with optional base path", () => {
+		const skills = findVirtualFiles(entries, "/.cadmus/skills/**/*.md");
+		expect(skills).toEqual({
+			ok: true,
+			paths: [
+				"/.cadmus/skills/deploy-guide/SKILL.md",
+				"/.cadmus/skills/sql-notes/SKILL.md",
+			],
+			truncated: false,
+		});
+
+		const rel = findVirtualFiles(entries, "deploy-*/*.md", "/.cadmus/skills");
+		expect(rel).toEqual({
+			ok: true,
+			paths: ["/.cadmus/skills/deploy-guide/SKILL.md"],
+			truncated: false,
+		});
+	});
+
+	it("greps virtual files with regex, literal, ignoreCase, glob, and limit", () => {
+		const res = grepVirtualFiles(entries, {
+			pattern: "deploy",
+			ignoreCase: true,
+		});
+		expect(res.ok).toBe(true);
+		if (res.ok) {
+			expect(res.matches).toEqual([
+				"/.cadmus/MEMORY.md:2: - Deployment target: Cloudflare Workers",
+				"/.cadmus/skills/deploy-guide/SKILL.md:2: name: deploy-guide",
+				"/.cadmus/skills/deploy-guide/SKILL.md:3: description: How to deploy",
+				"/.cadmus/skills/deploy-guide/SKILL.md:7: Run wrangler deploy.",
+			]);
+		}
+
+		const scoped = grepVirtualFiles(entries, {
+			pattern: "deploy",
+			path: "/.cadmus/skills",
+			glob: "*sql*",
+		});
+		expect(scoped).toEqual({ ok: true, matches: [], truncated: false });
+
+		const literal = grepVirtualFiles(entries, {
+			pattern: "[invalid(",
+			literal: true,
+		});
+		expect(literal).toEqual({ ok: true, matches: [], truncated: false });
+
+		const badRegex = grepVirtualFiles(entries, { pattern: "[invalid(" });
+		expect(badRegex.ok).toBe(false);
+
+		const limited = grepVirtualFiles(entries, {
+			pattern: "e",
+			limit: 2,
+		});
+		expect(limited.ok).toBe(true);
+		if (limited.ok) {
+			expect(limited.matches).toHaveLength(2);
+			expect(limited.truncated).toBe(true);
+		}
 	});
 });

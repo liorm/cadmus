@@ -25,7 +25,26 @@ import {
 	omitProviderTools,
 	providerToolNames,
 } from "./provider-tools.js";
-import { parseVirtualPath } from "./vfs.js";
+import { isVirtualScopePath, parseVirtualPath } from "./vfs.js";
+
+const VFS_NAV_TOOLS = new Set(["ls", "find", "grep"]);
+
+function isAllowedVirtualFileCall(toolName: string, args: unknown): boolean {
+	const record =
+		args && typeof args === "object" ? (args as Record<string, unknown>) : {};
+	const rawPath = typeof record.path === "string" ? record.path.trim() : "";
+	if (VFS_NAV_TOOLS.has(toolName)) {
+		if (rawPath) return isVirtualScopePath(rawPath);
+		if (toolName === "find") {
+			const pattern =
+				typeof record.pattern === "string" ? record.pattern.trim() : "";
+			if (pattern.startsWith("/")) return isVirtualScopePath(pattern);
+		}
+		return true;
+	}
+	const parsed = parseVirtualPath(rawPath);
+	return Boolean(parsed && parsed.kind !== "invalid");
+}
 
 const CODE_EXECUTE_ENV_BLOCK =
 	"code.execute is disabled while the workspace tools env is on; use bash";
@@ -161,12 +180,12 @@ export function toolGateExtension() {
 							return { block: READONLY_GROUP_BLOCK };
 						}
 						if (isFileTool(call.name)) {
-							const rawPath =
-								typeof (call.arguments as { path?: unknown })?.path === "string"
-									? (call.arguments as { path: string }).path
-									: "";
-							const parsed = parseVirtualPath(rawPath);
-							if (!parsed || parsed.kind === "invalid") {
+							if (!isAllowedVirtualFileCall(call.name, call.arguments)) {
+								const rawPath =
+									typeof (call.arguments as { path?: unknown })?.path ===
+									"string"
+										? (call.arguments as { path: string }).path
+										: "";
 								getLogger().warn(
 									"workspace file read blocked in read-only group chat",
 									{
@@ -185,11 +204,7 @@ export function toolGateExtension() {
 							api.conversationId as unknown as number,
 						);
 						if (route?.kind === "harvest") {
-							const rawPath =
-								typeof (call.arguments as { path?: unknown })?.path === "string"
-									? (call.arguments as { path: string }).path
-									: "";
-							if (!parseVirtualPath(rawPath)) {
+							if (!isAllowedVirtualFileCall(call.name, call.arguments)) {
 								return {
 									block:
 										"Idle harvest can only access Cadmus virtual files (/.cadmus/SOUL.md, /.cadmus/MEMORY.md, /.cadmus/skills/<slug>/SKILL.md).",
