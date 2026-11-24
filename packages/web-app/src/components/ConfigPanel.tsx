@@ -17,15 +17,12 @@ import { useCadmus } from "@/context/CadmusContext";
 import { allowlistCount } from "@/lib/allowlist-count";
 import { type BotPaletteSlot, botColor } from "@/lib/bot-color";
 import type { LoadPhase } from "@/lib/load-state";
+import {
+	clampThinkingForModel,
+	findModelByRef,
+	getThinkingOptionsForModel,
+} from "@/lib/thinking-levels";
 import { toolsEnvLabel } from "@/lib/tools-env-label";
-
-const THINKING = [
-	{ value: "off", label: "Off" },
-	{ value: "minimal", label: "Minimal" },
-	{ value: "low", label: "Low" },
-	{ value: "medium", label: "Medium" },
-	{ value: "high", label: "High" },
-] as const;
 
 export function ConfigPanel({
 	bot,
@@ -69,6 +66,13 @@ export function ConfigPanel({
 		envKindById,
 	});
 	const count = allowlistCount(bot.tools, codingEnvOffered, bot.model);
+	const selectedModel = modelsReady
+		? findModelByRef(models, bot.model)
+		: undefined;
+	const thinkingOptions = getThinkingOptionsForModel(
+		selectedModel,
+		bot.thinking,
+	);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -163,7 +167,17 @@ export function ConfigPanel({
 						models={models}
 						value={bot.model}
 						onChange={(nextRef) => {
-							void patch({ model: nextRef });
+							const nextModel = findModelByRef(models, nextRef);
+							const nextThinking = clampThinkingForModel(
+								bot.thinking,
+								nextModel,
+							);
+							void patch({
+								model: nextRef,
+								...(nextThinking !== bot.thinking
+									? { thinking: nextThinking }
+									: {}),
+							});
 						}}
 					/>
 					<span className="block text-[length:var(--fs-sm)] text-text-muted">
@@ -175,13 +189,19 @@ export function ConfigPanel({
 				<h2 className="mb-2 text-[length:var(--fs-xs)] font-semibold uppercase tracking-wide text-text-muted">
 					Thinking level
 				</h2>
-				<SegmentedControl
-					ariaLabel="Thinking level"
-					scroll
-					value={bot.thinking}
-					onValueChange={(thinking) => void patch({ thinking })}
-					options={THINKING}
-				/>
+				{thinkingOptions.length > 0 ? (
+					<SegmentedControl
+						ariaLabel="Thinking level"
+						scroll
+						value={bot.thinking}
+						onValueChange={(thinking) => void patch({ thinking })}
+						options={thinkingOptions}
+					/>
+				) : (
+					<p className="rounded-md border border-border bg-surface px-3 py-2 text-[length:var(--fs-sm)] text-text-muted">
+						Selected model does not support thinking levels.
+					</p>
+				)}
 			</section>
 			<section className="mb-4">
 				<h2 className="mb-2 text-[length:var(--fs-xs)] font-semibold uppercase tracking-wide text-text-muted">
