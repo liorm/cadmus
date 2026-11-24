@@ -6952,6 +6952,7 @@
 						"type": "string",
 						"description": "Human-readable display name of the model."
 					},
+					"tier": { "$ref": "#/components/schemas/ModelTier" },
 					"contextWindow": {
 						"type": "number",
 						"description": "Maximum context window size in tokens, if known."
@@ -6984,6 +6985,14 @@
 					}
 				},
 				"description": "Capability descriptor and credential availability status for an LLM model."
+			},
+			"ModelTier": {
+				"anyOf": [
+					{ "type": "string", "const": "frontier" },
+					{ "type": "string", "const": "fast" },
+					{ "type": "string", "const": "other" }
+				],
+				"description": "Model tier ('frontier', 'fast', or 'other'). Omitted defaults to 'other'."
 			},
 			"OAuthFlowRecord": {
 				"type": "object",

@@ -5,12 +5,13 @@ import type {
 	OAuthProviderInfo,
 	ServerEvent,
 } from "@cadmus/contract/types";
-import { CheckCircle2, KeyRound, Trash2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { CheckCircle2, KeyRound, Search, Trash2 } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import { LoadGate } from "@/components/Skeleton";
 import { useCadmus } from "@/context/CadmusContext";
 import { useElevation } from "@/context/ElevationContext";
 import { useScopedResource } from "@/hooks/useScopedResource";
+import { groupModelsForSelect } from "@/lib/model-select";
 import { AccountAdminShell } from "@/surfaces/account-admin/AccountAdminShell";
 
 const KNOWN_PROVIDERS = [
@@ -33,6 +34,8 @@ export function AdminProvidersPage() {
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [note, setNote] = useState<string | null>(null);
+	const [modelQuery, setModelQuery] = useState("");
+	const [showAllModels, setShowAllModels] = useState(false);
 
 	const loaded = useScopedResource("admin-providers", async () => {
 		const [creds, oauth, modelsRes] = await Promise.all([
@@ -102,6 +105,15 @@ export function AdminProvidersPage() {
 	const credentials = loaded.data?.credentials ?? [];
 	const oauthProviders = loaded.data?.oauthProviders ?? [];
 	const models = loaded.data?.models ?? [];
+
+	const groupedModels = useMemo(
+		() =>
+			groupModelsForSelect(models, {
+				query: modelQuery,
+				showAll: showAllModels,
+			}),
+		[models, modelQuery, showAllModels],
+	);
 
 	const providerIds = Array.from(
 		new Set([
@@ -373,24 +385,81 @@ export function AdminProvidersPage() {
 						})}
 					</div>
 
-					<section className="rounded-xl border border-border bg-surface p-4">
-						<h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-text-muted">
-							Available Models ({models.length})
-						</h2>
-						{models.length === 0 ? (
+					<section className="space-y-4 rounded-xl border border-border bg-surface p-4">
+						<div className="flex flex-wrap items-center justify-between gap-2">
+							<h2 className="text-xs font-semibold uppercase tracking-wide text-text-muted">
+								Available Models ({groupedModels.visibleCount} of{" "}
+								{groupedModels.totalCount})
+							</h2>
+							<div className="flex flex-wrap items-center gap-2">
+								<label className="relative flex items-center">
+									<Search className="pointer-events-none absolute left-2.5 h-3.5 w-3.5 text-text-muted" />
+									<input
+										type="text"
+										aria-label="Search available models"
+										placeholder="Search models…"
+										value={modelQuery}
+										onChange={(e) => setModelQuery(e.target.value)}
+										className="h-8 rounded-lg border border-border bg-bg pl-8 pr-2.5 text-xs text-text outline-none focus:border-accent"
+									/>
+								</label>
+								{!modelQuery.trim() &&
+								(groupedModels.hiddenCount > 0 || showAllModels) ? (
+									<button
+										type="button"
+										onClick={() => setShowAllModels((prev) => !prev)}
+										className="h-8 rounded-lg border border-border px-2.5 text-xs font-medium text-accent hover:bg-surface-raised"
+									>
+										{showAllModels
+											? "Show popular only"
+											: `Show all (${groupedModels.totalCount})`}
+									</button>
+								) : null}
+							</div>
+						</div>
+						{groupedModels.groups.length === 0 ? (
 							<p className="text-xs text-text-muted">No models listed.</p>
 						) : (
-							<div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-								{models.map((m) => (
-									<div
-										key={m.id}
-										className="rounded-lg border border-border bg-bg/50 px-3 py-2 text-xs"
-									>
-										<div className="truncate font-semibold text-text">
-											{m.name}
+							<div className="space-y-4">
+								{groupedModels.groups.map((group) => (
+									<div key={group.provider} className="space-y-2">
+										<div className="flex items-center justify-between">
+											<h3 className="text-xs font-semibold text-text">
+												{group.label}
+											</h3>
+											<span className="text-[11px] text-text-muted">
+												{group.items.length}{" "}
+												{group.items.length === 1 ? "model" : "models"}
+												{group.authenticated ? "" : " · no key"}
+											</span>
 										</div>
-										<div className="truncate font-mono text-[11px] text-text-muted">
-											{m.provider}/{m.id}
+										<div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+											{group.items.map((item) => (
+												<div
+													key={item.ref}
+													className="rounded-lg border border-border bg-bg/50 px-3 py-2 text-xs"
+												>
+													<div className="flex items-center justify-between gap-1.5">
+														<span className="truncate font-semibold text-text">
+															{item.model.name}
+														</span>
+														{item.tier !== "other" ? (
+															<span
+																className={
+																	item.tier === "frontier"
+																		? "shrink-0 rounded bg-accent/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-accent"
+																		: "shrink-0 rounded bg-surface-raised px-1.5 py-0.5 text-[10px] font-medium uppercase text-text-muted"
+																}
+															>
+																{item.tier}
+															</span>
+														) : null}
+													</div>
+													<div className="truncate font-mono text-[11px] text-text-muted">
+														{item.ref}
+													</div>
+												</div>
+											))}
 										</div>
 									</div>
 								))}

@@ -14,6 +14,7 @@ import { BotBadge } from "@/components/BotBadge";
 import { ColorSwatches } from "@/components/ColorSwatches";
 import { AddEntityDialog } from "@/components/chrome/AddEntityDialog";
 import { GroupChatViewerSheet } from "@/components/GroupChatViewerSheet";
+import { ModelSelect } from "@/components/ModelSelect";
 import { StatusShape } from "@/components/StatusShape";
 import { UnreadDot } from "@/components/UnreadDot";
 import { useCadmus } from "@/context/CadmusContext";
@@ -85,9 +86,7 @@ export function BotsSidebarPanel({
 	const [botModel, setBotModel] = useState("");
 	const [botSoul, setBotSoul] = useState("");
 	const [botSlot, setBotSlot] = useState<BotPaletteSlot | null>(null);
-	const [modelOptions, setModelOptions] = useState<
-		Array<{ ref: string; label: string; disabled: boolean }>
-	>([]);
+	const [models, setModels] = useState<ModelInfo[]>([]);
 	const [botBusy, setBotBusy] = useState(false);
 	const [botError, setBotError] = useState<string | null>(null);
 
@@ -107,15 +106,17 @@ export function BotsSidebarPanel({
 			.callRpc<{ models?: ModelInfo[] }>("account.models.list")
 			.then((res) => {
 				if (cancelled || !res.ok) return;
-				const listed = (res.result?.models ?? []).map((model) => ({
-					ref: modelListRef(model),
-					label: `${model.name} (${model.provider})${model.authenticated ? "" : " · no key"}`,
-					disabled: !model.authenticated,
-				}));
-				setModelOptions(listed);
-				const firstEnabled = listed.find((m) => !m.disabled) ?? listed[0];
+				const listed = res.result?.models ?? [];
+				setModels(listed);
+				const firstEnabled =
+					listed.find(
+						(m) =>
+							m.authenticated && (m.tier === "frontier" || m.tier === "fast"),
+					) ??
+					listed.find((m) => m.authenticated) ??
+					listed[0];
 				if (firstEnabled && !botModel) {
-					setBotModel(firstEnabled.ref);
+					setBotModel(modelListRef(firstEnabled));
 				}
 			});
 		return () => {
@@ -511,22 +512,16 @@ export function BotsSidebarPanel({
 							className="min-h-tap w-full rounded-lg border border-border bg-bg px-3 text-sm text-text outline-none focus:border-accent"
 						/>
 					</label>
-					{modelOptions.length > 0 ? (
-						<label className="block space-y-1">
+					{models.length > 0 ? (
+						<div className="space-y-1">
 							<span className="text-xs font-medium text-text-muted">Model</span>
-							<select
-								aria-label="Bot model"
+							<ModelSelect
+								ariaLabel="Bot model"
+								models={models}
 								value={botModel}
-								onChange={(e) => setBotModel(e.target.value)}
-								className="min-h-tap w-full rounded-lg border border-border bg-bg px-3 text-sm text-text outline-none focus:border-accent"
-							>
-								{modelOptions.map((opt) => (
-									<option key={opt.ref} value={opt.ref} disabled={opt.disabled}>
-										{opt.label}
-									</option>
-								))}
-							</select>
-						</label>
+								onChange={setBotModel}
+							/>
+						</div>
 					) : null}
 					<div className="space-y-1.5">
 						<span className="text-xs font-medium text-text-muted">Colour</span>

@@ -237,12 +237,20 @@ describe("Authentication, Accounts, Encrypted BYOK Credentials & Multi-Family Ca
 		const hydrogen = googleModels.find((m) => m.id === "gemini-4-hydrogen");
 		expect(hydrogen).toBeDefined();
 		expect(hydrogen?.name).toBe("Gemini 4 Hydrogen");
+		expect(hydrogen?.tier).toBe("frontier");
 		expect(hydrogen?.thinkingLevels).toEqual([
 			"low",
 			"medium",
 			"high",
 			"xhigh",
 		]);
+
+		const flash38 = googleModels.find((m) => m.id === "gemini-3.8-flash");
+		expect(flash38?.tier).toBe("fast");
+
+		const flash25 = googleModels.find((m) => m.id === "gemini-2.5-flash");
+		expect(flash25).toBeDefined();
+		expect(flash25?.tier).toBeUndefined();
 
 		const neon = googleModels.find((m) => m.id === "gemini-4-neon");
 		expect(neon).toBeDefined();
