@@ -105,6 +105,19 @@ export const CredentialSummarySchema = Type.Object(
 export type CredentialSummary = Static<typeof CredentialSummarySchema>;
 
 /**
+ * Curated model tier for grouping and filtering model pickers.
+ * When omitted, the model is treated as `"other"`.
+ */
+export const ModelTierSchema = Type.Union(
+	[Type.Literal("frontier"), Type.Literal("fast"), Type.Literal("other")],
+	{
+		description:
+			"Model tier ('frontier', 'fast', or 'other'). Omitted defaults to 'other'.",
+	},
+);
+export type ModelTier = Static<typeof ModelTierSchema>;
+
+/**
  * Descriptor of an available LLM model, its capabilities, and its authentication status.
  */
 export const ModelInfoSchema = Type.Object(
@@ -120,6 +133,7 @@ export const ModelInfoSchema = Type.Object(
 		name: Type.String({
 			description: "Human-readable display name of the model.",
 		}),
+		tier: Type.Optional(ModelTierSchema),
 		contextWindow: Type.Optional(
 			Type.Number({
 				description: "Maximum context window size in tokens, if known.",
