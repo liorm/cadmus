@@ -31,6 +31,7 @@ import {
 	readOnlyGroupToolNames,
 } from "@cadmus/contract/tools";
 import type {
+	AccountCredentialsTestResult,
 	AccountMember,
 	AccountModelsListResult,
 	AccountRecord,
@@ -63,6 +64,7 @@ import { Value } from "typebox/value";
 import { afterAll, beforeAll } from "vitest";
 
 export type {
+	AccountCredentialsTestResult,
 	AccountMember,
 	AccountModelsListResult,
 	AccountRecord,

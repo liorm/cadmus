@@ -4,6 +4,7 @@ import {
 	AccountCredentialsDeleteCommandSchema,
 	AccountCredentialsListCommandSchema,
 	AccountCredentialsSetCommandSchema,
+	AccountCredentialsTestCommandSchema,
 	AccountGetCommandSchema,
 	AccountInvitesListCommandSchema,
 	AccountInvitesRevokeCommandSchema,
@@ -113,6 +114,7 @@ import {
 	AccountCredentialsDeleteResultSchema,
 	AccountCredentialsListResultSchema,
 	AccountCredentialsSetResultSchema,
+	AccountCredentialsTestResultSchema,
 	AccountGetResultSchema,
 	AccountInvitesListResultSchema,
 	AccountInvitesRevokeResultSchema,
@@ -230,6 +232,10 @@ export const commandCatalog = {
 	"account.credentials.delete": {
 		command: AccountCredentialsDeleteCommandSchema,
 		result: AccountCredentialsDeleteResultSchema,
+	},
+	"account.credentials.test": {
+		command: AccountCredentialsTestCommandSchema,
+		result: AccountCredentialsTestResultSchema,
 	},
 	"account.models.list": {
 		command: AccountModelsListCommandSchema,

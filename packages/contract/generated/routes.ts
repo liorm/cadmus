@@ -76,6 +76,12 @@ export const API_ROUTES = {
 		allow: "POST",
 		readOnly: false,
 	},
+	"account.credentials.test": {
+		method: "POST",
+		path: "/api/account/credentials/test",
+		allow: "POST",
+		readOnly: false,
+	},
 	"account.models.list": {
 		method: "GET",
 		path: "/api/account/models/list",

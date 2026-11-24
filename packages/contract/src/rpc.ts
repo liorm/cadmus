@@ -3,6 +3,7 @@ import type {
 	AccountCredentialsDeleteCommand,
 	AccountCredentialsListCommand,
 	AccountCredentialsSetCommand,
+	AccountCredentialsTestCommand,
 	AccountGetCommand,
 	AccountInvitesListCommand,
 	AccountInvitesRevokeCommand,
@@ -114,6 +115,7 @@ import type {
 	AccountCredentialsDeleteResult,
 	AccountCredentialsListResult,
 	AccountCredentialsSetResult,
+	AccountCredentialsTestResult,
 	AccountGetResult,
 	AccountInvitesListResult,
 	AccountInvitesRevokeResult,
@@ -257,6 +259,12 @@ export type AccountCredentialsSetRpc = Rpc<
 export type AccountCredentialsDeleteRpc = Rpc<
 	AccountCredentialsDeleteCommand,
 	AccountCredentialsDeleteResult
+>;
+
+/** RPC contract for `account.credentials.test`: tests active credentials for a provider. */
+export type AccountCredentialsTestRpc = Rpc<
+	AccountCredentialsTestCommand,
+	AccountCredentialsTestResult
 >;
 
 /** RPC contract for `account.models.list`: lists available models and capability metadata. */
@@ -561,6 +569,7 @@ export interface RpcMap {
 	"account.credentials.list": AccountCredentialsListRpc;
 	"account.credentials.set": AccountCredentialsSetRpc;
 	"account.credentials.delete": AccountCredentialsDeleteRpc;
+	"account.credentials.test": AccountCredentialsTestRpc;
 	"account.models.list": AccountModelsListRpc;
 	"account.credentials.oauth.providers": AccountOAuthProvidersRpc;
 	"account.credentials.oauth.start": AccountOAuthStartRpc;

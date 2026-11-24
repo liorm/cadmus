@@ -1,11 +1,20 @@
 import type {
+	AccountCredentialsTestResult,
 	CredentialSummary,
 	ModelInfo,
 	OAuthFlowRecord,
 	OAuthProviderInfo,
 	ServerEvent,
 } from "@cadmus/contract/types";
-import { CheckCircle2, KeyRound, Search, Trash2 } from "lucide-react";
+import {
+	AlertCircle,
+	CheckCircle2,
+	FlaskConical,
+	KeyRound,
+	Loader2,
+	Search,
+	Trash2,
+} from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { LoadGate } from "@/components/Skeleton";
 import { useCadmus } from "@/context/CadmusContext";
@@ -29,6 +38,13 @@ export function AdminProvidersPage() {
 	const { runProtected } = useElevation();
 
 	const [keys, setKeys] = useState<Record<string, string>>({});
+	const [modelFilter, setModelFilter] = useState<"available" | "all">(
+		"available",
+	);
+	const [testing, setTesting] = useState<Record<string, boolean>>({});
+	const [testResults, setTestResults] = useState<
+		Record<string, AccountCredentialsTestResult>
+	>({});
 	const [flow, setFlow] = useState<OAuthFlowRecord | null>(null);
 	const [prompt, setPrompt] = useState("");
 	const [busy, setBusy] = useState(false);
@@ -106,13 +122,24 @@ export function AdminProvidersPage() {
 	const oauthProviders = loaded.data?.oauthProviders ?? [];
 	const models = loaded.data?.models ?? [];
 
+	const availableModels = useMemo(
+		() =>
+			models.filter(
+				(m) =>
+					Boolean(m.credentialConfigured ?? m.authenticated) ||
+					credentials.some((c) => c.providerId === m.provider),
+			),
+		[models, credentials],
+	);
+	const scopedModels = modelFilter === "available" ? availableModels : models;
+
 	const groupedModels = useMemo(
 		() =>
-			groupModelsForSelect(models, {
+			groupModelsForSelect(scopedModels, {
 				query: modelQuery,
 				showAll: showAllModels,
 			}),
-		[models, modelQuery, showAllModels],
+		[scopedModels, modelQuery, showAllModels],
 	);
 
 	const providerIds = Array.from(
@@ -142,8 +169,48 @@ export function AdminProvidersPage() {
 					return;
 				}
 				setKeys((prev) => ({ ...prev, [providerId]: "" }));
+				setTestResults((prev) => {
+					const next = { ...prev };
+					delete next[providerId];
+					return next;
+				});
 				setNote(`API key saved for ${providerId}.`);
 				retry();
+			},
+		);
+	}
+
+	async function handleTestCredential(providerId: string) {
+		setError(null);
+		setNote(null);
+		await runProtected(
+			`test ${providerId} credential`,
+			`Sends a minimal test request to ${providerId} using its active credential.`,
+			async () => {
+				setTesting((prev) => ({ ...prev, [providerId]: true }));
+				try {
+					const res = await client.callRpc<AccountCredentialsTestResult>(
+						"account.credentials.test",
+						{ providerId },
+					);
+					if (!res.ok || !res.result) {
+						setTestResults((prev) => ({
+							...prev,
+							[providerId]: {
+								providerId,
+								modelId: "",
+								ok: false,
+								latencyMs: 0,
+								error: res.error?.message ?? "Could not test credential.",
+							},
+						}));
+						return;
+					}
+					const result = res.result;
+					setTestResults((prev) => ({ ...prev, [providerId]: result }));
+				} finally {
+					setTesting((prev) => ({ ...prev, [providerId]: false }));
+				}
 			},
 		);
 	}
@@ -164,6 +231,11 @@ export function AdminProvidersPage() {
 					setError(res.error?.message ?? "Could not remove credentials.");
 					return;
 				}
+				setTestResults((prev) => {
+					const next = { ...prev };
+					delete next[providerId];
+					return next;
+				});
 				setNote(`Credentials removed for ${providerId}.`);
 				retry();
 			},
@@ -310,6 +382,8 @@ export function AdminProvidersPage() {
 							const oauth = oauthProviders.find((p) => p.providerId === id);
 							const saved = credentials.find((c) => c.providerId === id);
 							const canOAuth = Boolean(oauth) || Boolean(known?.oauth);
+							const isTesting = Boolean(testing[id]);
+							const testResult = testResults[id];
 							return (
 								<section
 									key={id}
@@ -345,6 +419,34 @@ export function AdminProvidersPage() {
 												}
 												className="min-h-tap w-full rounded-lg border border-border bg-bg px-3 text-xs text-text outline-none focus:border-accent"
 											/>
+											{testResult ? (
+												testResult.ok ? (
+													<p
+														role="status"
+														className="flex items-center gap-1.5 rounded-lg border border-status-done/40 bg-status-done/10 px-2.5 py-1.5 text-xs text-status-done"
+													>
+														<CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+														<span>
+															Working ({testResult.modelId},{" "}
+															{testResult.latencyMs} ms)
+														</span>
+													</p>
+												) : (
+													<p
+														role="alert"
+														className="flex items-start gap-1.5 rounded-lg border border-destructive/40 bg-destructive/10 px-2.5 py-1.5 text-xs text-destructive"
+													>
+														<AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+														<span className="break-words">
+															Test failed
+															{testResult.modelId
+																? ` (${testResult.modelId})`
+																: ""}
+															: {testResult.error ?? "Unknown error"}
+														</span>
+													</p>
+												)
+											) : null}
 										</div>
 									</div>
 
@@ -369,15 +471,30 @@ export function AdminProvidersPage() {
 											</button>
 										) : null}
 										{saved ? (
-											<button
-												type="button"
-												disabled={busy}
-												onClick={() => void handleDeleteCredential(id)}
-												className="inline-flex min-h-tap items-center gap-1 rounded-lg border border-destructive/40 px-2.5 text-xs font-medium text-destructive hover:bg-destructive/10 disabled:opacity-40"
-											>
-												<Trash2 className="h-3.5 w-3.5" />
-												Remove
-											</button>
+											<>
+												<button
+													type="button"
+													disabled={busy || isTesting}
+													onClick={() => void handleTestCredential(id)}
+													className="inline-flex min-h-tap items-center gap-1 rounded-lg border border-border px-3 text-xs font-medium text-text hover:bg-surface-raised disabled:opacity-40"
+												>
+													{isTesting ? (
+														<Loader2 className="h-3.5 w-3.5 animate-spin" />
+													) : (
+														<FlaskConical className="h-3.5 w-3.5" />
+													)}
+													{isTesting ? "Testing…" : "Test key"}
+												</button>
+												<button
+													type="button"
+													disabled={busy || isTesting}
+													onClick={() => void handleDeleteCredential(id)}
+													className="inline-flex min-h-tap items-center gap-1 rounded-lg border border-destructive/40 px-2.5 text-xs font-medium text-destructive hover:bg-destructive/10 disabled:opacity-40"
+												>
+													<Trash2 className="h-3.5 w-3.5" />
+													Remove
+												</button>
+											</>
 										) : null}
 									</div>
 								</section>
@@ -392,6 +509,35 @@ export function AdminProvidersPage() {
 								{groupedModels.totalCount})
 							</h2>
 							<div className="flex flex-wrap items-center gap-2">
+								<fieldset
+									aria-label="Filter models"
+									className="inline-flex rounded-lg border border-border bg-bg p-0.5 text-xs"
+								>
+									<button
+										type="button"
+										aria-pressed={modelFilter === "available"}
+										onClick={() => setModelFilter("available")}
+										className={
+											modelFilter === "available"
+												? "rounded-md bg-accent px-2.5 py-1 font-medium text-on-accent"
+												: "rounded-md px-2.5 py-1 text-text-muted hover:text-text"
+										}
+									>
+										Show available
+									</button>
+									<button
+										type="button"
+										aria-pressed={modelFilter === "all"}
+										onClick={() => setModelFilter("all")}
+										className={
+											modelFilter === "all"
+												? "rounded-md bg-accent px-2.5 py-1 font-medium text-on-accent"
+												: "rounded-md px-2.5 py-1 text-text-muted hover:text-text"
+										}
+									>
+										Show all
+									</button>
+								</fieldset>
 								<label className="relative flex items-center">
 									<Search className="pointer-events-none absolute left-2.5 h-3.5 w-3.5 text-text-muted" />
 									<input
@@ -418,7 +564,11 @@ export function AdminProvidersPage() {
 							</div>
 						</div>
 						{groupedModels.groups.length === 0 ? (
-							<p className="text-xs text-text-muted">No models listed.</p>
+							<p className="text-xs text-text-muted">
+								{models.length > 0 && modelFilter === "available"
+									? "No models available yet. Configure a provider above or switch to Show all."
+									: "No models listed."}
+							</p>
 						) : (
 							<div className="space-y-4">
 								{groupedModels.groups.map((group) => (
@@ -437,7 +587,11 @@ export function AdminProvidersPage() {
 											{group.items.map((item) => (
 												<div
 													key={item.ref}
-													className="rounded-lg border border-border bg-bg/50 px-3 py-2 text-xs"
+													className={
+														group.authenticated
+															? "rounded-lg border border-border bg-bg/50 px-3 py-2 text-xs"
+															: "rounded-lg border border-border/60 bg-bg/30 px-3 py-2 text-xs opacity-50"
+													}
 												>
 													<div className="flex items-center justify-between gap-1.5">
 														<span className="truncate font-semibold text-text">

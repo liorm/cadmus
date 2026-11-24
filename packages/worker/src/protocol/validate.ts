@@ -24,6 +24,7 @@ const EDGE_COMMAND_TYPES = new Set<CommandType>([
 	"account.credentials.list",
 	"account.credentials.set",
 	"account.credentials.delete",
+	"account.credentials.test",
 	"account.models.list",
 	"account.credentials.oauth.providers",
 	"account.credentials.oauth.start",

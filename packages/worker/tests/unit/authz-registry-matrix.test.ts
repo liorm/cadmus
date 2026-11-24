@@ -223,6 +223,7 @@ const GOLDEN_COMMAND_GRANTS: Record<string, string> = {
 	"account.credentials.delete": "credentials.manage",
 	"account.credentials.list": "credentials.read",
 	"account.credentials.set": "credentials.manage",
+	"account.credentials.test": "credentials.manage",
 	"account.get": "members.read",
 	"account.invites.list": "members.manage",
 	"account.invites.revoke": "members.manage",

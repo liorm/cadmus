@@ -1157,3 +1157,93 @@ export async function checkModel(
 	}
 	return auth.source;
 }
+
+const PREFERRED_TEST_MODELS: Record<string, readonly string[]> = {
+	openai: ["gpt-4o-mini", "gpt-4.1-mini", "gpt-4.1-nano"],
+	anthropic: [
+		"claude-haiku-4-5",
+		"claude-3-5-haiku-latest",
+		"claude-3-5-haiku-20241022",
+	],
+	google: ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-2.5-flash-lite"],
+	xai: ["grok-3-mini-fast", "grok-3-mini", "grok-2-latest"],
+	groq: ["llama-3.1-8b-instant", "llama-3.3-70b-versatile"],
+	deepseek: ["deepseek-chat"],
+};
+
+type AnyModel = Parameters<Models["completeSimple"]>[0];
+
+export function pickTestModel(
+	providerId: string,
+	providerModels: readonly AnyModel[],
+): AnyModel | undefined {
+	if (providerModels.length === 0) return undefined;
+	const preferred = PREFERRED_TEST_MODELS[providerId];
+	if (preferred) {
+		for (const id of preferred) {
+			const match = providerModels.find((m) => m.id === id);
+			if (match) return match;
+		}
+	}
+	return providerModels.find((m) => !m.reasoning) ?? providerModels[0];
+}
+
+export interface ProviderCredentialTestResult {
+	providerId: string;
+	modelId: string;
+	ok: boolean;
+	latencyMs: number;
+	error?: string;
+}
+
+/**
+ * Verifies an active provider credential by executing a minimal completion request.
+ */
+export async function testProviderCredential(
+	models: Models,
+	model: AnyModel,
+): Promise<ProviderCredentialTestResult> {
+	const startedAt = Date.now();
+	try {
+		const response = await models.completeSimple(
+			model,
+			{
+				messages: [
+					{
+						role: "user",
+						content: "Reply with OK.",
+						timestamp: Date.now(),
+					},
+				],
+			},
+			{
+				maxTokens: 16,
+				signal: AbortSignal.timeout(10_000),
+			},
+		);
+		const latencyMs = Date.now() - startedAt;
+		if (response.stopReason === "error" || response.errorMessage) {
+			return {
+				providerId: model.provider,
+				modelId: model.id,
+				ok: false,
+				latencyMs,
+				error: response.errorMessage || "Provider returned an error response",
+			};
+		}
+		return {
+			providerId: model.provider,
+			modelId: model.id,
+			ok: true,
+			latencyMs,
+		};
+	} catch (error) {
+		return {
+			providerId: model.provider,
+			modelId: model.id,
+			ok: false,
+			latencyMs: Date.now() - startedAt,
+			error: error instanceof Error ? error.message : String(error),
+		};
+	}
+}

@@ -261,7 +261,7 @@ async function sweep(
 		([, code]) => code === "elevation_required",
 	).length;
 	const forbidden = denied.filter(([, code]) => code === "forbidden").length;
-	expect(commandTypes().length).toBe(90);
+	expect(commandTypes().length).toBe(91);
 	expect(denied.length, caller.name).toBe(caller.denied);
 	expect(elevationRequired, caller.name).toBe(caller.elevationRequired);
 	expect(forbidden, caller.name).toBe(caller.forbidden);
@@ -398,9 +398,9 @@ describe("authorization matrix over /api, /rpc, and /ws", () => {
 				held: new Set(USER),
 				elevated: false,
 				tokenCaller: false,
-				denied: 31,
+				denied: 32,
 				elevationRequired: 0,
-				forbidden: 31,
+				forbidden: 32,
 				ws: true,
 			},
 			() => tenantSnapshot(tenant.elevatedToken),
@@ -419,8 +419,8 @@ describe("authorization matrix over /api, /rpc, and /ws", () => {
 				held: new Set(ACCOUNT_ADMIN),
 				elevated: false,
 				tokenCaller: false,
-				denied: 28,
-				elevationRequired: 12,
+				denied: 29,
+				elevationRequired: 13,
 				forbidden: 16,
 				ws: true,
 			},
@@ -475,9 +475,9 @@ describe("authorization matrix over /api, /rpc, and /ws", () => {
 				held: new Set(USER),
 				elevated: false,
 				tokenCaller: false,
-				denied: 31,
+				denied: 32,
 				elevationRequired: 0,
-				forbidden: 31,
+				forbidden: 32,
 				ws: true,
 			},
 			() => tenantSnapshot(tenant.elevatedToken),
@@ -505,9 +505,9 @@ describe("authorization matrix over /api, /rpc, and /ws", () => {
 				held: new Set(SUPER_ADMIN),
 				elevated: false,
 				tokenCaller: false,
-				denied: 67,
+				denied: 68,
 				elevationRequired: 12,
-				forbidden: 55,
+				forbidden: 56,
 				ws: false,
 			},
 			() => systemSnapshot(boss.accessToken),
@@ -541,9 +541,9 @@ describe("authorization matrix over /api, /rpc, and /ws", () => {
 				held: new Set(SUPER_ADMIN),
 				elevated: true,
 				tokenCaller: false,
-				denied: 55,
+				denied: 56,
 				elevationRequired: 0,
-				forbidden: 55,
+				forbidden: 56,
 				ws: false,
 			},
 			() => systemSnapshot(boss.accessToken),
