@@ -6,6 +6,7 @@ import type {
 	CredentialInfo,
 	CredentialStore,
 	JsonObject,
+	Model,
 	ModelThinkingLevel,
 	OAuthCredential,
 	SimpleStreamOptions,
@@ -16,6 +17,7 @@ import {
 	createModels as createPiModels,
 	type Models,
 	type MutableModels,
+	type Provider,
 } from "@earendil-works/pi-ai/models";
 import { anthropicProvider } from "@earendil-works/pi-ai/providers/anthropic";
 import {
@@ -27,6 +29,7 @@ import {
 	fauxThinking,
 	fauxToolCall,
 } from "@earendil-works/pi-ai/providers/faux";
+import { googleProvider } from "@earendil-works/pi-ai/providers/google";
 import { openaiProvider } from "@earendil-works/pi-ai/providers/openai";
 import { xaiProvider } from "@earendil-works/pi-ai/providers/xai";
 import type { ModelRef } from "@earendil-works/pi-durable";
@@ -857,6 +860,153 @@ export function addFauxProvider(
 	return faux;
 }
 
+const GOOGLE_IMAGE_LIMITS = {
+	maxRequestBytes: 20_971_520,
+	images: {
+		maxPerRequest: 3600,
+		resize: {
+			maxWidth: 2000,
+			maxHeight: 2000,
+			maxBytes: 4_718_592,
+			jpegQuality: 80,
+		},
+	},
+} as const;
+
+/**
+ * Gemini 4 / latest Google models not yet present in pi-ai 1.3.0's bundled
+ * catalog. Deduplicated against `googleProvider().getModels()` by id.
+ */
+const EXTRA_GOOGLE_MODELS: readonly Model<"google-generative-ai">[] = [
+	{
+		id: "gemini-4-hydrogen",
+		name: "Gemini 4 Hydrogen",
+		api: "google-generative-ai",
+		provider: "google",
+		baseUrl: "https://generativelanguage.googleapis.com/v1beta",
+		reasoning: true,
+		input: ["text", "image"],
+		cost: { input: 1.5, output: 7.5, cacheRead: 0.075, cacheWrite: 0 },
+		contextWindow: 1_048_576,
+		maxTokens: 65_536,
+		thinkingLevelMap: {
+			off: null,
+			minimal: null,
+			low: "low",
+			medium: "medium",
+			high: "high",
+			xhigh: "xhigh",
+			max: null,
+		},
+		inputLimits: GOOGLE_IMAGE_LIMITS,
+	},
+	{
+		id: "gemini-4-neon",
+		name: "Gemini 4 Neon",
+		api: "google-generative-ai",
+		provider: "google",
+		baseUrl: "https://generativelanguage.googleapis.com/v1beta",
+		reasoning: true,
+		input: ["text", "image"],
+		cost: { input: 3, output: 15, cacheRead: 0.15, cacheWrite: 0 },
+		contextWindow: 1_048_576,
+		maxTokens: 65_536,
+		thinkingLevelMap: {
+			off: null,
+			minimal: null,
+			low: "low",
+			medium: "medium",
+			high: "high",
+			xhigh: "xhigh",
+			max: null,
+		},
+		inputLimits: GOOGLE_IMAGE_LIMITS,
+	},
+	{
+		id: "gemini-4-carbon",
+		name: "Gemini 4 Carbon",
+		api: "google-generative-ai",
+		provider: "google",
+		baseUrl: "https://generativelanguage.googleapis.com/v1beta",
+		reasoning: true,
+		input: ["text", "image"],
+		cost: { input: 2, output: 10, cacheRead: 0.1, cacheWrite: 0 },
+		contextWindow: 1_048_576,
+		maxTokens: 32_768,
+		thinkingLevelMap: {
+			off: null,
+			minimal: null,
+			low: "low",
+			medium: "medium",
+			high: "high",
+			xhigh: null,
+			max: null,
+		},
+		inputLimits: GOOGLE_IMAGE_LIMITS,
+	},
+	{
+		id: "gemini-pro-latest",
+		name: "Gemini Pro Latest",
+		api: "google-generative-ai",
+		provider: "google",
+		baseUrl: "https://generativelanguage.googleapis.com/v1beta",
+		reasoning: true,
+		input: ["text", "image"],
+		cost: {
+			input: 2,
+			output: 12,
+			cacheRead: 0.2,
+			cacheWrite: 0,
+			tiers: [
+				{
+					inputTokensAbove: 200_000,
+					input: 4,
+					output: 18,
+					cacheRead: 0.4,
+					cacheWrite: 0,
+				},
+			],
+		},
+		contextWindow: 1_048_576,
+		maxTokens: 65_536,
+		thinkingLevelMap: {
+			off: null,
+			minimal: null,
+			low: "low",
+			medium: "medium",
+			high: "high",
+			xhigh: null,
+			max: null,
+		},
+		inputLimits: GOOGLE_IMAGE_LIMITS,
+	},
+];
+
+function createCadmusGoogleProvider(): Provider<"google-generative-ai"> {
+	const base = googleProvider();
+	const baseModels = base.getModels();
+	const seen = new Set(baseModels.map((m) => m.id));
+	const extra = EXTRA_GOOGLE_MODELS.filter((m) => !seen.has(m.id));
+	const mergedModels = [...baseModels, ...extra];
+	const baseGetAllModels = base.getAllModels?.bind(base);
+	return {
+		...base,
+		getModels: () => mergedModels,
+		...(baseGetAllModels
+			? {
+					getAllModels: () => {
+						const all = baseGetAllModels();
+						const allSeen = new Set(all.map((m) => m.id));
+						return [
+							...all,
+							...EXTRA_GOOGLE_MODELS.filter((m) => !allSeen.has(m.id)),
+						];
+					},
+				}
+			: {}),
+	};
+}
+
 export function createCadmusModels(
 	options: {
 		credentials?: CredentialStore;
@@ -871,6 +1021,7 @@ export function createCadmusModels(
 	base.setProvider(xaiProvider());
 	base.setProvider(openaiProvider());
 	base.setProvider(anthropicProvider());
+	base.setProvider(createCadmusGoogleProvider());
 	const faux = addFauxProvider(base, options.fauxResponder ?? echoResponse);
 	return {
 		models: withNativeTools(base),
