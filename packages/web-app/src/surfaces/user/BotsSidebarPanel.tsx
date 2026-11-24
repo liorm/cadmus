@@ -1,4 +1,8 @@
-import type { BotRecord, ModelInfo } from "@cadmus/contract/types";
+import type {
+	BotRecord,
+	ModelInfo,
+	ThinkingLevel,
+} from "@cadmus/contract/types";
 import { Link, useNavigate } from "@tanstack/react-router";
 import {
 	FolderKanban,
@@ -15,6 +19,7 @@ import { ColorSwatches } from "@/components/ColorSwatches";
 import { AddEntityDialog } from "@/components/chrome/AddEntityDialog";
 import { GroupChatViewerSheet } from "@/components/GroupChatViewerSheet";
 import { ModelSelect } from "@/components/ModelSelect";
+import { SegmentedControl } from "@/components/SegmentedControl";
 import { StatusShape } from "@/components/StatusShape";
 import { UnreadDot } from "@/components/UnreadDot";
 import { useCadmus } from "@/context/CadmusContext";
@@ -27,6 +32,11 @@ import {
 import { formatRelative } from "@/lib/format-time";
 import type { GroupChatMessage } from "@/lib/group-chat-data";
 import { modelListRef } from "@/lib/model-ref";
+import {
+	clampThinkingForModel,
+	findModelByRef,
+	getThinkingOptionsForModel,
+} from "@/lib/thinking-levels";
 import { cn } from "@/lib/utils";
 
 function slugifyFamily(input: string): string {
@@ -84,6 +94,7 @@ export function BotsSidebarPanel({
 	// Bot create state
 	const [botName, setBotName] = useState("");
 	const [botModel, setBotModel] = useState("");
+	const [botThinking, setBotThinking] = useState<ThinkingLevel>("off");
 	const [botSoul, setBotSoul] = useState("");
 	const [botSlot, setBotSlot] = useState<BotPaletteSlot | null>(null);
 	const [models, setModels] = useState<ModelInfo[]>([]);
@@ -169,6 +180,7 @@ export function BotsSidebarPanel({
 		const res = await client.callRpc<{ bot?: BotRecord }>("bot.create", {
 			name: trimmed,
 			...(botModel ? { model: botModel } : {}),
+			thinking: botThinking,
 			...(botSoul.trim() ? { soul: botSoul.trim() } : {}),
 			metadata: { color: `bot-${slot}` },
 		});
@@ -179,6 +191,7 @@ export function BotsSidebarPanel({
 		}
 		const created = res.result.bot;
 		setBotName("");
+		setBotThinking("off");
 		setBotSoul("");
 		setBotSlot(null);
 		setAddBotOpen(false);
@@ -239,6 +252,17 @@ export function BotsSidebarPanel({
 	}
 
 	const slotPreview = botSlot ?? derivedBotColor(botName);
+	const selectedModel = findModelByRef(models, botModel);
+	const thinkingOptions = getThinkingOptionsForModel(
+		selectedModel,
+		botThinking,
+	);
+
+	function handleBotModelChange(nextRef: string) {
+		setBotModel(nextRef);
+		const nextModel = findModelByRef(models, nextRef);
+		setBotThinking((prev) => clampThinkingForModel(prev, nextModel));
+	}
 
 	const groupPills =
 		families.length > 0
@@ -513,15 +537,40 @@ export function BotsSidebarPanel({
 						/>
 					</label>
 					{models.length > 0 ? (
-						<div className="space-y-1">
-							<span className="text-xs font-medium text-text-muted">Model</span>
-							<ModelSelect
-								ariaLabel="Bot model"
-								models={models}
-								value={botModel}
-								onChange={setBotModel}
-							/>
-						</div>
+						<>
+							<div className="space-y-1">
+								<span className="text-xs font-medium text-text-muted">
+									Model
+								</span>
+								<ModelSelect
+									ariaLabel="Bot model"
+									models={models}
+									value={botModel}
+									onChange={handleBotModelChange}
+								/>
+							</div>
+							<div className="space-y-1">
+								<span className="text-xs font-medium text-text-muted">
+									Thinking level
+								</span>
+								{thinkingOptions.length > 0 ? (
+									<SegmentedControl
+										ariaLabel="Thinking level"
+										scroll
+										value={botThinking}
+										onValueChange={(next) =>
+											setBotThinking(next as ThinkingLevel)
+										}
+										options={thinkingOptions}
+										className="border border-border bg-bg"
+									/>
+								) : (
+									<p className="rounded-lg border border-border bg-bg px-3 py-2 text-xs text-text-muted">
+										Selected model does not support thinking levels.
+									</p>
+								)}
+							</div>
+						</>
 					) : null}
 					<div className="space-y-1.5">
 						<span className="text-xs font-medium text-text-muted">Colour</span>
