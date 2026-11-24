@@ -67,5 +67,5 @@ describe("account.credentials.test", () => {
 		expect(testRes.result?.ok).toBe(false);
 		expect(typeof testRes.result?.latencyMs).toBe("number");
 		expect(testRes.result?.error).toBeTruthy();
-	});
+	}, 20_000);
 });

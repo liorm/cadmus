@@ -1218,7 +1218,7 @@ export async function testProviderCredential(
 			},
 			{
 				maxTokens: 16,
-				signal: AbortSignal.timeout(15_000),
+				signal: AbortSignal.timeout(10_000),
 			},
 		);
 		const latencyMs = Date.now() - startedAt;
