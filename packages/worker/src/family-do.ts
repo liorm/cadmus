@@ -106,6 +106,7 @@ import {
 	checkModel,
 	createCadmusModels,
 	createWorkerAuthContext,
+	getModelTier,
 	getSupportedThinkingLevels,
 	parseModelRef,
 	parseThinkingLevel,
@@ -1840,10 +1841,12 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 					const providerModels = models.getModels(providerId);
 					for (const m of providerModels) {
 						const supportedLevels = getSupportedThinkingLevels(m);
+						const tier = getModelTier(providerId, m.id);
 						result.push({
 							id: m.id,
 							provider: providerId,
 							name: m.name ?? m.id,
+							...(tier ? { tier } : {}),
 							...(m.contextWindow !== undefined
 								? { contextWindow: m.contextWindow }
 								: {}),

@@ -34,7 +34,7 @@ import { openaiProvider } from "@earendil-works/pi-ai/providers/openai";
 import { xaiProvider } from "@earendil-works/pi-ai/providers/xai";
 import type { ModelRef } from "@earendil-works/pi-durable";
 import { extractGroupReply } from "./group-chat/limits.js";
-import type { CredentialInput, ThinkingLevel } from "./protocol.js";
+import type { CredentialInput, ModelTier, ThinkingLevel } from "./protocol.js";
 import type { AdminStore } from "./store/admin-interface.js";
 import type { Env } from "./types.js";
 
@@ -98,6 +98,40 @@ export function parseThinkingLevel(
 	return (THINKING_LEVELS as readonly string[]).includes(level)
 		? (level as ModelThinkingLevel)
 		: undefined;
+}
+
+const MODEL_TIERS: Readonly<Record<string, ModelTier>> = {
+	// Google
+	"google/gemini-4-hydrogen": "frontier",
+	"google/gemini-4-neon": "frontier",
+	"google/gemini-4-argon": "frontier",
+	"google/gemini-4-carbon": "frontier",
+	"google/gemini-3.8-flash": "fast",
+	// Anthropic
+	"anthropic/claude-opus-5-5": "frontier",
+	"anthropic/claude-sonnet-5-5": "frontier",
+	"anthropic/claude-fable-5-1": "frontier",
+	"anthropic/claude-haiku-5-5": "fast",
+	// OpenAI
+	"openai/gpt-6.1-sol": "frontier",
+	"openai/gpt-6-astra": "frontier",
+	"openai/gpt-5.6-terra": "frontier",
+	"openai/gpt-5.3-codex": "frontier",
+	"openai/gpt-6-luna": "fast",
+	// xAI
+	"xai/grok-4.7": "frontier",
+	"xai/grok-4.6": "frontier",
+};
+
+/**
+ * Returns the curated tier (`"frontier"` or `"fast"`) for a model, or
+ * `undefined` when the model belongs to the default `"other"` tier.
+ */
+export function getModelTier(
+	providerId: string,
+	modelId: string,
+): ModelTier | undefined {
+	return MODEL_TIERS[`${providerId}/${modelId}`];
 }
 
 // ─── Credential Store Adapter (Bridges AdminStore BYOK <-> pi-ai) ────────────

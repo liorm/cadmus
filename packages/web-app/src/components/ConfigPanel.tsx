@@ -8,6 +8,7 @@ import type {
 import { useEffect, useState } from "react";
 import { BottomSheet } from "@/components/BottomSheet";
 import { ColorSwatches } from "@/components/ColorSwatches";
+import { ModelSelect } from "@/components/ModelSelect";
 import { SegmentedControl } from "@/components/SegmentedControl";
 import { HintSkeleton, LoadError } from "@/components/Skeleton";
 import { TimezoneCombobox } from "@/components/TimezoneCombobox";
@@ -16,7 +17,6 @@ import { useCadmus } from "@/context/CadmusContext";
 import { allowlistCount } from "@/lib/allowlist-count";
 import { type BotPaletteSlot, botColor } from "@/lib/bot-color";
 import type { LoadPhase } from "@/lib/load-state";
-import { modelListRef } from "@/lib/model-ref";
 import { toolsEnvLabel } from "@/lib/tools-env-label";
 
 const THINKING = [
@@ -47,9 +47,7 @@ export function ConfigPanel({
 	onDeleted: () => void;
 }) {
 	const { client } = useCadmus();
-	const [models, setModels] = useState<
-		Array<{ ref: string; disabled: boolean }>
-	>([{ ref: bot.model, disabled: false }]);
+	const [models, setModels] = useState<ModelInfo[]>([]);
 	const [modelsReady, setModelsReady] = useState(false);
 	const [envs, setEnvs] = useState<ToolsEnvRecord[]>([]);
 	const [defaultEnvId, setDefaultEnvId] = useState<string | null>(null);
@@ -87,21 +85,7 @@ export function ConfigPanel({
 					return;
 				}
 				const listed = res.result?.models ?? [];
-				const options: Array<{ ref: string; disabled: boolean }> = [];
-				const seen = new Set<string>();
-				for (const model of listed) {
-					const ref = modelListRef(model);
-					if (seen.has(ref)) continue;
-					seen.add(ref);
-					options.push({
-						ref,
-						disabled: !model.authenticated,
-					});
-				}
-				if (!seen.has(bot.model)) {
-					options.unshift({ ref: bot.model, disabled: false });
-				}
-				setModels(options);
+				setModels(listed);
 				setModelsReady(true);
 			})
 			.catch((err: unknown) => {
@@ -140,7 +124,7 @@ export function ConfigPanel({
 		return () => {
 			cancelled = true;
 		};
-	}, [bot.model, client, configAttempt]);
+	}, [client, configAttempt]);
 
 	async function patch(payload: Record<string, unknown>) {
 		const res = await client.callRpc("bot.update", {
@@ -172,35 +156,20 @@ export function ConfigPanel({
 				<h2 className="mb-2 text-[length:var(--fs-xs)] font-semibold uppercase tracking-wide text-text-muted">
 					Model
 				</h2>
-				<label className="block rounded-md border border-border bg-surface px-3 py-2">
-					<span className="sr-only">Model</span>
-					<select
-						aria-label="Model"
+				<div className="space-y-1.5 rounded-md border border-border bg-surface px-3 py-2">
+					<ModelSelect
+						ariaLabel="Model"
 						disabled={!modelsReady}
+						models={models}
 						value={bot.model}
-						onChange={(event) => {
-							const chosen = models.find(
-								(model) => model.ref === event.target.value,
-							);
-							if (chosen?.disabled) return;
-							void patch({ model: event.target.value });
+						onChange={(nextRef) => {
+							void patch({ model: nextRef });
 						}}
-						className="w-full bg-transparent text-[length:var(--fs-md)] font-semibold"
-					>
-						{models.map((model) => (
-							<option
-								key={model.ref}
-								value={model.ref}
-								disabled={model.disabled}
-							>
-								{model.disabled ? `${model.ref} (no credentials)` : model.ref}
-							</option>
-						))}
-					</select>
-					<span className="text-[length:var(--fs-sm)] text-text-muted">
+					/>
+					<span className="block text-[length:var(--fs-sm)] text-text-muted">
 						Model used for this bot
 					</span>
-				</label>
+				</div>
 			</section>
 			<section className="mb-4">
 				<h2 className="mb-2 text-[length:var(--fs-xs)] font-semibold uppercase tracking-wide text-text-muted">

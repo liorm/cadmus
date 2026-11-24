@@ -12,13 +12,15 @@ import {
 	FlaskConical,
 	KeyRound,
 	Loader2,
+	Search,
 	Trash2,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { LoadGate } from "@/components/Skeleton";
 import { useCadmus } from "@/context/CadmusContext";
 import { useElevation } from "@/context/ElevationContext";
 import { useScopedResource } from "@/hooks/useScopedResource";
+import { groupModelsForSelect } from "@/lib/model-select";
 import { AccountAdminShell } from "@/surfaces/account-admin/AccountAdminShell";
 
 const KNOWN_PROVIDERS = [
@@ -48,6 +50,8 @@ export function AdminProvidersPage() {
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [note, setNote] = useState<string | null>(null);
+	const [modelQuery, setModelQuery] = useState("");
+	const [showAllModels, setShowAllModels] = useState(false);
 
 	const loaded = useScopedResource("admin-providers", async () => {
 		const [creds, oauth, modelsRes] = await Promise.all([
@@ -118,12 +122,25 @@ export function AdminProvidersPage() {
 	const oauthProviders = loaded.data?.oauthProviders ?? [];
 	const models = loaded.data?.models ?? [];
 
-	const isModelAvailable = (m: ModelInfo) =>
-		Boolean(m.credentialConfigured ?? m.authenticated) ||
-		credentials.some((c) => c.providerId === m.provider);
-	const availableModels = models.filter(isModelAvailable);
-	const displayedModels =
-		modelFilter === "available" ? availableModels : models;
+	const availableModels = useMemo(
+		() =>
+			models.filter(
+				(m) =>
+					Boolean(m.credentialConfigured ?? m.authenticated) ||
+					credentials.some((c) => c.providerId === m.provider),
+			),
+		[models, credentials],
+	);
+	const scopedModels = modelFilter === "available" ? availableModels : models;
+
+	const groupedModels = useMemo(
+		() =>
+			groupModelsForSelect(scopedModels, {
+				query: modelQuery,
+				showAll: showAllModels,
+			}),
+		[scopedModels, modelQuery, showAllModels],
+	);
 
 	const providerIds = Array.from(
 		new Set([
@@ -485,77 +502,121 @@ export function AdminProvidersPage() {
 						})}
 					</div>
 
-					<section className="rounded-xl border border-border bg-surface p-4">
-						<div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+					<section className="space-y-4 rounded-xl border border-border bg-surface p-4">
+						<div className="flex flex-wrap items-center justify-between gap-2">
 							<h2 className="text-xs font-semibold uppercase tracking-wide text-text-muted">
-								Available Models ({availableModels.length}
-								{modelFilter === "all" ? ` / ${models.length}` : ""})
+								Available Models ({groupedModels.visibleCount} of{" "}
+								{groupedModels.totalCount})
 							</h2>
-							<fieldset
-								aria-label="Filter models"
-								className="inline-flex rounded-lg border border-border bg-bg p-0.5 text-xs"
-							>
-								<button
-									type="button"
-									aria-pressed={modelFilter === "available"}
-									onClick={() => setModelFilter("available")}
-									className={
-										modelFilter === "available"
-											? "rounded-md bg-accent px-2.5 py-1 font-medium text-on-accent"
-											: "rounded-md px-2.5 py-1 text-text-muted hover:text-text"
-									}
+							<div className="flex flex-wrap items-center gap-2">
+								<fieldset
+									aria-label="Filter models"
+									className="inline-flex rounded-lg border border-border bg-bg p-0.5 text-xs"
 								>
-									Show available
-								</button>
-								<button
-									type="button"
-									aria-pressed={modelFilter === "all"}
-									onClick={() => setModelFilter("all")}
-									className={
-										modelFilter === "all"
-											? "rounded-md bg-accent px-2.5 py-1 font-medium text-on-accent"
-											: "rounded-md px-2.5 py-1 text-text-muted hover:text-text"
-									}
-								>
-									Show all
-								</button>
-							</fieldset>
+									<button
+										type="button"
+										aria-pressed={modelFilter === "available"}
+										onClick={() => setModelFilter("available")}
+										className={
+											modelFilter === "available"
+												? "rounded-md bg-accent px-2.5 py-1 font-medium text-on-accent"
+												: "rounded-md px-2.5 py-1 text-text-muted hover:text-text"
+										}
+									>
+										Show available
+									</button>
+									<button
+										type="button"
+										aria-pressed={modelFilter === "all"}
+										onClick={() => setModelFilter("all")}
+										className={
+											modelFilter === "all"
+												? "rounded-md bg-accent px-2.5 py-1 font-medium text-on-accent"
+												: "rounded-md px-2.5 py-1 text-text-muted hover:text-text"
+										}
+									>
+										Show all
+									</button>
+								</fieldset>
+								<label className="relative flex items-center">
+									<Search className="pointer-events-none absolute left-2.5 h-3.5 w-3.5 text-text-muted" />
+									<input
+										type="text"
+										aria-label="Search available models"
+										placeholder="Search models…"
+										value={modelQuery}
+										onChange={(e) => setModelQuery(e.target.value)}
+										className="h-8 rounded-lg border border-border bg-bg pl-8 pr-2.5 text-xs text-text outline-none focus:border-accent"
+									/>
+								</label>
+								{!modelQuery.trim() &&
+								(groupedModels.hiddenCount > 0 || showAllModels) ? (
+									<button
+										type="button"
+										onClick={() => setShowAllModels((prev) => !prev)}
+										className="h-8 rounded-lg border border-border px-2.5 text-xs font-medium text-accent hover:bg-surface-raised"
+									>
+										{showAllModels
+											? "Show popular only"
+											: `Show all (${groupedModels.totalCount})`}
+									</button>
+								) : null}
+							</div>
 						</div>
-						{displayedModels.length === 0 ? (
+						{groupedModels.groups.length === 0 ? (
 							<p className="text-xs text-text-muted">
 								{models.length > 0 && modelFilter === "available"
 									? "No models available yet. Configure a provider above or switch to Show all."
 									: "No models listed."}
 							</p>
 						) : (
-							<div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-								{displayedModels.map((m) => {
-									const available = isModelAvailable(m);
-									return (
-										<div
-											key={`${m.provider}/${m.id}`}
-											className={
-												available
-													? "rounded-lg border border-border bg-bg/50 px-3 py-2 text-xs"
-													: "rounded-lg border border-border/60 bg-bg/30 px-3 py-2 text-xs opacity-50"
-											}
-										>
-											<div className="flex items-center justify-between gap-2">
-												<div className="truncate font-semibold text-text">
-													{m.name}
-												</div>
-												{!available ? (
-													<span className="shrink-0 text-[10px] text-text-muted">
-														Not configured
-													</span>
-												) : null}
-											</div>
-											<div className="truncate font-mono text-[11px] text-text-muted">
-												{m.provider}/{m.id}
-											</div>
+							<div className="space-y-4">
+								{groupedModels.groups.map((group) => (
+									<div key={group.provider} className="space-y-2">
+										<div className="flex items-center justify-between">
+											<h3 className="text-xs font-semibold text-text">
+												{group.label}
+											</h3>
+											<span className="text-[11px] text-text-muted">
+												{group.items.length}{" "}
+												{group.items.length === 1 ? "model" : "models"}
+												{group.authenticated ? "" : " · no key"}
+											</span>
 										</div>
-									);
-								})}
+										<div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+											{group.items.map((item) => (
+												<div
+													key={item.ref}
+													className={
+														group.authenticated
+															? "rounded-lg border border-border bg-bg/50 px-3 py-2 text-xs"
+															: "rounded-lg border border-border/60 bg-bg/30 px-3 py-2 text-xs opacity-50"
+													}
+												>
+													<div className="flex items-center justify-between gap-1.5">
+														<span className="truncate font-semibold text-text">
+															{item.model.name}
+														</span>
+														{item.tier !== "other" ? (
+															<span
+																className={
+																	item.tier === "frontier"
+																		? "shrink-0 rounded bg-accent/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-accent"
+																		: "shrink-0 rounded bg-surface-raised px-1.5 py-0.5 text-[10px] font-medium uppercase text-text-muted"
+																}
+															>
+																{item.tier}
+															</span>
+														) : null}
+													</div>
+													<div className="truncate font-mono text-[11px] text-text-muted">
+														{item.ref}
+													</div>
+												</div>
+											))}
+										</div>
+									</div>
+								))}
 							</div>
 						)}
 					</section>
