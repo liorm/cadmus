@@ -222,6 +222,55 @@ describe("Authentication, Accounts, Encrypted BYOK Credentials & Multi-Family Ca
 		expect(
 			xaiModels.every((m) => m.authenticated && m.credentialConfigured),
 		).toBe(true);
+
+		// 5. Verify Google Gemini provider & Gemini 4 family models
+		const googleUnauthRes = await sendRpc<{ models: ModelInfo[] }>(
+			"account.models.list",
+			{ provider: "google" },
+			{ accountId, token },
+		);
+		const googleModels = googleUnauthRes.frame.result?.models ?? [];
+		expect(googleModels.length).toBeGreaterThan(0);
+		expect(googleModels.every((m) => m.provider === "google")).toBe(true);
+		expect(googleModels.every((m) => !m.authenticated)).toBe(true);
+
+		const hydrogen = googleModels.find((m) => m.id === "gemini-4-hydrogen");
+		expect(hydrogen).toBeDefined();
+		expect(hydrogen?.name).toBe("Gemini 4 Hydrogen");
+		expect(hydrogen?.thinkingLevels).toEqual([
+			"low",
+			"medium",
+			"high",
+			"xhigh",
+		]);
+
+		const neon = googleModels.find((m) => m.id === "gemini-4-neon");
+		expect(neon).toBeDefined();
+		expect(neon?.name).toBe("Gemini 4 Neon");
+		expect(neon?.thinkingLevels).toEqual(["low", "medium", "high", "xhigh"]);
+
+		expect(googleModels.some((m) => m.id === "gemini-4-argon")).toBe(true);
+		expect(googleModels.some((m) => m.id === "gemini-4-carbon")).toBe(true);
+
+		await sendRpc(
+			"account.credentials.set",
+			{
+				providerId: "google",
+				credential: { type: "api_key", apiKey: "google-test-key-12345" },
+			},
+			{ accountId, token },
+		);
+
+		const googleAuthRes = await sendRpc<{ models: ModelInfo[] }>(
+			"account.models.list",
+			{ provider: "google", onlyAuthenticated: true },
+			{ accountId, token },
+		);
+		const googleAuthModels = googleAuthRes.frame.result?.models ?? [];
+		expect(googleAuthModels.length).toBe(googleModels.length);
+		expect(
+			googleAuthModels.every((m) => m.authenticated && m.credentialConfigured),
+		).toBe(true);
 	});
 
 	it("isolates Bot Families in separate CadmusBotFamilyDO instances within the same account", async () => {
