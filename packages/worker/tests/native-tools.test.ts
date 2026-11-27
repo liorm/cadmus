@@ -280,11 +280,14 @@ describe("noteServerTool for Google stream chunks", () => {
 
 describe("resolveConversationExtensionsAndTools for google", () => {
 	const bot: BotRecord = {
-		slug: "helper",
+		id: "helper",
 		name: "Helper",
 		model: "google/gemini-4-hydrogen",
+		thinking: "medium",
+		timezone: "UTC",
+		rootConversationId: 1,
+		primaryChatKey: "bot:helper",
 		createdAt: 1,
-		updatedAt: 1,
 	};
 
 	it("enables web.search and code.execute for google while excluding x.search", () => {
