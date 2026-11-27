@@ -668,7 +668,7 @@ describe("local-daemon tools env through the bot", () => {
 				| undefined;
 			expect(leakedPayload?.isError).toBe(true);
 			expect(leakedPayload?.content ?? "").toMatch(
-				/rejects 'token'|additional properties/,
+				/rejects 'token'|additional properties|unknown field/,
 			);
 			expect(leakedPayload?.content ?? "").toContain("token");
 

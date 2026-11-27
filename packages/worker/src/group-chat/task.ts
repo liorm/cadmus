@@ -50,7 +50,8 @@ export const GroupDriveTask = defineTask<
 			const hold = services.groupWakeHold(task.input.taskId);
 			const now = runtime.now();
 			if (hold !== undefined && hold > now) {
-				await runtime.sleep(hold, context);
+				await runtime.sleepUntil(hold, { phase: "wake" }, context);
+				return;
 			}
 			await services.deliverGroupWake(task.input.taskId);
 			await runtime.commit(

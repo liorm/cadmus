@@ -1,10 +1,11 @@
-import type { Context } from "@earendil-works/chord";
+import type { Context } from "@earendil-works/chord/context";
 import {
 	type BinaryReader,
 	type DirReader,
 	type ExecutionEnv,
 	ExecutionError,
 	err,
+	type FileChange,
 	FileError,
 	type FileErrorCode,
 	type FileInfo,
@@ -15,7 +16,6 @@ import {
 	type ShellExecResult,
 	type TextLine,
 	type TextLineReader,
-	type WatchChange,
 	type WatchTarget,
 } from "@earendil-works/pi-durable/env";
 import type { CadmusEnvDO, NamespaceCall } from "./env-do.js";
@@ -324,7 +324,7 @@ async function watchProxy(
 	stub: EnvDoStub,
 	call: NamespaceCall,
 	targets: readonly WatchTarget[],
-	onChange: (change: WatchChange) => void,
+	onChange: (change: FileChange) => void,
 	context: Context,
 ): Promise<Result<FileWatcher, FileError>> {
 	if (context.abortSignal?.aborted) {
@@ -336,8 +336,13 @@ async function watchProxy(
 	let stopped = false;
 	const deliver = (event: WatchEvent) => {
 		if (stopped) return;
+		if ("overflow" in event && event.overflow) {
+			onChange({ kind: "overflow" });
+			return;
+		}
 		if ("error" in event && !("paths" in event) && !("overflow" in event)) {
 			onChange({
+				kind: "failed",
 				error: new FileError(
 					event.error.code as FileErrorCode,
 					event.error.message,
@@ -346,7 +351,9 @@ async function watchProxy(
 			});
 			return;
 		}
-		onChange(event as WatchChange);
+		if ("paths" in event && Array.isArray(event.paths)) {
+			onChange({ kind: "paths", paths: event.paths });
+		}
 	};
 	// Durable Object RPC does not reliably deliver a live ReadableStream across
 	// isolates. The env DO polls and buffers; this side drains that buffer.
@@ -359,7 +366,7 @@ async function watchProxy(
 	})();
 	const watcher: FileWatcher = {
 		mode: "polling",
-		close: async () => {
+		stop: async () => {
 			if (stopped) return;
 			stopped = true;
 			await stub.closeWatch(call, watchId);

@@ -295,7 +295,13 @@ describe("fire-and-forget message_bot", () => {
 						`SELECT status FROM cadmus_group_chats WHERE topic = 'once'`,
 					)
 					.toArray()[0];
-				return ended?.status === "ended";
+				if (ended?.status !== "ended") return false;
+				const sleeping = state.storage.sql
+					.exec<{ id: number }>(
+						`SELECT id FROM cadmus_pi_tasks WHERE kind = '"cadmus.group_drive"' AND status = 'sleeping'`,
+					)
+					.toArray();
+				return sleeping.length > 0;
 			});
 		});
 		expect(
@@ -306,6 +312,9 @@ describe("fire-and-forget message_bot", () => {
 		await runInDurableObject(stub, async (_instance, state) => {
 			state.storage.sql.exec(
 				`UPDATE cadmus_group_chats SET wake_not_before = NULL WHERE topic = 'once'`,
+			);
+			state.storage.sql.exec(
+				`UPDATE cadmus_pi_tasks SET record = json_set(record, '$.state.until', 1) WHERE kind = '"cadmus.group_drive"' AND status = 'sleeping'`,
 			);
 		});
 		await abortAllDurableObjects();
