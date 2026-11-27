@@ -1,13 +1,13 @@
 import { describe, expect, it } from "bun:test";
 import {
 	availableAllowlistNames,
+	BASH_TOOL_NAME,
+	CATALOG_TOOL_NAMES,
 	CODE_EXECUTE_TOOL_NAME,
-	CODING_TOOL_NAMES,
 	categorySelectionState,
-	codingToolsEnvWouldOffer,
-	DEFAULT_CADMUS_TOOL_NAMES,
 	defaultDisplayedTools,
 	displayedAllowlist,
+	effectiveToolNames,
 	isKnownReadOnlyTool,
 	knownReadOnlyToolNames,
 	persistAllowlist,
@@ -15,17 +15,12 @@ import {
 } from "@cadmus/contract/tools";
 
 describe("TOOL_CATALOG", () => {
-	it("lists every default Cadmus tool then the coding tools", () => {
-		expect(
-			TOOL_CATALOG.filter((entry) => !entry.codingEnv).map(
-				(entry) => entry.name,
-			),
-		).toEqual([...DEFAULT_CADMUS_TOOL_NAMES]);
-		expect(
-			TOOL_CATALOG.filter((entry) => entry.codingEnv).map(
-				(entry) => entry.name,
-			),
-		).toEqual([...CODING_TOOL_NAMES]);
+	it("includes every catalog tool uniformly including bash", () => {
+		expect(TOOL_CATALOG.map((entry) => entry.name)).toEqual([
+			...CATALOG_TOOL_NAMES,
+		]);
+		expect(CATALOG_TOOL_NAMES).toContain(BASH_TOOL_NAME);
+		expect(CATALOG_TOOL_NAMES).toContain(CODE_EXECUTE_TOOL_NAME);
 	});
 
 	it("marks read-only from execute() behavior, not name suffixes", () => {
@@ -39,6 +34,7 @@ describe("TOOL_CATALOG", () => {
 		expect(isKnownReadOnlyTool("write")).toBe(false);
 		expect(isKnownReadOnlyTool("edit")).toBe(false);
 		expect(isKnownReadOnlyTool("delete")).toBe(false);
+		expect(isKnownReadOnlyTool("bash")).toBe(false);
 		expect(isKnownReadOnlyTool("task_get")).toBe(false);
 		expect(isKnownReadOnlyTool("search_bot")).toBe(false);
 		expect(isKnownReadOnlyTool("code.execute")).toBe(false);
@@ -56,82 +52,53 @@ describe("TOOL_CATALOG", () => {
 	});
 });
 
-describe("codingToolsEnvWouldOffer", () => {
-	const envKindById = { jb: "just-bash", daemon: "local-daemon" };
-
-	it("is false for inherit with no account default and for Off", () => {
-		expect(
-			codingToolsEnvWouldOffer({
-				botSetting: null,
-				accountDefaultEnvId: null,
-				envKindById,
-			}),
-		).toBe(false);
-		expect(
-			codingToolsEnvWouldOffer({
-				botSetting: { enabled: false },
-				accountDefaultEnvId: "jb",
-				envKindById,
-			}),
-		).toBe(false);
-	});
-
-	it("is true for a just-bash pin and for inherit of an account default", () => {
-		expect(
-			codingToolsEnvWouldOffer({
-				botSetting: { enabled: true, binding: { envId: "jb" } },
-				accountDefaultEnvId: null,
-				envKindById,
-			}),
-		).toBe(true);
-		expect(
-			codingToolsEnvWouldOffer({
-				botSetting: null,
-				accountDefaultEnvId: "jb",
-				envKindById,
-			}),
-		).toBe(true);
-	});
-
-	it("is false when the env id is missing from the catalog", () => {
-		expect(
-			codingToolsEnvWouldOffer({
-				botSetting: { enabled: true, binding: { envId: "ghost" } },
-				envKindById,
-			}),
-		).toBe(false);
-	});
-});
-
 describe("available allowlist", () => {
-	it("hides coding tools and keeps code.execute without a coding env", () => {
-		const names = availableAllowlistNames(false);
-		expect(names).toEqual([...DEFAULT_CADMUS_TOOL_NAMES]);
+	it("includes bash and code.execute seamlessly when no model restricts providers", () => {
+		const names = availableAllowlistNames();
+		expect(names).toEqual([...CATALOG_TOOL_NAMES]);
+		expect(names).toContain(BASH_TOOL_NAME);
 		expect(names).toContain(CODE_EXECUTE_TOOL_NAME);
-		for (const name of CODING_TOOL_NAMES) {
-			expect(names).not.toContain(name);
-		}
 	});
 
-	it("shows coding tools and drops code.execute when a coding env is offered", () => {
-		const names = availableAllowlistNames(true);
-		expect(names).toContain("bash");
-		expect(names).not.toContain(CODE_EXECUTE_TOOL_NAME);
-	});
-
-	it("filters out provider tools for unsupported model providers", () => {
+	it("filters out provider tools for unsupported model providers while keeping bash", () => {
 		const anthropicNames = availableAllowlistNames(
-			false,
 			"anthropic/claude-3-5-sonnet",
 		);
+		expect(anthropicNames).toContain(BASH_TOOL_NAME);
 		expect(anthropicNames).not.toContain("web.search");
 		expect(anthropicNames).not.toContain("x.search");
 		expect(anthropicNames).not.toContain("code.execute");
 
-		const xaiNames = availableAllowlistNames(false, "xai/grok-2");
+		const xaiNames = availableAllowlistNames("xai/grok-2");
+		expect(xaiNames).toContain(BASH_TOOL_NAME);
 		expect(xaiNames).toContain("web.search");
 		expect(xaiNames).toContain("x.search");
 		expect(xaiNames).toContain("code.execute");
+	});
+});
+
+describe("effectiveToolNames", () => {
+	it("suppresses code.execute only when workspaceEnvEnabled and bash is allowed", () => {
+		expect(
+			effectiveToolNames(undefined, { workspaceEnvEnabled: false }),
+		).toBeUndefined();
+		expect(
+			effectiveToolNames(undefined, { workspaceEnvEnabled: true }),
+		).toEqual(
+			CATALOG_TOOL_NAMES.filter((name) => name !== CODE_EXECUTE_TOOL_NAME),
+		);
+		expect(
+			effectiveToolNames(["web.fetch", CODE_EXECUTE_TOOL_NAME], {
+				workspaceEnvEnabled: true,
+			}),
+		).toEqual(["web.fetch", CODE_EXECUTE_TOOL_NAME]);
+		expect(
+			effectiveToolNames([...CATALOG_TOOL_NAMES], {
+				workspaceEnvEnabled: true,
+			}),
+		).toEqual(
+			CATALOG_TOOL_NAMES.filter((name) => name !== CODE_EXECUTE_TOOL_NAME),
+		);
 	});
 });
 
@@ -139,30 +106,28 @@ describe("persistAllowlist", () => {
 	it("saves null for the default displayed set", () => {
 		expect(
 			persistAllowlist({
-				selected: defaultDisplayedTools(false),
-				available: availableAllowlistNames(false),
+				selected: defaultDisplayedTools(),
+				available: availableAllowlistNames(),
 				previous: undefined,
-				codingEnvOffered: false,
 			}),
 		).toBeNull();
 	});
 
-	it("keeps hidden coding picks when the env is cleared", () => {
+	it("keeps hidden model-specific picks when switching models", () => {
 		const persisted = persistAllowlist({
 			selected: ["read"],
-			available: availableAllowlistNames(false),
-			previous: ["read", "bash"],
-			codingEnvOffered: false,
+			available: availableAllowlistNames("anthropic/claude-3-5-sonnet"),
+			previous: ["read", "web.search"],
+			model: "anthropic/claude-3-5-sonnet",
 		});
-		expect(persisted).toEqual(["read", "bash"]);
+		expect(persisted).toEqual(["read", "web.search"]);
 	});
 
-	it("does not add coding tools that were not selected", () => {
+	it("persists an explicit allowlist without adding unselected tools", () => {
 		const persisted = persistAllowlist({
 			selected: ["read"],
-			available: availableAllowlistNames(true),
+			available: availableAllowlistNames(),
 			previous: ["read"],
-			codingEnvOffered: true,
 		});
 		expect(persisted).toEqual(["read"]);
 		expect(persisted).not.toContain("bash");
@@ -170,14 +135,14 @@ describe("persistAllowlist", () => {
 });
 
 describe("displayedAllowlist and category state", () => {
-	it("filters stored names to the current env", () => {
+	it("filters stored names to the current model provider", () => {
 		expect(
 			displayedAllowlist({
-				stored: ["read", "bash"],
-				available: availableAllowlistNames(false),
-				codingEnvOffered: false,
+				stored: ["read", "bash", "web.search"],
+				available: availableAllowlistNames("anthropic/claude-3-5-sonnet"),
+				model: "anthropic/claude-3-5-sonnet",
 			}),
-		).toEqual(["read"]);
+		).toEqual(["read", "bash"]);
 	});
 
 	it("reports mixed category membership", () => {

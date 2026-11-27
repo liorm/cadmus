@@ -1,8 +1,10 @@
 import {
 	availableAllowlistNames,
-	CODING_TOOL_NAMES,
 	knownReadOnlyToolNames,
 } from "@cadmus/contract/tools";
+
+const CODING_TOOL_NAMES = ["bash"] as const;
+
 import type { ModelInfo } from "@cadmus/contract/types";
 import type { Page } from "@playwright/test";
 import { getBot, seedBot, sendAccountRpc } from "../support/account.ts";
@@ -437,7 +439,7 @@ test("read-only mode enables known reads only and restores the prior selection",
 		"checked",
 	);
 	await clickSwitch(page, "Read-only mode");
-	const readonly = knownReadOnlyToolNames(availableAllowlistNames(false));
+	const readonly = knownReadOnlyToolNames(availableAllowlistNames());
 	for (const name of readonly) {
 		await expect(toolSwitch(page, name)).toHaveAttribute(
 			"data-state",

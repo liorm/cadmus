@@ -1,4 +1,3 @@
-import { CODE_EXECUTE_TOOL_NAME } from "@cadmus/contract/tools";
 import type { Message } from "@earendil-works/pi-ai";
 
 const PROVIDER_TOOL_SINK = Symbol.for("cadmus.providerToolCapture");
@@ -33,18 +32,6 @@ export function noteProviderTools(
 		globalThis as Record<symbol, ProviderToolCapture[] | undefined>
 	)[PROVIDER_TOOL_SINK];
 	sink?.push({ botId, tools: [...tools] });
-}
-
-/**
- * Copy of the provider transcript with `code.execute` taken out of every
- * `toolsAdded` delta. The stored transcript is left as it is. Tool
- * resolution still sees the registered tool, so the tool gate can block
- * a call the model makes anyway.
- */
-export function omitCodeExecuteFromProviderMessages(
-	messages: readonly Message[],
-): readonly Message[] {
-	return omitProviderTools(messages, [CODE_EXECUTE_TOOL_NAME]);
 }
 
 /** Drop named tools from the provider-visible tool list. The registry still has them. */

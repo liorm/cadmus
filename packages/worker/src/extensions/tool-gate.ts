@@ -1,4 +1,5 @@
 import {
+	BASH_TOOL_NAME,
 	CODE_EXECUTE_TOOL_NAME,
 	extractModelProvider,
 	isFileTool,
@@ -14,7 +15,6 @@ import {
 } from "@earendil-works/pi-durable";
 import { requireCadmusServices } from "../context.js";
 import { getLogger } from "../log.js";
-import { isCodingTool } from "../tools-env/pure.js";
 import {
 	type CadmusExtensionDescriptor,
 	type ExtensionActivationContext,
@@ -79,8 +79,8 @@ export function toolGateExtension() {
 						context,
 					);
 					const botId = agent?.cwd?.trim() ?? "";
-					const offered = botId
-						? await services.codingToolsOffered(
+					const workspaceEnvEnabled = botId
+						? await services.workspaceEnvEnabled(
 								api.conversationId as unknown as number,
 								botId,
 							)
@@ -112,7 +112,7 @@ export function toolGateExtension() {
 						const ctx: ExtensionActivationContext = {
 							bot,
 							chat,
-							codingToolsOffered: offered,
+							workspaceEnvEnabled,
 							isGroupSession: groupSession,
 							isGroupCaller: offerEnd,
 							isConsultMember: consult,
@@ -199,12 +199,15 @@ export function toolGateExtension() {
 							}
 						}
 					}
-					if (isFileTool(call.name)) {
+					if (isFileTool(call.name) || call.name === BASH_TOOL_NAME) {
 						const route = services.familyStore.chats.getConversationRoute(
 							api.conversationId as unknown as number,
 						);
 						if (route?.kind === "harvest") {
-							if (!isAllowedVirtualFileCall(call.name, call.arguments)) {
+							if (
+								call.name === BASH_TOOL_NAME ||
+								!isAllowedVirtualFileCall(call.name, call.arguments)
+							) {
 								return {
 									block:
 										"Idle harvest can only access Cadmus virtual files (/.cadmus/SOUL.md, /.cadmus/MEMORY.md, /.cadmus/skills/<slug>/SKILL.md).",
@@ -226,11 +229,15 @@ export function toolGateExtension() {
 					}
 					const bot = services.familyStore.bots.getBot(botId);
 					if (call.name === CODE_EXECUTE_TOOL_NAME && bot) {
-						const offered = await services.codingToolsOffered(
-							api.conversationId as unknown as number,
-							bot.id,
-						);
-						if (offered) {
+						const bashAllowed =
+							bot.tools === undefined || bot.tools.includes(BASH_TOOL_NAME);
+						const envOn = bashAllowed
+							? await services.workspaceEnvEnabled(
+									api.conversationId as unknown as number,
+									bot.id,
+								)
+							: false;
+						if (envOn) {
 							getLogger().warn("tool call blocked by tool-gate", {
 								bot: botId,
 								tool: call.name,
@@ -238,26 +245,6 @@ export function toolGateExtension() {
 							});
 							return { block: CODE_EXECUTE_ENV_BLOCK };
 						}
-					}
-					if (isCodingTool(call.name)) {
-						const allowed = bot
-							? await services.codingToolAllowed(
-									api.conversationId,
-									bot.id,
-									call.name,
-								)
-							: false;
-						if (!allowed) {
-							getLogger().warn("tool call blocked by tool-gate", {
-								bot: botId,
-								tool: call.name,
-								session: api.conversationId,
-							});
-							return {
-								block: `Tool '${call.name}' is disabled for bot '${botId}'.`,
-							};
-						}
-						return;
 					}
 					if (!bot || bot.tools === undefined) return;
 					if (bot.tools.includes(call.name)) return;

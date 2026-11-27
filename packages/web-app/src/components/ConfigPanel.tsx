@@ -1,4 +1,3 @@
-import { codingToolsEnvWouldOffer } from "@cadmus/contract/tools";
 import type {
 	BotRecord,
 	ModelInfo,
@@ -47,7 +46,6 @@ export function ConfigPanel({
 	const [models, setModels] = useState<ModelInfo[]>([]);
 	const [modelsReady, setModelsReady] = useState(false);
 	const [envs, setEnvs] = useState<ToolsEnvRecord[]>([]);
-	const [defaultEnvId, setDefaultEnvId] = useState<string | null>(null);
 	const [envsReady, setEnvsReady] = useState(false);
 	const [configError, setConfigError] = useState<string | null>(null);
 	const [configAttempt, setConfigAttempt] = useState(0);
@@ -57,15 +55,7 @@ export function ConfigPanel({
 	const envNames = Object.fromEntries(
 		envs.map((env) => [env.envId, env.label?.trim() || env.envId]),
 	);
-	const envKindById = Object.fromEntries(
-		envs.map((env) => [env.envId, env.kind]),
-	);
-	const codingEnvOffered = codingToolsEnvWouldOffer({
-		botSetting: bot.toolsEnv ?? null,
-		accountDefaultEnvId: defaultEnvId,
-		envKindById,
-	});
-	const count = allowlistCount(bot.tools, codingEnvOffered, bot.model);
+	const count = allowlistCount(bot.tools, bot.model);
 	const selectedModel = modelsReady
 		? findModelByRef(models, bot.model)
 		: undefined;
@@ -113,7 +103,6 @@ export function ConfigPanel({
 					return;
 				}
 				setEnvs(res.result?.envs ?? []);
-				setDefaultEnvId(res.result?.default?.envId ?? null);
 				setEnvsReady(true);
 			})
 			.catch((err: unknown) => {

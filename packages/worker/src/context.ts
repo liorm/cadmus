@@ -39,18 +39,13 @@ export interface CadmusServices {
 		timezone?: string;
 		metadata?: BotRecord["metadata"];
 	}): Promise<BotRecord>;
-	prepareCodingTools(conversationId: number): Promise<void>;
-	codingToolsOffered(conversationId: number, botId: string): Promise<boolean>;
+	prepareConversationTools(conversationId: number): Promise<void>;
 	workspaceEnvEnabled(conversationId: number, botId: string): Promise<boolean>;
-	codingToolAllowed(
-		conversationId: number,
-		botId: string,
-		toolName: string,
-	): Promise<boolean>;
 	describeToolsEnv(input: {
 		conversationId: number;
 		botId: string;
 		toolNames: readonly string[];
+		provider?: string | null;
 	}): Promise<
 		{ name: "tools-env" | "tools-env-unavailable"; text: string } | undefined
 	>;

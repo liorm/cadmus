@@ -1034,7 +1034,7 @@ export const BotCreateCommandSchema = Type.Object(
 				tools: Type.Optional(
 					Type.Array(Type.String(), {
 						description:
-							"Allowlist of tool names. Omit it for the default set (Cadmus tools including file tools allowed, coding bash opt-in). An empty array allows no gated tools.",
+							"Allowlist of tool names. Omit it for all catalog tools (including file and bash tools; bash requires an active workspace environment at runtime). An empty array allows no gated tools.",
 					}),
 				),
 				soul: Type.Optional(
@@ -1169,13 +1169,13 @@ export const BotUpdateCommandSchema = Type.Object(
 						[
 							Type.Array(Type.String(), {
 								description:
-									"Replacement allowlist. An empty array allows no gated tools and does not offer coding tools.",
+									"Replacement allowlist. An empty array allows no gated tools.",
 							}),
 							Type.Null(),
 						],
 						{
 							description:
-								"Omit to leave the stored allowlist unchanged. Null clears it back to the default set (Cadmus tools allowed, coding tools opt-in). An array replaces it. An empty array allows no gated tools.",
+								"Omit to leave the stored allowlist unchanged. Null clears it back to all catalog tools (including file and bash tools). An array replaces it. An empty array allows no gated tools.",
 						},
 					),
 				),

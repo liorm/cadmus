@@ -332,7 +332,7 @@ async function executeStandardFork(
 			await child.configure({ thinkingLevel }, context);
 		}
 	}
-	await services.prepareCodingTools(child.id as unknown as number);
+	await services.prepareConversationTools(child.id as unknown as number);
 	const submission = await child.submit(
 		{
 			type: "input",
@@ -437,7 +437,7 @@ async function executeHarvestFork(
 		},
 		context,
 	);
-	await services.prepareCodingTools(child.id as unknown as number);
+	await services.prepareConversationTools(child.id as unknown as number);
 
 	try {
 		const submission = await child.submit(

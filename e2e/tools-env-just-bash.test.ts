@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
 	adminScope,
+	CATALOG_TOOL_NAMES,
 	connectTestWs,
-	DEFAULT_CADMUS_TOOL_NAMES,
 	type RpcOptions,
 	type ServerEvent,
 	sendRpc,
@@ -1010,10 +1010,9 @@ describe("just-bash tools env through the bot", () => {
 			const defaultStatus = await sendRpc<{
 				status: { tools: string[] | "all" };
 			}>("chat.status", { chatKey: "bot:assistant" }, options);
-			expect(defaultStatus.frame.result?.status.tools).toEqual([
-				...DEFAULT_CADMUS_TOOL_NAMES.filter((name) => name !== "code.execute"),
-				"bash",
-			]);
+			expect(defaultStatus.frame.result?.status.tools).toEqual(
+				CATALOG_TOOL_NAMES.filter((name) => name !== "code.execute"),
+			);
 			expect(
 				(
 					await turn(

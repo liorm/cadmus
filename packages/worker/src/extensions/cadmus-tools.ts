@@ -1,5 +1,5 @@
 import {
-	DEFAULT_CADMUS_TOOL_NAMES,
+	BASH_TOOL_NAME,
 	isFileTool,
 	isReadOnlyGroupTool,
 	TOOL_CATALOG,
@@ -27,7 +27,7 @@ import { xaiToolsExtensionDescriptor } from "./xai-tools.js";
 export interface ExtensionActivationContext {
 	bot: BotRecord;
 	chat?: ChatRecord;
-	codingToolsOffered: boolean;
+	workspaceEnvEnabled: boolean;
 	isGroupSession: boolean;
 	isGroupCaller: boolean;
 	isConsultMember: boolean;
@@ -81,11 +81,6 @@ export function cadmusDefaultExtensions(): Extension[] {
 		.map((desc) => desc.extension);
 }
 
-/** Tool names offered when `bot.tools` is omitted. */
-export function defaultCadmusToolNames(): readonly string[] {
-	return DEFAULT_CADMUS_TOOL_NAMES;
-}
-
 /**
  * Merge native provider tools across all descriptors.
  */
@@ -113,7 +108,6 @@ function isCatalogToolRegistered(
 ): boolean {
 	const entry = catalogEntry(name);
 	if (entry) {
-		if (entry.codingEnv && !ctx.codingToolsOffered) return false;
 		if (entry.disallowedInGroup && ctx.isGroupSession) return false;
 		if (
 			entry.providers &&
@@ -134,7 +128,13 @@ function isCatalogToolActive(
 ): boolean {
 	if (!isCatalogToolRegistered(name, ctx)) return false;
 	const entry = catalogEntry(name);
-	if (entry?.suppressedByCodingEnv && ctx.codingToolsOffered) return false;
+	if (
+		entry?.suppressedByWorkspaceEnv &&
+		ctx.workspaceEnvEnabled &&
+		isCatalogToolRegistered(BASH_TOOL_NAME, ctx)
+	) {
+		return false;
+	}
 	return true;
 }
 

@@ -1,17 +1,14 @@
 import {
 	availableAllowlistCatalog,
-	availableAllowlistNames,
 	categorySelectionState,
-	codingToolsEnvWouldOffer,
 	displayedAllowlist,
 	knownReadOnlyToolNames,
 	persistAllowlist,
 	sameToolSet,
 	TOOL_CATEGORIES,
 } from "@cadmus/contract/tools";
-import type { BotRecord, ToolsEnvRecord } from "@cadmus/contract/types";
+import type { BotRecord } from "@cadmus/contract/types";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { LoadError, SkeletonBlock } from "@/components/Skeleton";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { useCadmus } from "@/context/CadmusContext";
@@ -25,95 +22,57 @@ export function ToolAllowlist({
 	onSaved: () => Promise<void> | void;
 }) {
 	const { client } = useCadmus();
-	const [envs, setEnvs] = useState<ToolsEnvRecord[] | null>(null);
-	const [defaultEnvId, setDefaultEnvId] = useState<string | null>(null);
-	const [loadError, setLoadError] = useState<string | null>(null);
 	const [saveError, setSaveError] = useState<string | null>(null);
-	const [loadAttempt, setLoadAttempt] = useState(0);
-	const [selected, setSelected] = useState<string[]>([]);
-	const [readOnlyOn, setReadOnlyOn] = useState(false);
-	const preReadOnly = useRef<string[] | null>(null);
-	const envGen = useRef(0);
+
+	const catalog = useMemo(
+		() => availableAllowlistCatalog(bot.model),
+		[bot.model],
+	);
+	const available = useMemo(
+		() => catalog.map((entry) => entry.name),
+		[catalog],
+	);
+	const readonlyNames = useMemo(
+		() => knownReadOnlyToolNames(available),
+		[available],
+	);
+
+	const isDefault = bot.tools === undefined;
+	const storedKey = bot.tools ? bot.tools.join("\0") : "";
 	const storedToolsRef = useRef(bot.tools);
 	storedToolsRef.current = bot.tools;
-	const envKey =
-		bot.toolsEnv == null
-			? "inherit"
-			: `${bot.toolsEnv.enabled}:${bot.toolsEnv.binding?.envId ?? ""}`;
-	const toolsEnvRef = useRef(bot.toolsEnv);
-	toolsEnvRef.current = bot.toolsEnv;
 
-	const codingEnvOffered = useMemo(() => {
-		if (!envs) return false;
-		return codingToolsEnvWouldOffer({
-			botSetting: bot.toolsEnv ?? null,
-			accountDefaultEnvId: defaultEnvId,
-			envKindById: Object.fromEntries(envs.map((env) => [env.envId, env.kind])),
+	const [selected, setSelected] = useState<string[]>(() =>
+		displayedAllowlist({
+			stored: bot.tools,
+			available,
+			model: bot.model,
+		}),
+	);
+	const [readOnlyOn, setReadOnlyOn] = useState<boolean>(() => {
+		const initial = displayedAllowlist({
+			stored: bot.tools,
+			available,
+			model: bot.model,
 		});
-	}, [bot.toolsEnv, defaultEnvId, envs]);
-
-	const catalog = availableAllowlistCatalog(codingEnvOffered, bot.model);
-	const available = availableAllowlistNames(codingEnvOffered, bot.model);
-	const count = allowlistCount(selected, codingEnvOffered, bot.model);
-	const readonlyNames = knownReadOnlyToolNames(available);
+		return readonlyNames.length > 0 && sameToolSet(initial, readonlyNames);
+	});
+	const preReadOnly = useRef<string[] | null>(null);
 
 	useEffect(() => {
-		let cancelled = false;
-		const gen = ++envGen.current;
-		void loadAttempt;
-		void envKey;
-		setLoadError(null);
-		void client
-			.callRpc<{
-				envs?: ToolsEnvRecord[];
-				default?: { envId?: string } | null;
-			}>("account.toolsEnvs.list")
-			.then((res) => {
-				if (cancelled || gen !== envGen.current) return;
-				if (!res.ok) {
-					setLoadError(
-						res.error?.message ?? "Could not load tools environments",
-					);
-					return;
-				}
-				const listed = res.result?.envs ?? [];
-				const accountDefault = res.result?.default?.envId ?? null;
-				setEnvs(listed);
-				setDefaultEnvId(accountDefault);
-				const offered = codingToolsEnvWouldOffer({
-					botSetting: toolsEnvRef.current ?? null,
-					accountDefaultEnvId: accountDefault,
-					envKindById: Object.fromEntries(
-						listed.map((env) => [env.envId, env.kind]),
-					),
-				});
-				const names = availableAllowlistNames(offered, bot.model);
-				const next = displayedAllowlist({
-					stored: storedToolsRef.current,
-					available: names,
-					codingEnvOffered: offered,
-					model: bot.model,
-				});
-				setSelected(next);
-				const readonly = knownReadOnlyToolNames(names);
-				const matchesReadonly =
-					readonly.length > 0 && sameToolSet(next, readonly);
-				setReadOnlyOn(matchesReadonly);
-				preReadOnly.current = null;
-			})
-			.catch((err: unknown) => {
-				if (!cancelled && gen === envGen.current) {
-					setLoadError(
-						err instanceof Error
-							? err.message
-							: "Could not load tools environments",
-					);
-				}
-			});
-		return () => {
-			cancelled = true;
-		};
-	}, [envKey, client, loadAttempt, bot.model]);
+		void isDefault;
+		void storedKey;
+		const next = displayedAllowlist({
+			stored: storedToolsRef.current,
+			available,
+			model: bot.model,
+		});
+		setSelected(next);
+		setReadOnlyOn(readonlyNames.length > 0 && sameToolSet(next, readonlyNames));
+		preReadOnly.current = null;
+	}, [isDefault, storedKey, available, readonlyNames, bot.model]);
+
+	const count = allowlistCount(selected, bot.model);
 
 	function toggle(name: string, on: boolean) {
 		setReadOnlyOn(false);
@@ -166,21 +125,8 @@ export function ToolAllowlist({
 			selected: nextSelected,
 			available,
 			previous: storedToolsRef.current,
-			codingEnvOffered,
 			model: bot.model,
 		});
-	}
-
-	if (loadError) {
-		return (
-			<LoadError
-				message={loadError}
-				onRetry={() => setLoadAttempt((n) => n + 1)}
-			/>
-		);
-	}
-	if (!envs) {
-		return <SkeletonBlock label="Loading tools" />;
 	}
 
 	const selectedSet = new Set(selected);
@@ -267,7 +213,7 @@ export function ToolAllowlist({
 						const next = displayedAllowlist({
 							stored: undefined,
 							available,
-							codingEnvOffered,
+							model: bot.model,
 						});
 						setSelected(next);
 						void save(null);

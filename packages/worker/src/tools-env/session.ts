@@ -18,7 +18,6 @@ import {
 	assertDaemonEnvWrite,
 	assertJustBashEnvWrite,
 	assertToolsEnvWrite,
-	CODING_TOOL_NAMES,
 	envDoName,
 	executionEnvId,
 	type ResolvedToolsEnv,
@@ -105,37 +104,15 @@ export class ToolsEnvController {
 		return { resolved, def };
 	}
 
-	async willOffer(
+	async isWorkspaceEnvOn(
 		bot: BotRecord,
 		chatSetting: ToolsEnvSetting | null,
 	): Promise<boolean> {
-		// An explicit allowlist without a coding tool stays on code.execute.
-		// Omitted bot.tools is the default Cadmus set: an enabled just-bash or
-		// local-daemon env (chat pin, bot pin, or account default) offers
-		// bash/read/write/edit and drops code.execute.
-		if (
-			bot.tools &&
-			!CODING_TOOL_NAMES.some((name) => bot.tools?.includes(name))
-		) {
-			return false;
-		}
 		const { resolved, def } = await this.resolvedFor(bot, chatSetting);
 		return (
 			runtimeToolsEnvOn(resolved) &&
 			(def?.kind === "just-bash" || def?.kind === "local-daemon")
 		);
-	}
-
-	async offerCodingTools(
-		conversationId: number,
-		bot: BotRecord,
-	): Promise<boolean> {
-		const route = this.deps.store.chats.getConversationRoute(conversationId);
-		if (route && !route.toolsEnvEnabled) return false;
-		const chat = route
-			? this.deps.store.chats.getChat(route.chatKey)
-			: undefined;
-		return this.willOffer(bot, chat?.toolsEnv ?? null);
 	}
 
 	async workspaceEnvEnabled(
@@ -147,23 +124,7 @@ export class ToolsEnvController {
 		const chat = route
 			? this.deps.store.chats.getChat(route.chatKey)
 			: undefined;
-		const { resolved, def } = await this.resolvedFor(
-			bot,
-			chat?.toolsEnv ?? null,
-		);
-		return (
-			runtimeToolsEnvOn(resolved) &&
-			(def?.kind === "just-bash" || def?.kind === "local-daemon")
-		);
-	}
-
-	async codingToolAllowed(
-		conversationId: number,
-		bot: BotRecord,
-		toolName: string,
-	): Promise<boolean> {
-		if (bot.tools && !bot.tools.includes(toolName)) return false;
-		return this.offerCodingTools(conversationId, bot);
+		return this.isWorkspaceEnvOn(bot, chat?.toolsEnv ?? null);
 	}
 
 	async open(

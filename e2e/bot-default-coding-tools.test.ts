@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
 	adminScope,
-	CODING_TOOL_NAMES,
+	BASH_TOOL_NAME,
+	CATALOG_TOOL_NAMES,
 	connectTestWs,
-	DEFAULT_CADMUS_TOOL_NAMES,
 	effectiveToolNames,
 	type RpcOptions,
 	type ServerEvent,
@@ -17,19 +17,25 @@ async function scope(
 	return adminScope("default");
 }
 
-const DEFAULT_PLUS_CODING = [
-	...DEFAULT_CADMUS_TOOL_NAMES,
-	...CODING_TOOL_NAMES,
-];
+const WITHOUT_BASH = CATALOG_TOOL_NAMES.filter(
+	(name) => name !== BASH_TOOL_NAME,
+);
 
 function toolResults(events: ServerEvent[]) {
 	return events.filter((event) => event.type === "turn.tool_result");
 }
 
-describe("default Cadmus tools plus coding tools", () => {
+async function untilToolResult(events: ServerEvent[]) {
+	const deadline = Date.now() + 2_000;
+	while (toolResults(events).length === 0 && Date.now() < deadline) {
+		await new Promise((resolve) => setTimeout(resolve, 20));
+	}
+}
+
+describe("catalog tools and runtime bash env gating", () => {
 	useWorkerFixture();
 
-	it("create, enable coding, then disable coding returns the default set", async () => {
+	it("create, narrow allowlist, restore catalog, and reset to omitted set", async () => {
 		const options = await scope("round-trip");
 		await sendRpc("family.update", { harvestDelayMs: 0 }, options);
 		const created = await sendRpc<{ bot: { tools?: string[] } }>(
@@ -45,7 +51,7 @@ describe("default Cadmus tools plus coding tools", () => {
 		}>("chat.status", { chatKey: "bot:assistant" }, options);
 		expect(initialStatus.frame.ok).toBe(true);
 		expect(initialStatus.frame.result?.status.tools).toEqual(
-			effectiveToolNames(undefined, { codingToolsOffered: true }),
+			effectiveToolNames(undefined, { workspaceEnvEnabled: true }),
 		);
 
 		const ws = await connectTestWs(options);
@@ -73,7 +79,7 @@ describe("default Cadmus tools plus coding tools", () => {
 
 			const narrowed = await sendRpc<{ bot: { tools?: string[] } }>(
 				"bot.update",
-				{ botId: "assistant", tools: [...DEFAULT_CADMUS_TOOL_NAMES] },
+				{ botId: "assistant", tools: WITHOUT_BASH },
 				options,
 			);
 			expect(narrowed.frame.ok).toBe(true);
@@ -83,16 +89,18 @@ describe("default Cadmus tools plus coding tools", () => {
 
 			const enabled = await sendRpc<{ bot: { tools?: string[] } }>(
 				"bot.update",
-				{ botId: "assistant", tools: DEFAULT_PLUS_CODING },
+				{ botId: "assistant", tools: [...CATALOG_TOOL_NAMES] },
 				options,
 			);
 			expect(enabled.frame.ok).toBe(true);
-			expect(enabled.frame.result?.bot.tools).toEqual(DEFAULT_PLUS_CODING);
+			expect(enabled.frame.result?.bot.tools).toEqual([...CATALOG_TOOL_NAMES]);
 			const codingStatus = await sendRpc<{
 				status: { tools: string[] | "all" };
 			}>("chat.status", { chatKey: "bot:assistant" }, options);
 			expect(codingStatus.frame.result?.status.tools).toEqual(
-				effectiveToolNames(DEFAULT_PLUS_CODING, { codingToolsOffered: true }),
+				effectiveToolNames([...CATALOG_TOOL_NAMES], {
+					workspaceEnvEnabled: true,
+				}),
 			);
 
 			const skill = await turn(
@@ -125,7 +133,7 @@ describe("default Cadmus tools plus coding tools", () => {
 				status: { tools: string[] | "all" };
 			}>("chat.status", { chatKey: "bot:assistant" }, options);
 			expect(restored.frame.result?.status.tools).toEqual(
-				effectiveToolNames(undefined, { codingToolsOffered: true }),
+				effectiveToolNames(undefined, { workspaceEnvEnabled: true }),
 			);
 
 			const memoryAgain = await turn(
@@ -155,7 +163,7 @@ describe("default Cadmus tools plus coding tools", () => {
 		expect(skillFile.frame.result?.content).toContain("kept");
 	});
 
-	it("create_bot with only coding tools keeps the default Cadmus tools", async () => {
+	it("create_bot with omitted tools grants full catalog, while explicit [bash] restricts to bash", async () => {
 		const options = await scope("create-bot");
 		await sendRpc("family.update", { harvestDelayMs: 0 }, options);
 		await sendRpc(
@@ -165,56 +173,170 @@ describe("default Cadmus tools plus coding tools", () => {
 		);
 		const ws = await connectTestWs(options);
 		try {
-			const submitted = await ws.send("turn.submit", {
+			const full = await ws.send("turn.submit", {
 				chatKey: "bot:caller",
 				text: `[tool:create_bot ${JSON.stringify({
-					name: "Coder",
-					slug: "coder",
+					name: "Full",
+					slug: "full-peer",
 					model: "faux/echo",
-					tools: [...CODING_TOOL_NAMES],
 				})}]`,
 			});
-			expect(submitted.ok).toBe(true);
+			expect(full.ok).toBe(true);
+
+			const bashOnly = await ws.send("turn.submit", {
+				chatKey: "bot:caller",
+				text: `[tool:create_bot ${JSON.stringify({
+					name: "BashOnly",
+					slug: "bash-only",
+					model: "faux/echo",
+					tools: [BASH_TOOL_NAME],
+				})}]`,
+			});
+			expect(bashOnly.ok).toBe(true);
 		} finally {
 			ws.close();
 		}
 
-		const created = await sendRpc<{ bot: { tools?: string[] } }>(
+		const createdFull = await sendRpc<{ bot: { tools?: string[] } }>(
 			"bot.get",
-			{ botId: "coder" },
+			{ botId: "full-peer" },
 			options,
 		);
-		expect(created.frame.ok).toBe(true);
-		expect(created.frame.result?.bot.tools).toEqual(DEFAULT_PLUS_CODING);
+		expect(createdFull.frame.ok).toBe(true);
+		expect(createdFull.frame.result?.bot.tools).toBeUndefined();
 
-		const coder = await connectTestWs(options);
+		const createdBashOnly = await sendRpc<{ bot: { tools?: string[] } }>(
+			"bot.get",
+			{ botId: "bash-only" },
+			options,
+		);
+		expect(createdBashOnly.frame.ok).toBe(true);
+		expect(createdBashOnly.frame.result?.bot.tools).toEqual([BASH_TOOL_NAME]);
+
+		const client = await connectTestWs(options);
 		try {
-			coder.events.length = 0;
-			const memory = await coder.send("turn.submit", {
-				chatKey: "bot:coder",
+			client.events.length = 0;
+			const memory = await client.send("turn.submit", {
+				chatKey: "bot:full-peer",
 				text: '[tool:write {"path":"/.cadmus/MEMORY.md","content":"from-create-bot"}]',
 			});
 			expect(memory.ok).toBe(true);
-			const memoryResult = toolResults(coder.events)[0]?.payload as
+			const memoryResult = toolResults(client.events)[0]?.payload as
 				| { toolName?: string; isError?: boolean }
 				| undefined;
 			expect(memoryResult?.toolName).toBe("write");
 			expect(memoryResult?.isError).toBe(false);
 
-			coder.events.length = 0;
-			const bash = await coder.send("turn.submit", {
-				chatKey: "bot:coder",
+			client.events.length = 0;
+			const bash = await client.send("turn.submit", {
+				chatKey: "bot:full-peer",
 				text: '[tool:bash {"command":"echo coded"}]',
 			});
 			expect(bash.ok).toBe(true);
-			const bashResult = toolResults(coder.events)[0]?.payload as
+			const bashResult = toolResults(client.events)[0]?.payload as
 				| { toolName?: string; isError?: boolean; content?: string }
 				| undefined;
 			expect(bashResult?.toolName).toBe("bash");
 			expect(bashResult?.isError).toBe(false);
 			expect(bashResult?.content ?? "").toContain("coded");
+
+			client.events.length = 0;
+			await client.send("turn.submit", {
+				chatKey: "bot:bash-only",
+				text: '[tool:write {"path":"/.cadmus/MEMORY.md","content":"blocked"}]',
+			});
+			const blockedWrite = toolResults(client.events)[0]?.payload as
+				| { isError?: boolean }
+				| undefined;
+			expect(blockedWrite?.isError).toBe(true);
+
+			client.events.length = 0;
+			await client.send("turn.submit", {
+				chatKey: "bot:bash-only",
+				text: '[tool:bash {"command":"echo allowed"}]',
+			});
+			const allowedBash = toolResults(client.events)[0]?.payload as
+				| { isError?: boolean; content?: string }
+				| undefined;
+			expect(allowedBash?.isError).toBe(false);
+			expect(allowedBash?.content ?? "").toContain("allowed");
 		} finally {
-			coder.close();
+			client.close();
+		}
+	});
+
+	it("keeps bash registered when toolsEnv is disabled, guides the model, and fails cleanly at runtime", async () => {
+		const options = await scope("env-off");
+		await sendRpc("family.update", { harvestDelayMs: 0 }, options);
+		await sendRpc(
+			"bot.create",
+			{
+				slug: "assistant",
+				name: "Assistant",
+				model: "faux/echo",
+				toolsEnv: { enabled: false },
+			},
+			options,
+		);
+
+		const status = await sendRpc<{ status: { tools: string[] | "all" } }>(
+			"chat.status",
+			{ chatKey: "bot:assistant" },
+			options,
+		);
+		expect(status.frame.ok).toBe(true);
+		expect(status.frame.result?.status.tools).toBe("all");
+
+		const ws = await connectTestWs(options);
+		try {
+			ws.events.length = 0;
+			const failed = await ws.send("turn.submit", {
+				chatKey: "bot:assistant",
+				text: '[tool:bash {"command":"echo nope"}]',
+			});
+			expect(failed.ok).toBe(true);
+			await untilToolResult(ws.events);
+			const payload = toolResults(ws.events)[0]?.payload as
+				| { toolName?: string; isError?: boolean; content?: string }
+				| undefined;
+			expect(payload?.toolName).toBe("bash");
+			expect(payload?.isError).toBe(true);
+			expect(payload?.content ?? "").toContain(
+				"No workspace tools environment is enabled",
+			);
+
+			const raw = await sendRpc<{ entries?: unknown[] }>(
+				"chat.get",
+				{ chatKey: "bot:assistant", raw: true },
+				options,
+			);
+			const blob = JSON.stringify(raw.frame.result?.entries);
+			expect(blob).toContain("No workspace tools environment is enabled");
+			expect(blob).toContain("do not call bash");
+			expect(blob).not.toContain("Code runs in the workspace via bash");
+
+			await sendRpc(
+				"chat.update",
+				{
+					chatKey: "bot:assistant",
+					toolsEnv: { enabled: true, binding: { envId: "jb_default" } },
+				},
+				options,
+			);
+			ws.events.length = 0;
+			const okTurn = await ws.send("turn.submit", {
+				chatKey: "bot:assistant",
+				text: '[tool:bash {"command":"echo enabled-now"}]',
+			});
+			expect(okTurn.ok).toBe(true);
+			await untilToolResult(ws.events);
+			const okPayload = toolResults(ws.events)[0]?.payload as
+				| { toolName?: string; isError?: boolean; content?: string }
+				| undefined;
+			expect(okPayload?.isError).toBe(false);
+			expect(okPayload?.content ?? "").toContain("enabled-now");
+		} finally {
+			ws.close();
 		}
 	});
 });

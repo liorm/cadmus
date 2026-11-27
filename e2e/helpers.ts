@@ -22,9 +22,9 @@ import {
 	SseEventSchema,
 } from "@cadmus/contract/schemas";
 import {
+	BASH_TOOL_NAME,
+	CATALOG_TOOL_NAMES,
 	CODE_EXECUTE_TOOL_NAME,
-	CODING_TOOL_NAMES,
-	DEFAULT_CADMUS_TOOL_NAMES,
 	effectiveToolNames,
 	isReadOnlyGroupTool,
 	READONLY_GROUP_TOOL_NAMES,
@@ -98,13 +98,13 @@ export type {
 export {
 	API_ROUTES,
 	ApiErrorEnvelopeSchema,
+	BASH_TOOL_NAME,
 	BOT_METADATA_MAX_KEYS,
 	BOT_METADATA_MAX_VALUE_LENGTH,
+	CATALOG_TOOL_NAMES,
 	CadmusClient,
 	CODE_EXECUTE_TOOL_NAME,
-	CODING_TOOL_NAMES,
 	commandCatalog,
-	DEFAULT_CADMUS_TOOL_NAMES,
 	ERROR_CODES,
 	effectiveToolNames,
 	encodeClientQuery,
