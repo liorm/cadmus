@@ -56,6 +56,7 @@ export function CadmusVfsDrawer({
 	);
 	const [skillsLoading, setSkillsLoading] = useState(false);
 	const [addSkillOpen, setAddSkillOpen] = useState(false);
+	const [newSkillScope, setNewSkillScope] = useState<"bot" | "family">("bot");
 	const [newSkillSlug, setNewSkillSlug] = useState("");
 	const [newSkillBody, setNewSkillBody] = useState(
 		"---\ndescription: Describe when the bot should use this skill.\n---\n\n# New Skill\n\nDescribe the workflow, constraints, and checks.\n",
@@ -96,11 +97,11 @@ export function CadmusVfsDrawer({
 			.replace(/[^a-z0-9-]+/g, "-")
 			.replace(/^-+|-+$/g, "");
 		if (!slug || newSkillBusy) return;
-		const path = `/.cadmus/skills/${slug}/SKILL.md`;
+		const path = `/.cadmus/skills/${newSkillScope}/${slug}/SKILL.md`;
 		setNewSkillBusy(true);
 		setNewSkillError(null);
 		const res = await client.callRpc("file.write", {
-			botId: bot.id,
+			...(newSkillScope === "bot" ? { botId: bot.id } : {}),
 			path,
 			content: newSkillBody,
 		});
@@ -183,7 +184,7 @@ export function CadmusVfsDrawer({
 						<div className="flex flex-col gap-3">
 							<div className="flex items-center justify-between gap-2">
 								<span className="text-xs font-semibold text-text-muted">
-									Bot skills ({skillPaths.length})
+									Skills ({skillPaths.length})
 								</span>
 								<button
 									type="button"
@@ -264,7 +265,7 @@ export function CadmusVfsDrawer({
 				open={addSkillOpen}
 				onClose={() => setAddSkillOpen(false)}
 				title={`New skill for ${bot.name}`}
-				description="Saved under /.cadmus/skills/<slug>/SKILL.md"
+				description="Saved under /.cadmus/skills/{bot,family}/<slug>/SKILL.md"
 			>
 				<form onSubmit={(e) => void handleCreateSkill(e)} className="space-y-3">
 					{newSkillError ? (
@@ -272,6 +273,20 @@ export function CadmusVfsDrawer({
 							{newSkillError}
 						</p>
 					) : null}
+					<label className="block space-y-1">
+						<span className="text-xs font-medium text-text-muted">Scope</span>
+						<select
+							aria-label="Skill scope"
+							value={newSkillScope}
+							onChange={(e) =>
+								setNewSkillScope(e.target.value as "bot" | "family")
+							}
+							className="min-h-tap w-full rounded-lg border border-border bg-bg px-3 text-sm text-text outline-none focus:border-accent"
+						>
+							<option value="bot">Bot ({bot.name})</option>
+							<option value="family">Family (shared across all bots)</option>
+						</select>
+					</label>
 					<label className="block space-y-1">
 						<span className="text-xs font-medium text-text-muted">Slug</span>
 						<input

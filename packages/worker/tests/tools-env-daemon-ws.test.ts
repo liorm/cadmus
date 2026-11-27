@@ -281,7 +281,7 @@ describe("daemon websocket DO internals (generation, alarms, fork routes, heartb
 		});
 		expect(memory.payload?.isError).toBe(false);
 		const skill = await toolTurn(options, "bot:assistant", "write", {
-			path: "/.cadmus/skills/note/SKILL.md",
+			path: "/.cadmus/skills/bot/note/SKILL.md",
 			content: "---\nname: note\ndescription: A note\n---\n\nbody",
 		});
 		expect(skill.payload?.isError).toBe(false);

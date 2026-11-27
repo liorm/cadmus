@@ -50,7 +50,9 @@ const CODE_EXECUTE_ENV_BLOCK =
 	"code.execute is disabled while the workspace tools env is on; use bash";
 
 const READONLY_GROUP_BLOCK =
-	"This group chat is read-only. Only reading Cadmus virtual files (/.cadmus/SOUL.md, /.cadmus/MEMORY.md, /.cadmus/skills/<slug>/SKILL.md) is available.";
+	"This group chat is read-only. Only reading Cadmus virtual files (/.cadmus/SOUL.md, /.cadmus/MEMORY.md, /.cadmus/skills/bot/<slug>/SKILL.md, /.cadmus/skills/family/<slug>/SKILL.md) is available.";
+
+const HARVEST_MUTATION_TOOLS = new Set(["write", "edit", "delete"]);
 
 function consultMember(
 	services: ReturnType<typeof requireCadmusServices>,
@@ -210,8 +212,22 @@ export function toolGateExtension() {
 							) {
 								return {
 									block:
-										"Idle harvest can only access Cadmus virtual files (/.cadmus/SOUL.md, /.cadmus/MEMORY.md, /.cadmus/skills/<slug>/SKILL.md).",
+										"Idle harvest can only access Cadmus virtual files (/.cadmus/SOUL.md, /.cadmus/MEMORY.md, /.cadmus/skills/bot/<slug>/SKILL.md, /.cadmus/skills/family/<slug>/SKILL.md).",
 								};
+							}
+							if (HARVEST_MUTATION_TOOLS.has(call.name)) {
+								const rawPath =
+									typeof (call.arguments as { path?: unknown })?.path ===
+									"string"
+										? (call.arguments as { path: string }).path
+										: "";
+								const parsed = parseVirtualPath(rawPath);
+								if (parsed?.kind === "skill" && parsed.scope === "family") {
+									return {
+										block:
+											"Idle harvest can only modify bot-scoped virtual files (/.cadmus/MEMORY.md and /.cadmus/skills/bot/<slug>/SKILL.md), never family skills.",
+									};
+								}
 							}
 						}
 					}

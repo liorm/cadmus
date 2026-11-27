@@ -623,9 +623,10 @@ describe("authorization at each transport entry point (issue #3 L237)", () => {
 			}),
 		).toBe("ok");
 		const word = `zebra${crypto.randomUUID().slice(0, 6)}`;
+		const skillPath = "/.cadmus/skills/bot/doc/SKILL.md";
 		const write = {
 			botId: bot,
-			path: "/.cadmus/skills/doc/SKILL.md",
+			path: skillPath,
 			description: "doc",
 			content: `# Doc\n${word}`,
 		};
@@ -644,13 +645,13 @@ describe("authorization at each transport entry point (issue #3 L237)", () => {
 				body: JSON.stringify({ id: "k", type, payload }),
 			});
 			return (await r.json()) as Frame & {
-				result?: { results?: unknown[]; content?: string };
+				result?: { files?: unknown[]; content?: string };
 			};
 		};
-		const search = { botId: bot, query: word };
-		const found = await frame(admin, "skill.search", search);
+		const listReq = { botId: bot };
+		const found = await frame(admin, "file.list", listReq);
 		expect(found.ok).toBe(true);
-		expect(found.result?.results?.length).toBe(1);
+		expect(found.result?.files?.length).toBeGreaterThanOrEqual(3);
 		// The super-admin role in the same account is refused on every knowledge command.
 		const sa = `usr_sa_${tenant}`;
 		await s.addMember({
@@ -661,34 +662,33 @@ describe("authorization at each transport entry point (issue #3 L237)", () => {
 		const saTok = (await s.createSession({ userId: sa, accountId: tenant }))
 			.accessToken;
 		for (const [type, payload] of [
-			["skill.search", search],
-			["file.read", { botId: bot, path: "/.cadmus/skills/doc/SKILL.md" }],
+			["file.list", listReq],
+			["file.read", { botId: bot, path: skillPath }],
 			["file.write", { ...write, content: "overwrite" }],
 		] as const) {
 			expect(await viaRpc(saTok, type, payload), type).toBe("forbidden");
 		}
 		expect(
-			await viaApi(saTok, `skill/search?${new URLSearchParams(search)}`, "GET"),
+			await viaApi(saTok, `file/list?${new URLSearchParams(listReq)}`, "GET"),
 		).toBe("forbidden");
-		expect(await viaWs(admin, [["skill.search", search]])).toEqual(["ok"]);
+		expect(await viaWs(admin, [["file.list", listReq]])).toEqual(["ok"]);
 		// Another account naming the same bot id reaches nothing.
-		const miss = await frame(other.accessToken, "skill.search", search);
+		const missList = await frame(other.accessToken, "file.list", listReq);
 		const missRead = await frame(other.accessToken, "file.read", {
 			botId: bot,
-			path: "/.cadmus/skills/doc/SKILL.md",
+			path: skillPath,
 		});
 		const missWrite = await frame(other.accessToken, "file.write", {
 			...write,
 			content: "hijack",
 		});
-		expect(miss.ok).toBe(true);
-		expect(miss.result?.results).toEqual([]);
+		expect([missList.ok, missList.error?.code]).toEqual([false, "not_found"]);
 		expect([missRead.ok, missRead.error?.code]).toEqual([false, "not_found"]);
 		expect([missWrite.ok, missWrite.error?.code]).toEqual([false, "not_found"]);
 		// A's document is unchanged, read through A's own session.
 		const back = await frame(admin, "file.read", {
 			botId: bot,
-			path: "/.cadmus/skills/doc/SKILL.md",
+			path: skillPath,
 		});
 		expect(back.result?.content).toContain(word);
 		expect(back.result?.content).not.toContain("hijack");

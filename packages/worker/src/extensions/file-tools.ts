@@ -37,7 +37,7 @@ import {
 } from "./vfs.js";
 
 export const WORKSPACE_ENV_DISABLED_ERROR =
-	"No workspace tools environment is enabled for this conversation. Only Cadmus virtual files (/.cadmus/SOUL.md, /.cadmus/MEMORY.md, /.cadmus/skills/<slug>/SKILL.md) are accessible.";
+	"No workspace tools environment is enabled for this conversation. Only Cadmus virtual files (/.cadmus/SOUL.md, /.cadmus/MEMORY.md, /.cadmus/skills/bot/<slug>/SKILL.md, /.cadmus/skills/family/<slug>/SKILL.md) are accessible.";
 
 export function toolError(message: string): ToolExecutionResult {
 	return {
@@ -209,7 +209,7 @@ export function filesExtension(options?: ReadToolOptions) {
 		tools: [
 			defineTool({
 				name: "read",
-				description: `Read a file. Supports Cadmus virtual files (${SOUL_VFS_PATH}, ${MEMORY_VFS_PATH}, /.cadmus/skills/<slug>/SKILL.md) and, when a workspace tools environment is enabled, workspace files and images. Use offset/limit for large files.`,
+				description: `Read a file. Supports Cadmus virtual files (${SOUL_VFS_PATH}, ${MEMORY_VFS_PATH}, /.cadmus/skills/bot/<slug>/SKILL.md, /.cadmus/skills/family/<slug>/SKILL.md) and, when a workspace tools environment is enabled, workspace files and images. Use offset/limit for large files.`,
 				parameters: baseRead.parameters,
 				replay: "safe",
 				async execute(args, api, context) {
@@ -246,10 +246,10 @@ export function filesExtension(options?: ReadToolOptions) {
 						const sliced = sliceTextLines(mem.content, args.offset, args.limit);
 						return toolText(sliced.text);
 					}
-					const doc = services.familyStore.files.getSkill(
-						scope.botId,
-						parsed.slug,
-					);
+					const doc =
+						parsed.scope === "family"
+							? services.familyStore.files.getFamilySkill(parsed.slug)
+							: services.familyStore.files.getSkill(scope.botId, parsed.slug);
 					if (!doc) {
 						return toolError(`Skill file '${parsed.canonicalPath}' not found.`);
 					}
@@ -261,7 +261,7 @@ export function filesExtension(options?: ReadToolOptions) {
 
 			defineTool({
 				name: "write",
-				description: `Write content to a file. Creates the file if it doesn't exist, overwrites if it does. Supports Cadmus virtual files (${MEMORY_VFS_PATH} and /.cadmus/skills/<slug>/SKILL.md with YAML frontmatter) and, when a workspace tools environment is enabled, workspace files. ${SOUL_VFS_PATH} is read-only.`,
+				description: `Write content to a file. Creates the file if it doesn't exist, overwrites if it does. Supports Cadmus virtual files (${MEMORY_VFS_PATH}, /.cadmus/skills/bot/<slug>/SKILL.md, and /.cadmus/skills/family/<slug>/SKILL.md with YAML frontmatter) and, when a workspace tools environment is enabled, workspace files. ${SOUL_VFS_PATH} is read-only.`,
 				parameters: baseWrite.parameters,
 				replay: "safe",
 				executionMode: "sequential",
@@ -324,17 +324,23 @@ export function filesExtension(options?: ReadToolOptions) {
 								"Skill frontmatter must include a non-empty one-line 'description'.",
 							);
 						}
-						const updated = services.familyStore.files.updateSkill(
-							scope.botId,
-							{
-								slug: parsed.slug,
-								description: parsedMd.description,
-								category: parsedMd.category,
-								body: parsedMd.body,
-							},
-						);
+						const updated =
+							parsed.scope === "family"
+								? services.familyStore.files.updateFamilySkill({
+										slug: parsed.slug,
+										description: parsedMd.description,
+										category: parsedMd.category,
+										body: parsedMd.body,
+									})
+								: services.familyStore.files.updateSkill(scope.botId, {
+										slug: parsed.slug,
+										description: parsedMd.description,
+										category: parsedMd.category,
+										body: parsedMd.body,
+									});
 						getLogger().debug("virtual skill write succeeded", {
 							bot: scope.botId,
+							scope: parsed.scope,
 							slug: updated.slug,
 							version: updated.version,
 						});
@@ -349,7 +355,7 @@ export function filesExtension(options?: ReadToolOptions) {
 
 			defineTool({
 				name: "edit",
-				description: `Edit a single file using exact text replacement. Supports Cadmus virtual files (${MEMORY_VFS_PATH} and /.cadmus/skills/<slug>/SKILL.md) and, when a workspace tools environment is enabled, workspace files. ${SOUL_VFS_PATH} is read-only. Every edits[].oldText must match a unique, non-overlapping region of the original file.`,
+				description: `Edit a single file using exact text replacement. Supports Cadmus virtual files (${MEMORY_VFS_PATH}, /.cadmus/skills/bot/<slug>/SKILL.md, and /.cadmus/skills/family/<slug>/SKILL.md) and, when a workspace tools environment is enabled, workspace files. ${SOUL_VFS_PATH} is read-only. Every edits[].oldText must match a unique, non-overlapping region of the original file.`,
 				parameters: baseEdit.parameters,
 				prepareArguments: baseEdit.prepareArguments,
 				replay: "safe",
@@ -432,10 +438,10 @@ export function filesExtension(options?: ReadToolOptions) {
 							};
 						}
 
-						const existing = services.familyStore.files.getSkill(
-							scope.botId,
-							parsed.slug,
-						);
+						const existing =
+							parsed.scope === "family"
+								? services.familyStore.files.getFamilySkill(parsed.slug)
+								: services.familyStore.files.getSkill(scope.botId, parsed.slug);
 						if (!existing) {
 							return toolError(
 								`Could not edit '${parsed.canonicalPath}': file not found. Use write to create it.`,
@@ -458,17 +464,23 @@ export function filesExtension(options?: ReadToolOptions) {
 								"Skill frontmatter must include a non-empty one-line 'description'.",
 							);
 						}
-						const updated = services.familyStore.files.updateSkill(
-							scope.botId,
-							{
-								slug: parsed.slug,
-								description: parsedMd.description,
-								category: parsedMd.category,
-								body: parsedMd.body,
-							},
-						);
+						const updated =
+							parsed.scope === "family"
+								? services.familyStore.files.updateFamilySkill({
+										slug: parsed.slug,
+										description: parsedMd.description,
+										category: parsedMd.category,
+										body: parsedMd.body,
+									})
+								: services.familyStore.files.updateSkill(scope.botId, {
+										slug: parsed.slug,
+										description: parsedMd.description,
+										category: parsedMd.category,
+										body: parsedMd.body,
+									});
 						getLogger().debug("virtual skill edit succeeded", {
 							bot: scope.botId,
+							scope: parsed.scope,
 							slug: updated.slug,
 							version: updated.version,
 						});
@@ -498,11 +510,11 @@ export function filesExtension(options?: ReadToolOptions) {
 
 			defineTool({
 				name: "delete",
-				description: `Delete a file. Supports Cadmus virtual skills (/.cadmus/skills/<slug>/SKILL.md) and, when a workspace tools environment is enabled, workspace files or directories. ${SOUL_VFS_PATH} is read-only; to clear ${MEMORY_VFS_PATH}, write empty content to it.`,
+				description: `Delete a file. Supports Cadmus virtual skills (/.cadmus/skills/bot/<slug>/SKILL.md and /.cadmus/skills/family/<slug>/SKILL.md) and, when a workspace tools environment is enabled, workspace files or directories. ${SOUL_VFS_PATH} is read-only; to clear ${MEMORY_VFS_PATH}, write empty content to it.`,
 				parameters: Type.Object({
 					path: Type.String({
 						description:
-							"Path to the file to delete (e.g. '/.cadmus/skills/<slug>/SKILL.md' or a workspace path).",
+							"Path to the file to delete (e.g. '/.cadmus/skills/bot/<slug>/SKILL.md', '/.cadmus/skills/family/<slug>/SKILL.md', or a workspace path).",
 					}),
 					recursive: Type.Optional(
 						Type.Boolean({
@@ -572,9 +584,14 @@ export function filesExtension(options?: ReadToolOptions) {
 					}
 
 					try {
-						services.familyStore.files.deleteSkill(scope.botId, parsed.slug);
+						if (parsed.scope === "family") {
+							services.familyStore.files.deleteFamilySkill(parsed.slug);
+						} else {
+							services.familyStore.files.deleteSkill(scope.botId, parsed.slug);
+						}
 						getLogger().debug("virtual skill delete succeeded", {
 							bot: scope.botId,
+							scope: parsed.scope,
 							slug: parsed.slug,
 						});
 						const text = `Successfully deleted ${parsed.canonicalPath}`;
@@ -588,7 +605,7 @@ export function filesExtension(options?: ReadToolOptions) {
 
 			defineTool({
 				name: "ls",
-				description: `List entries in a directory. Supports Cadmus virtual directories (${CADMUS_VFS_ROOT}, /.cadmus/skills, /.cadmus/skills/<slug>) and, when a workspace tools environment is enabled, workspace directories. Omit path to list ${CADMUS_VFS_ROOT} (when no workspace env is enabled) or the workspace root.`,
+				description: `List entries in a directory. Supports Cadmus virtual directories (${CADMUS_VFS_ROOT}, /.cadmus/skills, /.cadmus/skills/bot, /.cadmus/skills/family) and, when a workspace tools environment is enabled, workspace directories. Omit path to list ${CADMUS_VFS_ROOT} (when no workspace env is enabled) or the workspace root.`,
 				parameters: Type.Object({
 					path: Type.Optional(
 						Type.String({

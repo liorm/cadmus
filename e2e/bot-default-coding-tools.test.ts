@@ -105,7 +105,7 @@ describe("catalog tools and runtime bash env gating", () => {
 
 			const skill = await turn(
 				`[tool:write ${JSON.stringify({
-					path: "/.cadmus/skills/note/SKILL.md",
+					path: "/.cadmus/skills/bot/note/SKILL.md",
 					content: "---\nname: note\ndescription: a note\n---\n\nkept",
 				})}]`,
 			);
@@ -157,7 +157,7 @@ describe("catalog tools and runtime bash env gating", () => {
 		expect(memoryFile.frame.result?.content).toBe("from-default");
 		const skillFile = await sendRpc<{ content: string }>(
 			"file.read",
-			{ botId: "assistant", path: "/.cadmus/skills/note/SKILL.md" },
+			{ botId: "assistant", path: "/.cadmus/skills/bot/note/SKILL.md" },
 			options,
 		);
 		expect(skillFile.frame.result?.content).toContain("kept");

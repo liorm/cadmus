@@ -9,10 +9,13 @@ import { useScopedResource } from "@/hooks/useScopedResource";
 import { UserShell } from "@/surfaces/user/UserShell";
 
 interface SkillEntry {
-	botId: string;
-	botName: string;
+	scope: "bot" | "family";
+	botId?: string;
+	botName?: string;
 	path: string;
 }
+
+const FAMILY_TARGET = "__family__";
 
 export function SkillsPage() {
 	const { client, bots, familyId } = useCadmus();
@@ -20,6 +23,19 @@ export function SkillsPage() {
 		`${familyId}:skills:${bots.length}`,
 		async () => {
 			const results: SkillEntry[] = [];
+			const familyRes = await client.callRpc<{
+				files?: Array<{ path: string }>;
+			}>("file.list", {});
+			if (familyRes.ok) {
+				for (const f of familyRes.result?.files ?? []) {
+					if (
+						f.path.startsWith("/.cadmus/skills/family/") &&
+						f.path.endsWith(".md")
+					) {
+						results.push({ scope: "family", path: f.path });
+					}
+				}
+			}
 			await Promise.all(
 				bots.map(async (bot) => {
 					const res = await client.callRpc<{ files?: Array<{ path: string }> }>(
@@ -29,10 +45,15 @@ export function SkillsPage() {
 					if (!res.ok) return;
 					for (const f of res.result?.files ?? []) {
 						if (
-							f.path.startsWith("/.cadmus/skills/") &&
+							f.path.startsWith("/.cadmus/skills/bot/") &&
 							f.path.endsWith(".md")
 						) {
-							results.push({ botId: bot.id, botName: bot.name, path: f.path });
+							results.push({
+								scope: "bot",
+								botId: bot.id,
+								botName: bot.name,
+								path: f.path,
+							});
 						}
 					}
 				}),
@@ -44,7 +65,7 @@ export function SkillsPage() {
 	const items = loaded.data ?? [];
 	const [selected, setSelected] = useState<SkillEntry | null>(null);
 	const [addOpen, setAddOpen] = useState(false);
-	const [targetBotId, setTargetBotId] = useState("");
+	const [targetBotId, setTargetBotId] = useState(FAMILY_TARGET);
 	const [slug, setSlug] = useState("");
 	const [body, setBody] = useState(
 		"---\ndescription: Describe when the bot should use this skill.\n---\n\n# New Skill\n\nDescribe the workflow, constraints, and checks.\n",
@@ -58,18 +79,21 @@ export function SkillsPage() {
 
 	async function handleCreateSkill(e: React.FormEvent) {
 		e.preventDefault();
-		const botId = targetBotId || bots[0]?.id;
+		const isFamily = !targetBotId || targetBotId === FAMILY_TARGET;
+		const botId = isFamily ? undefined : targetBotId;
 		const cleanSlug = slug
 			.trim()
 			.toLowerCase()
 			.replace(/[^a-z0-9-]+/g, "-")
 			.replace(/^-+|-+$/g, "");
-		if (!botId || !cleanSlug || busy) return;
-		const path = `/.cadmus/skills/${cleanSlug}/SKILL.md`;
+		if (!cleanSlug || busy) return;
+		const path = isFamily
+			? `/.cadmus/skills/family/${cleanSlug}/SKILL.md`
+			: `/.cadmus/skills/bot/${cleanSlug}/SKILL.md`;
 		setBusy(true);
 		setError(null);
 		const res = await client.callRpc("file.write", {
-			botId,
+			...(botId ? { botId } : {}),
 			path,
 			content: body,
 		});
@@ -78,11 +102,17 @@ export function SkillsPage() {
 			setError(res.error?.message ?? "Could not create skill.");
 			return;
 		}
-		const bot = bots.find((b) => b.id === botId);
 		setSlug("");
 		setAddOpen(false);
 		loaded.retry();
-		if (bot) setSelected({ botId: bot.id, botName: bot.name, path });
+		if (isFamily) {
+			setSelected({ scope: "family", path });
+		} else {
+			const bot = bots.find((b) => b.id === botId);
+			if (bot) {
+				setSelected({ scope: "bot", botId: bot.id, botName: bot.name, path });
+			}
+		}
 	}
 
 	return (
@@ -100,15 +130,14 @@ export function SkillsPage() {
 								)
 							</h1>
 							<p className="text-xs text-text-muted">
-								Browse and edit markdown skills stored across bots in this group
+								Browse and edit bot and family skills stored in this Bot Family
 							</p>
 						</div>
 					</div>
 					<button
 						type="button"
-						disabled={bots.length === 0}
 						onClick={() => {
-							setTargetBotId(bots[0]?.id ?? "");
+							setTargetBotId(bots[0]?.id ?? FAMILY_TARGET);
 							setError(null);
 							setAddOpen(true);
 						}}
@@ -129,17 +158,22 @@ export function SkillsPage() {
 						>
 							{items.length === 0 ? (
 								<p className="p-2 text-xs text-text-muted">
-									No skill files yet across bots in this group.
+									No skill files yet in this Bot Family.
 								</p>
 							) : (
 								<ul className="space-y-1.5">
 									{items.map((item) => {
-										const bot = bots.find((b) => b.id === item.botId);
+										const bot = item.botId
+											? bots.find((b) => b.id === item.botId)
+											: undefined;
 										const active =
+											selected?.scope === item.scope &&
 											selected?.botId === item.botId &&
 											selected?.path === item.path;
 										return (
-											<li key={`${item.botId}:${item.path}`}>
+											<li
+												key={`${item.scope}:${item.botId ?? "family"}:${item.path}`}
+											>
 												<button
 													type="button"
 													onClick={() => setSelected(item)}
@@ -151,13 +185,19 @@ export function SkillsPage() {
 												>
 													{bot ? (
 														<BotBadge bot={bot} className="size-7 shrink-0" />
-													) : null}
+													) : (
+														<span className="inline-flex size-7 shrink-0 items-center justify-center rounded-full border border-border bg-surface-raised text-[10px] font-semibold text-accent">
+															FAM
+														</span>
+													)}
 													<div className="min-w-0 flex-1">
 														<div className="truncate font-mono text-xs font-semibold text-text">
 															{item.path.replace("/.cadmus/skills/", "")}
 														</div>
 														<div className="truncate text-[11px] text-text-muted">
-															{item.botName}
+															{item.scope === "family"
+																? "Family (shared)"
+																: item.botName}
 														</div>
 													</div>
 												</button>
@@ -174,7 +214,9 @@ export function SkillsPage() {
 							<div className="mx-auto max-w-3xl">
 								<div className="mb-3 flex items-center gap-2 text-xs text-text-muted">
 									<span className="font-semibold text-text">
-										{selected.botName}
+										{selected.scope === "family"
+											? "Family (shared)"
+											: selected.botName}
 									</span>
 									<span>·</span>
 									<span className="font-mono">{selected.path}</span>
@@ -202,7 +244,7 @@ export function SkillsPage() {
 				open={addOpen}
 				onClose={() => setAddOpen(false)}
 				title="New Skill"
-				description="Writes /.cadmus/skills/<slug>/SKILL.md into the chosen bot."
+				description="Writes /.cadmus/skills/bot/<slug>/SKILL.md or /.cadmus/skills/family/<slug>/SKILL.md."
 			>
 				<form onSubmit={(e) => void handleCreateSkill(e)} className="space-y-3">
 					{error ? (
@@ -211,16 +253,19 @@ export function SkillsPage() {
 						</p>
 					) : null}
 					<label className="block space-y-1">
-						<span className="text-xs font-medium text-text-muted">Bot</span>
+						<span className="text-xs font-medium text-text-muted">Scope</span>
 						<select
-							aria-label="Bot"
-							value={targetBotId || bots[0]?.id || ""}
+							aria-label="Scope"
+							value={targetBotId}
 							onChange={(e) => setTargetBotId(e.target.value)}
 							className="min-h-tap w-full rounded-lg border border-border bg-bg px-3 text-sm text-text"
 						>
+							<option value={FAMILY_TARGET}>
+								Family (shared across all bots)
+							</option>
 							{bots.map((b) => (
 								<option key={b.id} value={b.id}>
-									{b.name}
+									Bot: {b.name}
 								</option>
 							))}
 						</select>

@@ -3986,18 +3986,18 @@
 			"get": {
 				"operationId": "file.list",
 				"x-cadmus-grant": "bot.read",
-				"summary": "List virtual files (/.cadmus/SOUL.md, /.cadmus/MEMORY.md, and /.cadmus/skills/<slug>/SKILL.md) associated with a bot.",
+				"summary": "List virtual files (/.cadmus/SOUL.md, /.cadmus/MEMORY.md, /.cadmus/skills/bot/<slug>/SKILL.md, and /.cadmus/skills/family/<slug>/SKILL.md). Omit botId to list family skills only.",
 				"parameters": [
 					{
 						"name": "botId",
 						"in": "query",
-						"required": true,
+						"required": false,
 						"schema": {
 							"type": "string",
 							"minLength": 1,
-							"description": "Bot identifier whose virtual files to list."
+							"description": "Optional bot identifier whose virtual files (plus shared family skills) to list. Omit to list family skills only."
 						},
-						"description": "Bot identifier whose virtual files to list."
+						"description": "Optional bot identifier whose virtual files (plus shared family skills) to list. Omit to list family skills only."
 					},
 					{
 						"name": "category",
@@ -4030,18 +4030,18 @@
 			"head": {
 				"operationId": "file.list.head",
 				"x-cadmus-grant": "bot.read",
-				"summary": "List virtual files (/.cadmus/SOUL.md, /.cadmus/MEMORY.md, and /.cadmus/skills/<slug>/SKILL.md) associated with a bot.",
+				"summary": "List virtual files (/.cadmus/SOUL.md, /.cadmus/MEMORY.md, /.cadmus/skills/bot/<slug>/SKILL.md, and /.cadmus/skills/family/<slug>/SKILL.md). Omit botId to list family skills only.",
 				"parameters": [
 					{
 						"name": "botId",
 						"in": "query",
-						"required": true,
+						"required": false,
 						"schema": {
 							"type": "string",
 							"minLength": 1,
-							"description": "Bot identifier whose virtual files to list."
+							"description": "Optional bot identifier whose virtual files (plus shared family skills) to list. Omit to list family skills only."
 						},
-						"description": "Bot identifier whose virtual files to list."
+						"description": "Optional bot identifier whose virtual files (plus shared family skills) to list. Omit to list family skills only."
 					},
 					{
 						"name": "category",
@@ -4072,13 +4072,13 @@
 					{
 						"name": "botId",
 						"in": "query",
-						"required": true,
+						"required": false,
 						"schema": {
 							"type": "string",
 							"minLength": 1,
-							"description": "Bot identifier whose file to read."
+							"description": "Bot identifier whose file to read. Required for bot-scoped paths; optional for family skills (/.cadmus/skills/family/<slug>/SKILL.md)."
 						},
-						"description": "Bot identifier whose file to read."
+						"description": "Bot identifier whose file to read. Required for bot-scoped paths; optional for family skills (/.cadmus/skills/family/<slug>/SKILL.md)."
 					},
 					{
 						"name": "path",
@@ -4086,9 +4086,9 @@
 						"required": false,
 						"schema": {
 							"type": "string",
-							"description": "Virtual file path to read (e.g. '/.cadmus/SOUL.md', '/.cadmus/MEMORY.md', '/.cadmus/skills/topic/SKILL.md'). If omitted, lists all files."
+							"description": "Virtual file path to read (e.g. '/.cadmus/SOUL.md', '/.cadmus/MEMORY.md', '/.cadmus/skills/bot/topic/SKILL.md', '/.cadmus/skills/family/shared/SKILL.md'). If omitted, lists files."
 						},
-						"description": "Virtual file path to read (e.g. '/.cadmus/SOUL.md', '/.cadmus/MEMORY.md', '/.cadmus/skills/topic/SKILL.md'). If omitted, lists all files."
+						"description": "Virtual file path to read (e.g. '/.cadmus/SOUL.md', '/.cadmus/MEMORY.md', '/.cadmus/skills/bot/topic/SKILL.md', '/.cadmus/skills/family/shared/SKILL.md'). If omitted, lists files."
 					}
 				],
 				"responses": {
@@ -4116,13 +4116,13 @@
 					{
 						"name": "botId",
 						"in": "query",
-						"required": true,
+						"required": false,
 						"schema": {
 							"type": "string",
 							"minLength": 1,
-							"description": "Bot identifier whose file to read."
+							"description": "Bot identifier whose file to read. Required for bot-scoped paths; optional for family skills (/.cadmus/skills/family/<slug>/SKILL.md)."
 						},
-						"description": "Bot identifier whose file to read."
+						"description": "Bot identifier whose file to read. Required for bot-scoped paths; optional for family skills (/.cadmus/skills/family/<slug>/SKILL.md)."
 					},
 					{
 						"name": "path",
@@ -4130,9 +4130,9 @@
 						"required": false,
 						"schema": {
 							"type": "string",
-							"description": "Virtual file path to read (e.g. '/.cadmus/SOUL.md', '/.cadmus/MEMORY.md', '/.cadmus/skills/topic/SKILL.md'). If omitted, lists all files."
+							"description": "Virtual file path to read (e.g. '/.cadmus/SOUL.md', '/.cadmus/MEMORY.md', '/.cadmus/skills/bot/topic/SKILL.md', '/.cadmus/skills/family/shared/SKILL.md'). If omitted, lists files."
 						},
-						"description": "Virtual file path to read (e.g. '/.cadmus/SOUL.md', '/.cadmus/MEMORY.md', '/.cadmus/skills/topic/SKILL.md'). If omitted, lists all files."
+						"description": "Virtual file path to read (e.g. '/.cadmus/SOUL.md', '/.cadmus/MEMORY.md', '/.cadmus/skills/bot/topic/SKILL.md', '/.cadmus/skills/family/shared/SKILL.md'). If omitted, lists files."
 					}
 				],
 				"responses": {
@@ -4155,17 +4155,17 @@
 						"application/json": {
 							"schema": {
 								"type": "object",
-								"required": ["botId", "path"],
+								"required": ["path"],
 								"properties": {
 									"botId": {
 										"type": "string",
 										"minLength": 1,
-										"description": "Bot identifier owning the file."
+										"description": "Bot identifier owning the file. Required for bot-scoped paths; optional for family skills (/.cadmus/skills/family/<slug>/SKILL.md)."
 									},
 									"path": {
 										"type": "string",
 										"minLength": 1,
-										"description": "Virtual file path (e.g. '/.cadmus/SOUL.md', '/.cadmus/MEMORY.md', '/.cadmus/skills/topic/SKILL.md')."
+										"description": "Virtual file path (e.g. '/.cadmus/SOUL.md', '/.cadmus/MEMORY.md', '/.cadmus/skills/bot/topic/SKILL.md', '/.cadmus/skills/family/shared/SKILL.md')."
 									},
 									"content": {
 										"type": "string",
@@ -4234,17 +4234,17 @@
 						"application/json": {
 							"schema": {
 								"type": "object",
-								"required": ["botId", "path"],
+								"required": ["path"],
 								"properties": {
 									"botId": {
 										"type": "string",
 										"minLength": 1,
-										"description": "Bot identifier owning the file."
+										"description": "Bot identifier owning the file. Required for bot-scoped skills; optional for family skills (/.cadmus/skills/family/<slug>/SKILL.md)."
 									},
 									"path": {
 										"type": "string",
 										"minLength": 1,
-										"description": "Virtual skill file path to delete."
+										"description": "Virtual skill file path to delete (e.g. '/.cadmus/skills/bot/<slug>/SKILL.md' or '/.cadmus/skills/family/<slug>/SKILL.md')."
 									},
 									"expectedVersion": {
 										"type": "number",
@@ -4275,107 +4275,6 @@
 					"405": { "$ref": "#/components/responses/ApiError" },
 					"409": { "$ref": "#/components/responses/ApiError" },
 					"500": { "$ref": "#/components/responses/ApiError" }
-				}
-			}
-		},
-		"/api/skill/search": {
-			"get": {
-				"operationId": "skill.search",
-				"x-cadmus-grant": "bot.read",
-				"summary": "Search across skills for a bot using keyword and category filters.",
-				"parameters": [
-					{
-						"name": "botId",
-						"in": "query",
-						"required": true,
-						"schema": {
-							"type": "string",
-							"minLength": 1,
-							"description": "Bot identifier whose skills to search."
-						},
-						"description": "Bot identifier whose skills to search."
-					},
-					{
-						"name": "query",
-						"in": "query",
-						"required": false,
-						"schema": {
-							"type": "string",
-							"description": "Keyword or substring search query."
-						},
-						"description": "Keyword or substring search query."
-					},
-					{
-						"name": "category",
-						"in": "query",
-						"required": false,
-						"schema": {
-							"type": "string",
-							"description": "Optional category filter tag."
-						},
-						"description": "Optional category filter tag."
-					}
-				],
-				"responses": {
-					"200": {
-						"description": "Command result",
-						"content": {
-							"application/json": {
-								"schema": { "$ref": "#/components/schemas/SkillSearchResults" }
-							}
-						}
-					},
-					"400": { "$ref": "#/components/responses/ApiError" },
-					"401": { "$ref": "#/components/responses/ApiError" },
-					"404": { "$ref": "#/components/responses/ApiError" },
-					"405": { "$ref": "#/components/responses/ApiError" },
-					"409": { "$ref": "#/components/responses/ApiError" },
-					"500": { "$ref": "#/components/responses/ApiError" }
-				}
-			},
-			"head": {
-				"operationId": "skill.search.head",
-				"x-cadmus-grant": "bot.read",
-				"summary": "Search across skills for a bot using keyword and category filters.",
-				"parameters": [
-					{
-						"name": "botId",
-						"in": "query",
-						"required": true,
-						"schema": {
-							"type": "string",
-							"minLength": 1,
-							"description": "Bot identifier whose skills to search."
-						},
-						"description": "Bot identifier whose skills to search."
-					},
-					{
-						"name": "query",
-						"in": "query",
-						"required": false,
-						"schema": {
-							"type": "string",
-							"description": "Keyword or substring search query."
-						},
-						"description": "Keyword or substring search query."
-					},
-					{
-						"name": "category",
-						"in": "query",
-						"required": false,
-						"schema": {
-							"type": "string",
-							"description": "Optional category filter tag."
-						},
-						"description": "Optional category filter tag."
-					}
-				],
-				"responses": {
-					"200": { "description": "Same as GET with an empty body" },
-					"400": { "$ref": "#/components/responses/ApiError" },
-					"401": { "$ref": "#/components/responses/ApiError" },
-					"404": { "$ref": "#/components/responses/ApiError" },
-					"405": { "$ref": "#/components/responses/ApiError" }
 				}
 			}
 		},
@@ -6816,7 +6715,7 @@
 				"properties": {
 					"path": {
 						"type": "string",
-						"description": "Virtual file path (e.g. '/.cadmus/SOUL.md', '/.cadmus/MEMORY.md', '/.cadmus/skills/topic/SKILL.md')."
+						"description": "Virtual file path (e.g. '/.cadmus/SOUL.md', '/.cadmus/MEMORY.md', '/.cadmus/skills/bot/topic/SKILL.md', '/.cadmus/skills/family/shared/SKILL.md')."
 					},
 					"kind": {
 						"anyOf": [
@@ -6833,10 +6732,10 @@
 							{
 								"type": "string",
 								"const": "skill",
-								"description": "Skill document (/.cadmus/skills/<slug>/SKILL.md)."
+								"description": "Skill document (/.cadmus/skills/bot/<slug>/SKILL.md or /.cadmus/skills/family/<slug>/SKILL.md)."
 							}
 						],
-						"description": "File classification: 'soul' (/.cadmus/SOUL.md), 'memory' (/.cadmus/MEMORY.md), or 'skill' (/.cadmus/skills/<slug>/SKILL.md)."
+						"description": "File classification: 'soul' (/.cadmus/SOUL.md), 'memory' (/.cadmus/MEMORY.md), or 'skill' (/.cadmus/skills/{bot,family}/<slug>/SKILL.md)."
 					},
 					"size": {
 						"type": "number",
@@ -6846,6 +6745,7 @@
 						"type": "number",
 						"description": "Version sequence number for optimistic concurrency control (CAS)."
 					},
+					"scope": { "$ref": "#/components/schemas/SkillScope" },
 					"slug": {
 						"type": "string",
 						"description": "Skill slug / identifier (for skill files)."
@@ -6859,7 +6759,7 @@
 						"description": "Optional categorization tag (for skill files)."
 					}
 				},
-				"description": "Summary descriptor of a virtual file belonging to a bot."
+				"description": "Summary descriptor of a virtual file."
 			},
 			"FileListResult": {
 				"type": "object",
@@ -6868,7 +6768,7 @@
 					"files": {
 						"type": "array",
 						"items": { "$ref": "#/components/schemas/FileListItem" },
-						"description": "List of virtual files (/.cadmus/SOUL.md, /.cadmus/MEMORY.md, /.cadmus/skills/<slug>/SKILL.md)."
+						"description": "List of virtual files (/.cadmus/SOUL.md, /.cadmus/MEMORY.md, /.cadmus/skills/bot/<slug>/SKILL.md, and /.cadmus/skills/family/<slug>/SKILL.md)."
 					}
 				},
 				"description": "Result payload returned by file.list containing virtual files."
@@ -6890,6 +6790,7 @@
 						"type": "number",
 						"description": "Current version sequence number for optimistic concurrency control."
 					},
+					"scope": { "$ref": "#/components/schemas/SkillScope" },
 					"slug": {
 						"type": "string",
 						"description": "Skill slug / identifier (for skill files)."
@@ -6945,6 +6846,7 @@
 								"type": "string",
 								"description": "Written file content string."
 							},
+							"scope": { "$ref": "#/components/schemas/SkillScope" },
 							"slug": {
 								"type": "string",
 								"description": "Skill slug / identifier (for skill files)."
@@ -6973,7 +6875,7 @@
 				"properties": {
 					"path": {
 						"type": "string",
-						"description": "Virtual file path modified (e.g. '/.cadmus/MEMORY.md', '/.cadmus/skills/topic/SKILL.md')."
+						"description": "Virtual file path modified (e.g. '/.cadmus/MEMORY.md', '/.cadmus/skills/bot/topic/SKILL.md')."
 					},
 					"diff": {
 						"type": "string",
@@ -7554,44 +7456,20 @@
 				},
 				"description": "Result payload returned by schedule.update containing updated schedule settings."
 			},
-			"SkillSearchResult": {
-				"type": "object",
-				"required": ["slug", "description", "version", "snippet"],
-				"properties": {
-					"slug": {
+			"SkillScope": {
+				"anyOf": [
+					{
 						"type": "string",
-						"description": "Skill slug / identifier."
+						"const": "bot",
+						"description": "Skill scoped to an individual bot (/.cadmus/skills/bot/<slug>/SKILL.md)."
 					},
-					"description": {
+					{
 						"type": "string",
-						"description": "Skill summary description."
-					},
-					"category": {
-						"type": "string",
-						"description": "Optional categorization tag."
-					},
-					"version": {
-						"type": "number",
-						"description": "Current version sequence number of the skill."
-					},
-					"snippet": {
-						"type": "string",
-						"description": "Matching text excerpt from the skill body or description."
+						"const": "family",
+						"description": "Skill shared across all bots in the family (/.cadmus/skills/family/<slug>/SKILL.md)."
 					}
-				},
-				"description": "Individual skill search match with snippet excerpt."
-			},
-			"SkillSearchResults": {
-				"type": "object",
-				"required": ["results"],
-				"properties": {
-					"results": {
-						"type": "array",
-						"items": { "$ref": "#/components/schemas/SkillSearchResult" },
-						"description": "List of matching skill excerpts."
-					}
-				},
-				"description": "Result payload returned by skill.search containing search matches."
+				],
+				"description": "Ownership scope for a virtual skill file: 'bot' or 'family'."
 			},
 			"SystemAccountMetrics": {
 				"type": "object",

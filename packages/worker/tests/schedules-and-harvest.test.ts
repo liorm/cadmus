@@ -248,4 +248,51 @@ describe("Unified ScheduleTask (Cron, When & Idle Harvest Forks) & DO Alarm Driv
 			"survivor-cron",
 		]);
 	});
+
+	it("blocks idle harvest from modifying /.cadmus/skills/family/* while allowing bot-scoped harvest writes", async () => {
+		const accountId = uniqueAccountId("harvest-no-family");
+		const familyId = "default";
+		const scope = { accountId, familyId };
+
+		await sendRpc("family.update", { harvestDelayMs: 5000 }, scope);
+		await sendRpc(
+			"bot.create",
+			{ slug: "harvester", name: "Harvester Bot", model: "faux/echo" },
+			scope,
+		);
+
+		const turn = await sendRpc<{ reply: string }>(
+			"turn.submit",
+			{
+				chatKey: "bot:harvester",
+				text: "Please save this [learn-family:shared-rule Never mutate family during harvest]",
+			},
+			scope,
+		);
+		expect(turn.status).toBe(200);
+
+		await sendRpc(
+			"schedule.update",
+			{
+				id: "harvest:bot:harvester",
+				kind: "absolute",
+				input: Date.now() - 10,
+			},
+			scope,
+		);
+
+		const doId = env.CADMUS_BOT_FAMILY.idFromName(
+			`cadmus:${accountId}:${familyId}`,
+		);
+		const stub = env.CADMUS_BOT_FAMILY.get(doId);
+		await runDurableObjectAlarm(stub);
+
+		const famList = await sendRpc<{ files: Array<{ path: string }> }>(
+			"file.list",
+			{},
+			scope,
+		);
+		expect(famList.status).toBe(200);
+		expect(famList.frame.result?.files).toEqual([]);
+	});
 });

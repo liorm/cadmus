@@ -93,7 +93,7 @@ describe("Web UI client over /api", () => {
 
 		const note = await familyClient.callRpc("file.read", {
 			botId: "scribe",
-			path: "/.cadmus/skills/notes/SKILL.md",
+			path: "/.cadmus/skills/bot/notes/SKILL.md",
 		});
 		expect(note.ok).toBe(true);
 		expect(note.result).toMatchObject({
