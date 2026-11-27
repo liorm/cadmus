@@ -2,7 +2,6 @@ import {
 	type AssistantMessage,
 	createAssistantMessageEventStream,
 	type SystemMessage,
-	Type,
 } from "@earendil-works/pi-ai";
 import { createModels } from "@earendil-works/pi-ai/models";
 import {
@@ -11,6 +10,7 @@ import {
 	fauxText,
 	fauxToolCall,
 } from "@earendil-works/pi-ai/providers/faux";
+import { Type } from "typebox";
 import { describe, expect, it } from "vitest";
 import { cadmusDefaultExtensions } from "../src/extensions/cadmus-tools.js";
 import {

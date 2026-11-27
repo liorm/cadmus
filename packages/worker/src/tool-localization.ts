@@ -9,10 +9,9 @@ import {
 	type Tool,
 	type ToolCall,
 	type ToolResultMessage,
-	type TSchema,
-	Type,
 } from "@earendil-works/pi-ai";
 import type { MutableModels } from "@earendil-works/pi-ai/models";
+import { type TSchema, Type } from "typebox";
 
 export type ToolDialect = "anthropic" | "google" | "canonical";
 

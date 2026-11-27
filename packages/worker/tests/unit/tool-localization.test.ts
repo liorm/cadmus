@@ -5,8 +5,8 @@ import {
 	type Message,
 	type SystemMessage,
 	type Tool,
-	Type,
 } from "@earendil-works/pi-ai";
+import { Type } from "typebox";
 import { describe, expect, it } from "vitest";
 import {
 	localizeToolName,
