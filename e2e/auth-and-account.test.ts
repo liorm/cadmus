@@ -248,9 +248,19 @@ describe("Authentication, Accounts, Encrypted BYOK Credentials & Multi-Family Ca
 		const flash38 = googleModels.find((m) => m.id === "gemini-3.8-flash");
 		expect(flash38?.tier).toBe("fast");
 
-		const flash25 = googleModels.find((m) => m.id === "gemini-2.5-flash");
-		expect(flash25).toBeDefined();
-		expect(flash25?.tier).toBeUndefined();
+		// Models older than Gemini 3 are excluded.
+		expect(
+			googleModels.some((m) => /^gemini(?:-live)?-[12]\b/.test(m.id)),
+		).toBe(false);
+		expect(
+			googleModels.find((m) => m.id === "gemini-2.5-flash"),
+		).toBeUndefined();
+
+		const flash31Lite = googleModels.find(
+			(m) => m.id === "gemini-3.1-flash-lite",
+		);
+		expect(flash31Lite).toBeDefined();
+		expect(flash31Lite?.tier).toBeUndefined();
 
 		const neon = googleModels.find((m) => m.id === "gemini-4-neon");
 		expect(neon).toBeDefined();

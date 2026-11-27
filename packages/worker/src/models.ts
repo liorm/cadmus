@@ -292,6 +292,82 @@ function functionName(tool: unknown): string | undefined {
 	return record.name;
 }
 
+function nativeToolKey(tool: Readonly<Record<string, unknown>>): string {
+	return typeof tool.type === "string" ? tool.type : JSON.stringify(tool);
+}
+
+function attachGoogleNativeTools(
+	native: Readonly<Record<string, Readonly<Record<string, unknown>>>>,
+	body: Record<string, unknown>,
+	config: Record<string, unknown>,
+): unknown {
+	if (!Array.isArray(config.tools)) return body;
+	const nextTools: unknown[] = [];
+	const added = new Set<string>();
+	const replacements: Readonly<Record<string, unknown>>[] = [];
+	let remainingDeclarations = 0;
+	let replacedAny = false;
+
+	for (const entry of config.tools) {
+		if (
+			entry &&
+			typeof entry === "object" &&
+			!Array.isArray(entry) &&
+			Array.isArray(
+				(entry as { functionDeclarations?: unknown }).functionDeclarations,
+			)
+		) {
+			const record = entry as Record<string, unknown> & {
+				functionDeclarations: unknown[];
+			};
+			const kept: unknown[] = [];
+			for (const decl of record.functionDeclarations) {
+				const name =
+					decl && typeof decl === "object" && !Array.isArray(decl)
+						? (decl as { name?: unknown }).name
+						: undefined;
+				const replacement = typeof name === "string" ? native[name] : undefined;
+				if (!replacement) {
+					kept.push(decl);
+					continue;
+				}
+				replacedAny = true;
+				const key = nativeToolKey(replacement);
+				if (!added.has(key)) {
+					replacements.push(replacement);
+					added.add(key);
+				}
+			}
+			remainingDeclarations += kept.length;
+			if (kept.length > 0) {
+				nextTools.push({ ...record, functionDeclarations: kept });
+			}
+			continue;
+		}
+		nextTools.push(entry);
+	}
+
+	if (!replacedAny) return body;
+	nextTools.push(...replacements);
+
+	const nextConfig: Record<string, unknown> = { ...config, tools: nextTools };
+	if (
+		remainingDeclarations === 0 &&
+		config.toolConfig &&
+		typeof config.toolConfig === "object" &&
+		!Array.isArray(config.toolConfig)
+	) {
+		const { functionCallingConfig: _dropped, ...restToolConfig } =
+			config.toolConfig as Record<string, unknown>;
+		if (Object.keys(restToolConfig).length === 0) {
+			delete nextConfig.toolConfig;
+		} else {
+			nextConfig.toolConfig = restToolConfig;
+		}
+	}
+	return { ...body, config: nextConfig };
+}
+
 export function attachNativeTools(provider: string, payload: unknown): unknown {
 	const nativeMap = collectNativeProviderTools();
 	const native = nativeMap[provider];
@@ -303,23 +379,40 @@ export function attachNativeTools(provider: string, payload: unknown): unknown {
 	) {
 		return payload;
 	}
-	const body = payload as { tools?: unknown };
-	if (!Array.isArray(body.tools)) return payload;
-	const tools: unknown[] = [];
-	const added = new Set<string>();
-	for (const tool of body.tools) {
-		const name = functionName(tool);
-		const replacement = name ? native[name] : undefined;
-		if (!replacement) {
-			tools.push(tool);
-			continue;
+	const body = payload as Record<string, unknown> & {
+		tools?: unknown;
+		config?: unknown;
+	};
+	if (Array.isArray(body.tools)) {
+		const tools: unknown[] = [];
+		const added = new Set<string>();
+		for (const tool of body.tools) {
+			const name = functionName(tool);
+			const replacement = name ? native[name] : undefined;
+			if (!replacement) {
+				tools.push(tool);
+				continue;
+			}
+			const key = nativeToolKey(replacement);
+			if (!added.has(key)) {
+				tools.push(replacement);
+				added.add(key);
+			}
 		}
-		if (!added.has(replacement.type)) {
-			tools.push(replacement);
-			added.add(replacement.type);
-		}
+		return { ...body, tools };
 	}
-	return { ...body, tools };
+	if (
+		body.config &&
+		typeof body.config === "object" &&
+		!Array.isArray(body.config)
+	) {
+		return attachGoogleNativeTools(
+			native,
+			body,
+			body.config as Record<string, unknown>,
+		);
+	}
+	return payload;
 }
 
 export type ServerToolPart = {
@@ -344,10 +437,166 @@ export function noteServerTool(
 	event: unknown,
 ): void {
 	if (!event || typeof event !== "object") return;
-	const record = event as { item?: unknown; response?: { output?: unknown } };
+	const record = event as {
+		item?: unknown;
+		response?: { output?: unknown };
+		candidates?: unknown;
+	};
 	if (record.item) collectItem(found, record.item);
 	if (Array.isArray(record.response?.output)) {
 		for (const item of record.response.output) collectItem(found, item);
+	}
+	if (Array.isArray(record.candidates)) {
+		for (const candidate of record.candidates) {
+			collectGoogleCandidate(found, candidate);
+		}
+	}
+}
+
+const GOOGLE_SEARCH_TOOL_ID = "google:web.search";
+
+function nextGoogleCodeToolId(
+	found: ReadonlyMap<string, ServerToolPart>,
+): string {
+	let index = 1;
+	while (found.has(`google:code.execute:${index}`)) {
+		index += 1;
+	}
+	return `google:code.execute:${index}`;
+}
+
+function collectGoogleCandidate(
+	found: Map<string, ServerToolPart>,
+	candidate: unknown,
+): void {
+	if (!candidate || typeof candidate !== "object") return;
+	const record = candidate as {
+		groundingMetadata?: {
+			webSearchQueries?: unknown;
+			groundingChunks?: unknown;
+		};
+		content?: { parts?: unknown };
+	};
+
+	const grounding = record.groundingMetadata;
+	if (grounding && typeof grounding === "object") {
+		const incomingQueries = Array.isArray(grounding.webSearchQueries)
+			? grounding.webSearchQueries.filter(
+					(q): q is string => typeof q === "string" && q.trim().length > 0,
+				)
+			: [];
+		const incomingSources = Array.isArray(grounding.groundingChunks)
+			? grounding.groundingChunks
+					.map((chunk) => {
+						if (!chunk || typeof chunk !== "object") return undefined;
+						const web = (chunk as { web?: unknown }).web;
+						if (!web || typeof web !== "object") return undefined;
+						const { uri, title } = web as { uri?: unknown; title?: unknown };
+						if (typeof uri !== "string" && typeof title !== "string") {
+							return undefined;
+						}
+						return {
+							...(typeof title === "string" ? { title } : {}),
+							...(typeof uri === "string" ? { uri } : {}),
+						};
+					})
+					.filter((source): source is { title?: string; uri?: string } =>
+						Boolean(source),
+					)
+			: [];
+
+		if (incomingQueries.length > 0 || incomingSources.length > 0) {
+			const existing = found.get(GOOGLE_SEARCH_TOOL_ID);
+			const prevQueries = Array.isArray(existing?.arguments.queries)
+				? (existing.arguments.queries as unknown[]).filter(
+						(q): q is string => typeof q === "string",
+					)
+				: [];
+			const queries = [...new Set([...prevQueries, ...incomingQueries])];
+			const args: JsonObject =
+				queries.length === 1
+					? { query: queries[0], queries }
+					: queries.length > 1
+						? { queries }
+						: {};
+			const result =
+				incomingSources.length > 0
+					? JSON.stringify(incomingSources)
+					: existing?.result;
+			found.set(GOOGLE_SEARCH_TOOL_ID, {
+				type: "serverTool",
+				id: GOOGLE_SEARCH_TOOL_ID,
+				name: "web.search",
+				arguments: args,
+				status: "done",
+				...(result ? { result } : {}),
+			});
+		}
+	}
+
+	if (Array.isArray(record.content?.parts)) {
+		for (const part of record.content.parts) {
+			if (!part || typeof part !== "object") continue;
+			const p = part as {
+				executableCode?: unknown;
+				codeExecutionResult?: unknown;
+			};
+			if (p.executableCode && typeof p.executableCode === "object") {
+				const exec = p.executableCode as {
+					id?: unknown;
+					language?: unknown;
+					code?: unknown;
+				};
+				const id =
+					typeof exec.id === "string" && exec.id.length > 0
+						? exec.id
+						: nextGoogleCodeToolId(found);
+				const args: JsonObject = {};
+				if (typeof exec.language === "string") args.language = exec.language;
+				if (typeof exec.code === "string") args.code = exec.code;
+				found.set(id, {
+					type: "serverTool",
+					id,
+					name: "code.execute",
+					arguments: args,
+					status: "done",
+				});
+			}
+			if (p.codeExecutionResult && typeof p.codeExecutionResult === "object") {
+				const res = p.codeExecutionResult as {
+					id?: unknown;
+					outcome?: unknown;
+					output?: unknown;
+				};
+				let targetId =
+					typeof res.id === "string" && res.id.length > 0 ? res.id : undefined;
+				if (!targetId) {
+					for (const [entryId, entry] of found) {
+						if (entry.name === "code.execute" && entry.result === undefined) {
+							targetId = entryId;
+						}
+					}
+				}
+				const id = targetId ?? nextGoogleCodeToolId(found);
+				const existing = found.get(id);
+				const failed =
+					typeof res.outcome === "string" &&
+					res.outcome !== "OUTCOME_OK" &&
+					res.outcome !== "OUTCOME_UNSPECIFIED";
+				const output =
+					typeof res.output === "string" && res.output.trim().length > 0
+						? res.output
+						: undefined;
+				found.set(id, {
+					type: "serverTool",
+					id,
+					name: "code.execute",
+					arguments: existing?.arguments ?? {},
+					status: failed ? "error" : "done",
+					...(output ? { result: output } : {}),
+				});
+			}
+		}
 	}
 }
 
@@ -1017,11 +1266,26 @@ const EXTRA_GOOGLE_MODELS: readonly Model<"google-generative-ai">[] = [
 	},
 ];
 
+/**
+ * Only Gemini 3+ (and non-versioned/latest aliases such as `gemini-pro-latest`,
+ * `deep-research-*`, and `gemma-4-*`) are supported. Models older than Gemini 3
+ * (e.g. `gemini-2.5-*`, `gemini-2.0-*`, `gemini-1.5-*`) are excluded.
+ */
+export function isSupportedGoogleModel(modelId: string): boolean {
+	const match = modelId.toLowerCase().match(/^gemini(?:-live)?-(\d+)/);
+	if (!match) return true;
+	return Number.parseInt(match[1], 10) >= 3;
+}
+
 function createCadmusGoogleProvider(): Provider<"google-generative-ai"> {
 	const base = googleProvider();
-	const baseModels = base.getModels();
+	const baseModels = base
+		.getModels()
+		.filter((m) => isSupportedGoogleModel(m.id));
 	const seen = new Set(baseModels.map((m) => m.id));
-	const extra = EXTRA_GOOGLE_MODELS.filter((m) => !seen.has(m.id));
+	const extra = EXTRA_GOOGLE_MODELS.filter(
+		(m) => isSupportedGoogleModel(m.id) && !seen.has(m.id),
+	);
 	const mergedModels = [...baseModels, ...extra];
 	const baseGetAllModels = base.getAllModels?.bind(base);
 	return {
@@ -1030,11 +1294,15 @@ function createCadmusGoogleProvider(): Provider<"google-generative-ai"> {
 		...(baseGetAllModels
 			? {
 					getAllModels: () => {
-						const all = baseGetAllModels();
+						const all = baseGetAllModels().filter((m) =>
+							isSupportedGoogleModel(m.id),
+						);
 						const allSeen = new Set(all.map((m) => m.id));
 						return [
 							...all,
-							...EXTRA_GOOGLE_MODELS.filter((m) => !allSeen.has(m.id)),
+							...EXTRA_GOOGLE_MODELS.filter(
+								(m) => isSupportedGoogleModel(m.id) && !allSeen.has(m.id),
+							),
 						];
 					},
 				}
@@ -1166,7 +1434,13 @@ const PREFERRED_TEST_MODELS: Record<string, readonly string[]> = {
 		"claude-3-5-haiku-latest",
 		"claude-3-5-haiku-20241022",
 	],
-	google: ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-2.5-flash-lite"],
+	google: [
+		"gemini-3.1-flash-lite",
+		"gemini-3.8-flash",
+		"gemini-3-flash-preview",
+		"gemini-flash-lite-latest",
+		"gemini-flash-latest",
+	],
 	xai: ["grok-3-mini-fast", "grok-3-mini", "grok-2-latest"],
 	groq: ["llama-3.1-8b-instant", "llama-3.3-70b-versatile"],
 	deepseek: ["deepseek-chat"],
