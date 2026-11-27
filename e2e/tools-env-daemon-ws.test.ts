@@ -919,8 +919,38 @@ describe("daemon websocket tools env", () => {
 		).toBe(true);
 	});
 
-	it("enforces confinement on the upgrade and on escaped paths", async () => {
-		const options = await scope("jail");
+	async function setupConfinedPeer(label: string) {
+		const options = await scope(label);
+		await sendRpc("family.update", { harvestDelayMs: 0 }, options);
+		const secret = await registerDaemon(options, { confineToWorkspace: true });
+		const envId = secret.envId;
+		const upgraded = await ScriptedDaemon.upgrade({
+			token: secret.token,
+			envId,
+			capabilities: "confinement",
+		});
+		expect(upgraded.status).toBe(101);
+		const peer = upgraded.peer;
+		if (!peer) throw new Error("missing peer");
+		peer.jailRoot = WORKSPACE;
+		peer.link(`${WORKSPACE}/leak`, "/etc/passwd");
+		await sendRpc(
+			"bot.create",
+			{
+				slug: "assistant",
+				name: "Assistant",
+				model: "faux/echo",
+				tools: ["bash", "read", "write", "edit"],
+				toolsEnv: { enabled: true, binding: { envId } },
+			},
+			options,
+		);
+		peer.seed(`${WORKSPACE}/notes.txt`, "inside");
+		return { options, envId, peer };
+	}
+
+	it("enforces confinement capability on daemon upgrade", async () => {
+		const options = await scope("jail-up");
 		await sendRpc("family.update", { harvestDelayMs: 0 }, options);
 		const secret = await registerDaemon(options, { confineToWorkspace: true });
 		const envId = secret.envId;
@@ -942,8 +972,6 @@ describe("daemon websocket tools env", () => {
 		expect(upgraded.status).toBe(101);
 		const peer = upgraded.peer;
 		if (!peer) throw new Error("missing peer");
-		peer.jailRoot = WORKSPACE;
-		peer.link(`${WORKSPACE}/leak`, "/etc/passwd");
 		const whileUp = await ScriptedDaemon.upgrade({
 			token: secret.token,
 			envId,
@@ -951,27 +979,32 @@ describe("daemon websocket tools env", () => {
 		expect(whileUp.status).toBe(409);
 		const live = await connection(options, envId);
 		expect(live.status).toBe("connected");
-		await sendRpc(
-			"bot.create",
-			{
-				slug: "assistant",
-				name: "Assistant",
-				model: "faux/echo",
-				tools: ["bash", "read", "write", "edit"],
-				toolsEnv: { enabled: true, binding: { envId } },
-			},
-			options,
-		);
-		peer.seed(`${WORKSPACE}/notes.txt`, "inside");
+		peer.close();
+	});
+
+	it("rejects escaped read paths on a confined daemon", async () => {
+		const { options, peer } = await setupConfinedPeer("jail-rd");
 		for (const path of ["../escape", "/etc/passwd", "leak"]) {
 			const read = await toolTurn(options, "bot:assistant", "read", { path });
 			expect(read.payload?.content ?? "").toContain("permission_denied");
+		}
+		peer.close();
+	});
+
+	it("rejects escaped write paths on a confined daemon", async () => {
+		const { options, peer } = await setupConfinedPeer("jail-wr");
+		for (const path of ["../escape", "/etc/passwd", "leak"]) {
 			const write = await toolTurn(options, "bot:assistant", "write", {
 				path,
 				content: "x",
 			});
 			expect(write.payload?.content ?? "").toContain("permission_denied");
 		}
+		peer.close();
+	});
+
+	it("rejects escaped edit paths and confines bash cwd on a confined daemon", async () => {
+		const { options, envId, peer } = await setupConfinedPeer("jail-ed");
 		const edited = await toolTurn(options, "bot:assistant", "edit", {
 			path: "../escape",
 			edits: [{ oldText: "a", newText: "b" }],
