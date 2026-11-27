@@ -1,12 +1,12 @@
-import { describe, expect, it } from "bun:test";
-import { resolveConversationExtensionsAndTools } from "../../src/extensions/cadmus-tools.js";
+import { describe, expect, it } from "vitest";
+import { resolveConversationExtensionsAndTools } from "../src/extensions/cadmus-tools.js";
 import {
 	attachNativeTools,
 	isSupportedGoogleModel,
 	noteServerTool,
 	type ServerToolPart,
-} from "../../src/models.js";
-import type { BotRecord } from "../../src/protocol.js";
+} from "../src/models.js";
+import type { BotRecord } from "../src/protocol.js";
 
 describe("isSupportedGoogleModel", () => {
 	it("excludes Gemini models older than Gemini 3", () => {
