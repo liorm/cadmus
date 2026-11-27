@@ -60,7 +60,7 @@ This document contains everything an autonomous coding agent needs to understand
    - Deployment is pure `bun run deploy` (`wrangler deploy --keep-vars`) without any pre-deployment database migration steps.
 
 10. **Task & Issue Management via GitHub Issues**:
-   - All tasks, performance improvements, bug fixes, and feature tickets are managed directly via **GitHub Issues** on [`liorm/pi-bot`](https://github.com/liorm/pi-bot/issues) using the GitHub CLI (`gh issue ...`).
+   - All tasks, performance improvements, bug fixes, and feature tickets are managed directly via **GitHub Issues** on [`liorm/cadmus`](https://github.com/liorm/cadmus/issues) using the GitHub CLI (`gh issue ...`).
    - Do not create or track tickets in local markdown documents unless explicitly requested.
 
 11. **Verification & Check Cadence (No Speculative Checks Upfront)**:
