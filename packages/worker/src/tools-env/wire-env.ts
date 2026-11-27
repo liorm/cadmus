@@ -1,10 +1,11 @@
-import type { Context } from "@earendil-works/chord";
+import type { Context } from "@earendil-works/chord/context";
 import {
 	type BinaryReader,
 	type DirReader,
 	type ExecutionEnv,
 	ExecutionError,
 	err,
+	type FileChange,
 	FileError,
 	type FileErrorCode,
 	type FileInfo,
@@ -15,7 +16,6 @@ import {
 	type ShellExecResult,
 	type TextLine,
 	type TextLineReader,
-	type WatchChange,
 } from "@earendil-works/pi-durable/env";
 import {
 	asBytes,
@@ -229,7 +229,7 @@ export function createWireExecutionEnv(options: {
 			caller.followWatch(id, (change) => onChange(asWatchChange(change)));
 			const watcher: FileWatcher = {
 				mode,
-				close: async () => {
+				stop: async () => {
 					caller.unfollowWatch(id);
 					await caller.call({
 						method: "watch.close",
@@ -360,10 +360,13 @@ function asFile<T>(result: WireCallResult): Result<T, FileError> {
 	);
 }
 
-function asWatchChange(change: unknown): WatchChange {
-	if (!change || typeof change !== "object") return { paths: [] };
+function asWatchChange(change: unknown): FileChange {
+	if (!change || typeof change !== "object")
+		return { kind: "paths", paths: [] };
 	const record = change as Record<string, unknown>;
-	if (record.overflow === true) return { overflow: true };
+	if (record.kind === "overflow" || record.overflow === true) {
+		return { kind: "overflow" };
+	}
 	if (record.error && typeof record.error === "object") {
 		const error = record.error as {
 			code?: string;
@@ -371,6 +374,7 @@ function asWatchChange(change: unknown): WatchChange {
 			path?: string;
 		};
 		return {
+			kind: "failed",
 			error: new FileError(
 				(error.code || "unknown") as FileErrorCode,
 				error.message ?? "watch error",
@@ -379,9 +383,12 @@ function asWatchChange(change: unknown): WatchChange {
 		};
 	}
 	if (Array.isArray(record.paths)) {
-		return { paths: record.paths.filter((path) => typeof path === "string") };
+		return {
+			kind: "paths",
+			paths: record.paths.filter((path) => typeof path === "string"),
+		};
 	}
-	return { paths: [] };
+	return { kind: "paths", paths: [] };
 }
 
 export function transportFile(): WireCallResult {

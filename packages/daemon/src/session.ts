@@ -6,10 +6,10 @@ import type {
 	BinaryReader,
 	DirReader,
 	ExecutionEnv,
+	FileChange,
 	FileWatcher,
 	ShellExecOptions,
 	TextLineReader,
-	WatchChange,
 	WatchTarget,
 } from "@earendil-works/pi-durable/env";
 import {
@@ -85,7 +85,7 @@ export class DaemonSession {
 		for (const controller of this.aborts.values()) controller.abort();
 		this.aborts.clear();
 		for (const watcher of this.watches.values()) {
-			void watcher.close(BACKGROUND_CONTEXT);
+			void watcher.stop(BACKGROUND_CONTEXT);
 		}
 		this.watches.clear();
 		for (const reader of this.readers.values()) void reader.close();
@@ -172,7 +172,7 @@ export class DaemonSession {
 				this.logger.info("watch.close", { watchId });
 				const watcher = this.watches.get(watchId);
 				this.watches.delete(watchId);
-				if (watcher) await watcher.close(BACKGROUND_CONTEXT);
+				if (watcher) await watcher.stop(BACKGROUND_CONTEXT);
 				this.send({ id, ok: true, value: null });
 				return;
 			}
@@ -704,9 +704,9 @@ function jsonValue(value: unknown): unknown {
 	return value === undefined ? null : value;
 }
 
-function encodeChange(change: WatchChange): unknown {
-	if ("overflow" in change && change.overflow) return { overflow: true };
-	if ("error" in change && change.error) {
+function encodeChange(change: FileChange): unknown {
+	if (change.kind === "overflow") return { overflow: true };
+	if (change.kind === "failed") {
 		return {
 			error: {
 				code: change.error.code,
@@ -715,7 +715,5 @@ function encodeChange(change: WatchChange): unknown {
 			},
 		};
 	}
-	const paths =
-		"paths" in change && Array.isArray(change.paths) ? change.paths : [];
-	return { paths };
+	return { paths: change.paths };
 }

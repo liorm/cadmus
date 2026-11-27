@@ -17,18 +17,22 @@ import type {
 import type { MutableModels } from "@earendil-works/pi-ai/models";
 import {
 	AgentDoc,
-	type AgentEvent,
-	type AgentEventStream,
 	AssistantEntry,
 	CompactionEntry,
+	type CompactionFailure,
+	type CompactionReason,
+	type CompactionStatus,
 	type Conversation,
 	type ConversationId,
+	type ConversationView,
+	type ConversationWatch,
 	type Cursor,
 	createRegistry,
 	type EntryId,
 	type EntryRecord,
 	Harness,
 	LiveDoc,
+	type LiveState,
 	ResetEntry,
 	SystemEntry,
 	type TaskId,
@@ -36,7 +40,6 @@ import {
 	ToolResultEntry,
 	UsageDoc,
 	UserEntry,
-	watchEvents,
 } from "@earendil-works/pi-durable";
 import { openDurableObjectSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/cloudflare";
 import { StreamSweepDeadline, syncDurableObjectAlarm } from "./alarms.js";
@@ -231,7 +234,7 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 		{ sessionId: string; accountId: string | undefined }
 	>();
 	private lastAuthSweepAt = 0;
-	private activeWatches = new Map<number, AgentEventStream>();
+	private activeWatches = new Map<number, ConversationWatch>();
 	private streamedAssistantContent = new Map<number, Map<number, string>>();
 	private trackedCompactionTasks = new Set<number>();
 
@@ -4076,205 +4079,129 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 		context: Context,
 	): Promise<void> {
 		if (this.activeWatches.has(chat.conversationId)) return;
-		const harness = this.harnessInstance;
-		if (!harness) return;
-		const stream = await watchEvents(harness, conv.id, context);
-		this.activeWatches.set(chat.conversationId, stream);
+		const watch = await conv.watch(context);
+		this.activeWatches.set(chat.conversationId, watch);
 
-		stream.start(async (events: readonly AgentEvent[]) => {
-			for (const ev of events) {
-				this.handleAgentEvent(chat, ev);
+		const initialLive = watch.value.docs["pi.live"] as LiveState | undefined;
+		const state: ConversationWatchState = {
+			lastBusy: Boolean(initialLive?.run),
+			lastRunTaskId: initialLive?.run?.taskId,
+			lastEntryId:
+				watch.value.entries.length > 0
+					? Number(watch.value.entries[watch.value.entries.length - 1]?.id ?? 0)
+					: 0,
+			emittedToolCalls: new Set(
+				(initialLive?.tools ?? []).map((slot) => slot.callId),
+			),
+			emittedToolResults: new Set(
+				(initialLive?.tools ?? [])
+					.filter((slot) => slot.status === "done")
+					.map((slot) => slot.callId),
+			),
+			activeCompactions: new Map(
+				(initialLive?.compactions ?? []).map((c) => [
+					Number(c.taskId),
+					{ trigger: c.trigger, blocking: c.blocking },
+				]),
+			),
+		};
+
+		watch.start(async (call) => {
+			if (call.kind === "value") {
+				this.handleConversationView(chat, call.value, state);
 			}
 		});
 	}
 
-	private handleAgentEvent(chat: ChatRecord, ev: AgentEvent): void {
-		switch (ev.type) {
-			case "run_start": {
-				this.streamedAssistantContent.set(chat.conversationId, new Map());
-				this.broadcastEvent({
-					type: "chat.state",
-					payload: {
-						chatKey: chat.key,
-						botId: chat.botId,
-						conversationId: chat.conversationId,
-						busy: true,
-					},
-				});
-				break;
+	private handleConversationView(
+		chat: ChatRecord,
+		view: ConversationView,
+		state: ConversationWatchState,
+	): void {
+		const live = view.docs["pi.live"] as LiveState | undefined;
+		const busy = Boolean(live?.run);
+
+		if (busy && !state.lastBusy) {
+			this.streamedAssistantContent.set(chat.conversationId, new Map());
+			this.broadcastEvent({
+				type: "chat.state",
+				payload: {
+					chatKey: chat.key,
+					botId: chat.botId,
+					conversationId: chat.conversationId,
+					busy: true,
+				},
+			});
+		} else if (busy && live?.run?.taskId !== state.lastRunTaskId) {
+			this.streamedAssistantContent.set(chat.conversationId, new Map());
+		}
+		state.lastRunTaskId = live?.run?.taskId;
+
+		const partialMsg = live?.generation?.message;
+		if (partialMsg && Array.isArray(partialMsg.content)) {
+			let streamedMap = this.streamedAssistantContent.get(chat.conversationId);
+			if (!streamedMap) {
+				streamedMap = new Map();
+				this.streamedAssistantContent.set(chat.conversationId, streamedMap);
 			}
-			case "message_start": {
-				if (
-					ev.message.role === "assistant" &&
-					Array.isArray(ev.message.content)
-				) {
-					let streamedMap = this.streamedAssistantContent.get(
-						chat.conversationId,
-					);
-					if (!streamedMap) {
-						streamedMap = new Map();
-						this.streamedAssistantContent.set(chat.conversationId, streamedMap);
-					}
-					for (let i = 0; i < ev.message.content.length; i++) {
-						const part = ev.message.content[i];
-						if (part && typeof part === "object" && "type" in part) {
-							const p = part as {
-								type: string;
-								text?: string;
-								thinking?: string;
-							};
-							if (p.type === "text" && typeof p.text === "string" && p.text) {
-								streamedMap.set(i, p.text);
-								this.broadcastEvent({
-									type: "turn.delta",
-									payload: {
-										chatKey: chat.key,
-										kind: "text",
-										delta: p.text,
-									},
-								});
-							} else if (
-								p.type === "thinking" &&
-								typeof p.thinking === "string" &&
-								p.thinking
-							) {
-								streamedMap.set(i, p.thinking);
-								this.broadcastEvent({
-									type: "turn.delta",
-									payload: {
-										chatKey: chat.key,
-										kind: "thinking",
-										delta: p.thinking,
-									},
-								});
-							}
-						}
-					}
-				}
-				break;
-			}
-			case "message_update": {
-				let streamedMap = this.streamedAssistantContent.get(
-					chat.conversationId,
-				);
-				if (!streamedMap) {
-					streamedMap = new Map();
-					this.streamedAssistantContent.set(chat.conversationId, streamedMap);
-				}
-				for (const change of ev.changes) {
-					if (change.type === "text_start") {
-						const block = change.block;
-						if (
-							block.type === "text" &&
-							typeof block.text === "string" &&
-							block.text
-						) {
-							streamedMap.set(change.contentIndex, block.text);
+			for (let i = 0; i < partialMsg.content.length; i++) {
+				const part = partialMsg.content[i];
+				if (part && typeof part === "object" && "type" in part) {
+					const p = part as {
+						type: string;
+						text?: string;
+						thinking?: string;
+					};
+					if (p.type === "text" && typeof p.text === "string" && p.text) {
+						const prev = streamedMap.get(i) ?? "";
+						if (p.text.length > prev.length && p.text.startsWith(prev)) {
+							const delta = p.text.slice(prev.length);
+							streamedMap.set(i, p.text);
 							this.broadcastEvent({
 								type: "turn.delta",
 								payload: {
 									chatKey: chat.key,
 									kind: "text",
-									delta: block.text,
+									delta,
 								},
 							});
 						}
-					} else if (change.type === "thinking_start") {
-						const block = change.block;
+					} else if (
+						p.type === "thinking" &&
+						typeof p.thinking === "string" &&
+						p.thinking
+					) {
+						const prev = streamedMap.get(i) ?? "";
 						if (
-							block.type === "thinking" &&
-							typeof block.thinking === "string" &&
-							block.thinking
+							p.thinking.length > prev.length &&
+							p.thinking.startsWith(prev)
 						) {
-							streamedMap.set(change.contentIndex, block.thinking);
+							const delta = p.thinking.slice(prev.length);
+							streamedMap.set(i, p.thinking);
 							this.broadcastEvent({
 								type: "turn.delta",
 								payload: {
 									chatKey: chat.key,
 									kind: "thinking",
-									delta: block.thinking,
+									delta,
 								},
 							});
 						}
-					} else if (change.type === "text_delta") {
-						const prev = streamedMap.get(change.contentIndex) ?? "";
-						streamedMap.set(change.contentIndex, prev + change.delta);
-						this.broadcastEvent({
-							type: "turn.delta",
-							payload: {
-								chatKey: chat.key,
-								kind: "text",
-								delta: change.delta,
-							},
-						});
-					} else if (change.type === "thinking_delta") {
-						const prev = streamedMap.get(change.contentIndex) ?? "";
-						streamedMap.set(change.contentIndex, prev + change.delta);
-						this.broadcastEvent({
-							type: "turn.delta",
-							payload: {
-								chatKey: chat.key,
-								kind: "thinking",
-								delta: change.delta,
-							},
-						});
 					}
 				}
-				break;
 			}
-			case "tool_execution_start": {
-				this.log().child(chatFields(chat)).debug("tool execution started", {
-					tool: ev.toolName,
-					toolCallId: ev.toolCallId,
-				});
-				this.broadcastEvent({
-					type: "turn.tool_call",
-					payload: {
-						chatKey: chat.key,
-						toolCallId: ev.toolCallId,
-						toolName: ev.toolName,
-						args: (ev.args ?? {}) as Record<string, unknown>,
-					},
-				});
-				break;
-			}
-			case "tool_execution_end": {
-				const isError = Boolean(
-					ev.result?.isError ||
-						(ev.entry?.model?.[0]?.role === "toolResult" &&
-							(ev.entry.model[0] as { isError?: boolean }).isError),
-				);
-				const rawOut =
-					(ev.result as { output?: unknown } | undefined)?.output ??
-					(ev.entry?.model?.[0]?.role === "toolResult"
-						? ev.entry.model[0].content
-						: undefined);
-				const content =
-					typeof rawOut === "string"
-						? rawOut
-						: messageContentToText(rawOut) || JSON.stringify(rawOut ?? "");
-				this.log().child(chatFields(chat)).debug("tool execution ended", {
-					tool: ev.toolName,
-					toolCallId: ev.toolCallId,
-					isError,
-				});
-				this.broadcastEvent({
-					type: "turn.tool_result",
-					payload: {
-						chatKey: chat.key,
-						toolCallId: ev.toolCallId,
-						toolName: ev.toolName,
-						content,
-						isError,
-					},
-				});
-				break;
-			}
-			case "message_end": {
+		}
+
+		for (const entry of view.entries) {
+			const entryId = Number(entry.id);
+			if (entryId <= state.lastEntryId) continue;
+			state.lastEntryId = entryId;
+
+			if (AssistantEntry.is(entry)) {
 				const streamedMap = this.streamedAssistantContent.get(
 					chat.conversationId,
 				);
-				const msg = ev.entry?.model?.[0];
+				const msg = entry.model?.[0];
 				if (msg && msg.role === "assistant" && Array.isArray(msg.content)) {
 					for (let i = 0; i < msg.content.length; i++) {
 						const block = msg.content[i];
@@ -4320,22 +4247,93 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 						}
 					}
 				}
-				break;
+				this.streamedAssistantContent.set(chat.conversationId, new Map());
+			} else if (ToolResultEntry.is(entry)) {
+				const msg = entry.model?.[0] as ToolResultMessage | undefined;
+				if (
+					msg &&
+					msg.role === "toolResult" &&
+					!state.emittedToolResults.has(msg.toolCallId)
+				) {
+					state.emittedToolResults.add(msg.toolCallId);
+					const isError = Boolean(msg.isError);
+					const content =
+						typeof msg.content === "string"
+							? msg.content
+							: messageContentToText(msg.content) ||
+								JSON.stringify(msg.content ?? "");
+					this.log().child(chatFields(chat)).debug("tool execution ended", {
+						tool: msg.toolName,
+						toolCallId: msg.toolCallId,
+						isError,
+					});
+					this.broadcastEvent({
+						type: "turn.tool_result",
+						payload: {
+							chatKey: chat.key,
+							toolCallId: msg.toolCallId,
+							toolName: msg.toolName,
+							content,
+							isError,
+						},
+					});
+				}
 			}
-			case "run_end": {
-				this.streamedAssistantContent.delete(chat.conversationId);
+		}
+
+		for (const slot of live?.tools ?? []) {
+			if (!state.emittedToolCalls.has(slot.callId)) {
+				state.emittedToolCalls.add(slot.callId);
+				const args = findToolCallArgs(view.entries, partialMsg, slot.callId);
+				this.log().child(chatFields(chat)).debug("tool execution started", {
+					tool: slot.name,
+					toolCallId: slot.callId,
+				});
 				this.broadcastEvent({
-					type: "chat.state",
+					type: "turn.tool_call",
 					payload: {
 						chatKey: chat.key,
-						botId: chat.botId,
-						conversationId: chat.conversationId,
-						busy: false,
+						toolCallId: slot.callId,
+						toolName: slot.name,
+						args,
 					},
 				});
-				break;
 			}
-			case "compaction_start": {
+			if (
+				slot.status === "done" &&
+				!slot.entry &&
+				!state.emittedToolResults.has(slot.callId)
+			) {
+				state.emittedToolResults.add(slot.callId);
+				this.log().child(chatFields(chat)).debug("tool execution ended", {
+					tool: slot.name,
+					toolCallId: slot.callId,
+					isError: true,
+				});
+				this.broadcastEvent({
+					type: "turn.tool_result",
+					payload: {
+						chatKey: chat.key,
+						toolCallId: slot.callId,
+						toolName: slot.name,
+						content: slot.output ?? "",
+						isError: true,
+					},
+				});
+			}
+		}
+
+		const compactions = live?.compactions ?? [];
+		const currentCompactionIds = new Set(
+			compactions.map((c) => Number(c.taskId)),
+		);
+		for (const c of compactions) {
+			const taskId = Number(c.taskId);
+			if (!state.activeCompactions.has(taskId)) {
+				state.activeCompactions.set(taskId, {
+					trigger: c.trigger,
+					blocking: c.blocking,
+				});
 				this.broadcastEvent({
 					type: "chat.compaction",
 					payload: {
@@ -4343,33 +4341,55 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 						botId: chat.botId,
 						conversationId: chat.conversationId,
 						phase: "started",
-						taskId: Number(ev.taskId),
-						reason: ev.reason,
-						blocking: ev.blocking,
+						taskId,
+						reason: c.trigger,
+						blocking: c.blocking,
 					},
 				});
-				if (!ev.blocking && this.harnessInstance) {
+				if (!c.blocking && this.harnessInstance) {
 					void this.trackBackgroundCompactions(this.harnessInstance);
 				}
-				break;
 			}
-			case "compaction_end": {
+		}
+		for (const [taskId, prev] of [...state.activeCompactions.entries()]) {
+			if (!currentCompactionIds.has(taskId)) {
+				state.activeCompactions.delete(taskId);
+				const failed =
+					live?.compactionFailure &&
+					Number(live.compactionFailure.taskId) === taskId
+						? live.compactionFailure
+						: undefined;
 				this.broadcastEvent({
 					type: "chat.compaction",
 					payload: {
 						chatKey: chat.key,
 						botId: chat.botId,
 						conversationId: chat.conversationId,
-						phase: ev.error ? "failed" : "completed",
-						taskId: Number(ev.taskId),
-						reason: ev.reason,
-						...(ev.error ? { error: ev.error } : {}),
+						phase: failed ? "failed" : "completed",
+						taskId,
+						reason: failed ? failed.trigger : prev.trigger,
+						...(failed ? { error: failed.error } : {}),
 					},
 				});
 				void this.syncAlarmInternal().catch(() => {});
-				break;
 			}
 		}
+
+		if (!busy && state.lastBusy) {
+			this.streamedAssistantContent.delete(chat.conversationId);
+			state.emittedToolCalls.clear();
+			state.emittedToolResults.clear();
+			this.broadcastEvent({
+				type: "chat.state",
+				payload: {
+					chatKey: chat.key,
+					botId: chat.botId,
+					conversationId: chat.conversationId,
+					busy: false,
+				},
+			});
+		}
+		state.lastBusy = busy;
 	}
 
 	private async waitForSubmission<T>(
@@ -5341,21 +5361,63 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 	}
 }
 
+type ConversationWatchState = {
+	lastBusy: boolean;
+	lastRunTaskId: TaskId | undefined;
+	lastEntryId: number;
+	emittedToolCalls: Set<string>;
+	emittedToolResults: Set<string>;
+	activeCompactions: Map<
+		number,
+		{ trigger: CompactionReason; blocking: boolean }
+	>;
+};
+
+function findToolCallArgs(
+	entries: readonly EntryRecord[],
+	partialMsg: { readonly content?: readonly unknown[] } | undefined,
+	callId: string,
+): Record<string, unknown> {
+	if (partialMsg && Array.isArray(partialMsg.content)) {
+		for (const block of partialMsg.content) {
+			if (
+				block &&
+				typeof block === "object" &&
+				(block as { type?: string }).type === "toolCall" &&
+				(block as { id?: string }).id === callId
+			) {
+				return ((block as { arguments?: Record<string, unknown> }).arguments ??
+					{}) as Record<string, unknown>;
+			}
+		}
+	}
+	for (let i = entries.length - 1; i >= 0; i--) {
+		const entry = entries[i];
+		if (!entry || !AssistantEntry.is(entry)) continue;
+		const msg = entry.model?.[0];
+		if (!msg || msg.role !== "assistant" || !Array.isArray(msg.content)) {
+			continue;
+		}
+		for (const block of msg.content) {
+			if (
+				block &&
+				typeof block === "object" &&
+				(block as { type?: string }).type === "toolCall" &&
+				(block as { id?: string }).id === callId
+			) {
+				return ((block as { arguments?: Record<string, unknown> }).arguments ??
+					{}) as Record<string, unknown>;
+			}
+		}
+	}
+	return {};
+}
+
 function buildCompactionSnapshot(
 	live:
 		| {
-				compactions?: readonly {
-					taskId: unknown;
-					reason: "manual" | "threshold" | "overflow";
-					blocking: boolean;
-					attempt: number;
-					retry?: { at: number; error: string };
-				}[];
-				compactionFailure?: {
-					taskId: unknown;
-					reason: "manual" | "threshold" | "overflow";
-					error: string;
-				};
+				compactions?: readonly CompactionStatus[];
+				compactionFailure?: CompactionFailure;
 		  }
 		| undefined,
 	headEntryId: number | undefined,
@@ -5363,7 +5425,7 @@ function buildCompactionSnapshot(
 ): ChatCompactionSnapshot {
 	const tasks: CompactionTaskView[] = (live?.compactions ?? []).map((c) => ({
 		taskId: Number(c.taskId),
-		reason: c.reason,
+		reason: c.trigger,
 		blocking: c.blocking,
 		attempt: c.attempt,
 		...(c.retry ? { retryAt: c.retry.at, retryError: c.retry.error } : {}),
@@ -5375,7 +5437,7 @@ function buildCompactionSnapshot(
 			? {
 					lastFailure: {
 						taskId: Number(live.compactionFailure.taskId),
-						reason: live.compactionFailure.reason,
+						reason: live.compactionFailure.trigger,
 						error: live.compactionFailure.error,
 					},
 				}
