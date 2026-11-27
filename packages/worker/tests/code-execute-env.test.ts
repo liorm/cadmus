@@ -1,7 +1,7 @@
 import {
+	BASH_TOOL_NAME,
+	CATALOG_TOOL_NAMES,
 	CODE_EXECUTE_TOOL_NAME,
-	CODING_TOOL_NAMES,
-	DEFAULT_CADMUS_TOOL_NAMES,
 } from "@cadmus/contract/tools";
 import { describe, expect, it } from "vitest";
 import {
@@ -17,7 +17,7 @@ import {
 	uniqueAccountId,
 } from "./helpers.js";
 
-const BOTH = [...DEFAULT_CADMUS_TOOL_NAMES, ...CODING_TOOL_NAMES];
+const BOTH = [...CATALOG_TOOL_NAMES];
 const BLOCK =
 	"code.execute is disabled while the workspace tools env is on; use bash";
 
@@ -162,7 +162,7 @@ describe("code.execute while the bash tools env is on", () => {
 		expect(status.frame.result?.status.tools).toEqual(BOTH);
 	});
 
-	it("keeps code.execute when an account default env is on but coding tools are not listed", async () => {
+	it("keeps code.execute when an account default env is on but bash is not listed", async () => {
 		const options = scope("no-coding");
 		const botId = "reader";
 		await sendRpc("family.update", { harvestDelayMs: 0 }, options);
@@ -177,7 +177,7 @@ describe("code.execute while the bash tools env is on", () => {
 				slug: botId,
 				name: "Reader",
 				model: "faux/echo",
-				tools: [...DEFAULT_CADMUS_TOOL_NAMES],
+				tools: CATALOG_TOOL_NAMES.filter((name) => name !== BASH_TOOL_NAME),
 			},
 			options,
 		);

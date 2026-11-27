@@ -1,73 +1,51 @@
 import { describe, expect, it } from "bun:test";
 import {
+	BASH_TOOL_NAME,
+	CATALOG_TOOL_NAMES,
 	CODE_EXECUTE_TOOL_NAME,
-	CODING_TOOL_NAMES,
-	DEFAULT_CADMUS_TOOL_NAMES,
 	effectiveToolNames,
 	TOOL_CATALOG,
 } from "@cadmus/contract/tools";
-import { defaultCadmusToolNames } from "../../src/extensions/cadmus-tools.js";
-import { expandCodingOnlyAllowlist } from "../../src/extensions/coding-allowlist.js";
 
-describe("default Cadmus tool names", () => {
-	it("matches the backend default registry and excludes coding tools", () => {
-		const names = defaultCadmusToolNames();
-		expect(names).toEqual([...DEFAULT_CADMUS_TOOL_NAMES]);
-		for (const name of CODING_TOOL_NAMES) {
-			expect(names).not.toContain(name);
-		}
-		expect(names).toContain("web.search");
-		expect(names).toContain("x.search");
-		expect(names).toContain("code.execute");
-		expect(
-			TOOL_CATALOG.filter((entry) => !entry.codingEnv).map(
-				(entry) => entry.name,
-			),
-		).toEqual(names);
+describe("catalog tool names", () => {
+	it("lists every catalog tool uniformly including bash and code.execute", () => {
+		expect(CATALOG_TOOL_NAMES).toEqual(TOOL_CATALOG.map((entry) => entry.name));
+		expect(CATALOG_TOOL_NAMES).toContain(BASH_TOOL_NAME);
+		expect(CATALOG_TOOL_NAMES).toContain("web.search");
+		expect(CATALOG_TOOL_NAMES).toContain("x.search");
+		expect(CATALOG_TOOL_NAMES).toContain(CODE_EXECUTE_TOOL_NAME);
 	});
 });
 
 describe("effective tool names", () => {
-	const both = [...DEFAULT_CADMUS_TOOL_NAMES, ...CODING_TOOL_NAMES];
-
-	it("drops code.execute only when coding tools are offered", () => {
-		expect(effectiveToolNames(undefined, { codingToolsOffered: true })).toEqual(
-			[
-				...DEFAULT_CADMUS_TOOL_NAMES.filter(
-					(name) => name !== CODE_EXECUTE_TOOL_NAME,
-				),
-				...CODING_TOOL_NAMES,
-			],
-		);
-		expect(effectiveToolNames(undefined, { codingToolsOffered: false })).toBe(
-			undefined,
-		);
-		expect(effectiveToolNames(both, { codingToolsOffered: false })).toBe(both);
-		expect(effectiveToolNames(both, { codingToolsOffered: true })).toEqual(
-			both.filter((name) => name !== CODE_EXECUTE_TOOL_NAME),
+	it("drops code.execute only when workspaceEnvEnabled is true and bash is allowed", () => {
+		expect(
+			effectiveToolNames(undefined, { workspaceEnvEnabled: true }),
+		).toEqual(
+			CATALOG_TOOL_NAMES.filter((name) => name !== CODE_EXECUTE_TOOL_NAME),
 		);
 		expect(
-			effectiveToolNames(["bash", "read"], { codingToolsOffered: true }),
+			effectiveToolNames(undefined, { workspaceEnvEnabled: false }),
+		).toBeUndefined();
+		expect(
+			effectiveToolNames([...CATALOG_TOOL_NAMES], {
+				workspaceEnvEnabled: false,
+			}),
+		).toEqual([...CATALOG_TOOL_NAMES]);
+		expect(
+			effectiveToolNames([...CATALOG_TOOL_NAMES], {
+				workspaceEnvEnabled: true,
+			}),
+		).toEqual(
+			CATALOG_TOOL_NAMES.filter((name) => name !== CODE_EXECUTE_TOOL_NAME),
+		);
+		expect(
+			effectiveToolNames(["bash", "read"], { workspaceEnvEnabled: true }),
 		).toEqual(["bash", "read"]);
 		expect(
-			effectiveToolNames([...DEFAULT_CADMUS_TOOL_NAMES], {
-				codingToolsOffered: false,
+			effectiveToolNames(["read", CODE_EXECUTE_TOOL_NAME], {
+				workspaceEnvEnabled: true,
 			}),
-		).toEqual([...DEFAULT_CADMUS_TOOL_NAMES]);
-	});
-});
-
-describe("create_bot coding-only allowlist", () => {
-	it("expands a coding-only list to the default set plus those coding tools", () => {
-		expect(expandCodingOnlyAllowlist(undefined)).toBeUndefined();
-		expect(expandCodingOnlyAllowlist([])).toEqual([]);
-		expect(expandCodingOnlyAllowlist(["bash"])).toEqual([
-			...DEFAULT_CADMUS_TOOL_NAMES,
-			"bash",
-		]);
-		expect(expandCodingOnlyAllowlist(["read", "bash"])).toEqual([
-			"read",
-			"bash",
-		]);
+		).toEqual(["read", CODE_EXECUTE_TOOL_NAME]);
 	});
 });

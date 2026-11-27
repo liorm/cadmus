@@ -271,6 +271,23 @@ describe("chooseToolsEnvIdentity", () => {
 		expect(ready?.text).toContain("The bot default is local-daemon");
 		expect(ready?.text).toContain("this chat");
 
+		const readyFileOnly = chooseToolsEnvIdentity({
+			enabled: true,
+			connected: true,
+			toolsOffered: true,
+			bashOffered: false,
+			harvest: false,
+			kind: "just-bash",
+			envId: "jb_default",
+			enabledSource: "bot",
+			bindingSource: "bot",
+		});
+		expect(readyFileOnly?.name).toBe("tools-env");
+		expect(readyFileOnly?.text).toContain("Use read, write, and edit");
+		expect(readyFileOnly?.text).not.toContain("Use bash");
+		expect(readyFileOnly?.text).not.toContain("via bash");
+		expect(readyFileOnly?.text).not.toContain("code.execute is disabled");
+
 		const down = chooseToolsEnvIdentity({
 			enabled: true,
 			connected: false,
@@ -282,9 +299,38 @@ describe("chooseToolsEnvIdentity", () => {
 		expect(down?.name).toBe("tools-env-unavailable");
 		expect(down?.text).not.toContain("bash");
 		expect(down?.text).toContain("code.execute is disabled");
-		expect(down?.text).not.toContain("independent stateless sandbox");
 		expect(down?.text).toContain("reconnects on its own");
 		expect(down?.text).toContain("Memory, knowledge, and schedules still work");
+
+		const disabledWithBash = chooseToolsEnvIdentity({
+			enabled: false,
+			connected: false,
+			toolsOffered: true,
+			bashOffered: true,
+			codeExecuteOffered: true,
+			harvest: false,
+		});
+		expect(disabledWithBash?.name).toBe("tools-env-unavailable");
+		expect(disabledWithBash?.text).toContain(
+			"No workspace tools environment is enabled",
+		);
+		expect(disabledWithBash?.text).toContain("do not call bash");
+		expect(disabledWithBash?.text).toContain("code.execute");
+		expect(disabledWithBash?.text).not.toContain("reconnects on its own");
+		expect(disabledWithBash?.text).not.toContain("code.execute is disabled");
+
+		const disabledFileOnly = chooseToolsEnvIdentity({
+			enabled: false,
+			connected: false,
+			toolsOffered: true,
+			bashOffered: false,
+			harvest: false,
+		});
+		expect(disabledFileOnly?.name).toBe("tools-env-unavailable");
+		expect(disabledFileOnly?.text).toContain(
+			"No workspace tools environment is enabled",
+		);
+		expect(disabledFileOnly?.text).not.toContain("bash");
 	});
 
 	it("checks daemon bearer shape, wire frames, and transport classification", () => {
@@ -362,15 +408,7 @@ describe("chooseToolsEnvIdentity", () => {
 		expect(writeOpLockPaths("exec", { command: "pwd" })).toEqual([]);
 	});
 
-	it("omits both sections when off, unoffered, or harvesting", () => {
-		expect(
-			chooseToolsEnvIdentity({
-				enabled: false,
-				connected: true,
-				toolsOffered: true,
-				harvest: false,
-			}),
-		).toBeUndefined();
+	it("omits both sections when unoffered or harvesting", () => {
 		expect(
 			chooseToolsEnvIdentity({
 				enabled: true,

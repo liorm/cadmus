@@ -19,7 +19,6 @@ import { getLogger } from "../log.js";
 import { parseThinkingLevel } from "../models.js";
 import { ThinkingLevelSchema, ToolsEnvSettingSchema } from "../protocol.js";
 import type { CadmusExtensionDescriptor } from "./cadmus-tools.js";
-import { expandCodingOnlyAllowlist } from "./coding-allowlist.js";
 import { resolveBotScope, toolError, toolText } from "./file-tools.js";
 
 export type SearchBotInput = {
@@ -291,7 +290,12 @@ export function internalToolsExtension() {
 					name: Type.String({ minLength: 1 }),
 					model: Type.Optional(Type.String()),
 					thinking: Type.Optional(ThinkingLevelSchema),
-					tools: Type.Optional(Type.Array(Type.String())),
+					tools: Type.Optional(
+						Type.Array(Type.String(), {
+							description:
+								"Optional allowlist of tool names. Omit to allow all tools (including files and bash). An empty array allows no gated tools.",
+						}),
+					),
 					soul: Type.Optional(Type.String()),
 					memory: Type.Optional(
 						Type.String({
@@ -344,7 +348,7 @@ export function internalToolsExtension() {
 							name: args.name,
 							model: args.model ?? callerBot?.model ?? "faux/echo",
 							thinking: args.thinking ?? callerBot?.thinking ?? "off",
-							tools: expandCodingOnlyAllowlist(args.tools),
+							tools: args.tools,
 							soul: args.soul,
 							memory: args.memory,
 							skills: args.skills,

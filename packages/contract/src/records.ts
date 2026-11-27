@@ -521,7 +521,7 @@ export const BotRecordSchema = Type.Object(
 		tools: Type.Optional(
 			Type.Array(Type.String(), {
 				description:
-					"Allowlist of tool names. Omitted means the default set (Cadmus tools allowed, coding tools opt-in). An empty array allows no gated tools.",
+					"Allowlist of tool names. Omitted means all catalog tools (including file and bash tools; bash requires an active workspace environment at runtime). An empty array allows no gated tools.",
 			}),
 		),
 		timezone: Type.String({

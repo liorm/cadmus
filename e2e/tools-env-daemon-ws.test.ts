@@ -456,7 +456,10 @@ describe("daemon websocket tools env", () => {
 		const next = await toolTurn(options, "bot:assistant", "bash", {
 			command: "echo later",
 		});
-		expect(next.payload?.content ?? "").toContain("Tool bash is not available");
+		expect(next.payload?.isError).toBe(true);
+		expect(next.payload?.content ?? "").toContain(
+			"No workspace tools environment is enabled",
+		);
 		expect(
 			peer.requests.filter((request) => request.method === "exec").length,
 		).toBe(1);
@@ -785,8 +788,9 @@ describe("daemon websocket tools env", () => {
 		const later = await toolTurn(alpha, "bot:assistant", "bash", {
 			command: "echo later",
 		});
+		expect(later.payload?.isError).toBe(true);
 		expect(later.payload?.content ?? "").toContain(
-			"Tool bash is not available",
+			"No workspace tools environment is enabled",
 		);
 		expect((await connection(alpha, envId)).status).toBe("connected");
 		const sibling = await toolTurn(beta, "bot:assistant", "bash", {

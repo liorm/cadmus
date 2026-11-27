@@ -108,6 +108,20 @@ export function identityExtension(options?: { now?: () => Date }) {
 				if (!body) return undefined;
 				return `${MEMORY_VFS_PATH}:\n${body}`;
 			}),
+			section("tools-env", async (input, context) => {
+				const botId = input.agent.cwd;
+				if (!botId) return undefined;
+				const services = requireCadmusServices(context);
+				const described = await services.describeToolsEnv({
+					conversationId: input.conversationId as unknown as number,
+					botId,
+					toolNames: input.agent.tools
+						.map((tool) => tool.name)
+						.filter(isWorkspaceTool),
+					provider: input.agent.model?.provider,
+				});
+				return described?.name === "tools-env" ? described.text : undefined;
+			}),
 			section("tools-env-unavailable", async (input, context) => {
 				const botId = input.agent.cwd;
 				if (!botId) return undefined;
@@ -118,6 +132,7 @@ export function identityExtension(options?: { now?: () => Date }) {
 					toolNames: input.agent.tools
 						.map((tool) => tool.name)
 						.filter(isWorkspaceTool),
+					provider: input.agent.model?.provider,
 				});
 				return described?.name === "tools-env-unavailable"
 					? described.text

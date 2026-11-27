@@ -1,20 +1,13 @@
-import { CODING_TOOL_NAMES, type CodingToolName } from "@cadmus/contract/tools";
 import type {
 	ConfinementPolicy,
 	ToolsEnvBinding,
 	ToolsEnvSetting,
 } from "@cadmus/contract/types";
 import { ProtocolValidationError } from "../protocol/validate.js";
-
-export type { CodingToolName };
-export { CODING_TOOL_NAMES };
+import { localizeToolName } from "../tool-localization.js";
 
 export const WORKSPACE_ROOT = "/workspace";
 export const NAMESPACE_BYTE_CAP = 8 * 1024 * 1024;
-
-export function isCodingTool(name: string): name is CodingToolName {
-	return (CODING_TOOL_NAMES as readonly string[]).includes(name);
-}
 
 export type ToolsEnvKind = "just-bash" | "local-daemon";
 
@@ -237,6 +230,9 @@ export interface IdentitySectionInput {
 	connected: boolean;
 	toolsOffered: boolean;
 	harvest: boolean;
+	bashOffered?: boolean;
+	codeExecuteOffered?: boolean;
+	provider?: string | null;
 	kind?: string;
 	envId?: string;
 	enabledSource?: ToolsEnvSource;
@@ -254,7 +250,28 @@ export interface IdentitySectionInput {
 export function chooseToolsEnvIdentity(
 	input: IdentitySectionInput,
 ): { name: "tools-env" | "tools-env-unavailable"; text: string } | undefined {
-	if (!input.enabled || !input.toolsOffered || input.harvest) return undefined;
+	if (!input.toolsOffered || input.harvest) return undefined;
+	const bashOffered = input.bashOffered ?? true;
+	const t = (canonical: string) => localizeToolName(input.provider, canonical);
+	const bashTool = t("bash");
+	const readTool = t("read");
+	const writeTool = t("write");
+	const editTool = t("edit");
+	const deleteTool = t("delete");
+
+	if (!input.enabled) {
+		if (bashOffered) {
+			return {
+				name: "tools-env-unavailable",
+				text: `No workspace tools environment is enabled for this chat. Shell commands (${bashTool}) and workspace files are unavailable—do not call ${bashTool} or pass workspace paths to file tools. Cadmus virtual files under /.cadmus/ (SOUL.md, MEMORY.md, skills) and other non-workspace tools${input.codeExecuteOffered ? " (including code.execute)" : ""} still work.`,
+			};
+		}
+		return {
+			name: "tools-env-unavailable",
+			text: "No workspace tools environment is enabled for this chat. Workspace files are unavailable—do not pass workspace paths to file tools. Cadmus virtual files under /.cadmus/ (SOUL.md, MEMORY.md, skills) and other non-workspace tools still work.",
+		};
+	}
+
 	if (input.connected) {
 		const pin =
 			input.bindingSource === "chat"
@@ -280,11 +297,16 @@ export function chooseToolsEnvIdentity(
 			input.bindingSource === "chat" && input.botDefaultKind
 				? `The bot default is ${input.botDefaultKind}. `
 				: "";
+		const workspaceGuide = bashOffered
+			? `Use ${bashTool}, ${readTool}, ${writeTool}, and ${editTool} for this workspace. Code runs in the workspace via ${bashTool}, and code.execute is disabled.`
+			: `Use ${readTool}, ${writeTool}, and ${editTool} for this workspace.`;
+		const vfsGuide = `Cadmus virtual files (/.cadmus/SOUL.md, /.cadmus/MEMORY.md, and /.cadmus/skills/<slug>/SKILL.md) live in the database, NOT in the workspace—manage them with ${readTool}, ${writeTool}, ${editTool}, and ${deleteTool} on /.cadmus/* paths${bashOffered ? `, never with ${bashTool}` : ""}.`;
 		return {
 			name: "tools-env",
-			text: `Tools env: ${input.kind ?? "just-bash"} (${input.envId ?? ""}), ${pin}, ${persist} workspace at ${root}. Enabled by ${input.enabledSource}, binding from ${input.bindingSource}. The namespace is ${scope}. ${shared} ${confine} ${botDefault}Use bash, read, write, and edit for this workspace. Code runs in the workspace via bash, and code.execute is disabled. Durable facts go through knowledge_* and memory_*. MEMORY.md, SOUL.md, and knowledge/<slug>.md are virtual database entities, NOT workspace files—never use read, write, edit, or bash on them; manage them exclusively with memory_* and knowledge_* tools.`,
+			text: `Tools env: ${input.kind ?? "just-bash"} (${input.envId ?? ""}), ${pin}, ${persist} workspace at ${root}. Enabled by ${input.enabledSource}, binding from ${input.bindingSource}. The namespace is ${scope}. ${shared} ${confine} ${botDefault}${workspaceGuide} ${vfsGuide}`,
 		};
 	}
+
 	const source =
 		input.enabledSource === "chat"
 			? "chat pin"
@@ -293,7 +315,7 @@ export function chooseToolsEnvIdentity(
 				: "account default";
 	return {
 		name: "tools-env-unavailable",
-		text: `The workspace tools env for this chat is unavailable (${input.kind ?? "unknown"}, ${source}). It cannot run commands or touch files. Workspace coding tools stay offered, so code.execute is disabled. The environment reconnects on its own. Do not try to use the workspace. Keep chatting. Memory, knowledge, and schedules still work.`,
+		text: `The workspace tools env for this chat is unavailable (${input.kind ?? "unknown"}, ${source}). It cannot run commands or touch files.${bashOffered ? " Workspace coding tools stay offered, so code.execute is disabled." : ""} The environment reconnects on its own. Do not try to use the workspace. Keep chatting. Memory, knowledge, and schedules still work.`,
 	};
 }
 

@@ -1,8 +1,11 @@
 import { DurableObject } from "cloudflare:workers";
 import { grantsForRole } from "@cadmus/contract/grants";
 import {
+	BASH_TOOL_NAME,
+	CODE_EXECUTE_TOOL_NAME,
 	effectiveToolNames,
 	extractModelProvider,
+	isWorkspaceTool,
 	readOnlyGroupToolNames,
 } from "@cadmus/contract/tools";
 import {
@@ -171,9 +174,9 @@ import { TaskContinueTask } from "./tasks/task.js";
 import { assertValidIanaTimezone } from "./timezone.js";
 import {
 	chooseToolsEnvIdentity,
-	isCodingTool,
 	OFFLINE_TOOLS_ENV,
 	resolvePublicUrls,
+	runtimeToolsEnvOn,
 	WORKSPACE_ROOT,
 } from "./tools-env/pure.js";
 import { ToolsEnvController } from "./tools-env/session.js";
@@ -609,14 +612,10 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 			broadcastChatTasks: (chatKey) => this.broadcastChatTasksInternal(chatKey),
 			deliverTaskContinue: (chatKey, round) =>
 				this.deliverTaskContinueInternal(chatKey, round),
-			prepareCodingTools: (conversationId) =>
-				this.prepareCodingTools(conversationId),
-			codingToolsOffered: (conversationId, botId) =>
-				this.codingToolsOffered(conversationId, botId),
+			prepareConversationTools: (conversationId) =>
+				this.prepareConversationTools(conversationId),
 			workspaceEnvEnabled: (conversationId, botId) =>
 				this.workspaceEnvEnabled(conversationId, botId),
-			codingToolAllowed: (conversationId, botId, toolName) =>
-				this.codingToolAllowed(conversationId, botId, toolName),
 			describeToolsEnv: (input) => this.describeToolsEnv(input),
 		};
 
@@ -2389,13 +2388,10 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 				};
 				if (metadata !== undefined) updated.metadata = metadata;
 				else delete updated.metadata;
-				// Omitted leaves the allowlist unchanged. null clears it (default set).
+				// Omitted leaves the allowlist unchanged. null clears it (all catalog tools).
 				// An array, including [], replaces it. pi-durable treats configure
-				// tools: null as "delete the filter" (every registered tool). That is
-				// the default set. Coding tools are a separate extension. They are
-				// offered when bot.tools is omitted or lists one, and an enabled
-				// just-bash or local-daemon env resolves. [] must stay an array so
-				// the filter is empty instead of deleted.
+				// tools: null as "delete the filter" (every registered tool). [] must
+				// stay an array so the filter is empty instead of deleted.
 				if (command.payload.tools === null) {
 					delete updated.tools;
 				} else if (Array.isArray(command.payload.tools)) {
@@ -3231,10 +3227,8 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 		const bot = this.familyStore.bots.getBot(agent.cwd.trim());
 		if (!bot) return;
 		const chat = this.familyStore.chats.getChatByConversationId(conversationId);
-		const codingToolsOffered = await this.toolsEnvController.offerCodingTools(
-			conversationId,
-			bot,
-		);
+		const workspaceEnvEnabled =
+			await this.toolsEnvController.workspaceEnvEnabled(conversationId, bot);
 		const groupSession =
 			chat?.kind === "group" ||
 			chat?.kind === "group-member" ||
@@ -3253,7 +3247,7 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 		const actCtx: ExtensionActivationContext = {
 			bot,
 			chat,
-			codingToolsOffered,
+			workspaceEnvEnabled,
 			isGroupSession: groupSession,
 			isGroupCaller,
 			isConsultMember,
@@ -3310,19 +3304,6 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 		);
 	}
 
-	private async prepareCodingTools(conversationId: number): Promise<void> {
-		return this.prepareConversationTools(conversationId);
-	}
-
-	private async codingToolsOffered(
-		conversationId: number,
-		botId: string,
-	): Promise<boolean> {
-		const bot = this.familyStore.bots.getBot(botId);
-		if (!bot) return false;
-		return this.toolsEnvController.offerCodingTools(conversationId, bot);
-	}
-
 	private async workspaceEnvEnabled(
 		conversationId: number,
 		botId: string,
@@ -3332,75 +3313,93 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 		return this.toolsEnvController.workspaceEnvEnabled(conversationId, bot);
 	}
 
-	private async codingToolAllowed(
-		conversationId: number,
-		botId: string,
-		toolName: string,
-	): Promise<boolean> {
-		const bot = this.familyStore.bots.getBot(botId);
-		if (!bot) return false;
-		return this.toolsEnvController.codingToolAllowed(
-			conversationId,
-			bot,
-			toolName,
-		);
-	}
-
 	private async describeToolsEnv(input: {
 		conversationId: number;
 		botId: string;
 		toolNames: readonly string[];
+		provider?: string | null;
 	}): Promise<
 		{ name: "tools-env" | "tools-env-unavailable"; text: string } | undefined
 	> {
 		const bot = this.familyStore.bots.getBot(input.botId);
 		if (!bot) return undefined;
-		if (bot.tools && !bot.tools.some((name) => isCodingTool(name)))
-			return undefined;
 		const route = this.familyStore.chats.getConversationRoute(
 			input.conversationId,
 		);
-		if (route && !route.toolsEnvEnabled) return undefined;
+		if (route?.kind === "harvest" || (route && !route.toolsEnvEnabled)) {
+			return undefined;
+		}
 		const chat = route
 			? this.familyStore.chats.getChat(route.chatKey)
+			: this.familyStore.chats.getChatByConversationId(input.conversationId);
+		const member = chat
+			? this.familyStore.groups.findByMemberKey(chat.key)
 			: undefined;
+		if (member?.role === "member" && member.group.toolsReadOnly === true) {
+			return undefined;
+		}
+		const workspaceTools = input.toolNames.filter(isWorkspaceTool);
+		if (workspaceTools.length === 0) return undefined;
+		const bashOffered = workspaceTools.includes(BASH_TOOL_NAME);
+		const effectiveProvider = input.provider ?? extractModelProvider(bot.model);
+		const codeExecuteOffered =
+			(bot.tools === undefined || bot.tools.includes(CODE_EXECUTE_TOOL_NAME)) &&
+			(effectiveProvider === null ||
+				effectiveProvider === "xai" ||
+				effectiveProvider === "faux");
 		const { resolved, def } = await this.toolsEnvController.resolvedFor(
 			bot,
 			chat?.toolsEnv ?? null,
 		);
-		if (!resolved.enabled || !resolved.binding) return undefined;
+		if (
+			!runtimeToolsEnvOn(resolved) ||
+			!def ||
+			(def.kind !== "just-bash" && def.kind !== "local-daemon")
+		) {
+			return chooseToolsEnvIdentity({
+				enabled: false,
+				connected: false,
+				toolsOffered: true,
+				bashOffered,
+				codeExecuteOffered,
+				harvest: false,
+				enabledSource: resolved.enabledSource,
+				provider: input.provider,
+			});
+		}
 		const botLevel = await this.toolsEnvController.resolvedFor(bot, null);
 		const botDef = botLevel.resolved.binding
 			? (await this.toolsEnvController.catalog()).defs.get(
 					botLevel.resolved.binding.envId,
 				)
 			: undefined;
-		const connection = def
-			? await this.toolsEnvController.connectionFor(def)
-			: undefined;
-		const connected = connection?.status === "connected";
+		const connection = await this.toolsEnvController.connectionFor(def);
+		const connected = connection.status === "connected";
 		const root =
-			def?.kind === "just-bash"
+			def.kind === "just-bash"
 				? WORKSPACE_ROOT
 				: connected
-					? connection?.workspacePath
+					? connection.workspacePath
 					: undefined;
 		return chooseToolsEnvIdentity({
 			enabled: true,
 			connected: connected && root !== undefined,
-			toolsOffered: input.toolNames.some((name) => isCodingTool(name)),
+			toolsOffered: true,
+			bashOffered,
+			codeExecuteOffered,
 			harvest: false,
-			kind: def?.kind,
-			envId: def?.envId ?? resolved.binding.envId,
+			kind: def.kind,
+			envId: def.envId,
 			enabledSource: resolved.enabledSource,
 			bindingSource: resolved.bindingSource,
-			persist: def?.persist,
-			confineToWorkspace: def?.confineToWorkspace,
-			confinementPolicy: def?.confinementPolicy,
-			confined: def?.kind === "just-bash" ? true : connection?.confined,
-			sharedWorkspace: def?.sharedWorkspace,
+			persist: def.persist,
+			confineToWorkspace: def.confineToWorkspace,
+			confinementPolicy: def.confinementPolicy,
+			confined: def.kind === "just-bash" ? true : connection.confined,
+			sharedWorkspace: def.sharedWorkspace,
 			scopeKind: resolved.scopeKind,
 			botDefaultKind: botDef?.kind,
+			provider: input.provider,
 			...(root ? { root } : {}),
 		});
 	}
@@ -3477,17 +3476,18 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 		}
 
 		const effectiveThinking = chat.thinking ?? bot.thinking;
-		const codingToolsOffered = await this.toolsEnvController.offerCodingTools(
-			chat.conversationId,
-			bot,
-		);
+		const workspaceEnvEnabled =
+			await this.toolsEnvController.workspaceEnvEnabled(
+				chat.conversationId,
+				bot,
+			);
 		const member = this.familyStore.groups.findByMemberKey(chat.key);
 		const consult =
 			member?.role === "member" && member.group.toolsReadOnly === true;
 		const effectiveTools = consult
 			? readOnlyGroupToolNames(bot.tools)
 			: effectiveToolNames(bot.tools, {
-					codingToolsOffered,
+					workspaceEnvEnabled,
 					model: bot.model,
 				});
 		const toolsEnvNest = await this.toolsEnvController.statusForChat(chat.key);
@@ -3614,12 +3614,15 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 			primaryChatKey: primaryChatKey(slug),
 			createdAt,
 		};
-		const offerCoding = await this.toolsEnvController.willOffer(preview, null);
+		const workspaceEnvEnabled = await this.toolsEnvController.isWorkspaceEnvOn(
+			preview,
+			null,
+		);
 
 		const { harness, context } = await this.ensureHarness();
 		const initialTools = resolveConversationExtensionsAndTools({
 			bot: preview,
-			codingToolsOffered: offerCoding,
+			workspaceEnvEnabled,
 			isGroupSession: false,
 			isGroupCaller: false,
 			isConsultMember: false,
@@ -4013,7 +4016,10 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 				bot.toolsEnv ?? null,
 			);
 		}
-		const offerCoding = await this.toolsEnvController.willOffer(bot, toolsEnv);
+		const workspaceEnvEnabled = await this.toolsEnvController.isWorkspaceEnvOn(
+			bot,
+			toolsEnv,
+		);
 
 		const { harness, context } = await this.ensureHarness();
 		const modelRef = parseModelRef(bot.model);
@@ -4025,7 +4031,7 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 		const isGroupCaller = this.isGroupCallerSession(key);
 		const initialTools = resolveConversationExtensionsAndTools({
 			bot,
-			codingToolsOffered: offerCoding,
+			workspaceEnvEnabled,
 			isGroupSession: groupSession,
 			isGroupCaller,
 			isConsultMember: false,

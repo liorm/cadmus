@@ -1,9 +1,8 @@
 /**
  * Tool name lists the protocol exposes to clients.
  *
- * `bot.tools` omitted (or undefined) means this default Cadmus set.
- * An explicit array replaces that set. Coding tools are opt-in and are
- * never part of the default set.
+ * `bot.tools` omitted (or undefined) means the full catalog set.
+ * An explicit array replaces that set.
  */
 export const FILE_TOOL_NAMES = [
 	"read",
@@ -15,7 +14,7 @@ export const FILE_TOOL_NAMES = [
 	"grep",
 ] as const;
 
-export const CODING_TOOL_NAMES = ["bash"] as const;
+export const BASH_TOOL_NAME = "bash";
 
 export const WORKSPACE_TOOL_NAMES = [
 	"bash",
@@ -45,7 +44,7 @@ export function isTaskTool(name: string): boolean {
 }
 
 /**
- * Extension groupings from `cadmusDefaultExtensions()` plus `coding-tools`.
+ * Extension groupings from `cadmusDefaultExtensions()`.
  * `readOnly` is true only when `execute()` inspects Cadmus state (or a
  * public URL) and does not mutate bots, files, chats, schedules, or tasks.
  * `task_get` starts a task. `search_bot` commits a durable matcher task.
@@ -70,9 +69,8 @@ export type ToolCatalogEntry = {
 	name: string;
 	category: ToolCategoryId;
 	readOnly: boolean;
-	codingEnv: boolean;
-	/** Suppressed when a coding env is offered (e.g., code.execute replaced by bash). */
-	suppressedByCodingEnv?: boolean;
+	/** Suppressed at runtime when a workspace env is active and `bash` is allowed. */
+	suppressedByWorkspaceEnv?: boolean;
 	/** Allowed for target members in a readOnly: true group consultation. */
 	readOnlyGroup?: boolean;
 	/** Disallowed inside group chat sessions. */
@@ -87,123 +85,106 @@ export const TOOL_CATALOG: readonly ToolCatalogEntry[] = [
 		category: "files",
 		readOnly: true,
 		readOnlyGroup: true,
-		codingEnv: false,
 	},
 	{
 		name: "write",
 		category: "files",
 		readOnly: false,
-		codingEnv: false,
 	},
 	{
 		name: "edit",
 		category: "files",
 		readOnly: false,
-		codingEnv: false,
 	},
 	{
 		name: "delete",
 		category: "files",
 		readOnly: false,
-		codingEnv: false,
 	},
 	{
 		name: "ls",
 		category: "files",
 		readOnly: true,
 		readOnlyGroup: true,
-		codingEnv: false,
 	},
 	{
 		name: "find",
 		category: "files",
 		readOnly: true,
 		readOnlyGroup: true,
-		codingEnv: false,
 	},
 	{
 		name: "grep",
 		category: "files",
 		readOnly: true,
 		readOnlyGroup: true,
-		codingEnv: false,
 	},
 	{
 		name: "schedule_create",
 		category: "schedules",
 		readOnly: false,
-		codingEnv: false,
 	},
 	{
 		name: "schedule_list",
 		category: "schedules",
 		readOnly: true,
-		codingEnv: false,
 	},
 	{
 		name: "schedule_update",
 		category: "schedules",
 		readOnly: false,
-		codingEnv: false,
 	},
 	{
 		name: "schedule_delete",
 		category: "schedules",
 		readOnly: false,
-		codingEnv: false,
 	},
 	{
 		name: "task_add",
 		category: "tasks",
 		readOnly: false,
-		codingEnv: false,
 		disallowedInGroup: true,
 	},
-	{ name: "create_bot", category: "bots", readOnly: false, codingEnv: false },
-	{ name: "search_bot", category: "bots", readOnly: false, codingEnv: false },
-	{ name: "list_bots", category: "bots", readOnly: true, codingEnv: false },
+	{ name: "create_bot", category: "bots", readOnly: false },
+	{ name: "search_bot", category: "bots", readOnly: false },
+	{ name: "list_bots", category: "bots", readOnly: true },
 	{
 		name: "message_bot",
 		category: "bots",
 		readOnly: false,
-		codingEnv: false,
 	},
-	{ name: "web.fetch", category: "web", readOnly: true, codingEnv: false },
+	{ name: "web.fetch", category: "web", readOnly: true },
 	{
 		name: "web.search",
 		category: "web",
 		readOnly: true,
-		codingEnv: false,
 		providers: ["xai", "faux"],
 	},
 	{
 		name: "x.search",
 		category: "web",
 		readOnly: true,
-		codingEnv: false,
 		providers: ["xai", "faux"],
 	},
 	{
 		name: CODE_EXECUTE_TOOL_NAME,
 		category: "web",
 		readOnly: false,
-		codingEnv: false,
-		suppressedByCodingEnv: true,
+		suppressedByWorkspaceEnv: true,
 		providers: ["xai", "faux"],
 	},
-	{ name: "bash", category: "coding", readOnly: false, codingEnv: true },
+	{ name: BASH_TOOL_NAME, category: "coding", readOnly: false },
 ];
 
 /**
  * Tool name lists the protocol exposes to clients.
  *
- * `bot.tools` omitted (or undefined) means this default Cadmus set.
- * An explicit array replaces that set. Coding tools are opt-in and are
- * never part of the default set.
+ * `bot.tools` omitted (or undefined) means this full catalog set.
+ * An explicit array replaces that set.
  */
-export const DEFAULT_CADMUS_TOOL_NAMES: readonly string[] = TOOL_CATALOG.filter(
-	(entry) => !entry.codingEnv,
-).map((entry) => entry.name);
+export const CATALOG_TOOL_NAMES: readonly string[] = TOOL_CATALOG.map(
+	(entry) => entry.name,
+);
 
 /**
  * Tools a `message_bot` `readOnly` target may use. Reading Cadmus virtual files
@@ -222,19 +203,18 @@ export function isReadOnlyGroupTool(name: string): boolean {
 
 /**
  * Intersection of a bot's tool list with {@link READONLY_GROUP_TOOL_NAMES}.
- * An omitted list is the default Cadmus set. Order follows that source.
+ * An omitted list is the full catalog set. Order follows that source.
  * Coding tools are never included.
  */
 export function readOnlyGroupToolNames(
 	tools: readonly string[] | undefined,
 ): string[] {
-	const source = tools ?? DEFAULT_CADMUS_TOOL_NAMES;
+	const source = tools ?? CATALOG_TOOL_NAMES;
 	return source.filter((name) => isReadOnlyGroupTool(name));
 }
 
-export type DefaultCadmusToolName = string;
+export type CatalogToolName = string;
 export type FileToolName = (typeof FILE_TOOL_NAMES)[number];
-export type CodingToolName = (typeof CODING_TOOL_NAMES)[number];
 export type WorkspaceToolName = (typeof WORKSPACE_TOOL_NAMES)[number];
 
 export function isFileTool(name: string): name is FileToolName {
@@ -255,16 +235,10 @@ export function extractModelProvider(model?: string | null): string | null {
 
 export function isToolEntryAvailable(
 	entry: ToolCatalogEntry,
-	options: { codingToolsOffered: boolean; model?: string | null },
+	model?: string | null,
 ): boolean {
-	if (entry.codingEnv && !options.codingToolsOffered) {
-		return false;
-	}
-	if (options.codingToolsOffered && entry.suppressedByCodingEnv) {
-		return false;
-	}
 	if (entry.providers && entry.providers.length > 0) {
-		const provider = extractModelProvider(options.model);
+		const provider = extractModelProvider(model);
 		if (provider !== null && !entry.providers.includes(provider)) {
 			return false;
 		}
@@ -275,22 +249,21 @@ export function isToolEntryAvailable(
 /**
  * Tool names a turn may offer.
  *
- * `codingToolsOffered` is the worker's coding-tools condition: the chat
- * resolves an enabled just-bash or local-daemon env, and the bot allowlist
- * either lists a coding tool or is omitted (the default Cadmus set). An
- * explicit allowlist that does not list a coding tool never offers them.
- * When coding tools are offered, tools with suppressedByCodingEnv (like code.execute)
- * are removed.
+ * When `workspaceEnvEnabled` is true and `bash` is allowed (via `tools === undefined`
+ * or `tools.includes("bash")`), tools with `suppressedByWorkspaceEnv` (like `code.execute`)
+ * are removed. Provider-gated tools are also filtered by `model`.
  */
 export function effectiveToolNames(
 	tools: readonly string[] | undefined,
-	options: { codingToolsOffered: boolean; model?: string | null },
+	options?: { workspaceEnvEnabled?: boolean; model?: string | null },
 ): readonly string[] | undefined {
-	const provider = extractModelProvider(options.model);
+	const provider = extractModelProvider(options?.model);
+	const bashAllowed = tools === undefined || tools.includes(BASH_TOOL_NAME);
+	const suppressCodeExecute =
+		Boolean(options?.workspaceEnvEnabled) && bashAllowed;
 	const unavailable = new Set(
 		TOOL_CATALOG.filter((entry) => {
-			if (options.codingToolsOffered && entry.suppressedByCodingEnv)
-				return true;
+			if (suppressCodeExecute && entry.suppressedByWorkspaceEnv) return true;
 			if (
 				entry.providers &&
 				provider !== null &&
@@ -303,12 +276,8 @@ export function effectiveToolNames(
 	);
 
 	if (tools === undefined) {
-		if (!options.codingToolsOffered && unavailable.size === 0) return undefined;
-		const base = DEFAULT_CADMUS_TOOL_NAMES.filter(
-			(name) => !unavailable.has(name),
-		);
-		if (!options.codingToolsOffered) return base;
-		return [...base, ...CODING_TOOL_NAMES];
+		if (unavailable.size === 0) return undefined;
+		return CATALOG_TOOL_NAMES.filter((name) => !unavailable.has(name));
 	}
 
 	if (unavailable.size === 0) return tools;
@@ -327,66 +296,19 @@ export function knownReadOnlyToolNames(available: readonly string[]): string[] {
 	return available.filter((name) => isKnownReadOnlyTool(name));
 }
 
-/**
- * Bot-settings coding-env visibility. Chat pins are out of scope.
- * Matches `resolveToolsEnv` + just-bash/local-daemon, ignoring `bot.tools`
- * so the allowlist can opt coding tools in.
- */
-export function codingToolsEnvWouldOffer(input: {
-	botSetting?: {
-		enabled: boolean;
-		binding?: { envId: string } | null;
-	} | null;
-	accountDefaultEnvId?: string | null;
-	envKindById: Readonly<Record<string, string>>;
-}): boolean {
-	const bot = input.botSetting ?? null;
-	let enabled = false;
-	let envId: string | undefined;
-	if (bot) {
-		enabled = bot.enabled;
-		envId = bot.binding?.envId ?? input.accountDefaultEnvId ?? undefined;
-	} else if (input.accountDefaultEnvId) {
-		enabled = true;
-		envId = input.accountDefaultEnvId;
-	}
-	if (!enabled || !envId) return false;
-	const kind = input.envKindById[envId];
-	return kind === "just-bash" || kind === "local-daemon";
-}
-
 export function availableAllowlistCatalog(
-	codingEnvOffered: boolean,
 	model?: string | null,
 ): ToolCatalogEntry[] {
-	return TOOL_CATALOG.filter((entry) =>
-		isToolEntryAvailable(entry, {
-			codingToolsOffered: codingEnvOffered,
-			model,
-		}),
-	);
+	return TOOL_CATALOG.filter((entry) => isToolEntryAvailable(entry, model));
 }
 
-export function availableAllowlistNames(
-	codingEnvOffered: boolean,
-	model?: string | null,
-): string[] {
-	return availableAllowlistCatalog(codingEnvOffered, model).map(
-		(entry) => entry.name,
-	);
+export function availableAllowlistNames(model?: string | null): string[] {
+	return availableAllowlistCatalog(model).map((entry) => entry.name);
 }
 
-/** Displayed selection for an omitted allowlist at the current env and model. */
-export function defaultDisplayedTools(
-	codingEnvOffered: boolean,
-	model?: string | null,
-): string[] {
-	const expanded = effectiveToolNames(undefined, {
-		codingToolsOffered: codingEnvOffered,
-		model,
-	});
-	if (expanded) return [...expanded];
-	return [...DEFAULT_CADMUS_TOOL_NAMES];
+/** Displayed selection for an omitted allowlist at the current model. */
+export function defaultDisplayedTools(model?: string | null): string[] {
+	return availableAllowlistNames(model);
 }
 
 export function sameToolSet(
@@ -399,15 +321,13 @@ export function sameToolSet(
 }
 
 /**
- * Persist allowlist. Keep unavailable tool names (both coding tools when env is off
- * and model-specific tools when switching models) from the last stored
- * selection so toggling an env or switching models does not drop intentional picks.
+ * Persist allowlist. Keep unavailable model-specific tool names from the last
+ * stored selection so switching models does not drop intentional picks.
  */
 export function persistAllowlist(input: {
 	selected: readonly string[];
 	available: readonly string[];
 	previous: readonly string[] | undefined;
-	codingEnvOffered: boolean;
 	model?: string | null;
 }): string[] | null {
 	const available = new Set(input.available);
@@ -418,7 +338,7 @@ export function persistAllowlist(input: {
 		...input.selected.filter((name) => available.has(name)),
 		...hiddenPrevious,
 	];
-	const defaults = defaultDisplayedTools(input.codingEnvOffered, input.model);
+	const defaults = defaultDisplayedTools(input.model);
 	if (hiddenPrevious.length === 0 && sameToolSet(next, defaults)) return null;
 	return next;
 }
@@ -426,13 +346,12 @@ export function persistAllowlist(input: {
 export function displayedAllowlist(input: {
 	stored: readonly string[] | undefined;
 	available: readonly string[];
-	codingEnvOffered: boolean;
 	model?: string | null;
 }): string[] {
 	const available = new Set(input.available);
 	if (input.stored === undefined) {
-		return defaultDisplayedTools(input.codingEnvOffered, input.model).filter(
-			(name) => available.has(name),
+		return defaultDisplayedTools(input.model).filter((name) =>
+			available.has(name),
 		);
 	}
 	return input.stored.filter((name) => available.has(name));

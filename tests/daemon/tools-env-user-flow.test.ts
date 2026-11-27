@@ -1,7 +1,4 @@
-import {
-	CODE_EXECUTE_TOOL_NAME,
-	CODING_TOOL_NAMES,
-} from "@cadmus/contract/tools";
+import { BASH_TOOL_NAME, CODE_EXECUTE_TOOL_NAME } from "@cadmus/contract/tools";
 import { describe, expect, it } from "vitest";
 import {
 	capturesInclude,
@@ -23,9 +20,7 @@ async function expectCodingTurn(input: {
 }): Promise<void> {
 	const flow = await runToolsEnvUserFlow(input);
 	expect(flow.offeredTools.length).toBeGreaterThan(0);
-	for (const name of CODING_TOOL_NAMES) {
-		expect(capturesInclude(flow.offeredTools, name)).toBe(true);
-	}
+	expect(capturesInclude(flow.offeredTools, BASH_TOOL_NAME)).toBe(true);
 	for (const tools of flow.offeredTools) {
 		expect(tools).not.toContain(CODE_EXECUTE_TOOL_NAME);
 	}
