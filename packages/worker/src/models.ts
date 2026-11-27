@@ -1058,6 +1058,23 @@ function handleHarvestPrompt(context: TranscriptContext): AssistantMessage {
 		);
 	}
 
+	const learnFamilyMatch = /\[learn-family:([a-z0-9-]+)\s+([^\]]+)\]/i.exec(
+		combined,
+	);
+	if (learnFamilyMatch?.[1] && learnFamilyMatch?.[2]) {
+		const slug = learnFamilyMatch[1].trim();
+		const body = learnFamilyMatch[2].trim();
+		return fauxAssistantMessage(
+			[
+				fauxToolCall("write", {
+					path: `/.cadmus/skills/family/${slug}/SKILL.md`,
+					content: `---\nname: ${slug}\ndescription: Learned family note on ${slug}\ncategory: learned\n---\n\n${body}`,
+				}),
+			],
+			{ stopReason: "toolUse" },
+		);
+	}
+
 	const learnMatch = /\[learn:([a-z0-9-]+)\s+([^\]]+)\]/i.exec(combined);
 	if (learnMatch?.[1] && learnMatch?.[2]) {
 		const slug = learnMatch[1].trim();
@@ -1065,7 +1082,7 @@ function handleHarvestPrompt(context: TranscriptContext): AssistantMessage {
 		return fauxAssistantMessage(
 			[
 				fauxToolCall("write", {
-					path: `/.cadmus/skills/${slug}/SKILL.md`,
+					path: `/.cadmus/skills/bot/${slug}/SKILL.md`,
 					content: `---\nname: ${slug}\ndescription: Learned note on ${slug}\ncategory: learned\n---\n\n${body}`,
 				}),
 			],
@@ -1080,7 +1097,7 @@ function handleHarvestPrompt(context: TranscriptContext): AssistantMessage {
 			return fauxAssistantMessage(
 				[
 					fauxToolCall("write", {
-						path: "/.cadmus/skills/session-notes/SKILL.md",
+						path: "/.cadmus/skills/bot/session-notes/SKILL.md",
 						content: `---\nname: session-notes\ndescription: Notes harvested from conversation\ncategory: harvest\n---\n\nHarvested summary: ${latest.trim()}\n`,
 					}),
 				],

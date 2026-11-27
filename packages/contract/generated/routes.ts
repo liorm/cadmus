@@ -490,12 +490,6 @@ export const API_ROUTES = {
 		allow: "POST",
 		readOnly: false,
 	},
-	"skill.search": {
-		method: "GET",
-		path: "/api/skill/search",
-		allow: "GET, HEAD",
-		readOnly: true,
-	},
 	"schedule.create": {
 		method: "POST",
 		path: "/api/schedule/create",

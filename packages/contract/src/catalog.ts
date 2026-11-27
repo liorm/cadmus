@@ -55,7 +55,6 @@ import {
 	ScheduleDeleteCommandSchema,
 	ScheduleListCommandSchema,
 	ScheduleUpdateCommandSchema,
-	SkillSearchCommandSchema,
 	SystemAccountsCreateCommandSchema,
 	SystemAccountsGetCommandSchema,
 	SystemAccountsListCommandSchema,
@@ -165,7 +164,6 @@ import {
 	ScheduleDeleteResultSchema,
 	ScheduleListResultSchema,
 	ScheduleUpdateResultSchema,
-	SkillSearchResultsSchema,
 	SystemAccountsCreateResultSchema,
 	SystemAccountsGetResultSchema,
 	SystemAccountsListResultSchema,
@@ -508,10 +506,6 @@ export const commandCatalog = {
 	"file.delete": {
 		command: FileDeleteCommandSchema,
 		result: FileDeleteResultSchema,
-	},
-	"skill.search": {
-		command: SkillSearchCommandSchema,
-		result: SkillSearchResultsSchema,
 	},
 	"schedule.create": {
 		command: ScheduleCreateCommandSchema,

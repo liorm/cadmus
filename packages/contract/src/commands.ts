@@ -1816,7 +1816,7 @@ export const TurnAbortCommandSchema = Type.Object(
 export type TurnAbortCommand = Static<typeof TurnAbortCommandSchema>;
 
 /**
- * Command to list virtual files (/.cadmus/SOUL.md, /.cadmus/MEMORY.md, and /.cadmus/skills/<slug>/SKILL.md) for a bot.
+ * Command to list virtual files (/.cadmus/SOUL.md, /.cadmus/MEMORY.md, /.cadmus/skills/bot/<slug>/SKILL.md, and /.cadmus/skills/family/<slug>/SKILL.md).
  */
 export const FileListCommandSchema = Type.Object(
 	{
@@ -1828,26 +1828,31 @@ export const FileListCommandSchema = Type.Object(
 		type: Type.Literal("file.list", {
 			description: "Command type identifier.",
 		}),
-		payload: Type.Object(
-			{
-				botId: Type.String({
-					minLength: 1,
-					description: "Bot identifier whose virtual files to list.",
-				}),
-				category: Type.Optional(
-					Type.String({
-						description: "Optional category tag filter for skills.",
-					}),
-				),
-			},
-			{ description: "Parameters for listing virtual files." },
+		payload: Type.Optional(
+			Type.Object(
+				{
+					botId: Type.Optional(
+						Type.String({
+							minLength: 1,
+							description:
+								"Optional bot identifier whose virtual files (plus shared family skills) to list. Omit to list family skills only.",
+						}),
+					),
+					category: Type.Optional(
+						Type.String({
+							description: "Optional category tag filter for skills.",
+						}),
+					),
+				},
+				{ description: "Parameters for listing virtual files." },
+			),
 		),
 	},
 	{
 		readOnly: true,
 		grant: "bot.read",
 		description:
-			"List virtual files (/.cadmus/SOUL.md, /.cadmus/MEMORY.md, and /.cadmus/skills/<slug>/SKILL.md) associated with a bot.",
+			"List virtual files (/.cadmus/SOUL.md, /.cadmus/MEMORY.md, /.cadmus/skills/bot/<slug>/SKILL.md, and /.cadmus/skills/family/<slug>/SKILL.md). Omit botId to list family skills only.",
 	},
 );
 export type FileListCommand = Static<typeof FileListCommandSchema>;
@@ -1867,14 +1872,17 @@ export const FileReadCommandSchema = Type.Object(
 		}),
 		payload: Type.Object(
 			{
-				botId: Type.String({
-					minLength: 1,
-					description: "Bot identifier whose file to read.",
-				}),
+				botId: Type.Optional(
+					Type.String({
+						minLength: 1,
+						description:
+							"Bot identifier whose file to read. Required for bot-scoped paths; optional for family skills (/.cadmus/skills/family/<slug>/SKILL.md).",
+					}),
+				),
 				path: Type.Optional(
 					Type.String({
 						description:
-							"Virtual file path to read (e.g. '/.cadmus/SOUL.md', '/.cadmus/MEMORY.md', '/.cadmus/skills/topic/SKILL.md'). If omitted, lists all files.",
+							"Virtual file path to read (e.g. '/.cadmus/SOUL.md', '/.cadmus/MEMORY.md', '/.cadmus/skills/bot/topic/SKILL.md', '/.cadmus/skills/family/shared/SKILL.md'). If omitted, lists files.",
 					}),
 				),
 			},
@@ -1905,14 +1913,17 @@ export const FileWriteCommandSchema = Type.Object(
 		}),
 		payload: Type.Object(
 			{
-				botId: Type.String({
-					minLength: 1,
-					description: "Bot identifier owning the file.",
-				}),
+				botId: Type.Optional(
+					Type.String({
+						minLength: 1,
+						description:
+							"Bot identifier owning the file. Required for bot-scoped paths; optional for family skills (/.cadmus/skills/family/<slug>/SKILL.md).",
+					}),
+				),
 				path: Type.String({
 					minLength: 1,
 					description:
-						"Virtual file path (e.g. '/.cadmus/SOUL.md', '/.cadmus/MEMORY.md', '/.cadmus/skills/topic/SKILL.md').",
+						"Virtual file path (e.g. '/.cadmus/SOUL.md', '/.cadmus/MEMORY.md', '/.cadmus/skills/bot/topic/SKILL.md', '/.cadmus/skills/family/shared/SKILL.md').",
 				}),
 				content: Type.Optional(
 					Type.String({
@@ -1983,13 +1994,17 @@ export const FileDeleteCommandSchema = Type.Object(
 		}),
 		payload: Type.Object(
 			{
-				botId: Type.String({
-					minLength: 1,
-					description: "Bot identifier owning the file.",
-				}),
+				botId: Type.Optional(
+					Type.String({
+						minLength: 1,
+						description:
+							"Bot identifier owning the file. Required for bot-scoped skills; optional for family skills (/.cadmus/skills/family/<slug>/SKILL.md).",
+					}),
+				),
 				path: Type.String({
 					minLength: 1,
-					description: "Virtual skill file path to delete.",
+					description:
+						"Virtual skill file path to delete (e.g. '/.cadmus/skills/bot/<slug>/SKILL.md' or '/.cadmus/skills/family/<slug>/SKILL.md').",
 				}),
 				expectedVersion: Type.Optional(
 					Type.Number({
@@ -2013,48 +2028,6 @@ export const FileDeleteCommandSchema = Type.Object(
 	},
 );
 export type FileDeleteCommand = Static<typeof FileDeleteCommandSchema>;
-
-/**
- * Command to search across skills for a bot using keyword matching.
- */
-export const SkillSearchCommandSchema = Type.Object(
-	{
-		id: Type.String({
-			minLength: 1,
-			description:
-				"Non-empty unique correlation identifier for this command request.",
-		}),
-		type: Type.Literal("skill.search", {
-			description: "Command type identifier.",
-		}),
-		payload: Type.Object(
-			{
-				botId: Type.String({
-					minLength: 1,
-					description: "Bot identifier whose skills to search.",
-				}),
-				query: Type.Optional(
-					Type.String({
-						description: "Keyword or substring search query.",
-					}),
-				),
-				category: Type.Optional(
-					Type.String({
-						description: "Optional category filter tag.",
-					}),
-				),
-			},
-			{ description: "Parameters for searching skills." },
-		),
-	},
-	{
-		readOnly: true,
-		grant: "bot.read",
-		description:
-			"Search across skills for a bot using keyword and category filters.",
-	},
-);
-export type SkillSearchCommand = Static<typeof SkillSearchCommandSchema>;
 
 /**
  * Command to create a scheduled task (recurring cron, relative delay timer, or absolute date/time) for a bot.
@@ -2856,7 +2829,6 @@ export const ClientCommandSchema = Type.Union(
 		FileReadCommandSchema,
 		FileWriteCommandSchema,
 		FileDeleteCommandSchema,
-		SkillSearchCommandSchema,
 		ScheduleCreateCommandSchema,
 		ScheduleListCommandSchema,
 		ScheduleUpdateCommandSchema,

@@ -2732,8 +2732,8 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 			"turn.interrupt": abortTurn,
 			"file.list": async (command) => {
 				return this.listBotFiles(
-					command.payload.botId,
-					command.payload.category,
+					command.payload?.botId,
+					command.payload?.category,
 				);
 			},
 			"file.read": async (command) => {
@@ -2741,20 +2741,56 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 				if (!path) {
 					return this.listBotFiles(botId);
 				}
-				const bot = this.familyStore.bots.getBot(botId);
-				if (!bot) {
-					throw new ProtocolValidationError(
-						`Bot '${botId}' not found`,
-						"not_found",
-					);
-				}
 				const parsed = parseVirtualPath(path);
 				if (!parsed || parsed.kind === "invalid") {
 					throw new ProtocolValidationError(
 						parsed?.kind === "invalid"
 							? parsed.error
-							: `Unsupported virtual file path '${path}'. Expected /.cadmus/SOUL.md, /.cadmus/MEMORY.md, or /.cadmus/skills/<slug>/SKILL.md`,
+							: `Unsupported virtual file path '${path}'. Expected /.cadmus/SOUL.md, /.cadmus/MEMORY.md, /.cadmus/skills/bot/<slug>/SKILL.md, or /.cadmus/skills/family/<slug>/SKILL.md`,
 						"invalid_path",
+					);
+				}
+				if (parsed.kind === "skill" && parsed.scope === "family") {
+					if (botId) {
+						const bot = this.familyStore.bots.getBot(botId);
+						if (!bot) {
+							throw new ProtocolValidationError(
+								`Bot '${botId}' not found`,
+								"not_found",
+							);
+						}
+					}
+					const doc = this.familyStore.files.getFamilySkill(parsed.slug);
+					if (!doc) {
+						throw new ProtocolValidationError(
+							`Skill file '${parsed.canonicalPath}' not found`,
+							"not_found",
+						);
+					}
+					const formatted = formatSkillMarkdown(doc);
+					return {
+						path: parsed.canonicalPath,
+						scope: "family" as const,
+						slug: doc.slug,
+						description: doc.description,
+						...(doc.category ? { category: doc.category } : {}),
+						version: doc.version,
+						body: doc.body,
+						content: formatted,
+						text: formatted,
+					};
+				}
+				if (!botId) {
+					throw new ProtocolValidationError(
+						`botId is required to read '${parsed.canonicalPath}'`,
+						"invalid_request",
+					);
+				}
+				const bot = this.familyStore.bots.getBot(botId);
+				if (!bot) {
+					throw new ProtocolValidationError(
+						`Bot '${botId}' not found`,
+						"not_found",
 					);
 				}
 				if (parsed.kind === "soul") {
@@ -2780,6 +2816,7 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 				const formatted = formatSkillMarkdown(doc);
 				return {
 					path: parsed.canonicalPath,
+					scope: "bot" as const,
 					slug: doc.slug,
 					description: doc.description,
 					...(doc.category ? { category: doc.category } : {}),
@@ -2806,32 +2843,69 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 				const expectedVersion = rawExpectedVersion ?? rawVersion;
 				const content = rawContent ?? rawText ?? rawBody ?? "";
 
-				const bot = this.familyStore.bots.getBot(botId);
-				if (!bot) {
-					throw new ProtocolValidationError(
-						`Bot '${botId}' not found`,
-						"not_found",
-					);
-				}
-
 				const parsed = parseVirtualPath(path);
 				if (!parsed || parsed.kind === "invalid") {
 					throw new ProtocolValidationError(
 						parsed?.kind === "invalid"
 							? parsed.error
-							: `Unsupported virtual file path '${path}'. Expected /.cadmus/SOUL.md, /.cadmus/MEMORY.md, or /.cadmus/skills/<slug>/SKILL.md`,
+							: `Unsupported virtual file path '${path}'. Expected /.cadmus/SOUL.md, /.cadmus/MEMORY.md, /.cadmus/skills/bot/<slug>/SKILL.md, or /.cadmus/skills/family/<slug>/SKILL.md`,
 						"invalid_path",
 					);
+				}
+
+				const isFamilySkill =
+					parsed.kind === "skill" && parsed.scope === "family";
+				if (isFamilySkill) {
+					if (botId) {
+						const bot = this.familyStore.bots.getBot(botId);
+						if (!bot) {
+							throw new ProtocolValidationError(
+								`Bot '${botId}' not found`,
+								"not_found",
+							);
+						}
+					}
+				} else {
+					if (!botId) {
+						throw new ProtocolValidationError(
+							`botId is required to write '${parsed.canonicalPath}'`,
+							"invalid_request",
+						);
+					}
+					const bot = this.familyStore.bots.getBot(botId);
+					if (!bot) {
+						throw new ProtocolValidationError(
+							`Bot '${botId}' not found`,
+							"not_found",
+						);
+					}
 				}
 
 				if (isDelete) {
 					if (parsed.kind !== "skill") {
 						throw new ProtocolValidationError(
-							`Only /.cadmus/skills/<slug>/SKILL.md files can be deleted (got '${path}')`,
+							`Only /.cadmus/skills/{bot,family}/<slug>/SKILL.md files can be deleted (got '${path}')`,
 							"invalid_path",
 						);
 					}
-					const existing = this.familyStore.files.getSkill(botId, parsed.slug);
+					if (parsed.scope === "family") {
+						const existing = this.familyStore.files.getFamilySkill(parsed.slug);
+						if (!existing) {
+							throw new ProtocolValidationError(
+								`Skill file '${parsed.canonicalPath}' not found`,
+								"not_found",
+							);
+						}
+						this.familyStore.files.deleteFamilySkill(
+							parsed.slug,
+							expectedVersion ?? existing.version,
+						);
+						return { deleted: parsed.canonicalPath };
+					}
+					const existing = this.familyStore.files.getSkill(
+						botId as string,
+						parsed.slug,
+					);
 					if (!existing) {
 						throw new ProtocolValidationError(
 							`Skill file '${parsed.canonicalPath}' not found`,
@@ -2839,7 +2913,7 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 						);
 					}
 					this.familyStore.files.deleteSkill(
-						botId,
+						botId as string,
 						parsed.slug,
 						expectedVersion ?? existing.version,
 					);
@@ -2847,12 +2921,12 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 				}
 
 				if (parsed.kind === "soul") {
-					this.familyStore.files.setSoul(botId, content);
+					this.familyStore.files.setSoul(botId as string, content);
 					return { path: SOUL_VFS_PATH, version: 1, content };
 				}
 				if (parsed.kind === "memory") {
 					const updated = this.familyStore.files.updateMemory(
-						botId,
+						botId as string,
 						content,
 						expectedVersion ?? 0,
 					);
@@ -2889,15 +2963,25 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 						"invalid_skill",
 					);
 				}
-				const updated = this.familyStore.files.updateSkill(botId, {
-					slug,
-					description: desc,
-					category: cat,
-					body,
-					expectedVersion: expVer ?? 0,
-				});
+				const updated =
+					parsed.scope === "family"
+						? this.familyStore.files.updateFamilySkill({
+								slug,
+								description: desc,
+								category: cat,
+								body,
+								expectedVersion: expVer ?? 0,
+							})
+						: this.familyStore.files.updateSkill(botId as string, {
+								slug,
+								description: desc,
+								category: cat,
+								body,
+								expectedVersion: expVer ?? 0,
+							});
 				return {
 					path: parsed.canonicalPath,
+					scope: parsed.scope,
 					slug: updated.slug,
 					description: updated.description,
 					...(updated.category ? { category: updated.category } : {}),
@@ -2910,8 +2994,44 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 				const parsed = parseVirtualPath(path);
 				if (parsed?.kind !== "skill") {
 					throw new ProtocolValidationError(
-						`Only /.cadmus/skills/<slug>/SKILL.md files can be deleted (got '${path}')`,
+						`Only /.cadmus/skills/{bot,family}/<slug>/SKILL.md files can be deleted (got '${path}')`,
 						"invalid_path",
+					);
+				}
+				if (parsed.scope === "family") {
+					if (botId) {
+						const bot = this.familyStore.bots.getBot(botId);
+						if (!bot) {
+							throw new ProtocolValidationError(
+								`Bot '${botId}' not found`,
+								"not_found",
+							);
+						}
+					}
+					const existing = this.familyStore.files.getFamilySkill(parsed.slug);
+					if (!existing) {
+						throw new ProtocolValidationError(
+							`Skill file '${parsed.canonicalPath}' not found`,
+							"not_found",
+						);
+					}
+					this.familyStore.files.deleteFamilySkill(
+						parsed.slug,
+						expectedVersion ?? version ?? existing.version,
+					);
+					return { deleted: parsed.canonicalPath };
+				}
+				if (!botId) {
+					throw new ProtocolValidationError(
+						`botId is required to delete '${parsed.canonicalPath}'`,
+						"invalid_request",
+					);
+				}
+				const bot = this.familyStore.bots.getBot(botId);
+				if (!bot) {
+					throw new ProtocolValidationError(
+						`Bot '${botId}' not found`,
+						"not_found",
 					);
 				}
 				const existing = this.familyStore.files.getSkill(botId, parsed.slug);
@@ -2927,14 +3047,6 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 					expectedVersion ?? version ?? existing.version,
 				);
 				return { deleted: parsed.canonicalPath };
-			},
-			"skill.search": async (command) => {
-				const results = this.familyStore.files.searchSkills(
-					command.payload.botId,
-					command.payload.query ?? "",
-					command.payload.category,
-				);
-				return { results };
 			},
 			"schedule.list": async (command) => {
 				const schedules = this.familyStore.schedules.listSchedules(
@@ -3178,7 +3290,22 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 		}
 	}
 
-	private listBotFiles(botId: string, category?: string) {
+	private listBotFiles(botId?: string, category?: string) {
+		const encoder = new TextEncoder();
+		const familySkills = this.familyStore.files.listFamilySkills(category);
+		const familyItems = familySkills.map((doc) => ({
+			path: skillVfsPath("family", doc.slug),
+			kind: "skill" as const,
+			scope: "family" as const,
+			slug: doc.slug,
+			description: doc.description,
+			...(doc.category ? { category: doc.category } : {}),
+			version: doc.version,
+			size: encoder.encode(doc.body).byteLength,
+		}));
+		if (!botId) {
+			return { files: familyItems };
+		}
 		const bot = this.familyStore.bots.getBot(botId);
 		if (!bot) {
 			throw new ProtocolValidationError(
@@ -3188,28 +3315,30 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 		}
 		const soul = this.familyStore.files.getSoul(botId);
 		const memory = this.familyStore.files.getMemory(botId);
-		const skills = this.familyStore.files.listSkills(botId, category);
+		const botSkills = this.familyStore.files.listSkills(botId, category);
 		const files = [
 			{
 				path: SOUL_VFS_PATH,
 				kind: "soul" as const,
-				size: new TextEncoder().encode(soul).byteLength,
+				size: encoder.encode(soul).byteLength,
 			},
 			{
 				path: MEMORY_VFS_PATH,
 				kind: "memory" as const,
 				version: memory.version,
-				size: new TextEncoder().encode(memory.content).byteLength,
+				size: encoder.encode(memory.content).byteLength,
 			},
-			...skills.map((doc) => ({
-				path: skillVfsPath(doc.slug),
+			...botSkills.map((doc) => ({
+				path: skillVfsPath("bot", doc.slug),
 				kind: "skill" as const,
+				scope: "bot" as const,
 				slug: doc.slug,
 				description: doc.description,
 				...(doc.category ? { category: doc.category } : {}),
 				version: doc.version,
-				size: new TextEncoder().encode(doc.body).byteLength,
+				size: encoder.encode(doc.body).byteLength,
 			})),
+			...familyItems,
 		];
 		return { files };
 	}

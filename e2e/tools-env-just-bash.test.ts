@@ -1024,7 +1024,7 @@ describe("just-bash tools env through the bot", () => {
 			const restoredSkill = await turn(
 				"bot:assistant",
 				`[tool:write ${JSON.stringify({
-					path: "/.cadmus/skills/restored/SKILL.md",
+					path: "/.cadmus/skills/bot/restored/SKILL.md",
 					content: "---\nname: restored\ndescription: back\n---\n\ndefault",
 				})}]`,
 			);

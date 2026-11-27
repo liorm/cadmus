@@ -261,7 +261,7 @@ async function sweep(
 		([, code]) => code === "elevation_required",
 	).length;
 	const forbidden = denied.filter(([, code]) => code === "forbidden").length;
-	expect(commandTypes().length).toBe(91);
+	expect(commandTypes().length).toBe(90);
 	expect(denied.length, caller.name).toBe(caller.denied);
 	expect(elevationRequired, caller.name).toBe(caller.elevationRequired);
 	expect(forbidden, caller.name).toBe(caller.forbidden);
@@ -505,9 +505,9 @@ describe("authorization matrix over /api, /rpc, and /ws", () => {
 				held: new Set(SUPER_ADMIN),
 				elevated: false,
 				tokenCaller: false,
-				denied: 68,
+				denied: 67,
 				elevationRequired: 12,
-				forbidden: 56,
+				forbidden: 55,
 				ws: false,
 			},
 			() => systemSnapshot(boss.accessToken),
@@ -541,9 +541,9 @@ describe("authorization matrix over /api, /rpc, and /ws", () => {
 				held: new Set(SUPER_ADMIN),
 				elevated: true,
 				tokenCaller: false,
-				denied: 56,
+				denied: 55,
 				elevationRequired: 0,
-				forbidden: 56,
+				forbidden: 55,
 				ws: false,
 			},
 			() => systemSnapshot(boss.accessToken),

@@ -23,13 +23,16 @@ export function renderSystemPrompt(provider?: string | null): string {
 
 - ${SOUL_VFS_PATH}: Your core persona and instructions. Read-only for you (only humans can edit it).
 - ${MEMORY_VFS_PATH}: Short standing memory for this bot (preferences, voice, how to work). Its body is already in this prompt when non-empty. Use ${editTool} for targeted updates or ${writeTool} to replace/clear it (no --- frontmatter fence; writing empty content clears it).
-- /.cadmus/skills/<slug>/SKILL.md: Reusable skills and reference guides that belong to you. Each skill starts with YAML frontmatter:
+- /.cadmus/skills/bot/<slug>/SKILL.md and /.cadmus/skills/family/<slug>/SKILL.md: Reusable skills and reference guides stored under the shared /.cadmus/skills/ root.
+  - /.cadmus/skills/bot/<slug>/SKILL.md: Scoped to this bot. Default here for role-specific workflows, personal preferences, or skills tied to your persona or tools.
+  - /.cadmus/skills/family/<slug>/SKILL.md: Shared across all bots in this Bot Family. Use this for cross-cutting conventions, shared domain knowledge, team-wide procedures, or whenever the user asks to share a skill across all bots.
+  Each skill starts with YAML frontmatter:
   ---
   name: <slug>
   description: <one-line trigger/summary, <= 240 chars>
   category: <optional one-line tag, <= 64 chars>
   ---
-  Read relevant skills with ${readTool} before acting when a task matches a skill's description. Use ${lsTool}, ${findTool}, and ${grepTool} to browse and search your files and skills. Create new skills with ${writeTool}, update existing skills surgically with ${editTool}, and remove obsolete skills with ${deleteTool}. To seed a new peer bot with its own skills or memory, pass skills/memory on create_bot rather than writing your own /.cadmus/ files.
+  Read relevant skills with ${readTool} before acting when a task matches a skill's description. Use ${lsTool}, ${findTool}, and ${grepTool} against /.cadmus/skills to browse and search across both bot and family skills in a single call. Create new skills with ${writeTool}, update existing skills surgically with ${editTool}, and remove obsolete skills with ${deleteTool}. To seed a new peer bot with its own skills or memory, pass skills/memory on create_bot rather than writing your own /.cadmus/ files.
 
 - Peer Bots & Bot Family Collaboration:
   - You belong to a Bot Family alongside other specialized peer bots, each maintaining its own persona (${SOUL_VFS_PATH}), memory (${MEMORY_VFS_PATH}), and skills (/.cadmus/skills/*).
@@ -91,13 +94,31 @@ export function identityExtension(options?: { now?: () => Date }) {
 				const botId = input.agent.cwd;
 				if (!botId) return undefined;
 				const services = requireCadmusServices(context);
-				const docs = services.familyStore.files.listSkills(botId);
-				if (docs.length === 0) return undefined;
-				const lines = docs.map((doc) => {
-					const cat = doc.category ? ` [${doc.category}]` : "";
-					return `- ${skillVfsPath(doc.slug)}${cat}: ${doc.description}`;
-				});
-				return `Available skills (read /.cadmus/skills/<slug>/SKILL.md before acting when relevant):\n${lines.join("\n")}`;
+				const botDocs = services.familyStore.files.listSkills(botId);
+				const familyDocs = services.familyStore.files.listFamilySkills();
+				if (botDocs.length === 0 && familyDocs.length === 0) return undefined;
+				const blocks: string[] = [
+					"Available skills (read /.cadmus/skills/{bot,family}/<slug>/SKILL.md before acting when relevant):",
+				];
+				if (botDocs.length > 0) {
+					blocks.push("Bot skills:");
+					for (const doc of botDocs) {
+						const cat = doc.category ? ` [${doc.category}]` : "";
+						blocks.push(
+							`- ${skillVfsPath("bot", doc.slug)}${cat}: ${doc.description}`,
+						);
+					}
+				}
+				if (familyDocs.length > 0) {
+					blocks.push("Family skills (shared across all bots):");
+					for (const doc of familyDocs) {
+						const cat = doc.category ? ` [${doc.category}]` : "";
+						blocks.push(
+							`- ${skillVfsPath("family", doc.slug)}${cat}: ${doc.description}`,
+						);
+					}
+				}
+				return blocks.join("\n");
 			}),
 			section("memory", (input, context) => {
 				const botId = input.agent.cwd;

@@ -322,7 +322,7 @@ export function internalToolsExtension() {
 							}),
 							{
 								description:
-									"Initial skills created on the new bot (/.cadmus/skills/<slug>/SKILL.md).",
+									"Initial skills created on the new bot (/.cadmus/skills/bot/<slug>/SKILL.md).",
 							},
 						),
 					),

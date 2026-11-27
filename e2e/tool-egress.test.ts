@@ -144,14 +144,14 @@ describe("egress and virtual file tools on a turn", () => {
 		const missing = await tool(
 			account,
 			"bot:scribe",
-			'[tool:read {"path":"/.cadmus/skills/missing/SKILL.md"}]',
+			'[tool:read {"path":"/.cadmus/skills/bot/missing/SKILL.md"}]',
 		);
 		expect(missing).toContain("not found");
 
 		const badSlug = await tool(
 			account,
 			"bot:scribe",
-			'[tool:read {"path":"/.cadmus/skills/Bad Slug/SKILL.md"}]',
+			'[tool:read {"path":"/.cadmus/skills/bot/Bad Slug/SKILL.md"}]',
 		);
 		expect(badSlug).toContain("Invalid skill slug");
 
@@ -159,19 +159,19 @@ describe("egress and virtual file tools on a turn", () => {
 			account,
 			"bot:scribe",
 			`[tool:write ${JSON.stringify({
-				path: "/.cadmus/skills/note/SKILL.md",
+				path: "/.cadmus/skills/bot/note/SKILL.md",
 				content: "---\nname: note\ndescription: A note\n---\n\nhello",
 			})}]`,
 		);
 		expect(created).toContain(
-			"Successfully wrote to /.cadmus/skills/note/SKILL.md",
+			"Successfully wrote to /.cadmus/skills/bot/note/SKILL.md",
 		);
 
 		const withCategory = await tool(
 			account,
 			"bot:scribe",
 			`[tool:write ${JSON.stringify({
-				path: "/.cadmus/skills/note/SKILL.md",
+				path: "/.cadmus/skills/bot/note/SKILL.md",
 				content:
 					"---\nname: note\ndescription: A note\ncategory: ops\n---\n\nhello 2",
 			})}]`,
@@ -181,7 +181,7 @@ describe("egress and virtual file tools on a turn", () => {
 		const read = await tool(
 			account,
 			"bot:scribe",
-			'[tool:read {"path":"/.cadmus/skills/note/SKILL.md"}]',
+			'[tool:read {"path":"/.cadmus/skills/bot/note/SKILL.md"}]',
 		);
 		expect(read).toContain("category: ops");
 		expect(read).toContain("hello 2");
@@ -190,7 +190,7 @@ describe("egress and virtual file tools on a turn", () => {
 			account,
 			"bot:scribe",
 			`[tool:edit ${JSON.stringify({
-				path: "/.cadmus/skills/note/SKILL.md",
+				path: "/.cadmus/skills/bot/note/SKILL.md",
 				edits: [{ oldText: "hello 2", newText: "edited body" }],
 			})}]`,
 		);
@@ -199,23 +199,23 @@ describe("egress and virtual file tools on a turn", () => {
 		const readEdited = await tool(
 			account,
 			"bot:scribe",
-			'[tool:read {"path":"/.cadmus/skills/note/SKILL.md"}]',
+			'[tool:read {"path":"/.cadmus/skills/bot/note/SKILL.md"}]',
 		);
 		expect(readEdited).toContain("edited body");
 
 		const deleted = await tool(
 			account,
 			"bot:scribe",
-			'[tool:delete {"path":"/.cadmus/skills/note/SKILL.md"}]',
+			'[tool:delete {"path":"/.cadmus/skills/bot/note/SKILL.md"}]',
 		);
 		expect(deleted).toContain(
-			"Successfully deleted /.cadmus/skills/note/SKILL.md",
+			"Successfully deleted /.cadmus/skills/bot/note/SKILL.md",
 		);
 
 		const gone = await tool(
 			account,
 			"bot:scribe",
-			'[tool:read {"path":"/.cadmus/skills/note/SKILL.md"}]',
+			'[tool:read {"path":"/.cadmus/skills/bot/note/SKILL.md"}]',
 		);
 		expect(gone).toContain("not found");
 

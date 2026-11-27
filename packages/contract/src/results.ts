@@ -16,6 +16,7 @@ import {
 	ModelInfoSchema,
 	RawTranscriptEntrySchema,
 	ScheduleRecordSchema,
+	SkillScopeSchema,
 	SystemAccountMetricsSchema,
 	SystemSessionRecordSchema,
 	ThinkingLevelSchema,
@@ -1175,13 +1176,13 @@ export type TurnInterruptResult = Static<typeof TurnInterruptResultSchema>;
 export type TurnAbortResult = TurnInterruptResult;
 
 /**
- * Summary metadata for a single virtual file (/.cadmus/SOUL.md, /.cadmus/MEMORY.md, or /.cadmus/skills/<slug>/SKILL.md).
+ * Summary metadata for a single virtual file (/.cadmus/SOUL.md, /.cadmus/MEMORY.md, /.cadmus/skills/bot/<slug>/SKILL.md, or /.cadmus/skills/family/<slug>/SKILL.md).
  */
 export const FileListItemSchema = Type.Object(
 	{
 		path: Type.String({
 			description:
-				"Virtual file path (e.g. '/.cadmus/SOUL.md', '/.cadmus/MEMORY.md', '/.cadmus/skills/topic/SKILL.md').",
+				"Virtual file path (e.g. '/.cadmus/SOUL.md', '/.cadmus/MEMORY.md', '/.cadmus/skills/bot/topic/SKILL.md', '/.cadmus/skills/family/shared/SKILL.md').",
 		}),
 		kind: Type.Union(
 			[
@@ -1192,12 +1193,13 @@ export const FileListItemSchema = Type.Object(
 					description: "Bot long-term memory file.",
 				}),
 				Type.Literal("skill", {
-					description: "Skill document (/.cadmus/skills/<slug>/SKILL.md).",
+					description:
+						"Skill document (/.cadmus/skills/bot/<slug>/SKILL.md or /.cadmus/skills/family/<slug>/SKILL.md).",
 				}),
 			],
 			{
 				description:
-					"File classification: 'soul' (/.cadmus/SOUL.md), 'memory' (/.cadmus/MEMORY.md), or 'skill' (/.cadmus/skills/<slug>/SKILL.md).",
+					"File classification: 'soul' (/.cadmus/SOUL.md), 'memory' (/.cadmus/MEMORY.md), or 'skill' (/.cadmus/skills/{bot,family}/<slug>/SKILL.md).",
 			},
 		),
 		size: Type.Number({
@@ -1209,6 +1211,7 @@ export const FileListItemSchema = Type.Object(
 					"Version sequence number for optimistic concurrency control (CAS).",
 			}),
 		),
+		scope: Type.Optional(SkillScopeSchema),
 		slug: Type.Optional(
 			Type.String({
 				description: "Skill slug / identifier (for skill files).",
@@ -1226,7 +1229,7 @@ export const FileListItemSchema = Type.Object(
 		),
 	},
 	{
-		description: "Summary descriptor of a virtual file belonging to a bot.",
+		description: "Summary descriptor of a virtual file.",
 	},
 );
 export type FileListItem = Static<typeof FileListItemSchema>;
@@ -1238,7 +1241,7 @@ export const FileListResultSchema = Type.Object(
 	{
 		files: Type.Array(FileListItemSchema, {
 			description:
-				"List of virtual files (/.cadmus/SOUL.md, /.cadmus/MEMORY.md, /.cadmus/skills/<slug>/SKILL.md).",
+				"List of virtual files (/.cadmus/SOUL.md, /.cadmus/MEMORY.md, /.cadmus/skills/bot/<slug>/SKILL.md, and /.cadmus/skills/family/<slug>/SKILL.md).",
 		}),
 	},
 	{
@@ -1266,6 +1269,7 @@ export const FileReadDocResultSchema = Type.Object(
 			description:
 				"Current version sequence number for optimistic concurrency control.",
 		}),
+		scope: Type.Optional(SkillScopeSchema),
 		slug: Type.Optional(
 			Type.String({
 				description: "Skill slug / identifier (for skill files).",
@@ -1332,6 +1336,7 @@ export const FileWriteResultSchema = Type.Union(
 						description: "Written file content string.",
 					}),
 				),
+				scope: Type.Optional(SkillScopeSchema),
 				slug: Type.Optional(
 					Type.String({
 						description: "Skill slug / identifier (for skill files).",
@@ -1378,51 +1383,6 @@ export const FileDeleteResultSchema = Type.Object(
 	},
 );
 export type FileDeleteResult = Static<typeof FileDeleteResultSchema>;
-
-/**
- * Individual search result match from skill.search.
- */
-export const SkillSearchResultSchema = Type.Object(
-	{
-		slug: Type.String({
-			description: "Skill slug / identifier.",
-		}),
-		description: Type.String({
-			description: "Skill summary description.",
-		}),
-		category: Type.Optional(
-			Type.String({
-				description: "Optional categorization tag.",
-			}),
-		),
-		version: Type.Number({
-			description: "Current version sequence number of the skill.",
-		}),
-		snippet: Type.String({
-			description: "Matching text excerpt from the skill body or description.",
-		}),
-	},
-	{
-		description: "Individual skill search match with snippet excerpt.",
-	},
-);
-export type SkillSearchResult = Static<typeof SkillSearchResultSchema>;
-
-/**
- * Result returned by skill.search containing matched skill snippets.
- */
-export const SkillSearchResultsSchema = Type.Object(
-	{
-		results: Type.Array(SkillSearchResultSchema, {
-			description: "List of matching skill excerpts.",
-		}),
-	},
-	{
-		description:
-			"Result payload returned by skill.search containing search matches.",
-	},
-);
-export type SkillSearchResults = Static<typeof SkillSearchResultsSchema>;
 
 /**
  * Result returned by schedule.create containing the created schedule record.

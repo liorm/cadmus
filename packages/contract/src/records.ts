@@ -1067,13 +1067,33 @@ export const ScheduleRecordSchema = Type.Object(
 export type ScheduleRecord = Static<typeof ScheduleRecordSchema>;
 
 /**
+ * Scope of a virtual skill file: per-bot or shared across the bot family.
+ */
+export const SkillScopeSchema = Type.Union(
+	[
+		Type.Literal("bot", {
+			description:
+				"Skill scoped to an individual bot (/.cadmus/skills/bot/<slug>/SKILL.md).",
+		}),
+		Type.Literal("family", {
+			description:
+				"Skill shared across all bots in the family (/.cadmus/skills/family/<slug>/SKILL.md).",
+		}),
+	],
+	{
+		description: "Ownership scope for a virtual skill file: 'bot' or 'family'.",
+	},
+);
+export type SkillScope = Static<typeof SkillScopeSchema>;
+
+/**
  * File modification diff produced during an idle conversation harvest.
  */
 export const HarvestFileDiffSchema = Type.Object(
 	{
 		path: Type.String({
 			description:
-				"Virtual file path modified (e.g. '/.cadmus/MEMORY.md', '/.cadmus/skills/topic/SKILL.md').",
+				"Virtual file path modified (e.g. '/.cadmus/MEMORY.md', '/.cadmus/skills/bot/topic/SKILL.md').",
 		}),
 		diff: Type.String({
 			description:
