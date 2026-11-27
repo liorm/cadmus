@@ -1,11 +1,10 @@
-import * as Dialog from "@radix-ui/react-dialog";
 import { X } from "lucide-react";
-import type { ReactNode } from "react";
+import { type ReactNode, useEffect, useId, useRef } from "react";
 import { cn } from "@/lib/utils";
 
 /**
  * Shared create/invite/pair overlay across all 3 personas:
- * centered modal on desktop (`md:`), bottom sheet drawer on mobile (`< md`).
+ * native modal <dialog> centered on desktop (`md:`), bottom sheet on mobile (`< md`).
  */
 export function AddEntityDialog({
 	open,
@@ -22,53 +21,92 @@ export function AddEntityDialog({
 	children: ReactNode;
 	maxWidthClass?: string;
 }) {
+	const dialogRef = useRef<HTMLDialogElement>(null);
+	const titleId = useId();
+	const descId = useId();
+
+	useEffect(() => {
+		const dialog = dialogRef.current;
+		if (!dialog) return;
+		if (open) {
+			if (!dialog.open) dialog.showModal();
+		} else if (dialog.open) {
+			dialog.close();
+		}
+	}, [open]);
+
+	useEffect(() => {
+		const dialog = dialogRef.current;
+		if (!dialog || "closedBy" in HTMLDialogElement.prototype) return;
+
+		let pressedOutside = false;
+		const isOutside = (e: PointerEvent) => {
+			const r = dialog.getBoundingClientRect();
+			return (
+				e.clientX < r.left ||
+				e.clientX > r.right ||
+				e.clientY < r.top ||
+				e.clientY > r.bottom
+			);
+		};
+		const onPointerDown = (e: PointerEvent) => {
+			pressedOutside = isOutside(e);
+		};
+		const onPointerUp = (e: PointerEvent) => {
+			if (pressedOutside && isOutside(e)) dialog.close();
+		};
+
+		dialog.addEventListener("pointerdown", onPointerDown);
+		dialog.addEventListener("pointerup", onPointerUp);
+		return () => {
+			dialog.removeEventListener("pointerdown", onPointerDown);
+			dialog.removeEventListener("pointerup", onPointerUp);
+		};
+	}, []);
+
 	return (
-		<Dialog.Root
-			open={open}
-			onOpenChange={(next) => {
-				if (!next) onClose();
+		<dialog
+			ref={dialogRef}
+			aria-labelledby={titleId}
+			aria-describedby={description ? descId : undefined}
+			{...({ closedby: "any" } as Record<string, unknown>)}
+			onCancel={(e) => {
+				e.preventDefault();
+				onClose();
 			}}
+			onClose={() => {
+				if (open) onClose();
+			}}
+			className={cn(
+				"m-0 mt-auto max-h-[88dvh] w-full max-w-none flex-col overflow-hidden rounded-t-2xl border border-border bg-surface p-0 text-text shadow-2xl open:flex",
+				"pb-[max(1rem,env(safe-area-inset-bottom))]",
+				"md:m-auto md:max-h-[85dvh] md:rounded-xl md:pb-0",
+				maxWidthClass,
+			)}
 		>
-			<Dialog.Portal>
-				<Dialog.Overlay className="fixed inset-0 z-50 bg-black/60 backdrop-blur-[2px]" />
-				<Dialog.Content
-					className={cn(
-						"fixed inset-x-0 bottom-0 z-50 flex max-h-[88dvh] w-full flex-col overflow-hidden rounded-t-2xl border border-border bg-surface shadow-2xl outline-none",
-						"pb-[max(1rem,env(safe-area-inset-bottom))]",
-						"md:inset-x-auto md:bottom-auto md:left-1/2 md:top-1/2 md:max-h-[85dvh] md:-translate-x-1/2 md:-translate-y-1/2 md:rounded-xl md:pb-0",
-						maxWidthClass,
-					)}
+			<div className="flex items-start justify-between gap-3 border-b border-border px-4 py-3">
+				<div className="min-w-0">
+					<h1 id={titleId} className="text-sm font-semibold text-text">
+						{title}
+					</h1>
+					{description ? (
+						<p id={descId} className="mt-0.5 text-xs text-text-muted">
+							{description}
+						</p>
+					) : null}
+				</div>
+				<button
+					type="button"
+					aria-label="Close dialog"
+					onClick={onClose}
+					className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-text-muted hover:bg-surface-raised hover:text-text"
 				>
-					<div className="flex items-start justify-between gap-3 border-b border-border px-4 py-3">
-						<div className="min-w-0">
-							<Dialog.Title className="text-sm font-semibold text-text">
-								{title}
-							</Dialog.Title>
-							{description ? (
-								<Dialog.Description className="mt-0.5 text-xs text-text-muted">
-									{description}
-								</Dialog.Description>
-							) : (
-								<Dialog.Description className="sr-only">
-									{title}
-								</Dialog.Description>
-							)}
-						</div>
-						<Dialog.Close asChild>
-							<button
-								type="button"
-								aria-label="Close dialog"
-								className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-text-muted hover:bg-surface-raised hover:text-text"
-							>
-								<X className="h-4 w-4" />
-							</button>
-						</Dialog.Close>
-					</div>
-					<div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
-						{children}
-					</div>
-				</Dialog.Content>
-			</Dialog.Portal>
-		</Dialog.Root>
+					<X className="h-4 w-4" />
+				</button>
+			</div>
+			<div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+				{children}
+			</div>
+		</dialog>
 	);
 }

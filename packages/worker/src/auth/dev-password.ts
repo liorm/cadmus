@@ -27,10 +27,20 @@ export type DevPasswordState =
 	| { state: "refused"; reason: string }
 	| { state: "on"; hash: string };
 
+function isAllowedDevHost(hostname: string, extraHosts?: string): boolean {
+	if (LOCAL_HOSTS.has(hostname)) return true;
+	if (!extraHosts) return false;
+	for (const entry of extraHosts.split(",")) {
+		if (entry.trim() === hostname) return true;
+	}
+	return false;
+}
+
 export function devPasswordState(
 	env: Omit<Partial<Env>, "CADMUS_ENV"> & {
 		CADMUS_DEV_PASSWORD_LOGIN?: string;
 		CADMUS_DEV_PASSWORD_HASH?: string;
+		CADMUS_DEV_ALLOWED_HOSTS?: string;
 		CADMUS_DEPLOY_ENV?: string;
 		CADMUS_ENV?: unknown;
 	},
@@ -38,7 +48,7 @@ export function devPasswordState(
 ): DevPasswordState {
 	const hash = env.CADMUS_DEV_PASSWORD_HASH?.trim();
 	if (env.CADMUS_DEV_PASSWORD_LOGIN !== "1" || !hash) return { state: "off" };
-	if (!LOCAL_HOSTS.has(url.hostname)) {
+	if (!isAllowedDevHost(url.hostname, env.CADMUS_DEV_ALLOWED_HOSTS)) {
 		return { state: "refused", reason: "host_not_local" };
 	}
 	if (env.IS_PREVIEW) return { state: "refused", reason: "preview" };

@@ -13,7 +13,7 @@ import {
 	Sparkles,
 	Trash2,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import { BotBadge } from "@/components/BotBadge";
 import { ColorSwatches } from "@/components/ColorSwatches";
 import { AddEntityDialog } from "@/components/chrome/AddEntityDialog";
@@ -75,6 +75,7 @@ export function BotsSidebarPanel({
 		setLastBotId,
 	} = useCadmus();
 
+	const filterId = useId();
 	const [filter, setFilter] = useState("");
 	const [addBotOpen, setAddBotOpen] = useState(false);
 	const [addGroupOpen, setAddGroupOpen] = useState(false);
@@ -276,14 +277,18 @@ export function BotsSidebarPanel({
 
 	return (
 		<div className="flex min-h-0 flex-1 flex-col">
-			{/* Bot Groups (Families) pill strip */}
-			<div className="border-b border-border px-3 py-2.5">
-				<div className="mb-1.5 flex items-center justify-between gap-2">
-					<span className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-text-muted">
-						<FolderKanban className="h-3.5 w-3.5" />
-						Bot Groups
+			{/* Bot Groups (Families) strip */}
+			<div className="border-b border-border px-3 py-2">
+				<div className="flex items-center justify-between gap-2">
+					<span className="inline-flex min-w-0 items-center gap-1.5 text-xs font-medium text-text-muted">
+						<FolderKanban className="h-3.5 w-3.5 shrink-0" />
+						<span className="truncate">
+							{groupPills.length === 1
+								? groupPills[0]?.name
+								: "Bot groups"}
+						</span>
 					</span>
-					<div className="flex items-center gap-1">
+					<div className="flex shrink-0 items-center gap-1">
 						{currentFamily ? (
 							<button
 								type="button"
@@ -304,42 +309,47 @@ export function BotsSidebarPanel({
 								setGroupError(null);
 								setAddGroupOpen(true);
 							}}
-							className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-[11px] font-medium text-text-muted hover:border-accent/50 hover:text-text"
+							className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium text-text-muted hover:bg-surface-raised hover:text-text"
 						>
 							<Plus className="h-3 w-3" />
 							Group
 						</button>
 					</div>
 				</div>
-				<div className="flex gap-1.5 overflow-x-auto pb-0.5">
-					{groupPills.map((fam) => {
-						const active = fam.id === familyId;
-						return (
-							<button
-								key={fam.id}
-								type="button"
-								onClick={() => void switchFamily(fam.id)}
-								className={cn(
-									"shrink-0 rounded-full border px-2.5 py-1 text-xs font-medium transition",
-									active
-										? "border-accent bg-accent/15 text-accent"
-										: "border-border bg-bg/50 text-text-muted hover:text-text",
-								)}
-							>
-								{fam.name}
-							</button>
-						);
-					})}
-				</div>
+				{groupPills.length > 1 ? (
+					<div className="mt-1.5 flex gap-1.5 overflow-x-auto pb-0.5">
+						{groupPills.map((fam) => {
+							const active = fam.id === familyId;
+							return (
+								<button
+									key={fam.id}
+									type="button"
+									onClick={() => void switchFamily(fam.id)}
+									className={cn(
+										"shrink-0 rounded-full border px-2.5 py-0.5 text-xs font-medium transition",
+										active
+											? "border-accent bg-accent/15 text-accent"
+											: "border-border bg-bg/50 text-text-muted hover:text-text",
+									)}
+								>
+									{fam.name}
+								</button>
+							);
+						})}
+					</div>
+				) : null}
 			</div>
 
 			{/* Search + New Bot */}
-			<div className="flex items-center gap-2 border-b border-border px-3 py-2.5">
-				<div className="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-border bg-bg/60 px-2.5 py-1.5">
+			<div className="flex items-center gap-2 border-b border-border px-3 py-2">
+				<div className="flex min-h-tap min-w-0 flex-1 items-center gap-2 rounded-lg border border-border bg-bg/60 px-2.5 md:min-h-0 md:h-8">
 					<Search className="h-3.5 w-3.5 shrink-0 text-text-muted" />
+					<label htmlFor={filterId} className="sr-only">
+						Filter bots
+					</label>
 					<input
-						aria-label="Filter bots"
-						placeholder="Filter bots…"
+						id={filterId}
+						placeholder="Filter bots"
 						value={filter}
 						onChange={(e) => setFilter(e.target.value)}
 						className="min-w-0 flex-1 bg-transparent text-xs text-text outline-none placeholder:text-text-muted"
@@ -352,7 +362,7 @@ export function BotsSidebarPanel({
 						setAddBotOpen(true);
 					}}
 					aria-label="New bot"
-					className="inline-flex min-h-tap shrink-0 items-center gap-1 rounded-lg bg-accent px-2.5 text-xs font-semibold text-on-accent hover:opacity-90"
+					className="inline-flex min-h-tap shrink-0 items-center gap-1 rounded-lg bg-accent px-2.5 text-xs font-semibold text-on-accent hover:opacity-90 md:min-h-0 md:h-8"
 				>
 					<Plus className="h-3.5 w-3.5" />
 					<span>Bot</span>
@@ -440,7 +450,7 @@ export function BotsSidebarPanel({
 												<span className="truncate text-xs font-semibold text-text">
 													{bot.name}
 												</span>
-												<span className="shrink-0 text-[10px] text-text-muted">
+												<span className="shrink-0 tabular-nums text-[10px] text-text-muted">
 													{lastActivity ? formatRelative(lastActivity) : ""}
 												</span>
 											</div>

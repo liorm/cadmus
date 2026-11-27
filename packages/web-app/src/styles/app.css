@@ -259,3 +259,64 @@ body {
 	background: color-mix(in srgb, var(--on-accent) 14%, transparent);
 	border-color: color-mix(in srgb, var(--on-accent) 25%, transparent);
 }
+
+/* Modern Web Guidance: native <dialog> scroll containment */
+dialog:modal {
+	overscroll-behavior: contain;
+}
+
+dialog::backdrop {
+	overflow: hidden;
+	overscroll-behavior: contain;
+	background: rgb(0 0 0 / 0.6);
+	backdrop-filter: blur(2px);
+}
+
+/* Modern Web Guidance: scroll-target-on-load + scroll-position-aware jump button */
+.cadmus-scroll-target {
+	scroll-initial-target: nearest;
+}
+
+.cadmus-jump-latest {
+	position: sticky;
+	bottom: 12px;
+	margin-left: auto;
+	z-index: 10;
+	transition:
+		visibility 0.2s,
+		opacity 0.2s ease,
+		translate 0.2s ease;
+}
+
+.cadmus-stream-scroller.cadmus-scrolled-up .cadmus-jump-latest {
+	visibility: visible;
+	opacity: 1;
+	translate: 0 0;
+}
+
+.cadmus-stream-scroller:not(.cadmus-scrolled-up) .cadmus-jump-latest {
+	visibility: hidden;
+	opacity: 0;
+	translate: 0 10px;
+}
+
+@supports (container-type: scroll-state) {
+	.cadmus-stream-scroller {
+		container-type: scroll-state;
+	}
+
+	.cadmus-stream-scroller .cadmus-jump-latest,
+	.cadmus-stream-scroller:not(.cadmus-scrolled-up) .cadmus-jump-latest {
+		visibility: hidden;
+		opacity: 0;
+		translate: 0 10px;
+	}
+
+	@container scroll-state(scrollable: bottom) {
+		.cadmus-stream-scroller .cadmus-jump-latest {
+			visibility: visible;
+			opacity: 1;
+			translate: 0 0;
+		}
+	}
+}

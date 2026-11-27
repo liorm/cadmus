@@ -58,7 +58,10 @@ describe("attachNativeTools", () => {
 		const rewritten = attachNativeTools("google", payload) as {
 			config: {
 				tools: unknown[];
-				toolConfig?: { functionCallingConfig?: { mode: string } };
+				toolConfig?: {
+					functionCallingConfig?: { mode: string };
+					includeServerSideToolInvocations?: boolean;
+				};
 			};
 		};
 
@@ -71,6 +74,7 @@ describe("attachNativeTools", () => {
 		]);
 		expect(rewritten.config.toolConfig).toEqual({
 			functionCallingConfig: { mode: "VALIDATED" },
+			includeServerSideToolInvocations: true,
 		});
 	});
 

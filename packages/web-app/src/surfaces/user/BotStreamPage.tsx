@@ -1,6 +1,7 @@
 import type { TranscriptMessageView } from "@cadmus/contract/types";
 import { Link } from "@tanstack/react-router";
 import {
+	ArrowDown,
 	ArrowLeft,
 	ChevronDown,
 	ChevronRight,
@@ -8,8 +9,9 @@ import {
 	History,
 	RotateCcw,
 	Sparkles,
+	Wrench,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { BotBadge } from "@/components/BotBadge";
 import { Composer } from "@/components/Composer";
 import { AddEntityDialog } from "@/components/chrome/AddEntityDialog";
@@ -74,6 +76,27 @@ function buildStreamSegments(
 	return segments;
 }
 
+function formatTurnError(raw?: string): string {
+	if (!raw) return "Turn failed.";
+	try {
+		const outer = JSON.parse(raw) as { error?: { message?: string } };
+		const innerRaw = outer?.error?.message;
+		if (typeof innerRaw === "string") {
+			try {
+				const inner = JSON.parse(innerRaw) as { error?: { message?: string } };
+				if (typeof inner?.error?.message === "string") {
+					return inner.error.message;
+				}
+			} catch {
+				return innerRaw;
+			}
+		}
+	} catch {
+		// fall back to raw text
+	}
+	return raw;
+}
+
 export function BotStreamPage({ botId }: { botId: string }) {
 	const {
 		client,
@@ -101,6 +124,9 @@ export function BotStreamPage({ botId }: { botId: string }) {
 	const [expandedBoundaries, setExpandedBoundaries] = useState<
 		Record<string, boolean>
 	>({});
+	const [expandedTools, setExpandedTools] = useState<Record<string, boolean>>(
+		{},
+	);
 	const [groupViewer, setGroupViewer] = useState<{
 		open: boolean;
 		topic?: string;
@@ -124,10 +150,35 @@ export function BotStreamPage({ botId }: { botId: string }) {
 		[live?.status?.compaction],
 	);
 
-	const { scrollRef, handleScroll } = useAutoScroll({
+	const { scrollRef, handleScroll, scrollToBottom } = useAutoScroll({
 		chatKey,
 		streamingActive: Boolean(live?.busy),
 	});
+	const bottomSentinelRef = useRef<HTMLDivElement>(null);
+	const [scrolledUp, setScrolledUp] = useState(false);
+
+	useEffect(() => {
+		if (
+			typeof CSS !== "undefined" &&
+			CSS.supports("container-type", "scroll-state")
+		) {
+			return;
+		}
+		const root = scrollRef.current;
+		const sentinel = bottomSentinelRef.current;
+		if (!root || !sentinel || typeof IntersectionObserver === "undefined") {
+			return;
+		}
+		const observer = new IntersectionObserver(
+			(entries) => {
+				const entry = entries[0];
+				if (entry) setScrolledUp(!entry.isIntersecting);
+			},
+			{ root, threshold: 0 },
+		);
+		observer.observe(sentinel);
+		return () => observer.disconnect();
+	}, [scrollRef]);
 
 	useEffect(() => {
 		setLastBotId(botId);
@@ -143,8 +194,73 @@ export function BotStreamPage({ botId }: { botId: string }) {
 
 	const segments = useMemo(() => buildStreamSegments(messages), [messages]);
 
+	const renderedSegments = useMemo(() => {
+		const out: Array<
+			| { kind: "boundary"; message: TranscriptMessageView; index: number }
+			| {
+					kind: "item";
+					item: TranscriptItem;
+					visibleToModel: boolean;
+					attachedTools?: ToolRunMessage["toolCalls"] extends never
+						? never
+						: Array<
+								Extract<TranscriptItem, { type: "tools" }>["calls"][number]
+							>;
+			  }
+		> = [];
+		let pendingTools: Array<
+			Extract<TranscriptItem, { type: "tools" }>["calls"][number]
+		> = [];
+
+		for (const seg of segments) {
+			if (seg.kind === "boundary") {
+				pendingTools = [];
+				out.push(seg);
+				continue;
+			}
+			if (seg.item.type === "system") {
+				continue;
+			}
+			if (seg.item.type === "tools") {
+				pendingTools.push(...seg.item.calls);
+				continue;
+			}
+			if (seg.item.type === "assistant") {
+				out.push({
+					kind: "item",
+					item: seg.item,
+					visibleToModel: seg.visibleToModel,
+					...(pendingTools.length > 0 ? { attachedTools: pendingTools } : {}),
+				});
+				pendingTools = [];
+				continue;
+			}
+			pendingTools = [];
+			out.push(seg);
+		}
+		if (pendingTools.length > 0) {
+			out.push({
+				kind: "item",
+				item: {
+					type: "tools",
+					names: [...new Set(pendingTools.map((c) => c.name))],
+					count: pendingTools.length,
+					calls: pendingTools,
+					startId: 0,
+					endId: 0,
+				},
+				visibleToModel: true,
+			});
+		}
+		return out;
+	}, [segments]);
+
 	function toggleBoundary(key: string) {
 		setExpandedBoundaries((prev) => ({ ...prev, [key]: !prev[key] }));
+	}
+
+	function toggleTools(key: string) {
+		setExpandedTools((prev) => ({ ...prev, [key]: !prev[key] }));
 	}
 
 	async function handleReset(e: React.FormEvent) {
@@ -238,7 +354,7 @@ export function BotStreamPage({ botId }: { botId: string }) {
 								setResetOpen(true);
 							}}
 							aria-label="Reset context window"
-							className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-border px-2.5 text-xs font-medium text-text-muted hover:bg-surface-raised hover:text-text"
+							className="inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-xs font-medium text-text-muted hover:bg-surface-raised hover:text-text"
 						>
 							<RotateCcw className="h-3.5 w-3.5" />
 							<span className="hidden sm:inline">Reset</span>
@@ -249,10 +365,10 @@ export function BotStreamPage({ botId }: { botId: string }) {
 							onClick={() => setVfsOpen((v) => !v)}
 							aria-label="Toggle /.cadmus/ drawer"
 							className={cn(
-								"inline-flex h-9 items-center gap-1.5 rounded-lg border px-2.5 font-mono text-xs font-medium transition",
+								"inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 font-mono text-xs font-medium transition",
 								vfsOpen
-									? "border-accent bg-accent/15 text-accent"
-									: "border-border text-text-muted hover:bg-surface-raised hover:text-text",
+									? "border border-accent/40 bg-accent/15 text-accent"
+									: "text-text-muted hover:bg-surface-raised hover:text-text",
 							)}
 						>
 							<FolderOpen className="h-3.5 w-3.5" />
@@ -278,10 +394,14 @@ export function BotStreamPage({ botId }: { botId: string }) {
 				{/* Scrollable Transcript Stream */}
 				<div
 					ref={scrollRef}
+					tabIndex={-1}
 					onScroll={handleScroll}
-					className="min-h-0 flex-1 overflow-y-auto px-3 py-4 sm:px-6"
+					className={cn(
+						"cadmus-stream-scroller relative min-h-0 flex-1 overflow-y-auto px-3 py-4 outline-none sm:px-6",
+						scrolledUp && "cadmus-scrolled-up",
+					)}
 				>
-					<div className="mx-auto flex w-full max-w-3xl flex-col gap-3">
+					<div className="mx-auto flex w-full max-w-[72ch] flex-col gap-3">
 						{hasMore ? (
 							<div className="flex justify-center">
 								<button
@@ -298,23 +418,23 @@ export function BotStreamPage({ botId }: { botId: string }) {
 							</div>
 						) : null}
 
-						{segments.length === 0 && !live?.busy ? (
-							<div className="my-12 rounded-2xl border border-dashed border-border bg-surface/50 p-6 text-center">
-								<div className="mx-auto mb-3 flex justify-center">
-									<BotBadge bot={bot} className="size-11" />
+						{renderedSegments.length === 0 && !live?.busy ? (
+							<div className="my-12 rounded-xl border border-dashed border-border bg-surface/40 p-6 text-left">
+								<div className="mb-3 flex items-center gap-3">
+									<BotBadge bot={bot} className="size-9 shrink-0" />
+									<div>
+										<h2 className="text-sm font-semibold text-text">
+											{bot.name}
+										</h2>
+										<p className="text-xs text-text-muted">
+											Continuous stream with automatic context compaction.
+										</p>
+									</div>
 								</div>
-								<h2 className="text-sm font-semibold text-text">
-									Continuous stream with {bot.name}
-								</h2>
-								<p className="mx-auto mt-1 max-w-md text-xs text-text-muted">
-									Every message stays in one continuous history. As context
-									grows, Cadmus compacts older turns automatically into summary
-									dividers without interrupting you.
-								</p>
 							</div>
 						) : null}
 
-						{segments.map((seg, idx) => {
+						{renderedSegments.map((seg, idx) => {
 							if (seg.kind === "boundary") {
 								const msg = seg.message;
 								if (msg.role === "compaction") {
@@ -386,26 +506,40 @@ export function BotStreamPage({ botId }: { botId: string }) {
 								);
 							}
 
-							const { item, visibleToModel } = seg;
+							const { item, visibleToModel, attachedTools } = seg;
+							if (item.type === "system") return null;
+
 							if (item.type === "tools") {
+								const toolsKey = `tools-${item.startId}-${idx}`;
+								const open = Boolean(expandedTools[toolsKey]);
 								return (
-									<div
-										key={`tools-${item.startId}`}
-										className={cn(
-											"space-y-1.5",
-											!visibleToModel && "opacity-75",
-										)}
-									>
-										{item.calls.map((call) => (
-											<ToolCallCard
-												key={call.id}
-												call={call}
-												bots={bots}
-												onOpenGroupChat={(data) =>
-													setGroupViewer({ open: true, ...data })
-												}
-											/>
-										))}
+									<div key={toolsKey} className="flex flex-col items-start">
+										<button
+											type="button"
+											onClick={() => toggleTools(toolsKey)}
+											aria-expanded={open}
+											className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] text-text-muted hover:bg-surface-raised hover:text-text"
+										>
+											<Wrench className="h-3 w-3" />
+											<span>
+												{item.calls.length}{" "}
+												{item.calls.length === 1 ? "tool call" : "tool calls"}
+											</span>
+										</button>
+										{open ? (
+											<div className="mt-1.5 w-full space-y-1.5">
+												{item.calls.map((call) => (
+													<ToolCallCard
+														key={call.id}
+														call={call}
+														bots={bots}
+														onOpenGroupChat={(data) =>
+															setGroupViewer({ open: true, ...data })
+														}
+													/>
+												))}
+											</div>
+										) : null}
 									</div>
 								);
 							}
@@ -419,22 +553,80 @@ export function BotStreamPage({ botId }: { botId: string }) {
 											!visibleToModel && "opacity-75",
 										)}
 									>
-										<div className="max-w-[85%] rounded-2xl rounded-br-sm border border-accent/30 bg-accent/15 px-3.5 py-2.5 text-sm text-text">
+										<div className="max-w-[75%] rounded-xl border border-border bg-surface-raised px-3.5 py-2 text-[14px] leading-relaxed text-text">
 											<p className="whitespace-pre-wrap">{item.message.text}</p>
 										</div>
 									</div>
 								);
 							}
 
+							if (
+								item.message.stopReason === "error" &&
+								!item.message.text.trim()
+							) {
+								return (
+									<div
+										key={item.message.id}
+										role="alert"
+										className="max-w-[70ch] rounded-lg border border-status-failed/40 bg-status-failed/10 px-3.5 py-2.5 text-xs text-status-failed"
+									>
+										{formatTurnError(item.message.errorMessage)}
+									</div>
+								);
+							}
+
+							const toolsKey = `msg-tools-${item.message.id}`;
+							const toolsOpen = Boolean(expandedTools[toolsKey]);
 							return (
 								<div
 									key={item.message.id}
 									className={cn(
-										"flex justify-start",
-										!visibleToModel && "opacity-80",
+										"flex flex-col items-start",
+										!visibleToModel && "opacity-75",
 									)}
 								>
-									<div className="min-w-0 max-w-[92%] rounded-2xl rounded-bl-sm border border-border bg-surface px-4 py-3 text-sm text-text">
+									<div className="mb-0.5 flex items-center gap-2 text-[11px] text-text-muted">
+										<span className="font-medium text-text/80">{bot.name}</span>
+										{item.message.timestamp ? (
+											<span className="tabular-nums">
+												{formatRelative(item.message.timestamp)}
+											</span>
+										) : null}
+										{attachedTools && attachedTools.length > 0 ? (
+											<button
+												type="button"
+												onClick={() => toggleTools(toolsKey)}
+												aria-expanded={toolsOpen}
+												aria-label={`Toggle ${attachedTools.length} tool ${attachedTools.length === 1 ? "call" : "calls"}`}
+												className={cn(
+													"inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] transition",
+													toolsOpen
+														? "bg-surface-raised text-text"
+														: "text-text-muted hover:bg-surface-raised hover:text-text",
+												)}
+											>
+												<Wrench className="h-3 w-3" />
+												<span className="tabular-nums">
+													{attachedTools.length}
+												</span>
+											</button>
+										) : null}
+									</div>
+									{toolsOpen && attachedTools && attachedTools.length > 0 ? (
+										<div className="mb-2 w-full space-y-1.5">
+											{attachedTools.map((call) => (
+												<ToolCallCard
+													key={call.id}
+													call={call}
+													bots={bots}
+													onOpenGroupChat={(data) =>
+														setGroupViewer({ open: true, ...data })
+													}
+												/>
+											))}
+										</div>
+									) : null}
+									<div className="min-w-0 max-w-[70ch] py-0.5 text-[15px] leading-relaxed text-text">
 										<Markdown source={item.message.text} />
 									</div>
 								</div>
@@ -471,11 +663,32 @@ export function BotStreamPage({ botId }: { botId: string }) {
 								</button>
 							</div>
 						) : null}
+
+						<div
+							ref={bottomSentinelRef}
+							aria-hidden="true"
+							className="cadmus-scroll-target h-px w-full shrink-0"
+						/>
 					</div>
+
+					<button
+						type="button"
+						onClick={scrollToBottom}
+						onBlur={(e) => {
+							if (!e.relatedTarget) {
+								scrollRef.current?.focus({ preventScroll: true });
+							}
+						}}
+						aria-label="Jump to latest messages"
+						className="cadmus-jump-latest flex items-center gap-1.5 rounded-full border border-border bg-surface/95 px-3 py-1.5 text-xs font-medium text-text shadow-lg backdrop-blur-sm hover:border-accent/50 hover:text-accent"
+					>
+						<ArrowDown className="h-3.5 w-3.5" />
+						<span>Jump to latest</span>
+					</button>
 				</div>
 
 				{/* Composer */}
-				<div className="mx-auto w-full max-w-3xl shrink-0">
+				<div className="mx-auto w-full max-w-[72ch] shrink-0">
 					<Composer
 						placeholder={`Message ${bot.name}…`}
 						steerEnabled={Boolean(live?.busy)}

@@ -1437,6 +1437,11 @@ export const TranscriptMessageViewSchema = Type.Object({
 	stopReason: Type.Optional(
 		Type.String({ description: "Stop reason for assistant messages." }),
 	),
+	errorMessage: Type.Optional(
+		Type.String({
+			description: "Provider or runtime error message when stopReason is error.",
+		}),
+	),
 	usage: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
 	timestamp: Type.Optional(Type.Number()),
 	durationMs: Type.Optional(Type.Number()),

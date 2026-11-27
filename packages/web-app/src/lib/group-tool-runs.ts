@@ -18,6 +18,8 @@ export type ToolRunMessage = {
 	toolCallId?: string;
 	toolName?: string;
 	isError?: boolean;
+	stopReason?: string;
+	errorMessage?: string;
 	durationMs?: number;
 	timestamp?: number;
 };

@@ -1,6 +1,7 @@
 import {
 	type FormEvent,
 	type ReactNode,
+	useId,
 	useLayoutEffect,
 	useRef,
 	useState,
@@ -34,6 +35,7 @@ export function Composer({
 }) {
 	const [value, setValue] = useState("");
 	const [innerSteer, setInnerSteer] = useState(false);
+	const inputId = useId();
 	const areaRef = useRef<HTMLTextAreaElement>(null);
 	const steer = steerOn ?? innerSteer;
 
@@ -47,7 +49,7 @@ export function Composer({
 		const el = areaRef.current;
 		if (!el) return;
 		el.style.height = "auto";
-		el.style.height = `${Math.max(44, el.scrollHeight)}px`;
+		el.style.height = `${Math.max(32, el.scrollHeight)}px`;
 	}, [value]);
 
 	function submit(event?: FormEvent) {
@@ -59,18 +61,60 @@ export function Composer({
 		setSteer(false);
 	}
 
+	const actionButtons = (
+		<>
+			{onExpand ? (
+				<button
+					type="button"
+					aria-label="Expand"
+					onClick={onExpand}
+					className="inline-flex min-h-tap min-w-tap shrink-0 items-center justify-center text-text-muted hover:text-text md:min-h-0 md:min-w-0 md:h-8 md:w-8"
+				>
+					⤢
+				</button>
+			) : null}
+			{steerEnabled ? (
+				<button
+					type="button"
+					aria-pressed={steer}
+					aria-label="Steer"
+					onClick={() => setSteer(!steer)}
+					className={cn(
+						"inline-flex min-h-tap shrink-0 items-center justify-center rounded-full border px-2.5 text-xs md:min-h-0 md:h-8",
+						steer
+							? "border-accent bg-accent text-on-accent"
+							: "border-border text-text-muted hover:text-text",
+					)}
+				>
+					↪ Steer
+				</button>
+			) : null}
+			<Button
+				type="submit"
+				disabled={disabled || !value.trim()}
+				aria-label="Send"
+				className="min-h-tap min-w-tap shrink-0 rounded-full px-0 md:min-h-0 md:min-w-0 md:h-8 md:w-8"
+			>
+				↑
+			</Button>
+		</>
+	);
+
 	return (
 		<form
 			onSubmit={submit}
-			className="m-3 flex flex-col gap-2 rounded-lg border border-border bg-surface p-3"
+			className="mx-3 mb-3 mt-1 flex flex-col gap-1.5 rounded-xl border border-border bg-surface px-3 py-2"
 		>
 			{chips ? (
 				<div className="flex flex-wrap items-center gap-2">{chips}</div>
 			) : null}
-			<div className="flex items-start gap-2">
+			<div className="flex items-end gap-2">
+				<label htmlFor={inputId} className="sr-only">
+					Message
+				</label>
 				<Textarea
+					id={inputId}
 					ref={areaRef}
-					aria-label="Message"
 					placeholder={placeholder}
 					value={value}
 					disabled={disabled}
@@ -80,49 +124,29 @@ export function Composer({
 					onKeyDown={(event) => {
 						if (event.key === "Enter" && !event.shiftKey) {
 							event.preventDefault();
+							if (
+								event.nativeEvent.isComposing ||
+								event.nativeEvent.keyCode === 229
+							) {
+								return;
+							}
 							submit();
 						}
 					}}
-					className="max-h-48 min-h-tap border-0 bg-transparent px-0 py-1"
+					className="max-h-48 min-h-8 flex-1 border-0 bg-transparent px-0 py-1 leading-snug"
 				/>
-				{onExpand ? (
-					<button
-						type="button"
-						aria-label="Expand"
-						onClick={onExpand}
-						className="inline-flex min-h-tap min-w-tap items-center justify-center text-text-muted"
-					>
-						⤢
-					</button>
+				{!leading ? (
+					<div className="flex shrink-0 items-center gap-1.5">
+						{actionButtons}
+					</div>
 				) : null}
 			</div>
-			<div className="flex items-center gap-2">
-				<div className="min-w-0 flex-1">{leading}</div>
-				{steerEnabled ? (
-					<button
-						type="button"
-						aria-pressed={steer}
-						aria-label="Steer"
-						onClick={() => setSteer(!steer)}
-						className={cn(
-							"inline-flex min-h-tap items-center justify-center rounded-full border px-3 text-[length:var(--fs-sm)]",
-							steer
-								? "border-accent bg-accent text-on-accent"
-								: "border-border text-text-muted",
-						)}
-					>
-						↪ Steer
-					</button>
-				) : null}
-				<Button
-					type="submit"
-					disabled={disabled || !value.trim()}
-					aria-label="Send"
-					className="min-h-tap min-w-tap rounded-full px-0"
-				>
-					↑
-				</Button>
-			</div>
+			{leading ? (
+				<div className="flex items-center gap-2">
+					<div className="min-w-0 flex-1">{leading}</div>
+					{actionButtons}
+				</div>
+			) : null}
 		</form>
 	);
 }
