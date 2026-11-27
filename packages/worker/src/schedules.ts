@@ -89,7 +89,11 @@ export const ScheduleTask = defineTask<
 					return;
 				}
 
-				await runtime.sleep(row.nextRun, context);
+				await runtime.sleepUntil(
+					row.nextRun,
+					{ phase: "wait", nextRun: row.nextRun },
+					context,
+				);
 			}
 		},
 
