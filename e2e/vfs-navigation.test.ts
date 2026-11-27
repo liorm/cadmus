@@ -65,18 +65,20 @@ describe("VFS navigation & search tools (ls, find, grep)", () => {
 			"turn.submit",
 			{
 				chatKey: "bot:navigator",
-				text: '[tool:ls {"path":"/.cadmus/skills","depth":2,"details":true}]',
+				text: '[tool:ls {"path":"/.cadmus/skills","depth":3,"details":true}]',
 			},
 			scope,
 		);
-		expect(lsSkills.frame.result?.reply).toContain("deploy-guide/ [dir]");
+		expect(lsSkills.frame.result?.reply).toContain("bot/ [dir]");
+		expect(lsSkills.frame.result?.reply).toContain("family/ [dir]");
+		expect(lsSkills.frame.result?.reply).toContain("bot/deploy-guide/ [dir]");
 		expect(lsSkills.frame.result?.reply).toContain(
-			"deploy-guide/SKILL.md [file,",
+			"bot/deploy-guide/SKILL.md [file,",
 		);
 		expect(lsSkills.frame.result?.reply).toContain(
 			"Deploying Cadmus to Cloudflare",
 		);
-		expect(lsSkills.frame.result?.reply).toContain("sqlite-tips/SKILL.md");
+		expect(lsSkills.frame.result?.reply).toContain("bot/sqlite-tips/SKILL.md");
 
 		// 3. find with glob pattern
 		const findSkills = await sendRpc<{ reply: string }>(
@@ -88,10 +90,10 @@ describe("VFS navigation & search tools (ls, find, grep)", () => {
 			scope,
 		);
 		expect(findSkills.frame.result?.reply).toContain(
-			"/.cadmus/skills/deploy-guide/SKILL.md",
+			"/.cadmus/skills/bot/deploy-guide/SKILL.md",
 		);
 		expect(findSkills.frame.result?.reply).toContain(
-			"/.cadmus/skills/sqlite-tips/SKILL.md",
+			"/.cadmus/skills/bot/sqlite-tips/SKILL.md",
 		);
 		expect(findSkills.frame.result?.reply).not.toContain("/.cadmus/MEMORY.md");
 
@@ -108,7 +110,7 @@ describe("VFS navigation & search tools (ls, find, grep)", () => {
 			"/.cadmus/MEMORY.md:2: - Stack: Cloudflare Workers",
 		);
 		expect(grepAll.frame.result?.reply).toContain(
-			"/.cadmus/skills/deploy-guide/SKILL.md:3: description: Deploying Cadmus to Cloudflare",
+			"/.cadmus/skills/bot/deploy-guide/SKILL.md:3: description: Deploying Cadmus to Cloudflare",
 		);
 		// Must not leak other bot's memory
 		expect(grepAll.frame.result?.reply).not.toContain("watermelon");
@@ -184,12 +186,12 @@ describe("VFS navigation & search tools (ls, find, grep)", () => {
 			"turn.submit",
 			{
 				chatKey: "bot:navigator",
-				text: '[tool:find {"pattern":"/.cadmus/skills/sqlite-tip?/SKILL.md"}]',
+				text: '[tool:find {"pattern":"/.cadmus/skills/bot/sqlite-tip?/SKILL.md"}]',
 			},
 			scope,
 		);
 		expect(findSingle.frame.result?.reply).toContain(
-			"/.cadmus/skills/sqlite-tips/SKILL.md",
+			"/.cadmus/skills/bot/sqlite-tips/SKILL.md",
 		);
 
 		const grepFiltered = await sendRpc<{ reply: string }>(
@@ -201,7 +203,7 @@ describe("VFS navigation & search tools (ls, find, grep)", () => {
 			scope,
 		);
 		expect(grepFiltered.frame.result?.reply).toContain(
-			"/.cadmus/skills/deploy-guide/SKILL.md:8: Check wrangler.jsonc first.",
+			"/.cadmus/skills/bot/deploy-guide/SKILL.md:8: Check wrangler.jsonc first.",
 		);
 
 		const grepBasenameGlob = await sendRpc<{ reply: string }>(
@@ -213,7 +215,7 @@ describe("VFS navigation & search tools (ls, find, grep)", () => {
 			scope,
 		);
 		expect(grepBasenameGlob.frame.result?.reply).toContain(
-			"/.cadmus/skills/sqlite-tips/SKILL.md:7: Prefer indexed lookups over full scans.",
+			"/.cadmus/skills/bot/sqlite-tips/SKILL.md:7: Prefer indexed lookups over full scans.",
 		);
 
 		const noWsFind = await sendRpc<{ reply: string }>(
@@ -346,6 +348,158 @@ describe("VFS navigation & search tools (ls, find, grep)", () => {
 		);
 		expect(wsGrepSingle.frame.result?.reply).toContain(
 			"/workspace/src/hello.ts:1:",
+		);
+	});
+
+	it("shares /.cadmus/skills/family/* across bots while isolating /.cadmus/skills/bot/* and preserving family skills on bot.delete", async () => {
+		const scope = await adminScope("default");
+
+		await sendRpc(
+			"bot.create",
+			{
+				slug: "alpha",
+				name: "Alpha",
+				model: "faux/echo",
+				toolsEnv: { enabled: false },
+			},
+			scope,
+		);
+		await sendRpc(
+			"bot.create",
+			{
+				slug: "beta",
+				name: "Beta",
+				model: "faux/echo",
+				toolsEnv: { enabled: false },
+			},
+			scope,
+		);
+
+		// Alpha writes a bot-scoped skill and a family-scoped skill (with the same slug to verify no collision)
+		const writeBot = await sendRpc<{ reply: string }>(
+			"turn.submit",
+			{
+				chatKey: "bot:alpha",
+				text: `[tool:write ${JSON.stringify({
+					path: "/.cadmus/skills/bot/runbook/SKILL.md",
+					content:
+						"---\nname: runbook\ndescription: Alpha personal runbook\n---\n\nAlpha private step.",
+				})}]`,
+			},
+			scope,
+		);
+		expect(writeBot.frame.result?.reply).toContain(
+			"Successfully wrote to /.cadmus/skills/bot/runbook/SKILL.md",
+		);
+
+		const writeFamily = await sendRpc<{ reply: string }>(
+			"turn.submit",
+			{
+				chatKey: "bot:alpha",
+				text: `[tool:write ${JSON.stringify({
+					path: "/.cadmus/skills/family/runbook/SKILL.md",
+					content:
+						"---\nname: runbook\ndescription: Shared team runbook\ncategory: ops\n---\n\nShared escalation step.",
+				})}]`,
+			},
+			scope,
+		);
+		expect(writeFamily.frame.result?.reply).toContain(
+			"Successfully wrote to /.cadmus/skills/family/runbook/SKILL.md",
+		);
+
+		// Alpha sees both bot and family skills in a single find/grep against /.cadmus/skills
+		const alphaFind = await sendRpc<{ reply: string }>(
+			"turn.submit",
+			{
+				chatKey: "bot:alpha",
+				text: '[tool:find {"pattern":"/.cadmus/skills/**/*.md"}]',
+			},
+			scope,
+		);
+		expect(alphaFind.frame.result?.reply).toContain(
+			"/.cadmus/skills/bot/runbook/SKILL.md",
+		);
+		expect(alphaFind.frame.result?.reply).toContain(
+			"/.cadmus/skills/family/runbook/SKILL.md",
+		);
+
+		const alphaGrep = await sendRpc<{ reply: string }>(
+			"turn.submit",
+			{
+				chatKey: "bot:alpha",
+				text: '[tool:grep {"pattern":"step","path":"/.cadmus/skills"}]',
+			},
+			scope,
+		);
+		expect(alphaGrep.frame.result?.reply).toContain(
+			"/.cadmus/skills/bot/runbook/SKILL.md",
+		);
+		expect(alphaGrep.frame.result?.reply).toContain(
+			"/.cadmus/skills/family/runbook/SKILL.md",
+		);
+
+		// Beta sees the shared family skill but NOT Alpha's bot skill
+		const betaFind = await sendRpc<{ reply: string }>(
+			"turn.submit",
+			{
+				chatKey: "bot:beta",
+				text: '[tool:find {"pattern":"/.cadmus/skills/**/*.md"}]',
+			},
+			scope,
+		);
+		expect(betaFind.frame.result?.reply).toContain(
+			"/.cadmus/skills/family/runbook/SKILL.md",
+		);
+		expect(betaFind.frame.result?.reply).not.toContain(
+			"/.cadmus/skills/bot/runbook/SKILL.md",
+		);
+
+		// Beta can edit and read the shared family skill
+		const betaEdit = await sendRpc<{ reply: string }>(
+			"turn.submit",
+			{
+				chatKey: "bot:beta",
+				text: `[tool:edit ${JSON.stringify({
+					path: "/.cadmus/skills/family/runbook/SKILL.md",
+					edits: [
+						{
+							oldText: "Shared escalation step.",
+							newText: "Shared escalation step (updated by Beta).",
+						},
+					],
+				})}]`,
+			},
+			scope,
+		);
+		expect(betaEdit.frame.result?.reply).toContain("Successfully replaced");
+
+		// Deleting Alpha preserves the shared family skill
+		await sendRpc("bot.delete", { botId: "alpha" }, scope);
+
+		const betaReadAfterDelete = await sendRpc<{ reply: string }>(
+			"turn.submit",
+			{
+				chatKey: "bot:beta",
+				text: '[tool:read {"path":"/.cadmus/skills/family/runbook/SKILL.md"}]',
+			},
+			scope,
+		);
+		expect(betaReadAfterDelete.frame.result?.reply).toContain(
+			"Shared escalation step (updated by Beta).",
+		);
+
+		// Beta can delete the family skill
+		const betaDelete = await sendRpc<{ reply: string }>(
+			"turn.submit",
+			{
+				chatKey: "bot:beta",
+				text: '[tool:delete {"path":"/.cadmus/skills/family/runbook/SKILL.md"}]',
+			},
+			scope,
+		);
+		expect(betaDelete.frame.result?.reply).toContain(
+			"Successfully deleted /.cadmus/skills/family/runbook/SKILL.md",
 		);
 	});
 });

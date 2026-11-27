@@ -7,7 +7,7 @@ import type {
 	HarvestFileDiff,
 	HarvestNote,
 	ScheduleRecord,
-	SkillSearchResult,
+	SkillScope,
 } from "../protocol.js";
 
 export type ConversationRouteKind =
@@ -34,7 +34,7 @@ export type {
 	HarvestFileDiff,
 	HarvestNote,
 	ScheduleRecord,
-	SkillSearchResult,
+	SkillScope,
 };
 
 export interface MemoryDoc {
@@ -87,11 +87,17 @@ export interface BotFileStore {
 		},
 	): SkillDoc;
 	deleteSkill(botId: string, slug: string, expectedVersion?: number): void;
-	searchSkills(
-		botId: string,
-		query: string,
-		category?: string,
-	): SkillSearchResult[];
+
+	listFamilySkills(category?: string): SkillDoc[];
+	getFamilySkill(slug: string): SkillDoc | undefined;
+	updateFamilySkill(input: {
+		slug: string;
+		description: string;
+		category?: string;
+		body: string;
+		expectedVersion?: number;
+	}): SkillDoc;
+	deleteFamilySkill(slug: string, expectedVersion?: number): void;
 
 	snapshotFiles(botId: string): Map<string, string>;
 	diffSnapshots(

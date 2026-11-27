@@ -1,20 +1,22 @@
 import { createTwoFilesPatch } from "diff";
-import type { BotFileStore } from "../store/family-interface.js";
+import type { BotFileStore, SkillScope } from "../store/family-interface.js";
 import { formatSkillMarkdown, SLUG_REGEX } from "../store/sqlite-family.js";
 
 export const CADMUS_VFS_ROOT = "/.cadmus";
 export const SOUL_VFS_PATH = "/.cadmus/SOUL.md";
 export const MEMORY_VFS_PATH = "/.cadmus/MEMORY.md";
 export const SKILLS_VFS_DIR = "/.cadmus/skills";
+export const BOT_SKILLS_VFS_DIR = "/.cadmus/skills/bot";
+export const FAMILY_SKILLS_VFS_DIR = "/.cadmus/skills/family";
 
-export function skillVfsPath(slug: string): string {
-	return `/.cadmus/skills/${slug}/SKILL.md`;
+export function skillVfsPath(scope: SkillScope, slug: string): string {
+	return `/.cadmus/skills/${scope}/${slug}/SKILL.md`;
 }
 
 export type ParsedVirtualPath =
 	| { kind: "soul"; canonicalPath: typeof SOUL_VFS_PATH }
 	| { kind: "memory"; canonicalPath: typeof MEMORY_VFS_PATH }
-	| { kind: "skill"; slug: string; canonicalPath: string }
+	| { kind: "skill"; scope: SkillScope; slug: string; canonicalPath: string }
 	| { kind: "invalid"; rawPath: string; error: string };
 
 /**
@@ -43,9 +45,10 @@ export function parseVirtualPath(rawPath: string): ParsedVirtualPath | null {
 		return { kind: "memory", canonicalPath: MEMORY_VFS_PATH };
 	}
 
-	const skillMatch = /^skills\/([^/]+)\/skill\.md$/i.exec(rest);
-	if (skillMatch?.[1]) {
-		const slug = skillMatch[1];
+	const skillMatch = /^skills\/(bot|family)\/([^/]+)\/skill\.md$/i.exec(rest);
+	if (skillMatch?.[1] && skillMatch[2]) {
+		const scope = skillMatch[1].toLowerCase() as SkillScope;
+		const slug = skillMatch[2];
 		if (!SLUG_REGEX.test(slug)) {
 			return {
 				kind: "invalid",
@@ -55,15 +58,16 @@ export function parseVirtualPath(rawPath: string): ParsedVirtualPath | null {
 		}
 		return {
 			kind: "skill",
+			scope,
 			slug,
-			canonicalPath: skillVfsPath(slug),
+			canonicalPath: skillVfsPath(scope, slug),
 		};
 	}
 
 	return {
 		kind: "invalid",
 		rawPath,
-		error: `Invalid Cadmus virtual path '${rawPath}'. Expected /.cadmus/SOUL.md, /.cadmus/MEMORY.md, or /.cadmus/skills/<slug>/SKILL.md.`,
+		error: `Invalid Cadmus virtual path '${rawPath}'. Expected /.cadmus/SOUL.md, /.cadmus/MEMORY.md, /.cadmus/skills/bot/<slug>/SKILL.md, or /.cadmus/skills/family/<slug>/SKILL.md.`,
 	};
 }
 
@@ -357,7 +361,17 @@ export function collectVirtualFiles(
 	for (const skill of files.listSkills(botId)) {
 		const content = formatSkillMarkdown(skill);
 		entries.push({
-			path: skillVfsPath(skill.slug),
+			path: skillVfsPath("bot", skill.slug),
+			content,
+			bytes: textEncoder.encode(content).byteLength,
+			description: skill.description,
+			...(skill.category ? { category: skill.category } : {}),
+		});
+	}
+	for (const skill of files.listFamilySkills()) {
+		const content = formatSkillMarkdown(skill);
+		entries.push({
+			path: skillVfsPath("family", skill.slug),
 			content,
 			bytes: textEncoder.encode(content).byteLength,
 			description: skill.description,
@@ -389,16 +403,30 @@ function resolveVirtualScopeTarget(
 		return { kind: "file", entry: exactFile };
 	}
 
-	if (lowerScope === CADMUS_VFS_ROOT || lowerScope === SKILLS_VFS_DIR) {
+	if (
+		lowerScope === CADMUS_VFS_ROOT ||
+		lowerScope === SKILLS_VFS_DIR ||
+		lowerScope === BOT_SKILLS_VFS_DIR ||
+		lowerScope === FAMILY_SKILLS_VFS_DIR
+	) {
 		const dirPath =
-			lowerScope === CADMUS_VFS_ROOT ? CADMUS_VFS_ROOT : SKILLS_VFS_DIR;
+			lowerScope === CADMUS_VFS_ROOT
+				? CADMUS_VFS_ROOT
+				: lowerScope === SKILLS_VFS_DIR
+					? SKILLS_VFS_DIR
+					: lowerScope === BOT_SKILLS_VFS_DIR
+						? BOT_SKILLS_VFS_DIR
+						: FAMILY_SKILLS_VFS_DIR;
 		const matching = entries.filter((e) => e.path.startsWith(`${dirPath}/`));
 		return { kind: "dir", dirPath, entries: matching };
 	}
 
-	const skillDirMatch = /^\/\.cadmus\/skills\/([^/]+)$/i.exec(scope);
-	if (skillDirMatch?.[1]) {
-		const candidateDir = `${SKILLS_VFS_DIR}/${skillDirMatch[1]}`;
+	const skillDirMatch = /^\/\.cadmus\/skills\/(bot|family)\/([^/]+)$/i.exec(
+		scope,
+	);
+	if (skillDirMatch?.[1] && skillDirMatch[2]) {
+		const skillScope = skillDirMatch[1].toLowerCase();
+		const candidateDir = `${SKILLS_VFS_DIR}/${skillScope}/${skillDirMatch[2]}`;
 		const matching = entries.filter((e) =>
 			e.path.startsWith(`${candidateDir}/`),
 		);
@@ -444,6 +472,17 @@ export function listVirtualEntries(
 	if (resolved.dirPath === CADMUS_VFS_ROOT) {
 		dirs.add("skills");
 		rows.set("skills/", { isDir: true });
+		if (depth >= 2) {
+			dirs.add("skills/bot");
+			rows.set("skills/bot/", { isDir: true });
+			dirs.add("skills/family");
+			rows.set("skills/family/", { isDir: true });
+		}
+	} else if (resolved.dirPath === SKILLS_VFS_DIR) {
+		dirs.add("bot");
+		rows.set("bot/", { isDir: true });
+		dirs.add("family");
+		rows.set("family/", { isDir: true });
 	}
 
 	for (const entry of resolved.entries) {

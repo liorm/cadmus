@@ -276,7 +276,6 @@ const GOLDEN_COMMAND_GRANTS: Record<string, string> = {
 	"file.list": "bot.read",
 	"file.read": "bot.read",
 	"file.write": "files.write",
-	"skill.search": "bot.read",
 	"schedule.create": "schedule.write",
 	"schedule.delete": "schedule.write",
 	"schedule.list": "bot.read",

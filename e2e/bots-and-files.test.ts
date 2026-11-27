@@ -7,10 +7,10 @@ import {
 	useWorkerFixture,
 } from "./helpers.js";
 
-describe("Bots, Virtual Files (/.cadmus/SOUL.md, /.cadmus/MEMORY.md, /.cadmus/skills/<slug>/SKILL.md), CAS & Tool Gate", () => {
+describe("Bots, Virtual Files (/.cadmus/SOUL.md, /.cadmus/MEMORY.md, /.cadmus/skills/{bot,family}/<slug>/SKILL.md), CAS & Tool Gate", () => {
 	useWorkerFixture();
 
-	it("manages bot lifecycle and enforces CAS, size limits, and frontmatter rules on /.cadmus/MEMORY.md and /.cadmus/skills/<slug>/SKILL.md", async () => {
+	it("manages bot lifecycle and enforces CAS, size limits, and frontmatter rules on /.cadmus/MEMORY.md and /.cadmus/skills/{bot,family}/<slug>/SKILL.md", async () => {
 		const scope = await adminScope("default");
 
 		// 1. Create bot with initial soul, memory, and skills
@@ -37,7 +37,7 @@ describe("Bots, Virtual Files (/.cadmus/SOUL.md, /.cadmus/MEMORY.md, /.cadmus/sk
 		expect(createRes.status).toBe(200);
 		expect(createRes.frame.result?.bot.id).toBe("scribe");
 
-		// 2. Read /.cadmus/SOUL.md, /.cadmus/MEMORY.md, and /.cadmus/skills/architecture/SKILL.md
+		// 2. Read /.cadmus/SOUL.md, /.cadmus/MEMORY.md, and /.cadmus/skills/bot/architecture/SKILL.md
 		const soulRead = await sendRpc<{ content: string }>(
 			"file.read",
 			{ botId: "scribe", path: "/.cadmus/SOUL.md" },
@@ -57,17 +57,28 @@ describe("Bots, Virtual Files (/.cadmus/SOUL.md, /.cadmus/MEMORY.md, /.cadmus/sk
 
 		const kRead = await sendRpc<{
 			version: number;
+			scope?: string;
 			description: string;
 			category?: string;
 			body: string;
 		}>(
 			"file.read",
-			{ botId: "scribe", path: "/.cadmus/skills/architecture/SKILL.md" },
+			{ botId: "scribe", path: "/.cadmus/skills/bot/architecture/SKILL.md" },
 			scope,
 		);
 		expect(kRead.frame.result?.version).toBe(1);
+		expect(kRead.frame.result?.scope).toBe("bot");
 		expect(kRead.frame.result?.category).toBe("design");
 		expect(kRead.frame.result?.body).toContain("# Cadmus V2");
+
+		// Legacy flat path is rejected
+		const legacyRead = await sendRpc(
+			"file.read",
+			{ botId: "scribe", path: "/.cadmus/skills/architecture/SKILL.md" },
+			scope,
+		);
+		expect(legacyRead.status).toBe(400);
+		expect(legacyRead.frame.error?.code).toBe("invalid_path");
 
 		// 3. Enforce CAS on /.cadmus/MEMORY.md: stale expectedVersion (0 instead of 1) must fail with cas_conflict
 		const staleMem = await sendRpc(
@@ -123,12 +134,12 @@ describe("Bots, Virtual Files (/.cadmus/SOUL.md, /.cadmus/MEMORY.md, /.cadmus/sk
 		);
 		expect(hugeMem.status).toBe(400);
 
-		// 6. Enforce CAS on /.cadmus/skills/architecture/SKILL.md
+		// 6. Enforce CAS on /.cadmus/skills/bot/architecture/SKILL.md
 		const staleKnow = await sendRpc(
 			"file.write",
 			{
 				botId: "scribe",
-				path: "/.cadmus/skills/architecture/SKILL.md",
+				path: "/.cadmus/skills/bot/architecture/SKILL.md",
 				description: "Updated desc",
 				body: "New body",
 				expectedVersion: 0,
@@ -138,11 +149,11 @@ describe("Bots, Virtual Files (/.cadmus/SOUL.md, /.cadmus/MEMORY.md, /.cadmus/sk
 		expect(staleKnow.status).toBe(400);
 		expect(staleKnow.frame.error?.code).toBe("cas_conflict");
 
-		const goodKnow = await sendRpc<{ version: number }>(
+		const goodKnow = await sendRpc<{ version: number; scope?: string }>(
 			"file.write",
 			{
 				botId: "scribe",
-				path: "/.cadmus/skills/architecture/SKILL.md",
+				path: "/.cadmus/skills/bot/architecture/SKILL.md",
 				description: "Updated architecture overview",
 				category: "design",
 				body: "# Cadmus V2\nUpdated body with Durable Objects.",
@@ -152,18 +163,72 @@ describe("Bots, Virtual Files (/.cadmus/SOUL.md, /.cadmus/MEMORY.md, /.cadmus/sk
 		);
 		expect(goodKnow.status).toBe(200);
 		expect(goodKnow.frame.result?.version).toBe(2);
+		expect(goodKnow.frame.result?.scope).toBe("bot");
 
-		// 7. Search skills
-		const searchRes = await sendRpc<{
-			results: { slug: string; version: number; snippet: string }[];
-		}>(
-			"skill.search",
-			{ botId: "scribe", query: "Durable Objects", category: "design" },
+		// 7. Family skills: write/read/list/CAS/delete without botId, coexisting with same slug in bot scope
+		const famWrite = await sendRpc<{ version: number; scope?: string }>(
+			"file.write",
+			{
+				path: "/.cadmus/skills/family/architecture/SKILL.md",
+				description: "Shared family architecture conventions",
+				category: "design",
+				body: "# Family Architecture\nShared across all bots.",
+			},
 			scope,
 		);
-		expect(searchRes.status).toBe(200);
-		expect(searchRes.frame.result?.results).toHaveLength(1);
-		expect(searchRes.frame.result?.results[0]?.slug).toBe("architecture");
+		expect(famWrite.status).toBe(200);
+		expect(famWrite.frame.result?.version).toBe(1);
+		expect(famWrite.frame.result?.scope).toBe("family");
+
+		const staleFam = await sendRpc(
+			"file.write",
+			{
+				path: "/.cadmus/skills/family/architecture/SKILL.md",
+				description: "Stale update",
+				body: "stale",
+				expectedVersion: 0,
+			},
+			scope,
+		);
+		expect(staleFam.status).toBe(400);
+		expect(staleFam.frame.error?.code).toBe("cas_conflict");
+
+		const famListOnly = await sendRpc<{
+			files: Array<{ path: string; scope?: string }>;
+		}>("file.list", {}, scope);
+		expect(famListOnly.status).toBe(200);
+		expect(famListOnly.frame.result?.files.map((f) => f.path)).toEqual([
+			"/.cadmus/skills/family/architecture/SKILL.md",
+		]);
+
+		const botAndFamList = await sendRpc<{
+			files: Array<{ path: string; scope?: string }>;
+		}>("file.list", { botId: "scribe", category: "design" }, scope);
+		expect(botAndFamList.frame.result?.files.map((f) => f.path)).toContain(
+			"/.cadmus/skills/bot/architecture/SKILL.md",
+		);
+		expect(botAndFamList.frame.result?.files.map((f) => f.path)).toContain(
+			"/.cadmus/skills/family/architecture/SKILL.md",
+		);
+
+		const famRead = await sendRpc<{ scope?: string; body?: string }>(
+			"file.read",
+			{ path: "/.cadmus/skills/family/architecture/SKILL.md" },
+			scope,
+		);
+		expect(famRead.status).toBe(200);
+		expect(famRead.frame.result?.scope).toBe("family");
+		expect(famRead.frame.result?.body).toContain("Shared across all bots.");
+
+		const famDel = await sendRpc<{ deleted: string }>(
+			"file.delete",
+			{ path: "/.cadmus/skills/family/architecture/SKILL.md" },
+			scope,
+		);
+		expect(famDel.status).toBe(200);
+		expect(famDel.frame.result?.deleted).toBe(
+			"/.cadmus/skills/family/architecture/SKILL.md",
+		);
 	});
 
 	it("executes VFS read/write/edit/delete on /.cadmus/* without tools-env, blocks SOUL.md writes, errors on workspace paths, and enforces bot.tools", async () => {
@@ -250,13 +315,13 @@ describe("Bots, Virtual Files (/.cadmus/SOUL.md, /.cadmus/MEMORY.md, /.cadmus/sk
 			"Allowed memory line\nEdited second line",
 		);
 
-		// 3. Write, read, edit, and delete a skill at /.cadmus/skills/deploy/SKILL.md
+		// 3. Write, read, edit, and delete a skill at /.cadmus/skills/bot/deploy/SKILL.md
 		const writeSkill = await sendRpc<{ reply: string }>(
 			"turn.submit",
 			{
 				chatKey: "bot:reader-only",
 				text: `Create skill [tool:write ${JSON.stringify({
-					path: "/.cadmus/skills/deploy/SKILL.md",
+					path: "/.cadmus/skills/bot/deploy/SKILL.md",
 					content:
 						"---\nname: deploy\ndescription: How to deploy\ncategory: ops\n---\n\nRun bun run deploy.\n",
 				})}]`,
@@ -264,14 +329,14 @@ describe("Bots, Virtual Files (/.cadmus/SOUL.md, /.cadmus/MEMORY.md, /.cadmus/sk
 			scope,
 		);
 		expect(writeSkill.frame.result?.reply).toContain(
-			"Successfully wrote to /.cadmus/skills/deploy/SKILL.md",
+			"Successfully wrote to /.cadmus/skills/bot/deploy/SKILL.md",
 		);
 
 		const readSkill = await sendRpc<{ reply: string }>(
 			"turn.submit",
 			{
 				chatKey: "bot:reader-only",
-				text: 'Read skill [tool:read {"path":"/.cadmus/skills/deploy/SKILL.md"}]',
+				text: 'Read skill [tool:read {"path":"/.cadmus/skills/bot/deploy/SKILL.md"}]',
 			},
 			scope,
 		);
@@ -282,7 +347,7 @@ describe("Bots, Virtual Files (/.cadmus/SOUL.md, /.cadmus/MEMORY.md, /.cadmus/sk
 			{
 				chatKey: "bot:reader-only",
 				text: `Edit skill [tool:edit ${JSON.stringify({
-					path: "/.cadmus/skills/deploy/SKILL.md",
+					path: "/.cadmus/skills/bot/deploy/SKILL.md",
 					edits: [
 						{
 							oldText: "Run bun run deploy.",
@@ -299,12 +364,12 @@ describe("Bots, Virtual Files (/.cadmus/SOUL.md, /.cadmus/MEMORY.md, /.cadmus/sk
 			"turn.submit",
 			{
 				chatKey: "bot:reader-only",
-				text: 'Delete skill [tool:delete {"path":"/.cadmus/skills/deploy/SKILL.md"}]',
+				text: 'Delete skill [tool:delete {"path":"/.cadmus/skills/bot/deploy/SKILL.md"}]',
 			},
 			scope,
 		);
 		expect(deleteSkill.frame.result?.reply).toContain(
-			"Successfully deleted /.cadmus/skills/deploy/SKILL.md",
+			"Successfully deleted /.cadmus/skills/bot/deploy/SKILL.md",
 		);
 
 		// 4. /.cadmus/SOUL.md is read-only for LLM tools

@@ -28,7 +28,6 @@ import {
 	type ScheduleRecord,
 	type ScheduleStore,
 	type SkillDoc,
-	type SkillSearchResult,
 	type TaskLoopState,
 	type TaskStore,
 } from "./family-interface.js";
@@ -472,7 +471,7 @@ class SqliteBotFileStore implements BotFileStore {
 			actualVersion !== input.expectedVersion
 		) {
 			throw new CasConflictError(
-				`/.cadmus/skills/${input.slug}/SKILL.md`,
+				`/.cadmus/skills/bot/${input.slug}/SKILL.md`,
 				input.expectedVersion,
 				actualVersion,
 			);
@@ -522,7 +521,7 @@ class SqliteBotFileStore implements BotFileStore {
 		}
 		if (expectedVersion !== undefined && existing.version !== expectedVersion) {
 			throw new CasConflictError(
-				`/.cadmus/skills/${slug}/SKILL.md`,
+				`/.cadmus/skills/bot/${slug}/SKILL.md`,
 				expectedVersion,
 				existing.version,
 			);
@@ -534,56 +533,133 @@ class SqliteBotFileStore implements BotFileStore {
 		);
 	}
 
-	searchSkills(
-		botId: string,
-		query: string,
-		category?: string,
-	): SkillSearchResult[] {
-		const q = query.trim().toLowerCase();
-		const docs = this.listSkills(botId, category);
-		const results: SkillSearchResult[] = [];
-
-		for (const doc of docs) {
-			if (!q) {
-				results.push({
-					slug: doc.slug,
-					description: doc.description,
-					category: doc.category,
-					version: doc.version,
-					snippet: doc.body.slice(0, 200),
-				});
-				continue;
-			}
-
-			const slugMatch = doc.slug.toLowerCase().includes(q);
-			const descMatch = doc.description.toLowerCase().includes(q);
-			const catMatch = doc.category
-				? doc.category.toLowerCase().includes(q)
-				: false;
-			const bodyLower = doc.body.toLowerCase();
-			const bodyIdx = bodyLower.indexOf(q);
-
-			if (slugMatch || descMatch || catMatch || bodyIdx !== -1) {
-				let snippet = doc.body.slice(0, 200);
-				if (bodyIdx !== -1) {
-					const start = Math.max(0, bodyIdx - 60);
-					const end = Math.min(doc.body.length, bodyIdx + q.length + 140);
-					snippet =
-						(start > 0 ? "..." : "") +
-						doc.body.slice(start, end) +
-						(end < doc.body.length ? "..." : "");
-				}
-				results.push({
-					slug: doc.slug,
-					description: doc.description,
-					category: doc.category,
-					version: doc.version,
-					snippet,
-				});
-			}
+	listFamilySkills(category?: string): SkillDoc[] {
+		if (category !== undefined && category !== "") {
+			const rows = this.sql
+				.exec<{
+					slug: string;
+					description: string;
+					category: string | null;
+					version: number;
+					body: string;
+					updated_at: number;
+				}>(
+					`SELECT slug, description, category, version, body, updated_at
+           FROM cadmus_family_skills
+           WHERE category = ?
+           ORDER BY slug ASC`,
+					category,
+				)
+				.toArray();
+			return rows.map((r) => this.mapSkill(r));
 		}
 
-		return results;
+		const rows = this.sql
+			.exec<{
+				slug: string;
+				description: string;
+				category: string | null;
+				version: number;
+				body: string;
+				updated_at: number;
+			}>(
+				`SELECT slug, description, category, version, body, updated_at
+         FROM cadmus_family_skills
+         ORDER BY slug ASC`,
+			)
+			.toArray();
+		return rows.map((r) => this.mapSkill(r));
+	}
+
+	getFamilySkill(slug: string): SkillDoc | undefined {
+		const rows = this.sql
+			.exec<{
+				slug: string;
+				description: string;
+				category: string | null;
+				version: number;
+				body: string;
+				updated_at: number;
+			}>(
+				`SELECT slug, description, category, version, body, updated_at
+         FROM cadmus_family_skills
+         WHERE slug = ?`,
+				slug,
+			)
+			.toArray();
+		return rows[0] ? this.mapSkill(rows[0]) : undefined;
+	}
+
+	updateFamilySkill(input: {
+		slug: string;
+		description: string;
+		category?: string;
+		body: string;
+		expectedVersion?: number;
+	}): SkillDoc {
+		validateSkillMetadata(input.slug, input.description, input.category);
+		const existing = this.getFamilySkill(input.slug);
+		const actualVersion = existing ? existing.version : 0;
+		if (
+			input.expectedVersion !== undefined &&
+			actualVersion !== input.expectedVersion
+		) {
+			throw new CasConflictError(
+				`/.cadmus/skills/family/${input.slug}/SKILL.md`,
+				input.expectedVersion,
+				actualVersion,
+			);
+		}
+		const nextVersion = actualVersion + 1;
+		const now = Date.now();
+		const categoryVal =
+			input.category !== undefined && input.category.trim() !== ""
+				? input.category.trim()
+				: null;
+
+		this.sql.exec(
+			`INSERT INTO cadmus_family_skills (slug, description, category, version, body, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT(slug) DO UPDATE SET
+         description = excluded.description,
+         category = excluded.category,
+         version = excluded.version,
+         body = excluded.body,
+         updated_at = excluded.updated_at`,
+			input.slug,
+			input.description.trim(),
+			categoryVal,
+			nextVersion,
+			input.body,
+			now,
+		);
+
+		const doc: SkillDoc = {
+			slug: input.slug,
+			description: input.description.trim(),
+			version: nextVersion,
+			body: input.body,
+			updatedAt: now,
+		};
+		if (categoryVal !== null) {
+			doc.category = categoryVal;
+		}
+		return doc;
+	}
+
+	deleteFamilySkill(slug: string, expectedVersion?: number): void {
+		const existing = this.getFamilySkill(slug);
+		if (!existing) {
+			throw new Error(`Family skill '${slug}' not found`);
+		}
+		if (expectedVersion !== undefined && existing.version !== expectedVersion) {
+			throw new CasConflictError(
+				`/.cadmus/skills/family/${slug}/SKILL.md`,
+				expectedVersion,
+				existing.version,
+			);
+		}
+		this.sql.exec(`DELETE FROM cadmus_family_skills WHERE slug = ?`, slug);
 	}
 
 	snapshotFiles(botId: string): Map<string, string> {
@@ -598,7 +674,10 @@ class SqliteBotFileStore implements BotFileStore {
 		}
 		const skillsList = this.listSkills(botId);
 		for (const doc of skillsList) {
-			map.set(`/.cadmus/skills/${doc.slug}/SKILL.md`, formatSkillMarkdown(doc));
+			map.set(
+				`/.cadmus/skills/bot/${doc.slug}/SKILL.md`,
+				formatSkillMarkdown(doc),
+			);
 		}
 		return map;
 	}
@@ -1816,6 +1895,18 @@ export class SqliteFamilyStore implements FamilyStore {
 
       CREATE INDEX IF NOT EXISTS idx_cadmus_bot_skills_cat
         ON cadmus_bot_skills(bot_id, category);
+
+      CREATE TABLE IF NOT EXISTS cadmus_family_skills (
+        slug TEXT PRIMARY KEY,
+        description TEXT NOT NULL,
+        category TEXT,
+        version INTEGER NOT NULL,
+        body TEXT NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_cadmus_family_skills_cat
+        ON cadmus_family_skills(category);
 
       CREATE TABLE IF NOT EXISTS cadmus_chats (
         key TEXT PRIMARY KEY,

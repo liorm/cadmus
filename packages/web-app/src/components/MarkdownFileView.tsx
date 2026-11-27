@@ -33,19 +33,19 @@ export function MarkdownFileView({
 	title,
 	onDelete,
 }: {
-	botId: string;
+	botId?: string;
 	path: string;
 	title: string;
 	onDelete?: () => void;
 }) {
 	const { client } = useCadmus();
-	const scope = `${botId}:${path}`;
+	const scope = `${botId ?? "family"}:${path}`;
 	const loaded = useScopedResource(scope, async () => {
 		const res = await client.callRpc<{
 			content?: string;
 			text?: string;
 			version?: number;
-		}>("file.read", { botId, path });
+		}>("file.read", { ...(botId ? { botId } : {}), path });
 		if (!res.ok) throw new Error(res.error?.message ?? "Could not load file");
 		return {
 			text: res.result?.content ?? res.result?.text ?? "",
@@ -88,7 +88,7 @@ export function MarkdownFileView({
 	async function save() {
 		const draft = view.draft;
 		const res = await client.callRpc<{ version?: number }>("file.write", {
-			botId,
+			...(botId ? { botId } : {}),
 			path,
 			content: draft,
 			...(view.version !== undefined ? { expectedVersion: view.version } : {}),

@@ -2700,9 +2700,6 @@
 						"$ref": "#/components/schemas/FileDeleteCommand"
 					},
 					{
-						"$ref": "#/components/schemas/SkillSearchCommand"
-					},
-					{
 						"$ref": "#/components/schemas/ScheduleCreateCommand"
 					},
 					{
@@ -3082,17 +3079,17 @@
 					},
 					"payload": {
 						"type": "object",
-						"required": ["botId", "path"],
+						"required": ["path"],
 						"properties": {
 							"botId": {
 								"type": "string",
 								"minLength": 1,
-								"description": "Bot identifier owning the file."
+								"description": "Bot identifier owning the file. Required for bot-scoped skills; optional for family skills (/.cadmus/skills/family/<slug>/SKILL.md)."
 							},
 							"path": {
 								"type": "string",
 								"minLength": 1,
-								"description": "Virtual skill file path to delete."
+								"description": "Virtual skill file path to delete (e.g. '/.cadmus/skills/bot/<slug>/SKILL.md' or '/.cadmus/skills/family/<slug>/SKILL.md')."
 							},
 							"expectedVersion": {
 								"type": "number",
@@ -3111,7 +3108,7 @@
 			},
 			"FileListCommand": {
 				"type": "object",
-				"required": ["id", "type", "payload"],
+				"required": ["id", "type"],
 				"properties": {
 					"id": {
 						"type": "string",
@@ -3125,12 +3122,11 @@
 					},
 					"payload": {
 						"type": "object",
-						"required": ["botId"],
 						"properties": {
 							"botId": {
 								"type": "string",
 								"minLength": 1,
-								"description": "Bot identifier whose virtual files to list."
+								"description": "Optional bot identifier whose virtual files (plus shared family skills) to list. Omit to list family skills only."
 							},
 							"category": {
 								"type": "string",
@@ -3142,7 +3138,7 @@
 				},
 				"readOnly": true,
 				"grant": "bot.read",
-				"description": "List virtual files (/.cadmus/SOUL.md, /.cadmus/MEMORY.md, and /.cadmus/skills/<slug>/SKILL.md) associated with a bot."
+				"description": "List virtual files (/.cadmus/SOUL.md, /.cadmus/MEMORY.md, /.cadmus/skills/bot/<slug>/SKILL.md, and /.cadmus/skills/family/<slug>/SKILL.md). Omit botId to list family skills only."
 			},
 			"FileReadCommand": {
 				"type": "object",
@@ -3160,16 +3156,15 @@
 					},
 					"payload": {
 						"type": "object",
-						"required": ["botId"],
 						"properties": {
 							"botId": {
 								"type": "string",
 								"minLength": 1,
-								"description": "Bot identifier whose file to read."
+								"description": "Bot identifier whose file to read. Required for bot-scoped paths; optional for family skills (/.cadmus/skills/family/<slug>/SKILL.md)."
 							},
 							"path": {
 								"type": "string",
-								"description": "Virtual file path to read (e.g. '/.cadmus/SOUL.md', '/.cadmus/MEMORY.md', '/.cadmus/skills/topic/SKILL.md'). If omitted, lists all files."
+								"description": "Virtual file path to read (e.g. '/.cadmus/SOUL.md', '/.cadmus/MEMORY.md', '/.cadmus/skills/bot/topic/SKILL.md', '/.cadmus/skills/family/shared/SKILL.md'). If omitted, lists files."
 							}
 						},
 						"description": "Parameters identifying the file to read."
@@ -3195,17 +3190,17 @@
 					},
 					"payload": {
 						"type": "object",
-						"required": ["botId", "path"],
+						"required": ["path"],
 						"properties": {
 							"botId": {
 								"type": "string",
 								"minLength": 1,
-								"description": "Bot identifier owning the file."
+								"description": "Bot identifier owning the file. Required for bot-scoped paths; optional for family skills (/.cadmus/skills/family/<slug>/SKILL.md)."
 							},
 							"path": {
 								"type": "string",
 								"minLength": 1,
-								"description": "Virtual file path (e.g. '/.cadmus/SOUL.md', '/.cadmus/MEMORY.md', '/.cadmus/skills/topic/SKILL.md')."
+								"description": "Virtual file path (e.g. '/.cadmus/SOUL.md', '/.cadmus/MEMORY.md', '/.cadmus/skills/bot/topic/SKILL.md', '/.cadmus/skills/family/shared/SKILL.md')."
 							},
 							"content": {
 								"type": "string",
@@ -3252,7 +3247,7 @@
 				"properties": {
 					"path": {
 						"type": "string",
-						"description": "Virtual file path modified (e.g. '/.cadmus/MEMORY.md', '/.cadmus/skills/topic/SKILL.md')."
+						"description": "Virtual file path modified (e.g. '/.cadmus/MEMORY.md', '/.cadmus/skills/bot/topic/SKILL.md')."
 					},
 					"diff": {
 						"type": "string",
@@ -3905,45 +3900,6 @@
 					}
 				],
 				"description": "Complete union of all possible frames sent from server to client over WebSocket, SSE, or RPC."
-			},
-			"SkillSearchCommand": {
-				"type": "object",
-				"required": ["id", "type", "payload"],
-				"properties": {
-					"id": {
-						"type": "string",
-						"minLength": 1,
-						"description": "Non-empty unique correlation identifier for this command request."
-					},
-					"type": {
-						"type": "string",
-						"const": "skill.search",
-						"description": "Command type identifier."
-					},
-					"payload": {
-						"type": "object",
-						"required": ["botId"],
-						"properties": {
-							"botId": {
-								"type": "string",
-								"minLength": 1,
-								"description": "Bot identifier whose skills to search."
-							},
-							"query": {
-								"type": "string",
-								"description": "Keyword or substring search query."
-							},
-							"category": {
-								"type": "string",
-								"description": "Optional category filter tag."
-							}
-						},
-						"description": "Parameters for searching skills."
-					}
-				},
-				"readOnly": true,
-				"grant": "bot.read",
-				"description": "Search across skills for a bot using keyword and category filters."
 			},
 			"SystemAccountsCreateCommand": {
 				"type": "object",

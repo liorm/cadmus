@@ -17,7 +17,7 @@ import type { HarvestNote, ScheduleRecord } from "./protocol.js";
 export const HARVEST_TOOLS = ["read", "write", "edit", "delete"] as const;
 
 export const DEFAULT_HARVEST_PROMPT =
-	"[HARVEST] Review the conversation since the last harvest watermark. Extract durable facts, preferences, or reusable skills and persist them using read, edit, write, or delete on /.cadmus/MEMORY.md and /.cadmus/skills/<slug>/SKILL.md (with YAML frontmatter). If nothing durable was added, do not modify any files.";
+	"[HARVEST] Review the conversation since the last harvest watermark. Extract durable facts, preferences, or reusable bot-specific skills and persist them using read, edit, write, or delete on /.cadmus/MEMORY.md and /.cadmus/skills/bot/<slug>/SKILL.md (with YAML frontmatter). Do not modify family skills (/.cadmus/skills/family/*) during harvest. If nothing durable was added, do not modify any files.";
 
 export type ScheduleCheckpoint =
 	| { phase: "wait"; nextRun?: number }

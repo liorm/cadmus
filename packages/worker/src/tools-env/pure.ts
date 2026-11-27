@@ -300,7 +300,7 @@ export function chooseToolsEnvIdentity(
 		const workspaceGuide = bashOffered
 			? `Use ${bashTool}, ${readTool}, ${writeTool}, and ${editTool} for this workspace. Code runs in the workspace via ${bashTool}, and code.execute is disabled.`
 			: `Use ${readTool}, ${writeTool}, and ${editTool} for this workspace.`;
-		const vfsGuide = `Cadmus virtual files (/.cadmus/SOUL.md, /.cadmus/MEMORY.md, and /.cadmus/skills/<slug>/SKILL.md) live in the database, NOT in the workspace—manage them with ${readTool}, ${writeTool}, ${editTool}, and ${deleteTool} on /.cadmus/* paths${bashOffered ? `, never with ${bashTool}` : ""}.`;
+		const vfsGuide = `Cadmus virtual files (/.cadmus/SOUL.md, /.cadmus/MEMORY.md, /.cadmus/skills/bot/<slug>/SKILL.md, and /.cadmus/skills/family/<slug>/SKILL.md) live in the database, NOT in the workspace—manage them with ${readTool}, ${writeTool}, ${editTool}, and ${deleteTool} on /.cadmus/* paths${bashOffered ? `, never with ${bashTool}` : ""}.`;
 		return {
 			name: "tools-env",
 			text: `Tools env: ${input.kind ?? "just-bash"} (${input.envId ?? ""}), ${pin}, ${persist} workspace at ${root}. Enabled by ${input.enabledSource}, binding from ${input.bindingSource}. The namespace is ${scope}. ${shared} ${confine} ${botDefault}${workspaceGuide} ${vfsGuide}`,
