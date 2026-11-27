@@ -27,5 +27,10 @@ describe("allowlistCount", () => {
 		const xaiCount = allowlistCount(undefined, "xai/grok-2");
 		expect(xaiCount.total).toBe(CATALOG_TOOL_NAMES.length);
 		expect(xaiCount.allowed).toBe(CATALOG_TOOL_NAMES.length);
+
+		const googleCount = allowlistCount(undefined, "google/gemini-4-hydrogen");
+		// Only x.search is omitted for google (web.search and code.execute are supported)
+		expect(googleCount.total).toBe(CATALOG_TOOL_NAMES.length - 1);
+		expect(googleCount.allowed).toBe(CATALOG_TOOL_NAMES.length - 1);
 	});
 });

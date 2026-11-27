@@ -3475,6 +3475,7 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 			(bot.tools === undefined || bot.tools.includes(CODE_EXECUTE_TOOL_NAME)) &&
 			(effectiveProvider === null ||
 				effectiveProvider === "xai" ||
+				effectiveProvider === "google" ||
 				effectiveProvider === "faux");
 		const { resolved, def } = await this.toolsEnvController.resolvedFor(
 			bot,

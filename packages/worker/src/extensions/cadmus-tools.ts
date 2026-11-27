@@ -47,7 +47,7 @@ export interface CadmusExtensionDescriptor {
 	allowlistPolicy: ExtensionAllowlistPolicy;
 	isActive?: (ctx: ExtensionActivationContext) => boolean;
 	nativeProviderTools?: Readonly<
-		Record<string, Readonly<Record<string, { type: string }>>>
+		Record<string, Readonly<Record<string, Readonly<Record<string, unknown>>>>>
 	>;
 }
 
@@ -86,8 +86,11 @@ export function cadmusDefaultExtensions(): Extension[] {
  */
 export function collectNativeProviderTools(
 	descriptors: readonly CadmusExtensionDescriptor[] = cadmusExtensionDescriptors(),
-): Record<string, Record<string, { type: string }>> {
-	const merged: Record<string, Record<string, { type: string }>> = {};
+): Record<string, Record<string, Readonly<Record<string, unknown>>>> {
+	const merged: Record<
+		string,
+		Record<string, Readonly<Record<string, unknown>>>
+	> = {};
 	for (const desc of descriptors) {
 		if (!desc.nativeProviderTools) continue;
 		for (const [provider, tools] of Object.entries(desc.nativeProviderTools)) {

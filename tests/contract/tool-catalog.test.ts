@@ -74,6 +74,12 @@ describe("available allowlist", () => {
 		expect(xaiNames).toContain("web.search");
 		expect(xaiNames).toContain("x.search");
 		expect(xaiNames).toContain("code.execute");
+
+		const googleNames = availableAllowlistNames("google/gemini-4-hydrogen");
+		expect(googleNames).toContain(BASH_TOOL_NAME);
+		expect(googleNames).toContain("web.search");
+		expect(googleNames).not.toContain("x.search");
+		expect(googleNames).toContain("code.execute");
 	});
 });
 

@@ -10,7 +10,8 @@ export function xaiToolsExtension() {
 		tools: [
 			defineTool({
 				name: "web.search",
-				description: "Provider-native web search tool (available on xAI).",
+				description:
+					"Provider-native web search tool (available on xAI and Google).",
 				parameters: Type.Object({
 					query: Type.Optional(Type.String()),
 				}),
@@ -38,7 +39,7 @@ export function xaiToolsExtension() {
 			defineTool({
 				name: "code.execute",
 				description:
-					"Provider-native code execution sandbox (available on xAI).",
+					"Provider-native code execution sandbox (available on xAI and Google).",
 				parameters: Type.Object({
 					code: Type.Optional(Type.String()),
 				}),
@@ -61,12 +62,17 @@ export function xaiToolsExtensionDescriptor(): CadmusExtensionDescriptor {
 		isActive: (ctx) =>
 			ctx.provider === null ||
 			ctx.provider === "xai" ||
+			ctx.provider === "google" ||
 			ctx.provider === "faux",
 		nativeProviderTools: {
 			xai: {
 				"web.search": { type: "web_search" },
 				"x.search": { type: "x_search" },
 				"code.execute": { type: "code_interpreter" },
+			},
+			google: {
+				"web.search": { googleSearch: {} },
+				"code.execute": { codeExecution: {} },
 			},
 		},
 	};

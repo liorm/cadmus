@@ -158,7 +158,7 @@ export const TOOL_CATALOG: readonly ToolCatalogEntry[] = [
 		name: "web.search",
 		category: "web",
 		readOnly: true,
-		providers: ["xai", "faux"],
+		providers: ["xai", "google", "faux"],
 	},
 	{
 		name: "x.search",
@@ -171,7 +171,7 @@ export const TOOL_CATALOG: readonly ToolCatalogEntry[] = [
 		category: "web",
 		readOnly: false,
 		suppressedByWorkspaceEnv: true,
-		providers: ["xai", "faux"],
+		providers: ["xai", "google", "faux"],
 	},
 	{ name: BASH_TOOL_NAME, category: "coding", readOnly: false },
 ];
