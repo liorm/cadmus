@@ -64,7 +64,7 @@ function capturesFor(sink: ProviderToolCapture[], botId: string): string[][] {
 		.map((entry) => entry.tools);
 }
 
-const READS = ["read"];
+const READS = ["read", "ls", "find", "grep"];
 
 describe("message_bot readOnly", () => {
 	it("returns a skill fact through end_conversation in a user read-only group chat", async () => {

@@ -8,11 +8,16 @@ import {
 } from "@cadmus/contract/tools";
 
 describe("readOnlyGroupToolNames", () => {
-	it("keeps only read from the default set", () => {
+	it("keeps only read-only file tools from the default set", () => {
 		expect(readOnlyGroupToolNames(undefined)).toEqual([
 			...READONLY_GROUP_TOOL_NAMES,
 		]);
-		expect(readOnlyGroupToolNames(undefined)).toEqual(["read"]);
+		expect(readOnlyGroupToolNames(undefined)).toEqual([
+			"read",
+			"ls",
+			"find",
+			"grep",
+		]);
 	});
 
 	it("intersects an explicit list and drops side-effecting tools", () => {
@@ -21,6 +26,9 @@ describe("readOnlyGroupToolNames", () => {
 				"bash",
 				"write",
 				"read",
+				"ls",
+				"find",
+				"grep",
 				"edit",
 				"delete",
 				"message_bot",
@@ -28,7 +36,7 @@ describe("readOnlyGroupToolNames", () => {
 				"code.execute",
 				"create_bot",
 			]),
-		).toEqual(["read"]);
+		).toEqual(["read", "ls", "find", "grep"]);
 	});
 
 	it("returns nothing when the bot lists no read tool", () => {
@@ -36,9 +44,10 @@ describe("readOnlyGroupToolNames", () => {
 		expect(readOnlyGroupToolNames([])).toEqual([]);
 	});
 
-	it("only treats read as a read-only group tool", () => {
+	it("only treats read, ls, find, and grep as read-only group tools", () => {
+		const allowed = new Set(["read", "ls", "find", "grep"]);
 		for (const name of [...DEFAULT_CADMUS_TOOL_NAMES, ...CODING_TOOL_NAMES]) {
-			expect(isReadOnlyGroupTool(name)).toBe(name === "read");
+			expect(isReadOnlyGroupTool(name)).toBe(allowed.has(name));
 		}
 	});
 });

@@ -30,6 +30,9 @@ describe("TOOL_CATALOG", () => {
 
 	it("marks read-only from execute() behavior, not name suffixes", () => {
 		expect(isKnownReadOnlyTool("read")).toBe(true);
+		expect(isKnownReadOnlyTool("ls")).toBe(true);
+		expect(isKnownReadOnlyTool("find")).toBe(true);
+		expect(isKnownReadOnlyTool("grep")).toBe(true);
 		expect(isKnownReadOnlyTool("schedule_list")).toBe(true);
 		expect(isKnownReadOnlyTool("list_bots")).toBe(true);
 		expect(isKnownReadOnlyTool("web.fetch")).toBe(true);

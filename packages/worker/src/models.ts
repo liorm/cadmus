@@ -36,6 +36,7 @@ import type { ModelRef } from "@earendil-works/pi-durable";
 import { extractGroupReply } from "./group-chat/limits.js";
 import type { CredentialInput, ModelTier, ThinkingLevel } from "./protocol.js";
 import type { AdminStore } from "./store/admin-interface.js";
+import { withToolLocalization } from "./tool-localization.js";
 import type { Env } from "./types.js";
 
 registerBunOAuthFlows();
@@ -1058,7 +1059,7 @@ export function createCadmusModels(
 	base.setProvider(createCadmusGoogleProvider());
 	const faux = addFauxProvider(base, options.fauxResponder ?? echoResponse);
 	return {
-		models: withNativeTools(base),
+		models: withToolLocalization(withNativeTools(base)),
 		faux,
 	};
 }

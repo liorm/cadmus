@@ -1,6 +1,7 @@
 import { isWorkspaceTool } from "@cadmus/contract/tools";
 import { defineExtension, section } from "@earendil-works/pi-durable";
 import { requireCadmusServices } from "../context.js";
+import { localizeToolName } from "../tool-localization.js";
 import type { CadmusExtensionDescriptor } from "./cadmus-tools.js";
 import { MEMORY_VFS_PATH, SOUL_VFS_PATH, skillVfsPath } from "./vfs.js";
 
@@ -8,17 +9,27 @@ export const DEFAULT_SOUL = `You are a personal assistant.
 Be direct, warm and concise. Plain text renders best; keep formatting light.
 You run on a durable runtime: your conversation survives restarts. If you were interrupted, say so plainly rather than guessing what happened.`;
 
-export const SYSTEM_PROMPT = `Your personal state lives in Cadmus virtual files under /.cadmus/, accessed directly with read, write, edit, and delete:
+export function renderSystemPrompt(provider?: string | null): string {
+	const t = (canonical: string) => localizeToolName(provider, canonical);
+	const readTool = t("read");
+	const writeTool = t("write");
+	const editTool = t("edit");
+	const deleteTool = t("delete");
+	const lsTool = t("ls");
+	const findTool = t("find");
+	const grepTool = t("grep");
+
+	return `Your personal state lives in Cadmus virtual files under /.cadmus/, accessed directly with ${readTool}, ${writeTool}, ${editTool}, ${deleteTool}, ${lsTool}, ${findTool}, and ${grepTool}:
 
 - ${SOUL_VFS_PATH}: Your core persona and instructions. Read-only for you (only humans can edit it).
-- ${MEMORY_VFS_PATH}: Short standing memory for this bot (preferences, voice, how to work). Its body is already in this prompt when non-empty. Use edit for targeted updates or write to replace/clear it (no --- frontmatter fence; writing empty content clears it).
+- ${MEMORY_VFS_PATH}: Short standing memory for this bot (preferences, voice, how to work). Its body is already in this prompt when non-empty. Use ${editTool} for targeted updates or ${writeTool} to replace/clear it (no --- frontmatter fence; writing empty content clears it).
 - /.cadmus/skills/<slug>/SKILL.md: Reusable skills and reference guides that belong to you. Each skill starts with YAML frontmatter:
   ---
   name: <slug>
   description: <one-line trigger/summary, <= 240 chars>
   category: <optional one-line tag, <= 64 chars>
   ---
-  Read relevant skills with read before acting when a task matches a skill's description. Create new skills with write, update existing skills surgically with edit, and remove obsolete skills with delete. To seed a new peer bot with its own skills or memory, pass skills/memory on create_bot rather than writing your own /.cadmus/ files.
+  Read relevant skills with ${readTool} before acting when a task matches a skill's description. Use ${lsTool}, ${findTool}, and ${grepTool} to browse and search your files and skills. Create new skills with ${writeTool}, update existing skills surgically with ${editTool}, and remove obsolete skills with ${deleteTool}. To seed a new peer bot with its own skills or memory, pass skills/memory on create_bot rather than writing your own /.cadmus/ files.
 
 - Peer Bots & Bot Family Collaboration:
   - You belong to a Bot Family alongside other specialized peer bots, each maintaining its own persona (${SOUL_VFS_PATH}), memory (${MEMORY_VFS_PATH}), and skills (/.cadmus/skills/*).
@@ -28,6 +39,9 @@ export const SYSTEM_PROMPT = `Your personal state lives in Cadmus virtual files 
     - Never broadcast queries to multiple bots or call message_bot across multiple bots in parallel. Identify the single best-matching bot via search_bot and message only that bot.
     - When querying a peer bot for information or records, call message_bot with slug set to that bot and pass readOnly: true.
     - When you initiate a group chat with message_bot(wait: true), your session will receive the peer's reply. Once you receive the answer (or confirmation that the peer has no relevant record), call end_conversation immediately to return the response. Do NOT reply with conversational pleasantries or acknowledgments ("Understood", "Got it", "👍"), which cause unnecessary turn loops until the turn cap.`;
+}
+
+export const SYSTEM_PROMPT = renderSystemPrompt();
 
 export function dayLine(timeZone: string, now = new Date()): string {
 	const date = new Intl.DateTimeFormat("en-CA", {
@@ -70,7 +84,9 @@ export function identityExtension(options?: { now?: () => Date }) {
 				},
 				{ tag: false },
 			),
-			section("system", () => SYSTEM_PROMPT),
+			section("system", (input) =>
+				renderSystemPrompt(input.agent.model?.provider),
+			),
 			section("skills", (input, context) => {
 				const botId = input.agent.cwd;
 				if (!botId) return undefined;
