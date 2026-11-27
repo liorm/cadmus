@@ -1439,7 +1439,8 @@ export const TranscriptMessageViewSchema = Type.Object({
 	),
 	errorMessage: Type.Optional(
 		Type.String({
-			description: "Provider or runtime error message when stopReason is error.",
+			description:
+				"Provider or runtime error message when stopReason is error.",
 		}),
 	),
 	usage: Type.Optional(Type.Record(Type.String(), Type.Unknown())),

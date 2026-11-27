@@ -283,9 +283,7 @@ export function BotsSidebarPanel({
 					<span className="inline-flex min-w-0 items-center gap-1.5 text-xs font-medium text-text-muted">
 						<FolderKanban className="h-3.5 w-3.5 shrink-0" />
 						<span className="truncate">
-							{groupPills.length === 1
-								? groupPills[0]?.name
-								: "Bot groups"}
+							{groupPills.length === 1 ? groupPills[0]?.name : "Bot groups"}
 						</span>
 					</span>
 					<div className="flex shrink-0 items-center gap-1">
