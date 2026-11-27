@@ -1,6 +1,5 @@
 import type { ReactNode } from "react";
 import { StatusShape } from "@/components/StatusShape";
-import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 export function LiveCard({
@@ -33,34 +32,54 @@ export function LiveCard({
 			aria-label="Live card"
 			aria-disabled={frozen || undefined}
 			className={cn(
-				"rounded-md border border-status-running/40 bg-surface-raised p-3",
+				"rounded-lg border border-border bg-surface/60 px-3 py-2",
 				frozen && "pointer-events-none opacity-50",
 				className,
 			)}
 		>
-			<header className="flex min-h-tap items-center gap-2">
+			<header className="flex min-h-7 items-center gap-2">
 				<StatusShape status="running" />
-				<h2 className="flex-1 text-[length:var(--fs-md)] font-medium text-status-running">
-					{title}
-				</h2>
-				{onToggle ? (
-					<button
-						type="button"
-						aria-expanded={!collapsed}
-						aria-label={collapsed ? "Expand live card" : "Collapse live card"}
-						onClick={onToggle}
-						className="inline-flex min-h-tap min-w-tap items-center justify-center"
-					>
-						{collapsed ? "▾" : "▴"}
-					</button>
-				) : null}
+				<h2 className="flex-1 text-xs font-medium text-text-muted">{title}</h2>
+				<div className="flex shrink-0 items-center gap-1.5">
+					{onSteer ? (
+						<button
+							type="button"
+							aria-label="Steer live"
+							onClick={onSteer}
+							className="inline-flex h-7 items-center rounded-md border border-border px-2 text-xs font-medium text-text-muted hover:bg-surface-raised hover:text-text"
+						>
+							↪ Steer
+						</button>
+					) : null}
+					{onStop ? (
+						<button
+							type="button"
+							aria-label="Stop"
+							onClick={onStop}
+							className="inline-flex h-7 items-center rounded-md border border-status-failed/40 px-2 text-xs font-medium text-status-failed hover:bg-status-failed/10"
+						>
+							Stop
+						</button>
+					) : null}
+					{onToggle ? (
+						<button
+							type="button"
+							aria-expanded={!collapsed}
+							aria-label={collapsed ? "Expand live card" : "Collapse live card"}
+							onClick={onToggle}
+							className="inline-flex h-7 w-7 items-center justify-center rounded-md text-text-muted hover:bg-surface-raised hover:text-text"
+						>
+							{collapsed ? "▾" : "▴"}
+						</button>
+					) : null}
+				</div>
 			</header>
 			{activeBanner ? <div className="mt-2">{activeBanner}</div> : null}
-			{collapsed ? null : (
-				<div className="mt-2 text-[length:var(--fs-sm)] text-text-muted">
+			{!collapsed && children ? (
+				<div className="mt-2 max-w-[70ch] text-[15px] leading-relaxed text-text">
 					{children}
 				</div>
-			)}
+			) : null}
 			{ratio !== undefined ? (
 				<div
 					className="mt-2 h-1 overflow-hidden rounded-full bg-border"
@@ -75,24 +94,6 @@ export function LiveCard({
 					/>
 				</div>
 			) : null}
-			<div className="mt-2 flex gap-2">
-				<Button
-					variant="ghost"
-					className="flex-1 border border-border bg-bg"
-					aria-label="Steer live"
-					onClick={onSteer}
-				>
-					↪ Steer
-				</Button>
-				<Button
-					variant="danger"
-					className="flex-1"
-					aria-label="Stop"
-					onClick={onStop}
-				>
-					■ Stop
-				</Button>
-			</div>
 		</section>
 	);
 }

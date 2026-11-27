@@ -62,7 +62,7 @@ export function UserShell({
 				aria-label="User workspace sidebar"
 				className={cn(
 					"hidden shrink-0 flex-col border-r border-border bg-surface transition-[width] duration-150 md:flex",
-					collapsed ? "w-14" : "w-80",
+					collapsed ? "w-14" : "w-[272px]",
 				)}
 			>
 				<div className="flex items-center justify-between gap-2 border-b border-border px-2.5 py-2.5">

@@ -55,6 +55,8 @@ export interface Env {
 	/** Local-only password login. Never set in wrangler.jsonc. See auth/dev-password.ts. */
 	CADMUS_DEV_PASSWORD_LOGIN?: string;
 	CADMUS_DEV_PASSWORD_HASH?: string;
+	/** Optional comma-separated hostnames allowed for dev password login (e.g. Tailscale IP). */
+	CADMUS_DEV_ALLOWED_HOSTS?: string;
 	/** "production" in the top-level wrangler vars; hard-refuses dev password login. */
 	CADMUS_DEPLOY_ENV?: string;
 }

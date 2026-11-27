@@ -87,6 +87,15 @@ export function CadmusVfsDrawer({
 		void loadSkills();
 	}, [open, tab, loadSkills]);
 
+	useEffect(() => {
+		if (!open) return;
+		const onKeyDown = (e: KeyboardEvent) => {
+			if (e.key === "Escape") onClose();
+		};
+		window.addEventListener("keydown", onKeyDown);
+		return () => window.removeEventListener("keydown", onKeyDown);
+	}, [open, onClose]);
+
 	if (!open) return null;
 
 	async function handleCreateSkill(e: React.FormEvent) {
@@ -125,10 +134,10 @@ export function CadmusVfsDrawer({
 				<header className="flex items-center justify-between border-b border-border px-3 py-2.5">
 					<div className="min-w-0">
 						<div className="truncate font-mono text-xs font-semibold text-accent">
-							/.cadmus/ · {bot.name}
+							/.cadmus/ ({bot.name})
 						</div>
 						<div className="truncate text-[11px] text-text-muted">
-							CAS-versioned bot files &amp; runtime state
+							Persona, memory, skills, and configuration
 						</div>
 					</div>
 					<button
@@ -141,8 +150,9 @@ export function CadmusVfsDrawer({
 					</button>
 				</header>
 
-				<nav
-					aria-label="Bot VFS tabs"
+				<div
+					role="tablist"
+					aria-label="Bot workspace sections"
 					className="flex gap-1 overflow-x-auto border-b border-border px-2 py-1.5"
 				>
 					{TABS.map((item) => {
@@ -152,6 +162,8 @@ export function CadmusVfsDrawer({
 							<button
 								key={item.id}
 								type="button"
+								role="tab"
+								aria-selected={active}
 								onClick={() => setTab(item.id)}
 								className={cn(
 									"inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium transition",
@@ -165,7 +177,7 @@ export function CadmusVfsDrawer({
 							</button>
 						);
 					})}
-				</nav>
+				</div>
 
 				<div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-3">
 					{tab === "soul" ? (

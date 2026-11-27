@@ -8100,6 +8100,10 @@
 						"type": "string",
 						"description": "Stop reason for assistant messages."
 					},
+					"errorMessage": {
+						"type": "string",
+						"description": "Provider or runtime error message when stopReason is error."
+					},
 					"usage": { "type": "object", "patternProperties": { "^.*$": {} } },
 					"timestamp": { "type": "number" },
 					"durationMs": { "type": "number" },

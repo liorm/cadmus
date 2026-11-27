@@ -5395,6 +5395,9 @@ export class CadmusBotFamilyDO extends DurableObject<Env> {
 					...(assistant.model ? { model: assistant.model } : {}),
 					...(assistant.provider ? { provider: assistant.provider } : {}),
 					...(assistant.stopReason ? { stopReason: assistant.stopReason } : {}),
+					...(assistant.errorMessage
+						? { errorMessage: assistant.errorMessage }
+						: {}),
 					...(assistant.usage
 						? { usage: assistant.usage as unknown as Record<string, unknown> }
 						: {}),

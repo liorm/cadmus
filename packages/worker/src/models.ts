@@ -364,6 +364,17 @@ function attachGoogleNativeTools(
 		} else {
 			nextConfig.toolConfig = restToolConfig;
 		}
+	} else if (remainingDeclarations > 0) {
+		const existingToolConfig =
+			config.toolConfig &&
+			typeof config.toolConfig === "object" &&
+			!Array.isArray(config.toolConfig)
+				? (config.toolConfig as Record<string, unknown>)
+				: {};
+		nextConfig.toolConfig = {
+			...existingToolConfig,
+			includeServerSideToolInvocations: true,
+		};
 	}
 	return { ...body, config: nextConfig };
 }
