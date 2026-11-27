@@ -9,7 +9,7 @@ import {
 describe("defaultOrigin", () => {
 	it("uses localhost for a source module URL", () => {
 		const url =
-			"file:///Users/developer/projects/pi-bot/packages/cli/src/origin.ts";
+			"file:///Users/developer/projects/cadmus/packages/cli/src/origin.ts";
 		expect(isCompiledCli(url)).toBe(false);
 		expect(defaultOrigin(url)).toBe(DEV_ORIGIN);
 	});
