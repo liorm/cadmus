@@ -2,10 +2,12 @@ import type {
 	BotRecord,
 	HarvestNote,
 	RawTranscriptEntry,
+	ScheduleRecord,
 } from "@cadmus/contract/types";
 import { useNavigate } from "@tanstack/react-router";
 import {
 	BookOpen,
+	CalendarClock,
 	Code2,
 	FileText,
 	History,
@@ -20,15 +22,25 @@ import { AddEntityDialog } from "@/components/chrome/AddEntityDialog";
 import { HarvestView } from "@/components/HarvestView";
 import { MarkdownFileView } from "@/components/MarkdownFileView";
 import { RawTranscript } from "@/components/RawTranscript";
+import { ScheduleEdit } from "@/components/ScheduleEdit";
+import { ScheduleList } from "@/components/ScheduleList";
 import { useCadmus } from "@/context/CadmusContext";
 import { cn } from "@/lib/utils";
 
-type VfsTab = "soul" | "memory" | "skills" | "harvest" | "config" | "raw";
+type VfsTab =
+	| "soul"
+	| "memory"
+	| "skills"
+	| "schedules"
+	| "harvest"
+	| "config"
+	| "raw";
 
 const TABS: Array<{ id: VfsTab; label: string; icon: typeof FileText }> = [
 	{ id: "soul", label: "SOUL", icon: FileText },
 	{ id: "memory", label: "MEMORY", icon: BookOpen },
 	{ id: "skills", label: "Skills", icon: Sparkles },
+	{ id: "schedules", label: "Schedules", icon: CalendarClock },
 	{ id: "harvest", label: "Harvest", icon: History },
 	{ id: "config", label: "Config", icon: SlidersHorizontal },
 	{ id: "raw", label: "Raw", icon: Code2 },
@@ -63,6 +75,44 @@ export function CadmusVfsDrawer({
 	);
 	const [newSkillBusy, setNewSkillBusy] = useState(false);
 	const [newSkillError, setNewSkillError] = useState<string | null>(null);
+
+	// Schedules state
+	const [schedules, setSchedules] = useState<ScheduleRecord[]>([]);
+	const [schedulesPhase, setSchedulesPhase] = useState<
+		"loading" | "ready" | "error"
+	>("loading");
+	const [schedulesError, setSchedulesError] = useState<string | null>(null);
+	const [scheduleDialogOpen, setScheduleDialogOpen] = useState(false);
+	const [editingSchedule, setEditingSchedule] = useState<ScheduleRecord | null>(
+		null,
+	);
+	const [scheduleSaveError, setScheduleSaveError] = useState<string | null>(
+		null,
+	);
+
+	const loadSchedules = useCallback(async () => {
+		setSchedulesPhase("loading");
+		setSchedulesError(null);
+		const res = await client.callRpc<{ schedules?: ScheduleRecord[] }>(
+			"schedule.list",
+		);
+		if (!res.ok) {
+			setSchedulesPhase("error");
+			setSchedulesError(res.error?.message ?? "Could not load schedules");
+			return;
+		}
+		setSchedules(
+			(res.result?.schedules ?? []).filter(
+				(s) => !s.internal && s.botId === bot.id,
+			),
+		);
+		setSchedulesPhase("ready");
+	}, [bot.id, client]);
+
+	useEffect(() => {
+		if (!open || tab !== "schedules") return;
+		void loadSchedules();
+	}, [open, tab, loadSchedules]);
 
 	const loadSkills = useCallback(async () => {
 		setSkillsLoading(true);
@@ -248,6 +298,48 @@ export function CadmusVfsDrawer({
 								</>
 							)}
 						</div>
+					) : tab === "schedules" ? (
+						<div className="space-y-3 p-3">
+							<div className="flex items-center justify-between">
+								<span className="text-xs font-medium text-text-muted">
+									Bot schedules
+								</span>
+								<button
+									type="button"
+									onClick={() => {
+										setEditingSchedule(null);
+										setScheduleSaveError(null);
+										setScheduleDialogOpen(true);
+									}}
+									className="inline-flex h-7 items-center gap-1 rounded-md bg-accent px-2 text-[11px] font-semibold text-on-accent"
+								>
+									<Plus className="h-3 w-3" />
+									New
+								</button>
+							</div>
+							<ScheduleList
+								bots={[bot]}
+								phase={schedulesPhase}
+								error={schedulesError ?? undefined}
+								onRetry={() => void loadSchedules()}
+								schedules={schedules}
+								timeZone={
+									Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"
+								}
+								onOpen={(id) => {
+									const found = schedules.find((s) => s.id === id) ?? null;
+									if (!found) return;
+									setEditingSchedule(found);
+									setScheduleSaveError(null);
+									setScheduleDialogOpen(true);
+								}}
+								onToggle={(schedule, enabled) => {
+									void client
+										.callRpc("schedule.update", { id: schedule.id, enabled })
+										.then(() => loadSchedules());
+								}}
+							/>
+						</div>
 					) : tab === "harvest" ? (
 						<HarvestView botId={bot.id} />
 					) : tab === "config" ? (
@@ -339,6 +431,78 @@ export function CadmusVfsDrawer({
 						</button>
 					</div>
 				</form>
+			</AddEntityDialog>
+
+			<AddEntityDialog
+				open={scheduleDialogOpen}
+				onClose={() => setScheduleDialogOpen(false)}
+				title={
+					editingSchedule ? "Edit schedule" : `New schedule for ${bot.name}`
+				}
+				description="Triggered runs post output into the bot's scheduled workflow."
+			>
+				<div className="space-y-3">
+					{scheduleSaveError ? (
+						<p role="alert" className="text-xs text-destructive">
+							{scheduleSaveError}
+						</p>
+					) : null}
+					<ScheduleEdit
+						schedule={editingSchedule}
+						timeZone={
+							bot.timezone ??
+							(Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC")
+						}
+						onSave={(draft) => {
+							setScheduleSaveError(null);
+							const req = editingSchedule
+								? client.callRpc("schedule.update", {
+										id: editingSchedule.id,
+										name: draft.name,
+										text: draft.text,
+										enabled: draft.enabled,
+										kind: draft.kind,
+										input: draft.input,
+									})
+								: client.callRpc("schedule.create", {
+										botId: bot.id,
+										name: draft.name,
+										text: draft.text,
+										enabled: draft.enabled,
+										kind: draft.kind,
+										input: draft.input,
+									});
+							void req.then((res) => {
+								if (!res.ok) {
+									setScheduleSaveError(
+										res.error?.message ?? "Could not save schedule.",
+									);
+									return;
+								}
+								setScheduleDialogOpen(false);
+								void loadSchedules();
+							});
+						}}
+						onDelete={
+							editingSchedule
+								? () => {
+										void client
+											.callRpc("schedule.delete", { id: editingSchedule.id })
+											.then((res) => {
+												if (!res.ok) {
+													setScheduleSaveError(
+														res.error?.message ?? "Could not delete schedule.",
+													);
+													return;
+												}
+												setScheduleDialogOpen(false);
+												void loadSchedules();
+											});
+									}
+								: undefined
+						}
+					/>
+				</div>
 			</AddEntityDialog>
 		</div>
 	);

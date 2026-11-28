@@ -17,7 +17,9 @@ import { useEffect, useId, useMemo, useState } from "react";
 import { BotBadge } from "@/components/BotBadge";
 import { ColorSwatches } from "@/components/ColorSwatches";
 import { AddEntityDialog } from "@/components/chrome/AddEntityDialog";
+import { SettingsDialog } from "@/components/chrome/SettingsDialog";
 import { GroupChatViewerSheet } from "@/components/GroupChatViewerSheet";
+import { MarkdownFileView } from "@/components/MarkdownFileView";
 import { ModelSelect } from "@/components/ModelSelect";
 import { SegmentedControl } from "@/components/SegmentedControl";
 import { StatusShape } from "@/components/StatusShape";
@@ -88,9 +90,39 @@ export function BotsSidebarPanel({
 
 	// Group edit state
 	const currentFamily = families.find((f) => f.familyId === familyId);
+	const [familyTab, setFamilyTab] = useState<"general" | "skills">("general");
 	const [editFamilyName, setEditFamilyName] = useState("");
 	const [editFamilyError, setEditFamilyError] = useState<string | null>(null);
 	const [editFamilyBusy, setEditFamilyBusy] = useState(false);
+	const [familySkillPaths, setFamilySkillPaths] = useState<string[]>([]);
+	const [selectedFamilySkill, setSelectedFamilySkill] = useState<string | null>(
+		null,
+	);
+	const [newFamilySkillSlug, setNewFamilySkillSlug] = useState("");
+	const [newFamilySkillBusy, setNewFamilySkillBusy] = useState(false);
+
+	useEffect(() => {
+		if (!manageGroupOpen || familyTab !== "skills") return;
+		let cancelled = false;
+		void client
+			.callRpc<{ files?: Array<{ path: string }> }>("file.list", {})
+			.then((res) => {
+				if (cancelled || !res.ok) return;
+				const paths = (res.result?.files ?? [])
+					.map((f) => f.path)
+					.filter(
+						(p) => p.startsWith("/.cadmus/skills/family/") && p.endsWith(".md"),
+					)
+					.sort();
+				setFamilySkillPaths(paths);
+				setSelectedFamilySkill((prev) =>
+					prev && paths.includes(prev) ? prev : (paths[0] ?? null),
+				);
+			});
+		return () => {
+			cancelled = true;
+		};
+	}, [manageGroupOpen, familyTab, client]);
 
 	// Bot create state
 	const [botName, setBotName] = useState("");
@@ -671,81 +703,178 @@ export function BotsSidebarPanel({
 			</AddEntityDialog>
 
 			{/* Manage Current Bot Group Dialog */}
-			<AddEntityDialog
+			<SettingsDialog
 				open={manageGroupOpen}
 				onClose={() => setManageGroupOpen(false)}
-				title={`Manage group: ${currentFamily?.name ?? familyId}`}
+				title={`Family Settings: ${currentFamily?.name ?? familyId}`}
+				description="Manage family details and shared family skills."
+				tabs={[
+					{ id: "general", label: "General", icon: Settings2 },
+					{ id: "skills", label: "Family Skills", icon: Sparkles },
+				]}
+				activeTab={familyTab}
+				onTabChange={setFamilyTab}
+				tabsLabel="Family settings sections"
 			>
-				<div className="space-y-4">
-					{editFamilyError ? (
-						<p role="alert" className="text-xs text-destructive">
-							{editFamilyError}
-						</p>
-					) : null}
-					<form
-						onSubmit={(e) => {
-							e.preventDefault();
-							if (!currentFamily || !editFamilyName.trim()) return;
-							setEditFamilyBusy(true);
-							setEditFamilyError(null);
-							void updateFamily(currentFamily.familyId, {
-								name: editFamilyName.trim(),
-							})
-								.then((ok) => {
-									if (!ok) setEditFamilyError("Could not rename group.");
-									else setManageGroupOpen(false);
+				{editFamilyError ? (
+					<p role="alert" className="text-xs text-destructive">
+						{editFamilyError}
+					</p>
+				) : null}
+
+				{familyTab === "general" ? (
+					<div className="space-y-4">
+						<form
+							onSubmit={(e) => {
+								e.preventDefault();
+								if (!currentFamily || !editFamilyName.trim()) return;
+								setEditFamilyBusy(true);
+								setEditFamilyError(null);
+								void updateFamily(currentFamily.familyId, {
+									name: editFamilyName.trim(),
 								})
-								.finally(() => setEditFamilyBusy(false));
-						}}
-						className="space-y-3"
-					>
-						<label className="block space-y-1">
-							<span className="text-xs font-medium text-text-muted">
-								Display name
-							</span>
-							<input
-								aria-label="Display name"
-								value={editFamilyName}
-								onChange={(e) => setEditFamilyName(e.target.value)}
-								className="min-h-tap w-full rounded-lg border border-border bg-bg px-3 text-sm text-text outline-none focus:border-accent"
-							/>
-						</label>
-						<button
-							type="submit"
-							disabled={editFamilyBusy || !editFamilyName.trim()}
-							className="min-h-tap rounded-lg bg-accent px-4 text-xs font-semibold text-on-accent disabled:opacity-50"
+									.then((ok) => {
+										if (!ok) setEditFamilyError("Could not rename group.");
+										else setManageGroupOpen(false);
+									})
+									.finally(() => setEditFamilyBusy(false));
+							}}
+							className="space-y-3"
 						>
-							Save name
-						</button>
-					</form>
-					{familyId !== "default" ? (
-						<div className="border-t border-border pt-3">
+							<label className="block space-y-1">
+								<span className="text-xs font-medium text-text-muted">
+									Display name
+								</span>
+								<input
+									aria-label="Display name"
+									value={editFamilyName}
+									onChange={(e) => setEditFamilyName(e.target.value)}
+									className="min-h-tap w-full rounded-lg border border-border bg-bg px-3 text-sm text-text outline-none focus:border-accent"
+								/>
+							</label>
 							<button
-								type="button"
-								disabled={editFamilyBusy}
-								onClick={() => {
-									setEditFamilyBusy(true);
-									void deleteFamily(familyId)
-										.then((ok) => {
-											if (!ok) {
-												setEditFamilyError(
-													"Group could not be deleted (must have no active conflicts).",
-												);
-											} else {
-												setManageGroupOpen(false);
-											}
-										})
-										.finally(() => setEditFamilyBusy(false));
-								}}
-								className="inline-flex min-h-tap items-center gap-1.5 rounded-lg border border-destructive/40 px-3 text-xs font-medium text-destructive hover:bg-destructive/10 disabled:opacity-50"
+								type="submit"
+								disabled={editFamilyBusy || !editFamilyName.trim()}
+								className="min-h-tap rounded-lg bg-accent px-4 text-xs font-semibold text-on-accent disabled:opacity-50"
 							>
-								<Trash2 className="h-3.5 w-3.5" />
-								Delete bot group
+								Save name
 							</button>
-						</div>
-					) : null}
-				</div>
-			</AddEntityDialog>
+						</form>
+						{familyId !== "default" ? (
+							<div className="border-t border-border pt-3">
+								<button
+									type="button"
+									disabled={editFamilyBusy}
+									onClick={() => {
+										setEditFamilyBusy(true);
+										void deleteFamily(familyId)
+											.then((ok) => {
+												if (!ok) {
+													setEditFamilyError(
+														"Group could not be deleted (must have no active conflicts).",
+													);
+												} else {
+													setManageGroupOpen(false);
+												}
+											})
+											.finally(() => setEditFamilyBusy(false));
+									}}
+									className="inline-flex min-h-tap items-center gap-1.5 rounded-lg border border-destructive/40 px-3 text-xs font-medium text-destructive hover:bg-destructive/10 disabled:opacity-50"
+								>
+									<Trash2 className="h-3.5 w-3.5" />
+									Delete bot group
+								</button>
+							</div>
+						) : null}
+					</div>
+				) : (
+					<div className="space-y-3">
+						<form
+							onSubmit={(e) => {
+								e.preventDefault();
+								const slug = slugifyFamily(newFamilySkillSlug);
+								if (!slug || newFamilySkillBusy) return;
+								const path = `/.cadmus/skills/family/${slug}/SKILL.md`;
+								setNewFamilySkillBusy(true);
+								setEditFamilyError(null);
+								void client
+									.callRpc("file.write", {
+										path,
+										content: `---\ndescription: Shared family skill.\n---\n\n# ${slug}\n\nDescribe the workflow.\n`,
+									})
+									.then((res) => {
+										if (!res.ok) {
+											setEditFamilyError(
+												res.error?.message ?? "Could not create family skill.",
+											);
+											return;
+										}
+										setNewFamilySkillSlug("");
+										setFamilySkillPaths((prev) =>
+											prev.includes(path) ? prev : [...prev, path].sort(),
+										);
+										setSelectedFamilySkill(path);
+									})
+									.finally(() => setNewFamilySkillBusy(false));
+							}}
+							className="flex gap-2"
+						>
+							<input
+								aria-label="New family skill slug"
+								value={newFamilySkillSlug}
+								onChange={(e) => setNewFamilySkillSlug(e.target.value)}
+								placeholder="New skill slug (e.g. code-review)"
+								className="h-8 flex-1 rounded-lg border border-border bg-bg px-2.5 font-mono text-xs text-text outline-none focus:border-accent"
+							/>
+							<button
+								type="submit"
+								disabled={newFamilySkillBusy || !newFamilySkillSlug.trim()}
+								className="inline-flex h-8 items-center gap-1 rounded-lg bg-accent px-3 text-xs font-semibold text-on-accent disabled:opacity-50"
+							>
+								<Plus className="h-3.5 w-3.5" />
+								Add
+							</button>
+						</form>
+
+						{familySkillPaths.length === 0 ? (
+							<p className="rounded-lg border border-border bg-bg/50 px-3 py-4 text-center text-xs text-text-muted">
+								No shared family skills yet.
+							</p>
+						) : (
+							<div className="space-y-2">
+								<div className="flex flex-wrap gap-1.5">
+									{familySkillPaths.map((p) => (
+										<button
+											key={p}
+											type="button"
+											onClick={() => setSelectedFamilySkill(p)}
+											className={cn(
+												"rounded-md border px-2 py-1 font-mono text-[11px] transition",
+												selectedFamilySkill === p
+													? "border-accent/40 bg-accent/15 text-accent"
+													: "border-border bg-bg text-text-muted hover:text-text",
+											)}
+										>
+											{p.replace("/.cadmus/skills/family/", "")}
+										</button>
+									))}
+								</div>
+								{selectedFamilySkill ? (
+									<div className="max-h-64 overflow-y-auto rounded-lg border border-border">
+										<MarkdownFileView
+											path={selectedFamilySkill}
+											title={selectedFamilySkill.replace(
+												"/.cadmus/skills/family/",
+												"",
+											)}
+										/>
+									</div>
+								) : null}
+							</div>
+						)}
+					</div>
+				)}
+			</SettingsDialog>
 
 			<GroupChatViewerSheet
 				open={viewerChat.open}

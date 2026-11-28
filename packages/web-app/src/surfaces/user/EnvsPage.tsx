@@ -23,6 +23,14 @@ function connectionSummary(env: ToolsEnvRecord): string {
 }
 
 export function EnvsPage() {
+	return (
+		<UserShell activeTab="envs" mobileTitle="Tools Environments">
+			<EnvsPanel />
+		</UserShell>
+	);
+}
+
+export function EnvsPanel({ embedded = false }: { embedded?: boolean }) {
 	const { client, subscribeEvents } = useCadmus();
 	const loaded = useScopedResource("tools-envs", async () => {
 		const res = await client.callRpc<{
@@ -184,33 +192,52 @@ export function EnvsPage() {
 	}
 
 	return (
-		<UserShell activeTab="envs" mobileTitle="Tools Environments">
+		<>
 			<div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-				<header className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-surface px-4 py-3 sm:px-6">
-					<div className="flex items-center gap-2.5">
-						<Terminal className="h-5 w-5 text-accent" />
-						<div>
-							<h1 className="text-sm font-semibold text-text">
-								Tools Environments
-							</h1>
-							<p className="text-xs text-text-muted">
-								Manage sandboxed bash &amp; local daemon workspaces without
-								admin elevation
-							</p>
+				{!embedded ? (
+					<header className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-surface px-4 py-3 sm:px-6">
+						<div className="flex items-center gap-2.5">
+							<Terminal className="h-5 w-5 text-accent" />
+							<div>
+								<h1 className="text-sm font-semibold text-text">
+									Tools Environments
+								</h1>
+								<p className="text-xs text-text-muted">
+									Manage sandboxed bash &amp; local daemon workspaces without
+									admin elevation
+								</p>
+							</div>
 						</div>
+						<button
+							type="button"
+							onClick={() => {
+								setError(null);
+								setAddOpen(true);
+							}}
+							className="inline-flex min-h-tap items-center gap-1.5 rounded-lg bg-accent px-3 text-xs font-semibold text-on-accent hover:opacity-90"
+						>
+							<Plus className="h-3.5 w-3.5" />
+							New environment
+						</button>
+					</header>
+				) : (
+					<div className="flex items-center justify-between gap-2 pb-3">
+						<p className="text-xs text-text-muted">
+							Manage sandboxed bash &amp; local daemon workspaces.
+						</p>
+						<button
+							type="button"
+							onClick={() => {
+								setError(null);
+								setAddOpen(true);
+							}}
+							className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg bg-accent px-2.5 text-xs font-semibold text-on-accent hover:opacity-90"
+						>
+							<Plus className="h-3.5 w-3.5" />
+							New environment
+						</button>
 					</div>
-					<button
-						type="button"
-						onClick={() => {
-							setError(null);
-							setAddOpen(true);
-						}}
-						className="inline-flex min-h-tap items-center gap-1.5 rounded-lg bg-accent px-3 text-xs font-semibold text-on-accent hover:opacity-90"
-					>
-						<Plus className="h-3.5 w-3.5" />
-						New environment
-					</button>
-				</header>
+				)}
 
 				<div className="mx-auto w-full max-w-4xl space-y-4 p-4 sm:p-6">
 					{error ? (
@@ -428,6 +455,6 @@ export function EnvsPage() {
 					</div>
 				</form>
 			</AddEntityDialog>
-		</UserShell>
+		</>
 	);
 }
