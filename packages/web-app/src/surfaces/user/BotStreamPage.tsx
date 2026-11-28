@@ -297,9 +297,13 @@ export function BotStreamPage({ botId }: { botId: string }) {
 		}
 		return {
 			renderedSegments: out,
-			trailingLiveTools: live?.busy ? pendingTools : [],
+			trailingLiveTools: live?.busy
+				? live.liveTools?.length
+					? live.liveTools
+					: pendingTools
+				: [],
 		};
-	}, [live?.busy, messages, segments]);
+	}, [live?.busy, live?.liveTools, messages, segments]);
 
 	function toggleBoundary(key: string) {
 		setExpandedBoundaries((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -594,12 +598,12 @@ export function BotStreamPage({ botId }: { botId: string }) {
 								return (
 									<div key={item.message.id} className="space-y-2">
 										{seg.showTimestamp && item.message.timestamp ? (
-											<div className="my-3 flex items-center gap-3 text-[11px] text-text-muted">
-												<div className="h-px flex-1 bg-border/60" />
-												<span className="rounded-full border border-border/70 bg-surface-raised/80 px-2.5 py-0.5 font-medium tabular-nums">
+											<div className="my-3 flex items-center gap-3 text-[11px] text-text-muted/80">
+												<div className="h-px flex-1 bg-border/40" />
+												<span className="rounded-full border border-border/50 bg-surface/60 px-2.5 py-0.5 font-medium tabular-nums">
 													{formatShortTimestamp(item.message.timestamp)}
 												</span>
-												<div className="h-px flex-1 bg-border/60" />
+												<div className="h-px flex-1 bg-border/40" />
 											</div>
 										) : null}
 										<div
@@ -608,7 +612,7 @@ export function BotStreamPage({ botId }: { botId: string }) {
 												!visibleToModel && "opacity-75",
 											)}
 										>
-											<div className="max-w-[75%] rounded-xl border border-border bg-surface-raised px-3.5 py-2 text-[14px] leading-relaxed text-text">
+											<div className="max-w-[min(60ch,80%)] rounded-xl border border-border bg-surface-raised px-3.5 py-2 text-[14px] leading-relaxed text-text">
 												<p className="whitespace-pre-wrap">
 													{item.message.text}
 												</p>
@@ -643,8 +647,8 @@ export function BotStreamPage({ botId }: { botId: string }) {
 										!visibleToModel && "opacity-75",
 									)}
 								>
-									<div className="min-w-0 max-w-[70ch] rounded-xl border border-border bg-surface px-4 py-2.5 text-[15px] leading-relaxed text-text">
-										<div className="mb-1.5 flex items-center gap-2 text-[11px] text-text-muted">
+									<div className="min-w-0 max-w-[min(70ch,85%)] rounded-xl border border-border bg-surface px-4 py-2.5 text-[15px] leading-relaxed text-text">
+										<div className="mb-1.5 flex min-h-6 items-center gap-2 text-[11px] text-text-muted">
 											<span className="font-medium text-text/80">
 												{bot.name}
 											</span>
@@ -697,8 +701,8 @@ export function BotStreamPage({ botId }: { botId: string }) {
 
 						{live?.busy ? (
 							<div className="flex flex-col items-start">
-								<div className="min-w-0 max-w-[70ch] rounded-xl border border-border bg-surface px-4 py-2.5 text-[15px] leading-relaxed text-text">
-									<div className="mb-1.5 flex items-center gap-2 text-[11px] text-text-muted">
+								<div className="min-w-0 max-w-[min(70ch,85%)] rounded-xl border border-border bg-surface px-4 py-2.5 text-[15px] leading-relaxed text-text">
+									<div className="mb-1.5 flex min-h-6 items-center gap-2 text-[11px] text-text-muted">
 										<span className="font-medium text-text/80">{bot.name}</span>
 										<span className="inline-flex items-center gap-1.5">
 											<span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
@@ -760,6 +764,11 @@ export function BotStreamPage({ botId }: { botId: string }) {
 									) : null}
 									{live.streamText ? (
 										<Markdown source={live.streamText} />
+									) : trailingLiveTools.length === 0 && !live.activeTool ? (
+										<span
+											className="inline-block h-4 w-1.5 animate-pulse rounded-sm bg-text-muted/60 align-middle"
+											aria-hidden="true"
+										/>
 									) : null}
 								</div>
 							</div>

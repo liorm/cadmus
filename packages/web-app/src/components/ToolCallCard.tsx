@@ -30,6 +30,20 @@ function formatDuration(ms?: number): string | null {
 	return `${(ms / 1000).toFixed(1)}s`;
 }
 
+function toolArgPreview(args: unknown): string | null {
+	if (!args || typeof args !== "object" || Array.isArray(args)) return null;
+	const record = args as Record<string, unknown>;
+	const preferredKeys = ["path", "query", "command", "url", "slug", "name"];
+	for (const key of preferredKeys) {
+		const val = record[key];
+		if (typeof val === "string" && val.trim()) return val.trim();
+	}
+	for (const val of Object.values(record)) {
+		if (typeof val === "string" && val.trim()) return val.trim();
+	}
+	return null;
+}
+
 function safeStringify(val: unknown): string {
 	if (typeof val === "string") return val;
 	try {
@@ -105,6 +119,10 @@ export function ToolCallCard({
 				{isMessageBot && topic ? (
 					<span className="min-w-0 flex-1 truncate text-[length:var(--fs-xs)] text-text-muted">
 						· {topic}
+					</span>
+				) : compact && toolArgPreview(call.args) ? (
+					<span className="min-w-0 flex-1 truncate font-mono text-[11px] text-text-muted/80">
+						{toolArgPreview(call.args)}
 					</span>
 				) : (
 					<span className="flex-1" />
