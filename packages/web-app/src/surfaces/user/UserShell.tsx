@@ -1,13 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import {
-	Bot,
-	CalendarClock,
-	PanelLeftClose,
-	PanelLeftOpen,
-	Search,
-	Sparkles,
-	Terminal,
-} from "lucide-react";
+import { Bot, PanelLeftClose, PanelLeftOpen, Search } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { IdentityChip } from "@/components/chrome/IdentityChip";
 import { ReconnectBar } from "@/components/ReconnectBar";
@@ -18,19 +10,9 @@ export type UserTab = "bots" | "schedules" | "envs" | "skills";
 const TABS: Array<{
 	id: UserTab;
 	label: string;
-	to: "/bots" | "/schedules" | "/envs" | "/skills";
+	to: "/bots";
 	icon: typeof Bot;
-}> = [
-	{ id: "bots", label: "Bots", to: "/bots", icon: Bot },
-	{
-		id: "schedules",
-		label: "Schedules",
-		to: "/schedules",
-		icon: CalendarClock,
-	},
-	{ id: "envs", label: "Envs", to: "/envs", icon: Terminal },
-	{ id: "skills", label: "Skills", to: "/skills", icon: Sparkles },
-];
+}> = [{ id: "bots", label: "Bots", to: "/bots", icon: Bot }];
 
 /**
  * Dual-surface User shell:
@@ -121,38 +103,6 @@ export function UserShell({
 						</Link>
 					</div>
 				)}
-
-				<nav
-					aria-label="User sections"
-					className={cn(
-						"border-t border-border p-1.5",
-						collapsed
-							? "flex flex-col items-center gap-1"
-							: "grid grid-cols-4 gap-1",
-					)}
-				>
-					{TABS.map((tab) => {
-						const Icon = tab.icon;
-						const active = activeTab === tab.id;
-						return (
-							<Link
-								key={tab.id}
-								to={tab.to}
-								aria-label={tab.label}
-								className={cn(
-									"flex min-h-tap flex-col items-center justify-center gap-0.5 rounded-lg px-1.5 py-1 text-[10px] font-medium transition",
-									active
-										? "bg-accent/15 text-accent"
-										: "text-text-muted hover:bg-surface-raised hover:text-text",
-									collapsed && "w-10",
-								)}
-							>
-								<Icon className="h-4 w-4 shrink-0" />
-								{!collapsed ? <span>{tab.label}</span> : null}
-							</Link>
-						);
-					})}
-				</nav>
 			</aside>
 
 			{/* Mobile Top Header */}
@@ -186,7 +136,7 @@ export function UserShell({
 			{!hideMobileChrome ? (
 				<nav
 					aria-label="Mobile sections"
-					className="grid shrink-0 grid-cols-4 border-t border-border bg-surface px-1 pb-[env(safe-area-inset-bottom)] md:hidden"
+					className="grid shrink-0 grid-cols-2 border-t border-border bg-surface px-1 pb-[env(safe-area-inset-bottom)] md:hidden"
 				>
 					{TABS.map((tab) => {
 						const Icon = tab.icon;

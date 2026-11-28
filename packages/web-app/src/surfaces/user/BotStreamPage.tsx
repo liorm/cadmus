@@ -5,8 +5,9 @@ import {
 	ArrowLeft,
 	ChevronDown,
 	ChevronRight,
-	FolderOpen,
 	History,
+	PanelRight,
+	PanelRightClose,
 	RotateCcw,
 	Sparkles,
 	Square,
@@ -413,16 +414,20 @@ export function BotStreamPage({ botId }: { botId: string }) {
 						<button
 							type="button"
 							onClick={() => setVfsOpen((v) => !v)}
-							aria-label="Toggle /.cadmus/ drawer"
+							aria-label="Toggle bot side panel"
+							title="Bot status, schedules & /.cadmus/"
 							className={cn(
-								"inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 font-mono text-xs font-medium transition",
+								"inline-flex h-8 w-8 items-center justify-center rounded-lg transition",
 								vfsOpen
 									? "border border-accent/40 bg-accent/15 text-accent"
 									: "text-text-muted hover:bg-surface-raised hover:text-text",
 							)}
 						>
-							<FolderOpen className="h-3.5 w-3.5" />
-							<span>/.cadmus/</span>
+							{vfsOpen ? (
+								<PanelRightClose className="h-4 w-4" />
+							) : (
+								<PanelRight className="h-4 w-4" />
+							)}
 						</button>
 					</div>
 				</header>
