@@ -776,8 +776,7 @@ export function CadmusProvider({
 					const activeTool = matchedActive ? undefined : current.activeTool;
 					const completedTool = {
 						id: event.payload.toolCallId,
-						name:
-							event.payload.toolName ?? matchedActive?.toolName ?? "tool",
+						name: event.payload.toolName ?? matchedActive?.toolName ?? "tool",
 						args: matchedActive?.args,
 						isError: event.payload.isError,
 						durationMs: matchedActive

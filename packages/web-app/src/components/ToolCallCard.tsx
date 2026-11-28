@@ -86,8 +86,7 @@ export function ToolCallCard({
 				compact
 					? "border-b border-border/40 text-text last:border-b-0"
 					: "rounded-md border border-border bg-surface text-text",
-				isError &&
-					(compact ? "text-status-failed" : "border-status-failed/40"),
+				isError && (compact ? "text-status-failed" : "border-status-failed/40"),
 			)}
 		>
 			<button
