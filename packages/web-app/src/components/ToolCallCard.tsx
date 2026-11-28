@@ -13,6 +13,7 @@ import { cn } from "@/lib/utils";
 export interface ToolCallCardProps {
 	call: ToolExecutionDetail;
 	bots?: BotRecord[];
+	compact?: boolean;
 	onOpenGroupChat?: (data: {
 		topic?: string;
 		status?: string;
@@ -29,6 +30,20 @@ function formatDuration(ms?: number): string | null {
 	return `${(ms / 1000).toFixed(1)}s`;
 }
 
+function toolArgPreview(args: unknown): string | null {
+	if (!args || typeof args !== "object" || Array.isArray(args)) return null;
+	const record = args as Record<string, unknown>;
+	const preferredKeys = ["path", "query", "command", "url", "slug", "name"];
+	for (const key of preferredKeys) {
+		const val = record[key];
+		if (typeof val === "string" && val.trim()) return val.trim();
+	}
+	for (const val of Object.values(record)) {
+		if (typeof val === "string" && val.trim()) return val.trim();
+	}
+	return null;
+}
+
 function safeStringify(val: unknown): string {
 	if (typeof val === "string") return val;
 	try {
@@ -41,6 +56,7 @@ function safeStringify(val: unknown): string {
 export function ToolCallCard({
 	call,
 	bots = [],
+	compact = false,
 	onOpenGroupChat,
 }: ToolCallCardProps) {
 	const [expanded, setExpanded] = useState(false);
@@ -67,11 +83,24 @@ export function ToolCallCard({
 		<div
 			data-testid={`tool-card-${call.name}`}
 			className={cn(
-				"rounded-md border border-border bg-surface text-text",
-				isError && "border-status-failed/40",
+				compact
+					? "border-b border-border/40 text-text last:border-b-0"
+					: "rounded-md border border-border bg-surface text-text",
+				isError && (compact ? "text-status-failed" : "border-status-failed/40"),
 			)}
 		>
-			<div className="flex min-h-tap items-center gap-2 px-3 py-1.5 text-[length:var(--fs-sm)]">
+			<button
+				type="button"
+				aria-expanded={expanded}
+				aria-label={`Toggle details for ${call.name}`}
+				onClick={() => setExpanded((v) => !v)}
+				className={cn(
+					"flex w-full items-center gap-2 text-left transition hover:bg-surface-raised/60",
+					compact
+						? "px-2 py-1 text-xs"
+						: "min-h-tap px-3 py-1.5 text-[length:var(--fs-sm)]",
+				)}
+			>
 				<span
 					className={cn(
 						"text-xs font-bold",
@@ -90,6 +119,10 @@ export function ToolCallCard({
 					<span className="min-w-0 flex-1 truncate text-[length:var(--fs-xs)] text-text-muted">
 						· {topic}
 					</span>
+				) : compact && toolArgPreview(call.args) ? (
+					<span className="min-w-0 flex-1 truncate font-mono text-[11px] text-text-muted/80">
+						{toolArgPreview(call.args)}
+					</span>
 				) : (
 					<span className="flex-1" />
 				)}
@@ -100,16 +133,16 @@ export function ToolCallCard({
 					</span>
 				) : null}
 
-				<button
-					type="button"
-					aria-expanded={expanded}
-					aria-label={`Toggle details for ${call.name}`}
-					onClick={() => setExpanded((v) => !v)}
-					className="inline-flex min-h-tap min-w-tap items-center justify-center text-text-muted"
+				<span
+					aria-hidden="true"
+					className={cn(
+						"inline-flex items-center justify-center text-text-muted",
+						compact ? "px-1 py-0.5" : "min-h-tap min-w-tap",
+					)}
 				>
 					{expanded ? "▾" : "›"}
-				</button>
-			</div>
+				</span>
+			</button>
 
 			{isMessageBot ? (
 				<div className="border-t border-border/60 bg-surface-raised/40 px-3 py-2">

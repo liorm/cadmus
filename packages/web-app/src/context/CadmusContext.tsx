@@ -85,6 +85,7 @@ export type ChatLiveState = ChatLiveSlice & {
 	streamText?: string;
 	lastToolName?: string;
 	activeTool?: ActiveToolState;
+	liveTools?: import("@/lib/group-tool-runs").ToolExecutionDetail[];
 	status?: ChatStatusRecord;
 };
 
@@ -768,15 +769,31 @@ export function CadmusProvider({
 				setChatStates((prev) => {
 					const current = prev[event.payload.chatKey];
 					if (!current) return prev;
-					const activeTool =
+					const matchedActive =
 						current.activeTool?.toolCallId === event.payload.toolCallId
-							? undefined
-							: current.activeTool;
+							? current.activeTool
+							: undefined;
+					const activeTool = matchedActive ? undefined : current.activeTool;
+					const completedTool = {
+						id: event.payload.toolCallId,
+						name: event.payload.toolName ?? matchedActive?.toolName ?? "tool",
+						args: matchedActive?.args,
+						isError: event.payload.isError,
+						durationMs: matchedActive
+							? Date.now() - matchedActive.startedAt
+							: undefined,
+						result: { isError: event.payload.isError },
+					};
+					const existing = current.liveTools ?? [];
+					const liveTools = existing.some((t) => t.id === completedTool.id)
+						? existing
+						: [...existing, completedTool];
 					return {
 						...prev,
 						[event.payload.chatKey]: {
 							...current,
 							activeTool,
+							liveTools,
 						},
 					};
 				});
@@ -821,6 +838,7 @@ export function CadmusProvider({
 						busy: false,
 						streamText: "",
 						activeTool: undefined,
+						liveTools: undefined,
 						failedReason: failed
 							? (event.payload.reason ?? "unanswered")
 							: undefined,

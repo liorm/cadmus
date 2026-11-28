@@ -9,6 +9,7 @@ import {
 	History,
 	RotateCcw,
 	Sparkles,
+	Square,
 	Wrench,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -16,7 +17,6 @@ import { BotBadge } from "@/components/BotBadge";
 import { Composer } from "@/components/Composer";
 import { AddEntityDialog } from "@/components/chrome/AddEntityDialog";
 import { GroupChatViewerSheet } from "@/components/GroupChatViewerSheet";
-import { LiveCard } from "@/components/LiveCard";
 import { Markdown } from "@/components/Markdown";
 import { ToolCallCard } from "@/components/ToolCallCard";
 import { useCadmus } from "@/context/CadmusContext";
@@ -25,7 +25,11 @@ import {
 	compactionContextMetrics,
 	countTurnsSincePreviousBoundary,
 } from "@/lib/compaction-stream";
-import { formatRelative } from "@/lib/format-time";
+import {
+	formatDurationMs,
+	formatRelative,
+	formatShortTimestamp,
+} from "@/lib/format-time";
 import type { GroupChatMessage } from "@/lib/group-chat-data";
 import {
 	groupToolRuns,
@@ -194,13 +198,19 @@ export function BotStreamPage({ botId }: { botId: string }) {
 
 	const segments = useMemo(() => buildStreamSegments(messages), [messages]);
 
-	const renderedSegments = useMemo(() => {
+	const { renderedSegments, trailingLiveTools } = useMemo(() => {
+		const timestampById = new Map<number, number>();
+		for (const m of messages) {
+			if (m.timestamp !== undefined) timestampById.set(m.id, m.timestamp);
+		}
 		const out: Array<
 			| { kind: "boundary"; message: TranscriptMessageView; index: number }
 			| {
 					kind: "item";
 					item: TranscriptItem;
 					visibleToModel: boolean;
+					showTimestamp?: boolean;
+					generationDurationMs?: number;
 					attachedTools?: ToolRunMessage["toolCalls"] extends never
 						? never
 						: Array<
@@ -211,10 +221,13 @@ export function BotStreamPage({ botId }: { botId: string }) {
 		let pendingTools: Array<
 			Extract<TranscriptItem, { type: "tools" }>["calls"][number]
 		> = [];
+		let pendingToolsStartTs: number | undefined;
+		let lastMessageTs: number | undefined;
 
 		for (const seg of segments) {
 			if (seg.kind === "boundary") {
 				pendingTools = [];
+				pendingToolsStartTs = undefined;
 				out.push(seg);
 				continue;
 			}
@@ -222,23 +235,53 @@ export function BotStreamPage({ botId }: { botId: string }) {
 				continue;
 			}
 			if (seg.item.type === "tools") {
+				if (pendingToolsStartTs === undefined) {
+					pendingToolsStartTs = timestampById.get(seg.item.startId);
+				}
 				pendingTools.push(...seg.item.calls);
 				continue;
 			}
 			if (seg.item.type === "assistant") {
+				const endTs = seg.item.message.timestamp;
+				const generationDurationMs =
+					pendingToolsStartTs !== undefined &&
+					endTs !== undefined &&
+					endTs > pendingToolsStartTs
+						? endTs - pendingToolsStartTs
+						: seg.item.message.durationMs;
 				out.push({
 					kind: "item",
 					item: seg.item,
 					visibleToModel: seg.visibleToModel,
+					...(generationDurationMs !== undefined
+						? { generationDurationMs }
+						: {}),
 					...(pendingTools.length > 0 ? { attachedTools: pendingTools } : {}),
 				});
+				if (endTs !== undefined) {
+					lastMessageTs = endTs;
+				}
 				pendingTools = [];
+				pendingToolsStartTs = undefined;
 				continue;
 			}
 			pendingTools = [];
-			out.push(seg);
+			pendingToolsStartTs = undefined;
+			const userTs = seg.item.message.timestamp;
+			const showTimestamp =
+				userTs !== undefined &&
+				(lastMessageTs === undefined || userTs - lastMessageTs > 5 * 60_000);
+			if (userTs !== undefined) {
+				lastMessageTs = userTs;
+			}
+			out.push({
+				kind: "item",
+				item: seg.item,
+				visibleToModel: seg.visibleToModel,
+				...(showTimestamp ? { showTimestamp: true } : {}),
+			});
 		}
-		if (pendingTools.length > 0) {
+		if (pendingTools.length > 0 && !live?.busy) {
 			out.push({
 				kind: "item",
 				item: {
@@ -252,8 +295,15 @@ export function BotStreamPage({ botId }: { botId: string }) {
 				visibleToModel: true,
 			});
 		}
-		return out;
-	}, [segments]);
+		return {
+			renderedSegments: out,
+			trailingLiveTools: live?.busy
+				? live.liveTools?.length
+					? live.liveTools
+					: pendingTools
+				: [],
+		};
+	}, [live?.busy, live?.liveTools, messages, segments]);
 
 	function toggleBoundary(key: string) {
 		setExpandedBoundaries((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -546,15 +596,27 @@ export function BotStreamPage({ botId }: { botId: string }) {
 
 							if (item.type === "user") {
 								return (
-									<div
-										key={item.message.id}
-										className={cn(
-											"flex justify-end",
-											!visibleToModel && "opacity-75",
-										)}
-									>
-										<div className="max-w-[75%] rounded-xl border border-border bg-surface-raised px-3.5 py-2 text-[14px] leading-relaxed text-text">
-											<p className="whitespace-pre-wrap">{item.message.text}</p>
+									<div key={item.message.id} className="space-y-2">
+										{seg.showTimestamp && item.message.timestamp ? (
+											<div className="my-3 flex items-center gap-3 text-[11px] text-text-muted/80">
+												<div className="h-px flex-1 bg-border/40" />
+												<span className="rounded-full border border-border/50 bg-surface/60 px-2.5 py-0.5 font-medium tabular-nums">
+													{formatShortTimestamp(item.message.timestamp)}
+												</span>
+												<div className="h-px flex-1 bg-border/40" />
+											</div>
+										) : null}
+										<div
+											className={cn(
+												"flex justify-end",
+												!visibleToModel && "opacity-75",
+											)}
+										>
+											<div className="max-w-[min(60ch,80%)] rounded-xl border border-border bg-surface-raised px-3.5 py-2 text-[14px] leading-relaxed text-text">
+												<p className="whitespace-pre-wrap">
+													{item.message.text}
+												</p>
+											</div>
 										</div>
 									</div>
 								);
@@ -585,48 +647,52 @@ export function BotStreamPage({ botId }: { botId: string }) {
 										!visibleToModel && "opacity-75",
 									)}
 								>
-									<div className="mb-0.5 flex items-center gap-2 text-[11px] text-text-muted">
-										<span className="font-medium text-text/80">{bot.name}</span>
-										{item.message.timestamp ? (
-											<span className="tabular-nums">
-												{formatRelative(item.message.timestamp)}
+									<div className="min-w-0 max-w-[min(70ch,85%)] rounded-xl border border-border bg-surface px-4 py-2.5 text-[15px] leading-relaxed text-text">
+										<div className="mb-1.5 flex min-h-6 items-center gap-2 text-[11px] text-text-muted">
+											<span className="font-medium text-text/80">
+												{bot.name}
 											</span>
-										) : null}
-										{attachedTools && attachedTools.length > 0 ? (
-											<button
-												type="button"
-												onClick={() => toggleTools(toolsKey)}
-												aria-expanded={toolsOpen}
-												aria-label={`Toggle ${attachedTools.length} tool ${attachedTools.length === 1 ? "call" : "calls"}`}
-												className={cn(
-													"inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] transition",
-													toolsOpen
-														? "bg-surface-raised text-text"
-														: "text-text-muted hover:bg-surface-raised hover:text-text",
-												)}
-											>
-												<Wrench className="h-3 w-3" />
+											{seg.generationDurationMs !== undefined &&
+											seg.generationDurationMs > 0 ? (
 												<span className="tabular-nums">
-													{attachedTools.length}
+													{formatDurationMs(seg.generationDurationMs)}
 												</span>
-											</button>
-										) : null}
-									</div>
-									{toolsOpen && attachedTools && attachedTools.length > 0 ? (
-										<div className="mb-2 w-full space-y-1.5">
-											{attachedTools.map((call) => (
-												<ToolCallCard
-													key={call.id}
-													call={call}
-													bots={bots}
-													onOpenGroupChat={(data) =>
-														setGroupViewer({ open: true, ...data })
-													}
-												/>
-											))}
+											) : null}
+											{attachedTools && attachedTools.length > 0 ? (
+												<button
+													type="button"
+													onClick={() => toggleTools(toolsKey)}
+													aria-expanded={toolsOpen}
+													aria-label={`Toggle ${attachedTools.length} tool ${attachedTools.length === 1 ? "call" : "calls"}`}
+													className={cn(
+														"inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] transition",
+														toolsOpen
+															? "bg-surface-raised text-text"
+															: "text-text-muted hover:bg-surface-raised hover:text-text",
+													)}
+												>
+													<Wrench className="h-3 w-3" />
+													<span className="tabular-nums">
+														{attachedTools.length}
+													</span>
+												</button>
+											) : null}
 										</div>
-									) : null}
-									<div className="min-w-0 max-w-[70ch] py-0.5 text-[15px] leading-relaxed text-text">
+										{toolsOpen && attachedTools && attachedTools.length > 0 ? (
+											<div className="mb-2.5 rounded-lg bg-surface-raised/50 px-1 py-0.5">
+												{attachedTools.map((call) => (
+													<ToolCallCard
+														key={call.id}
+														call={call}
+														bots={bots}
+														compact
+														onOpenGroupChat={(data) =>
+															setGroupViewer({ open: true, ...data })
+														}
+													/>
+												))}
+											</div>
+										) : null}
 										<Markdown source={item.message.text} />
 									</div>
 								</div>
@@ -634,18 +700,78 @@ export function BotStreamPage({ botId }: { botId: string }) {
 						})}
 
 						{live?.busy ? (
-							<LiveCard
-								title={
-									live.activeTool
-										? `Running ${live.activeTool.toolName}…`
-										: "Thinking…"
-								}
-								onStop={() => {
-									void client.callRpc("turn.interrupt", { chatKey });
-								}}
-							>
-								{live.streamText ? <Markdown source={live.streamText} /> : null}
-							</LiveCard>
+							<div className="flex flex-col items-start">
+								<div className="min-w-0 max-w-[min(70ch,85%)] rounded-xl border border-border bg-surface px-4 py-2.5 text-[15px] leading-relaxed text-text">
+									<div className="mb-1.5 flex min-h-6 items-center gap-2 text-[11px] text-text-muted">
+										<span className="font-medium text-text/80">{bot.name}</span>
+										<span className="inline-flex items-center gap-1.5">
+											<span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
+											<span>
+												{live.activeTool
+													? `Running ${live.activeTool.toolName}…`
+													: "Thinking…"}
+											</span>
+										</span>
+										{trailingLiveTools.length > 0 ? (
+											<span className="inline-flex items-center gap-1 rounded bg-surface-raised px-1.5 py-0.5 text-[11px] text-text">
+												<Wrench className="h-3 w-3" />
+												<span className="tabular-nums">
+													{trailingLiveTools.length}
+												</span>
+											</span>
+										) : null}
+										<button
+											type="button"
+											onClick={() => {
+												void client.callRpc("turn.interrupt", { chatKey });
+											}}
+											aria-label="Stop generating"
+											className="ml-auto inline-flex items-center gap-1 rounded border border-border px-1.5 py-0.5 text-[11px] text-text-muted transition hover:border-text-muted hover:text-text"
+										>
+											<Square className="h-2.5 w-2.5 fill-current" />
+											<span>Stop</span>
+										</button>
+									</div>
+									{trailingLiveTools.length > 0 || live.activeTool ? (
+										<div className="mb-2.5 rounded-lg bg-surface-raised/50 px-1 py-0.5">
+											{trailingLiveTools.map((call) => (
+												<ToolCallCard
+													key={call.id}
+													call={call}
+													bots={bots}
+													compact
+													onOpenGroupChat={(data) =>
+														setGroupViewer({ open: true, ...data })
+													}
+												/>
+											))}
+											{live.activeTool &&
+											!trailingLiveTools.some(
+												(c) => c.id === live.activeTool?.toolCallId,
+											) ? (
+												<div className="flex items-center gap-2 px-2 py-1 text-xs text-text-muted">
+													<span
+														className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent"
+														aria-hidden="true"
+													/>
+													<span className="font-mono font-medium text-text">
+														{live.activeTool.toolName}
+													</span>
+													<span className="text-[11px]">running…</span>
+												</div>
+											) : null}
+										</div>
+									) : null}
+									{live.streamText ? (
+										<Markdown source={live.streamText} />
+									) : trailingLiveTools.length === 0 && !live.activeTool ? (
+										<span
+											className="inline-block h-4 w-1.5 animate-pulse rounded-sm bg-text-muted/60 align-middle"
+											aria-hidden="true"
+										/>
+									) : null}
+								</div>
+							</div>
 						) : null}
 
 						{live?.failedReason ? (
