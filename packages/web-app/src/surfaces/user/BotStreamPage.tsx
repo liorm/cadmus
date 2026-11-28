@@ -9,6 +9,7 @@ import {
 	History,
 	RotateCcw,
 	Sparkles,
+	Square,
 	Wrench,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -16,7 +17,6 @@ import { BotBadge } from "@/components/BotBadge";
 import { Composer } from "@/components/Composer";
 import { AddEntityDialog } from "@/components/chrome/AddEntityDialog";
 import { GroupChatViewerSheet } from "@/components/GroupChatViewerSheet";
-import { LiveCard } from "@/components/LiveCard";
 import { Markdown } from "@/components/Markdown";
 import { ToolCallCard } from "@/components/ToolCallCard";
 import { useCadmus } from "@/context/CadmusContext";
@@ -198,7 +198,7 @@ export function BotStreamPage({ botId }: { botId: string }) {
 
 	const segments = useMemo(() => buildStreamSegments(messages), [messages]);
 
-	const renderedSegments = useMemo(() => {
+	const { renderedSegments, trailingLiveTools } = useMemo(() => {
 		const timestampById = new Map<number, number>();
 		for (const m of messages) {
 			if (m.timestamp !== undefined) timestampById.set(m.id, m.timestamp);
@@ -281,7 +281,7 @@ export function BotStreamPage({ botId }: { botId: string }) {
 				...(showTimestamp ? { showTimestamp: true } : {}),
 			});
 		}
-		if (pendingTools.length > 0) {
+		if (pendingTools.length > 0 && !live?.busy) {
 			out.push({
 				kind: "item",
 				item: {
@@ -295,8 +295,11 @@ export function BotStreamPage({ botId }: { botId: string }) {
 				visibleToModel: true,
 			});
 		}
-		return out;
-	}, [messages, segments]);
+		return {
+			renderedSegments: out,
+			trailingLiveTools: live?.busy ? pendingTools : [],
+		};
+	}, [live?.busy, messages, segments]);
 
 	function toggleBoundary(key: string) {
 		setExpandedBoundaries((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -693,18 +696,73 @@ export function BotStreamPage({ botId }: { botId: string }) {
 						})}
 
 						{live?.busy ? (
-							<LiveCard
-								title={
-									live.activeTool
-										? `Running ${live.activeTool.toolName}…`
-										: "Thinking…"
-								}
-								onStop={() => {
-									void client.callRpc("turn.interrupt", { chatKey });
-								}}
-							>
-								{live.streamText ? <Markdown source={live.streamText} /> : null}
-							</LiveCard>
+							<div className="flex flex-col items-start">
+								<div className="min-w-0 max-w-[70ch] rounded-xl border border-border bg-surface px-4 py-2.5 text-[15px] leading-relaxed text-text">
+									<div className="mb-1.5 flex items-center gap-2 text-[11px] text-text-muted">
+										<span className="font-medium text-text/80">{bot.name}</span>
+										<span className="inline-flex items-center gap-1.5">
+											<span className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
+											<span>
+												{live.activeTool
+													? `Running ${live.activeTool.toolName}…`
+													: "Thinking…"}
+											</span>
+										</span>
+										{trailingLiveTools.length > 0 ? (
+											<span className="inline-flex items-center gap-1 rounded bg-surface-raised px-1.5 py-0.5 text-[11px] text-text">
+												<Wrench className="h-3 w-3" />
+												<span className="tabular-nums">
+													{trailingLiveTools.length}
+												</span>
+											</span>
+										) : null}
+										<button
+											type="button"
+											onClick={() => {
+												void client.callRpc("turn.interrupt", { chatKey });
+											}}
+											aria-label="Stop generating"
+											className="ml-auto inline-flex items-center gap-1 rounded border border-border px-1.5 py-0.5 text-[11px] text-text-muted transition hover:border-text-muted hover:text-text"
+										>
+											<Square className="h-2.5 w-2.5 fill-current" />
+											<span>Stop</span>
+										</button>
+									</div>
+									{trailingLiveTools.length > 0 || live.activeTool ? (
+										<div className="mb-2.5 rounded-lg bg-surface-raised/50 px-1 py-0.5">
+											{trailingLiveTools.map((call) => (
+												<ToolCallCard
+													key={call.id}
+													call={call}
+													bots={bots}
+													compact
+													onOpenGroupChat={(data) =>
+														setGroupViewer({ open: true, ...data })
+													}
+												/>
+											))}
+											{live.activeTool &&
+											!trailingLiveTools.some(
+												(c) => c.id === live.activeTool?.toolCallId,
+											) ? (
+												<div className="flex items-center gap-2 px-2 py-1 text-xs text-text-muted">
+													<span
+														className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent"
+														aria-hidden="true"
+													/>
+													<span className="font-mono font-medium text-text">
+														{live.activeTool.toolName}
+													</span>
+													<span className="text-[11px]">running…</span>
+												</div>
+											) : null}
+										</div>
+									) : null}
+									{live.streamText ? (
+										<Markdown source={live.streamText} />
+									) : null}
+								</div>
+							</div>
 						) : null}
 
 						{live?.failedReason ? (
