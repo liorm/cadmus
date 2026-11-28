@@ -43,9 +43,9 @@ export default defineConfig(({ mode }) => {
 		},
 		server: {
 			port: 5174,
-			...(allowedHosts?.length ? { allowedHosts } : {}),
+			...(allowedHosts?.length ? { allowedHosts } : { allowedHosts: true }),
 			proxy: {
-				"^/(health|protocol/schema|ws|events|rpc|api(?:/.*)?|tools-env(?:/.*)?)":
+				"^/(health|protocol/schema|ws|events|rpc|api(?:/.*)?|auth(?:/.*)?|tools-env(?:/.*)?)":
 					{
 						target: "http://localhost:8787",
 						ws: true,
