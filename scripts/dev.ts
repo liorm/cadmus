@@ -21,21 +21,48 @@ if (problems.length > 0) {
 	process.exit(1);
 }
 
-const wrangler = join(
-	dirname(fileURLToPath(import.meta.url)),
-	"..",
-	"node_modules",
-	".bin",
-	"wrangler",
-);
-const child = spawn(
-	wrangler,
-	["dev", "--var", "CADMUS_DEPLOY_ENV:development"],
-	{
+const rootDir = join(dirname(fileURLToPath(import.meta.url)), "..");
+const wrangler = join(rootDir, "node_modules", ".bin", "wrangler");
+const bunBin = process.execPath;
+
+const children = [
+	spawn(wrangler, ["dev", "--var", "CADMUS_DEPLOY_ENV:development"], {
+		cwd: rootDir,
 		stdio: "inherit",
-	},
-);
-child.on("exit", (code, signal) => {
-	if (signal) process.kill(process.pid, signal);
-	process.exit(code ?? 1);
-});
+	}),
+	spawn(bunBin, ["run", "--cwd", "packages/web-app", "dev"], {
+		cwd: rootDir,
+		stdio: "inherit",
+	}),
+	spawn(bunBin, ["run", "--cwd", "packages/login-app", "dev"], {
+		cwd: rootDir,
+		stdio: "inherit",
+	}),
+];
+
+let exiting = false;
+function shutdown(code = 0) {
+	if (exiting) return;
+	exiting = true;
+	for (const child of children) {
+		if (!child.killed) {
+			child.kill("SIGTERM");
+		}
+	}
+	process.exit(code);
+}
+
+for (const signal of ["SIGINT", "SIGTERM"] as const) {
+	process.on(signal, () => shutdown(0));
+}
+
+for (const child of children) {
+	child.on("exit", (code, signal) => {
+		if (exiting) return;
+		if (signal) {
+			shutdown(1);
+			return;
+		}
+		shutdown(code ?? 1);
+	});
+}
